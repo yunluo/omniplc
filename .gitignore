@@ -2,7 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+.idea
 # C extensions
 *.so
 
@@ -127,6 +127,12 @@ venv.bak/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# ruff
+.ruff_cache/
+
+# uv
+# uv.lock 需要提交,不要忽略
 
 # Pyre type checker
 .pyre/

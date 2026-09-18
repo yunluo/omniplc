@@ -1,0 +1,168 @@
+"""串口传输实现(RTU/Host Link 等走线)。
+
+pyserial 为可选依赖:仅在使用 :class:`SerialTransport` 时才需要安装
+(``pip install omniplc[serial]`` 或 ``uv add 'omniplc[serial]'``)。
+导入本模块**不会**导入 pyserial,实例化并连接时才检查。
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from types import TracebackType
+from typing import Any, Optional, Union
+
+from ..core.constants import (
+    SERIAL_DEFAULT_BAUD_RATE,
+    SERIAL_DEFAULT_DATA_BITS,
+    SERIAL_DEFAULT_PARITY,
+    SERIAL_DEFAULT_STOP_BITS,
+)
+from ..core.errors import TransportClosedError
+from ..types import SerialParity
+from .base import BaseTransport
+
+
+@dataclass
+class SerialConfig:
+    """串口参数配置。
+
+    :param port_name: 串口名,如 ``"COM3"``(Windows)或 ``"/dev/ttyS0"``(Linux)
+    :param baud_rate: 波特率,默认 9600
+    :param data_bits: 数据位 5~8,默认 8
+    :param stop_bits: 停止位 1/1.5/2,默认 1
+    :param parity: 校验位,推荐 :class:`omniplc.types.SerialParity` 枚举,
+        也兼容 ``"N"``/``"E"``/``"O"`` 字符串
+    """
+
+    port_name: str
+    baud_rate: int = SERIAL_DEFAULT_BAUD_RATE
+    data_bits: int = SERIAL_DEFAULT_DATA_BITS
+    stop_bits: float = SERIAL_DEFAULT_STOP_BITS
+    parity: Union[SerialParity, str] = SERIAL_DEFAULT_PARITY
+
+    def validate(self) -> None:
+        """校验参数合法性。
+
+        :raises ValueError: 参数非法
+        """
+        if not self.port_name or not self.port_name.strip():
+            raise ValueError("串口名 port_name 不能为空")
+        if self.baud_rate <= 0:
+            raise ValueError("波特率必须大于 0,收到:{}".format(self.baud_rate))
+        if not 5 <= self.data_bits <= 8:
+            raise ValueError("数据位必须在 5~8 之间,收到:{}".format(self.data_bits))
+        if self.stop_bits not in (1, 1.5, 2):
+            raise ValueError("停止位必须是 1/1.5/2,收到:{}".format(self.stop_bits))
+        _coerce_parity(self.parity)
+
+
+class SerialTransport(BaseTransport):
+    """串口传输,基于 pyserial。
+
+    recv 语义:阻塞读取恰好 ``size`` 字节,超时抛出
+    :class:`omniplc.core.errors.TransportClosedError`。
+    """
+
+    _PARITY_MAP = {
+        SerialParity.NONE: "PARITY_NONE",
+        SerialParity.EVEN: "PARITY_EVEN",
+        SerialParity.ODD: "PARITY_ODD",
+    }
+    _DATA_BITS_MAP = {5: "FIVEBITS", 6: "SIXBITS", 7: "SEVENBITS", 8: "EIGHTBITS"}
+    _STOP_BITS_MAP = {1: "STOPBITS_ONE", 1.5: "STOPBITS_ONE_POINT_FIVE", 2: "STOPBITS_TWO"}
+
+    def __init__(self, config: SerialConfig) -> None:
+        """初始化串口传输。
+
+        :param config: 串口参数
+        """
+        super().__init__()
+        config.validate()
+        self._config = config
+        self._serial: Optional[Any] = None
+
+    def connect(self) -> None:
+        """打开串口。
+
+        :raises RuntimeError: 未安装 pyserial
+        :raises OSError: 串口打开失败(占用/不存在等)
+        """
+        try:
+            import serial  # 延迟导入:仅在真正使用串口时要求 pyserial
+        except ImportError as exc:
+            raise RuntimeError(
+                "串口传输需要 pyserial 支持,请安装:pip install omniplc[serial]"
+            ) from exc
+
+        port = serial.Serial()
+        port.port = self._config.port_name
+        port.baudrate = self._config.baud_rate
+        port.bytesize = getattr(serial, self._DATA_BITS_MAP[self._config.data_bits])
+        port.stopbits = getattr(serial, self._STOP_BITS_MAP[self._config.stop_bits])
+        port.parity = getattr(serial, self._PARITY_MAP[_coerce_parity(self._config.parity)])
+        port.timeout = self._receive_timeout
+        port.write_timeout = self._connect_timeout
+        port.open()
+        self._serial = port
+
+    def close(self) -> None:
+        """关闭串口,幂等。"""
+        if self._serial is not None:
+            try:
+                self._serial.close()
+            finally:
+                self._serial = None
+
+    def send(self, data: bytes) -> None:
+        """发送字节。
+
+        :raises TransportClosedError: 串口未打开
+        :raises OSError: 发送失败或超时
+        """
+        port = self._require_serial()
+        port.write(data)
+
+    def recv(self, size: int) -> bytes:
+        """读取恰好 ``size`` 字节。
+
+        :raises TransportClosedError: 串口未打开或读取超时
+        """
+        port = self._require_serial()
+        chunks = []
+        received = 0
+        while received < size:
+            chunk = port.read(size - received)
+            if not chunk:
+                raise TransportClosedError("串口读取超时(receive_timeout={})".format(self._receive_timeout))
+            chunks.append(chunk)
+            received += len(chunk)
+        return b"".join(chunks)
+
+    def _require_serial(self) -> Any:
+        """取当前串口对象,未打开则抛出。"""
+        if self._serial is None:
+            raise TransportClosedError("串口未打开,请先调用 connect()")
+        return self._serial
+
+    def __enter__(self) -> "SerialTransport":
+        self.connect()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: Optional[type] = None,
+        exc_val: Optional[BaseException] = None,
+        exc_tb: Optional[TracebackType] = None,
+    ) -> None:
+        self.close()
+
+
+def _coerce_parity(value: Union[SerialParity, str]) -> SerialParity:
+    """把枚举成员或字符串统一解析为 SerialParity(内部函数)。"""
+    if isinstance(value, SerialParity):
+        return value
+    try:
+        return SerialParity(str(value).strip().upper())
+    except ValueError:
+        raise ValueError(
+            "校验位必须是 SerialParity 枚举或 N/E/O,收到:{!r}".format(value)
+        )

@@ -1,0 +1,326 @@
+# omniplc 架构设计
+
+> 版本:v0.1.0 · 更新日期:2026-09-18 · 状态:骨架已落地,协议编解码待实现
+
+omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7+,uv 开发)。
+本文档描述 v1.0 的完整架构:分层、类设计、继承树、线程安全模型、类型标注纪律、
+地址语法、字序、连接状态机与测试策略。
+
+---
+
+## 1. 总体分层
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ 用户 API 层                                                    │
+│   协议×走线 具体客户端类(7 个同步 + 7 个异步 A 前缀镜像)          │
+│   Tag / TagTable 可选点位表层                                   │
+├──────────────────────────────────────────────────────────────┤
+│ 驱动层 drivers                                                 │
+│   modbus/(codec + address + client)                            │
+│   plc/melsec/(codec_qna 3E/4E + codec_a 1E + address + client) │
+│   plc/omron/(codec + address + client)                         │
+├──────────────────────────────────────────────────────────────┤
+│ 传输层 transport(可插拔)                                       │
+│   BaseTransport → TcpTransport / UdpTransport / SerialTransport │
+├──────────────────────────────────────────────────────────────┤
+│ 公共基础层                                                      │
+│   core/BaseClient(状态机/锁/重连/重试/类型化方法模板)             │
+│   core/errors.py(错误类集中定义)                                  │
+│   core/constants.py(全局常量集中定义)                             │
+│   types.py(DataType/WordOrder)  convert.py(纯转换函数)          │
+└──────────────────────────────────────────────────────────────┘
+```
+
+设计原则:
+
+1. **codec 全部是纯函数**(bytes ↔ 结构),不接触 socket——可以用黄金报文样本
+   做无硬件测试;
+2. **协议层只依赖 `BaseTransport` 抽象**——新增走线不动协议层;
+3. **公共逻辑在 `BaseClient` 收口一次**——锁、重连、重试、类型化读写全协议共享;
+4. **对外 API 不抛自定义异常**——读返回 `(bool, value)`,写返回 `bool`,
+   失败原因进 `last_error`(与 pyhsl 使用习惯一致)。
+
+## 2. 类继承图
+
+```
+BaseClient (ABC, 模板方法) ───────────── src/omniplc/core/base_client.py
+│   连接状态机 / RLock 事务锁 / 惰性重连 / 重试 / last_error / 上下文管理器
+│   read() / write() / read_many() / write_many()
+│   read_bool … read_ulong / read_float / read_double / read_string + write_*
+│   ——类型化方法在这里"只写一次",委托抽象原语 _read()/_write()
+│   read_tag() / write_tag() / bind_tags()
+│
+├── ModbusBaseClient (ABC) ────────────── src/omniplc/modbus/modbus.py
+│   │   _read/_write 落到位/寄存器原语;字序(ABCD/CDAB/BADC/DCBA)处理;
+│   │   int16…float64 编解码与范围校验;station/word_order 属性
+│   ├── ModbusTcpClient   → MBAP 帧      + TcpTransport(502)
+│   ├── ModbusUdpClient   → MBAP 帧      + UdpTransport(502)
+│   └── ModbusRtuClient   → 站号+PDU+CRC16 + SerialTransport(configure_serial)
+│
+├── _MelsecMcBase (ABC, 私有) ─────────── src/omniplc/plc/melsec/melsec.py
+│   │   帧型校验(3E/4E/1E)、软元件地址分发
+│   ├── MelsecMcTcpClient → MC 3E/4E/1E 帧 + TcpTransport(2000)
+│   └── MelsecMcUdpClient → 同帧型 over UDP + UdpTransport(2000)
+│
+└── _OmronFinsBase (ABC, 私有) ────────── src/omniplc/plc/omron/omron.py
+    │   FINS 节点地址、软元件地址分发
+    ├── OmronFinsTcpClient → FINS 帧+TCP 握手(_after_connect 钩子) + TcpTransport(9600)
+    └── OmronFinsUdpClient → FINS 帧无握手 + UdpTransport(9600)
+
+BaseTransport (ABC) ───────────────────── src/omniplc/transport/
+├── TcpTransport      TCP_NODELAY,recv 精确凑齐 size 字节(流式粘包处理)
+├── UdpTransport      已连接 UDP,recv 一次返回一条数据报
+└── SerialTransport   pyserial(延迟导入),8N1 可配,SerialConfig 校验
+
+Tag (dataclass) / TagTable (Mapping) ──── src/omniplc/tag.py(from_json/from_csv)
+
+异步镜像(omniplc/aio/,类名 = 同步类名前加 A):
+ABaseClient ── 组合同步实例 + 单线程 ThreadPoolExecutor,方法签名同名同型
+├── AModbusBaseClient → AModbusTcpClient / AModbusUdpClient / AModbusRtuClient
+├── AMelsecMcTcpClient / AMelsecMcUdpClient
+└── AOmronFinsTcpClient / AOmronFinsUdpClient
+```
+
+v1 共 **7 个同步具体类 + 7 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)。
+
+### 2.1 继承设计要点(模板方法模式)
+
+- `BaseClient` 定义抽象原语:**`_create_transport()` / `_read()` / `_write()`**,
+  外加可选钩子 `_after_connect()`(FINS/TCP 握手)、`_read_string/_write_string`。
+- 类型化方法 `read_float(addr)` 的实现只有一份:
+  `read_float → read(addr, FLOAT) → _execute(锁内) → _read(addr, FLOAT)(驱动)`;
+  新增协议只需实现 2 个原语,自动获得全部 20+ 个类型化方法。
+- `ModbusBaseClient` 中间层封装"寄存器级"公共性(类型分发、字序、范围校验),
+  三个走线子类只实现 `_transact()`(MBAP vs RTU 帧装拆)与 `_create_transport()`。
+- 三菱 MC 的 TCP/UDP 子类完全共享帧编解码(帧内无走线信息);
+  帧层按 **QnA 兼容(3E/4E,`codec_qna.py`)** 与 **A 兼容(1E,`codec_a.py`)**
+  拆两个模块——1E 帧无网络号/PC 号前缀字段、软元件码表不同。
+- 异步侧是**组合 + 镜像**:每个 `A*Client` 持有对应同步实例,方法签名与同步版
+  完全一致(返回可 await),协议逻辑只有一份。
+
+## 3. 线程安全设计
+
+1. **单锁模型**:每个客户端实例一把 `threading.RLock`,保护三样东西:
+   连接状态、请求/响应事务、`last_error`。`connected` / `last_error` 读到的是加锁快照。
+2. **事务粒度持锁**:一次读/写在锁内完成全部步骤(必要时惰性重连 → 组帧 → send →
+   recv → 校验 → 解码),保证请求/响应帧不被其他线程交错(interleaving)。
+3. **文档化取舍**:持锁做网络 IO,意味着同一客户端的并发调用是**串行化**的——
+   这保证正确性而非并行吞吐;需要高并发时使用多个客户端实例(连接池留 v1.x)。
+4. **重试语义在锁内**:读失败按 `retries` 重试;写默认 `write_retries=0`
+   (防止重复写入危险动作),可显式开启。重试与**惰性重连**配合:
+   传输失败标记断开,重试前自动重建连接。
+5. **PLC 明确报错(`DeviceError`)不断线、不重试**——链路是好的,只有传输层
+   故障(OSError / 坏帧)才标记断开。
+6. **Transport 自身非线程安全**,只由持有事务锁的客户端串行访问;
+   异步侧所有调用经**单线程 executor** 串行执行,与同步侧同一把 RLock,双保险且保序。
+
+## 4. 连接状态机与惰性重连
+
+```
+                 connect() 成功                    send/recv 失败
+   [已断开] ─────────────────→ [已连接] ───┐
+      ↑  │                              │ 读写/写失败(OSError/坏帧)
+      │  │ connect() 失败                ↓
+      │  └── 记录 last_error      _mark_disconnected()
+      │      返回 False            静默 close transport
+      │                                 │
+      │        下一次 read/write 调用    ←(惰性:没有后台线程)
+      └─────────────────────────────────┘
+            锁内自动 connect() → 成功则重发,失败返回 (False, None)
+```
+
+- `connect()` 幂等:已连接直接返回 True;`disconnect()` 幂等。
+- `with client:` 进入时连接,失败抛 `ConnectionError`(与 pyhsl 一致);
+  `async with AClient(...):` 同语义。
+- `_after_connect()` 钩子:连接建立后执行协议级初始化(FINS/TCP 节点分配握手)。
+
+## 5. 错误处理约定
+
+公共 API **不抛自定义异常**(pyhsl 风格):
+
+| 操作 | 成功 | 失败 |
+|---|---|---|
+| `read_*` / `read` / `read_tag` | `(True, 值)` | `(False, None)` |
+| `write_*` / `write` / `write_tag` | `True` | `False` |
+| `read_many` / `write_many` | 逐点独立容错的结果列表 | 单点失败不影响其他点 |
+| `connect` / `disconnect` | `True` | `False` |
+
+- 失败原因一律记录在 `last_error` 属性(含 PLC 原始错误码,如 Modbus 异常码、
+  MC 结束码、FINS 结束码);成功读写后清空。
+- **参数校验错误**(非法地址、未知类型、范围越界、未绑定点位名)直接抛
+  `ValueError`——这是调用方编码错误,静默吞掉反而有害。
+- 内部异常(`omniplc.core.errors`,**错误类统一在 core 层定义**):
+  `TransportClosedError` /
+  `ProtocolFrameError` / `DeviceError(code)`,只用于库内控制流,
+  由 `_execute()` 统一转换为元组语义,不逃逸到调用方。
+
+## 6. 数据类型与类型标注
+
+### 6.1 类型系统(`types.py`)
+
+`DataType` 枚举:名称与 pyhsl 的 `read_*`/`write_*` 后缀一一对应——
+`bool / short / ushort / int / uint / long / ulong / float / double / string`
+(有符号整型依次为 16/32/64 位;float=float32;double=float64)。
+
+字序 `WordOrder`:`ABCD`(大端默认)/ `CDAB`(字交换,现场最常见)/
+`BADC`(字节交换)/ `DCBA`(小端)。各协议默认值与覆盖方式:
+
+| 协议 | 字序 | 说明 |
+|---|---|---|
+| Modbus | 默认 ABCD,`word_order` 属性可配 | 现场设备常为 CDAB,读写共用同一配置 |
+| 三菱 MC | 固定小端字序(低字在前) | 编码层处理,不暴露配置 |
+| 欧姆龙 FINS | 固定大端 | 编码层处理,不暴露配置 |
+
+`convert.py` 提供全部转换纯函数:`crc16 / lrc / get_bit / set_bit`、
+`bytes ↔ int16/uint16`、`registers ↔ int32/uint32/float32/float64(四字序)`、
+`encode_string / decode_string`。字序变换为对合变换,编解码共用一套实现。
+
+### 6.1.1 字符串参数枚举化(类型检查与 IDE 补全)
+
+凡取值封闭的参数一律用**枚举**定义,字符串仅作兼容输入:
+
+| 参数 | 枚举类型 | 取值 |
+|---|---|---|
+| `read/write(data_type)` | `omniplc.types.DataType` | `DataType.FLOAT`、`DataType.SHORT`… |
+| Modbus 区域(`ModbusAddress.area`) | `omniplc.modbus.ModbusArea` | `COIL / DISCRETE_INPUT / HOLDING_REGISTER / INPUT_REGISTER` |
+| Modbus 字序(`word_order`) | `omniplc.types.WordOrder` | `ABCD / CDAB / BADC / DCBA` |
+| 字节序(`byteorder`) | `omniplc.types.ByteOrder` | `BIG / LITTLE` |
+| 三菱 MC 帧型(`frame`) | `omniplc.types.McFrame` | `FRAME_3E / FRAME_4E / FRAME_1E` |
+| 串口校验位(`parity`) | `omniplc.types.SerialParity` | `NONE / EVEN / ODD` |
+
+约定:枚举成员为**权威定义**;所有公开参数标注为 `Union[枚举, str]`,
+内部经统一的 `coerce` 辅助函数解析,非法值抛 `ValueError`。
+开放集合(如 MC 软元件记号 `D/M/X…`、FINS 存储区)仍用 `str`。
+
+### 6.2 类型标注纪律(100% PEP 484)
+
+- 所有类/方法/函数的参数与返回值**全部显式标注**;
+- 文件头统一 `from __future__ import annotations`,3.7 运行期只用
+  `typing.Tuple/List/Optional/Union/Sequence`;
+- 返回类型精确到方法(`read_short → Tuple[bool, Optional[int]]`),
+  内部用 `_narrow_int/_narrow_float` 收窄,不用 `Any` 敷衍;
+- 上下文管理器用 `TypeVar(_C, bound="BaseClient")` 保持 self 类型;
+- 发布 **py.typed**(PEP 561),下游项目可直接获得类型检查;
+- CI 固定跑 `mypy --python-version 3.7`(配置见 `pyproject.toml`)与 `ruff`
+  (`target-version = "py37"`)双静态检查,语法越界在 CI 就被拦下。
+
+### 6.3 核心接口签名(完整版见源码 docstring)
+
+```python
+class BaseClient(ABC):
+    def connect(self) -> bool: ...
+    def disconnect(self) -> bool: ...
+    @property
+    def connected(self) -> bool: ...
+    @property
+    def last_error(self) -> Optional[str]: ...
+    @property
+    def connect_timeout(self) -> float: ...          # setter 校验 > 0,即时生效
+    @property
+    def receive_timeout(self) -> float: ...
+    @property
+    def retries(self) -> int: ...                    # 读重试次数
+    @property
+    def write_retries(self) -> int: ...              # 写重试次数,默认 0
+
+    def read(self, address: str, data_type: str) -> Tuple[bool, Optional[PrimitiveValue]]: ...
+    def write(self, address: str, data_type: str, value: PrimitiveValue) -> bool: ...
+    def read_many(self, addresses: Sequence[str], data_type: str
+                  ) -> List[Tuple[bool, Optional[PrimitiveValue]]]: ...
+    def write_many(self, items: Sequence[Tuple[str, str, PrimitiveValue]]) -> List[bool]: ...
+
+    def read_bool(self, address: str) -> Tuple[bool, Optional[bool]]: ...
+    def read_short(self, address: str) -> Tuple[bool, Optional[int]]: ...
+    def read_ushort(self, address: str) -> Tuple[bool, Optional[int]]: ...
+    def read_int(self, address: str) -> Tuple[bool, Optional[int]]: ...
+    def read_uint(self, address: str) -> Tuple[bool, Optional[int]]: ...
+    def read_long(self, address: str) -> Tuple[bool, Optional[int]]: ...
+    def read_ulong(self, address: str) -> Tuple[bool, Optional[int]]: ...
+    def read_float(self, address: str) -> Tuple[bool, Optional[float]]: ...
+    def read_double(self, address: str) -> Tuple[bool, Optional[float]]: ...
+    def read_string(self, address: str, length: int = 32,
+                    encoding: str = "ascii") -> Tuple[bool, Optional[str]]: ...
+    # write_bool(address, value: bool) → bool,write_short(address, value: int) → bool,
+    # …write_double(address, value: float),write_string(address, value: str, encoding)
+
+    def bind_tags(self, table: TagTable) -> None: ...
+    def read_tag(self, tag: Union[str, Tag]) -> Tuple[bool, Optional[PrimitiveValue]]: ...
+    def write_tag(self, tag: Union[str, Tag], value: PrimitiveValue) -> bool: ...
+
+    def __enter__(self: _C) -> _C: ...               # 失败抛 ConnectionError
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None: ...
+
+    # 以下为驱动子类协议原语
+    @abstractmethod
+    def _create_transport(self) -> BaseTransport: ...
+    @abstractmethod
+    def _read(self, address: str, data_type: DataType) -> PrimitiveValue: ...
+    @abstractmethod
+    def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None: ...
+    def _after_connect(self) -> None: ...            # 可选钩子(FINS/TCP 握手)
+```
+
+## 7. 地址语法
+
+| 协议 | 语法示例 | 说明 |
+|---|---|---|
+| Modbus | `hr0` / `c7` / `di10` / `ir3` / `hr0.15` / `40001` | 前缀语法为主;兼容 Modicon 1 基风格(自动转 0 基);位号 0~15;已实现(`modbus/address.py`) |
+| 三菱 MC | `D100` / `M10` / `X20` / `Y40` / `W100` / `R100` / `Z0` / `D100.3` | 语法拆分已实现(`plc/melsec/address.py`);八进制软元件(X/Y)换算与软元件码表随帧 codec 实现 |
+| 欧姆龙 FINS | `D100` / `CIO0` / `CIO0.5` / `W10` / `H20` / `A0` / `E0_100` | 语法拆分已实现(`plc/omron/address.py`);EM 区 bank 用下划线;存储区码随帧 codec 实现 |
+
+解析失败统一抛 `ValueError`(参数错误约定)。
+
+## 8. v1 协议 × 走线矩阵与实现选型
+
+| 协议 | TCP | UDP | RTU(串口) |
+|---|---|---|---|
+| Modbus(FC 01/02/03/04/05/06/0F/10) | ✅ `ModbusTcpClient` | ✅ `ModbusUdpClient` | ✅ `ModbusRtuClient` |
+| 三菱 MC 3E/4E(QnA 兼容) | ✅ `MelsecMcTcpClient(frame="3E"/"4E")` | ✅ `MelsecMcUdpClient` | v1.x(2C/3C/4C 帧) |
+| 三菱 MC 1E(A 兼容,A 系列) | ✅ `frame="1E"` | ✅ | v1.x |
+| 欧姆龙 FINS | ✅ `OmronFinsTcpClient`(含握手) | ✅ `OmronFinsUdpClient` | v1.x(Host Link) |
+
+实现选型:MC、FINS 无支持 Python 3.7 的成熟维护库 → 自研;
+pymodbus 2.5.3 已停止维护且 3.x 不支持 3.7 → **Modbus 也自研**
+(报文简单,超时/重连/错误语义与另两家完全统一;如遇特殊需求,
+`ModbusBaseClient` 层也允许替换为 pymodbus 适配,对外 API 不变)。
+
+## 9. 测试策略
+
+三层,全部无硬件可跑:
+
+1. **纯函数单测**(已就位):`convert` / 地址解析 / `SerialConfig` 校验——100 例。
+2. **传输层测试**(已就位):本机回环 TCP/UDP echo 服务验证字节精确往返、
+   粘包凑齐、超时校验、拒绝连接。
+3. **协议链路测试**(下一阶段):
+   - **黄金报文样本**(`tests/golden/`,格式见其 README):编解码双向断言,
+     含异常码路径;
+   - **内置模拟器**(`tests/simulator/`):进程内 Modbus/MC/FINS 服务器,
+     支持注入错误码/延迟/断线,验证"连接→读写→断线→惰性重连"全链路;
+   - **真机手动验证清单**:发版前用真实 PLC 过一遍(不进 CI)。
+
+## 10. Python 3.7 兼容纪律
+
+- 运行期注解:`typing.Optional/Union/...` + `from __future__ import annotations`;
+- 不用 walrus(3.8)、`X | Y` 类型(3.10)、`asyncio.to_thread`(3.9)、
+  `str.removeprefix`(3.9);异步用 `loop.run_in_executor` + 单线程池;
+- **常量集中管理**:所有默认端口/超时/站号边界/报文常量统一定义在
+  `core/constants.py`(大写下划线命名,运行期只读),业务代码禁止内联
+  魔法数字;
+- **值对象统一用 dataclass**(3.7 原生支持):不可变值对象用
+  `@dataclass(frozen=True)`(如 `ModbusAddress`),可变配置用
+  `@dataclass`(如 `Tag`、`SerialConfig`),结构固定的多返回值用
+  `NamedTuple`(如 `McAddress`、`FinsAddress`);禁止手写
+  `__eq__/__hash__/__repr__` 样板;
+- 开发环境 `.python-version=3.8`(与 3.7 同代,可运行 mypy 1.4.1),
+  CI 静态检查钉住 py37;发布前用本机 Python 3.7.9 做导入验证。
+
+## 11. 路线图
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| 本次 | 架构文档 + 项目骨架 + 公共层/传输层完整实现 + 测试基座 | ✅ 完成 |
+| 下一阶段 | Modbus TCP/UDP/RTU 编解码 + 模拟器 + 黄金样本 | 待开工 |
+| 之后 | MC 3E/4E(TCP/UDP)→ MC 1E → FINS TCP/UDP → Tag 完善 + 示例 → v1.0 | 待开工 |
+| v1.x | MC 串口帧(2C/3C/4C)、FINS Host Link、心跳保活、轮询器、连接池 | 规划 |
+| v2 | 西门子 S7(drivers 插槽已预留,沿用 BaseClient 原语模式) | 规划 |
