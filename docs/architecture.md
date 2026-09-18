@@ -285,19 +285,39 @@ pymodbus 2.5.3 已停止维护且 3.x 不支持 3.7 → **Modbus 也自研**
 (报文简单,超时/重连/错误语义与另两家完全统一;如遇特殊需求,
 `ModbusBaseClient` 层也允许替换为 pymodbus 适配,对外 API 不变)。
 
+### 8.1 协议实现参考资料(C# HslCommunication)
+
+帧格式实现对照本地 C# 源码 `D:\DOWNLOAD\Hsl7.0.1\新建文件夹\
+HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
+(**只参考组帧/解析逻辑与默认值,不移植其 API;语言与架构保持 Python 原生**):
+
+| 本库模块 | C# 参考文件 |
+|---|---|
+| Modbus 编解码 | `ModBus/ModbusInfo.cs`(功能码/异常码/MBAP 组帧)、`Core/IMessage/ModbusTcpMessage.cs`(事务号/协议号校验、按长收包) |
+| Modbus TCP/UDP/RTU 客户端 | `ModBus/ModbusTcp/ModbusTcpNet.cs`、`ModBus/ModbusRtu/ModbusRtu.cs`(CRC16 校验) |
+| 三菱 MC(3E/4E/1E,待实现) | `Profinet/Melsec/MelsecMcNet.cs`(3E)、`MelsecMcAsciiNet.cs`(ASCII 帧,v1.x)、`MelsecA1ENet.cs`(1E)、`MelsecMcDataType.cs` / `MelsecA1EDataType.cs`(软元件码表)、`MelsecHelper.cs`(结束码解析) |
+| 欧姆龙 FINS(TCP/UDP,待实现) | `Profinet/Omron/OmronFinsNet.cs`、`OmronFinsUdp.cs`、`OmronFinsNetHelper.cs`(帧组装/解析)、`OmronFinsDataType.cs`(存储区码)、`Core/IMessage/FinsMessage.cs`(TCP 握手/帧长) |
+
 ## 9. 测试策略
 
-三层,全部无硬件可跑:
+分层推进,CI 全部无硬件可跑;**不内置 PLC 模拟器**,协议联调使用
+用户自有的模拟器工具:
 
-1. **纯函数单测**(已就位):`convert` / 地址解析 / `SerialConfig` 校验——100 例。
+1. **纯函数单测**(已就位):`convert` / 地址解析 / `SerialConfig` 校验。
 2. **传输层测试**(已就位):本机回环 TCP/UDP echo 服务验证字节精确往返、
    粘包凑齐、超时校验、拒绝连接。
-3. **协议链路测试**(下一阶段):
-   - **黄金报文样本**(`tests/golden/`,格式见其 README):编解码双向断言,
-     含异常码路径;
-   - **内置模拟器**(`tests/simulator/`):进程内 Modbus/MC/FINS 服务器,
-     支持注入错误码/延迟/断线,验证"连接→读写→断线→惰性重连"全链路;
-   - **真机手动验证清单**:发版前用真实 PLC 过一遍(不进 CI)。
+3. **黄金报文样本**(已就位,`tests/golden/`,格式见其 README):
+   独立实现生成的标准帧 JSON,编解码双向断言,含异常码路径;
+   MC/FINS 阶段按同格式补充,真机/模拟器抓包可持续入库。
+4. **脚本化传输链路测试**(已就位):假传输按脚本应答,验证各走线的
+   组帧、按长收包、事务号/站号/CRC 校验、坏帧断线重连、异常码不断线、
+   寄存器位"读-改-写"。
+5. **外部联调(本地,不进 CI)**:用户自有模拟器工具;可选专用软件——
+   Modbus:`Modbus Slave`、`diagslave`、`ModRSSim2`、`OpenPLC`;
+   三菱:GX Works + GX Simulator3(面向 GX Works 内部仿真,对外以太网
+   MC 联调依版本/SLMP 配置);欧姆龙:CX-Simulator(接受外部 FINS 命令,
+   基本仅 UDP/9600,FINS/TCP 建议真机验证)。
+6. **真机手动验证清单**:发版前用真实 PLC 过一遍(不进 CI)。
 
 ## 10. Python 3.7 兼容纪律
 
@@ -320,7 +340,7 @@ pymodbus 2.5.3 已停止维护且 3.x 不支持 3.7 → **Modbus 也自研**
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | 本次 | 架构文档 + 项目骨架 + 公共层/传输层完整实现 + 测试基座 | ✅ 完成 |
-| 下一阶段 | Modbus TCP/UDP/RTU 编解码 + 模拟器 + 黄金样本 | 待开工 |
+| v0.2 | Modbus TCP/UDP/RTU 编解码 + 黄金样本 + 脚本化链路测试 | ✅ 完成 |
 | 之后 | MC 3E/4E(TCP/UDP)→ MC 1E → FINS TCP/UDP → Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 串口帧(2C/3C/4C)、FINS Host Link、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 西门子 S7(drivers 插槽已预留,沿用 BaseClient 原语模式) | 规划 |

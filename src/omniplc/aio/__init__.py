@@ -342,7 +342,7 @@ class AModbusRtuClient(AModbusBaseClient):
         stop_bits: float = SERIAL_DEFAULT_STOP_BITS,
         parity: Union[SerialParity, str] = SERIAL_DEFAULT_PARITY,
     ) -> None:
-        """配置串口参数(转发到同步实例)。"""
+        """配置串口参数(转发到同步实例,推荐 :class:`~omniplc.types.SerialParity` 枚举)。"""
         sync = self._sync
         if not isinstance(sync, ModbusRtuClient):
             raise TypeError("内部错误:sync 实例不是 ModbusRtuClient")

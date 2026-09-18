@@ -1,0 +1,14 @@
+{
+    "name": "读输入寄存器 1 个,值 65518",
+    "request_hex": "0001000000060104000a0001",
+    "response_hex": "000100000005010402ffee",
+    "expect": {
+        "values": [
+            65518
+        ]
+    },
+    "setup": {
+        "station": 1,
+        "transaction_id": 1
+    }
+}

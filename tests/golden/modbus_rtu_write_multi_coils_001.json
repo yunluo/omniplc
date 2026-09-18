@@ -1,0 +1,22 @@
+{
+    "name": "写多线圈:地址 0,10 个,字节 0xCD 0x01(Modbus 手册示例)",
+    "request_hex": "010f0000000a02cd017068",
+    "response_hex": "010f0000000ad5cc",
+    "expect": {
+        "values": [
+            1,
+            0,
+            1,
+            1,
+            0,
+            0,
+            1,
+            1,
+            1,
+            0
+        ]
+    },
+    "setup": {
+        "station": 1
+    }
+}

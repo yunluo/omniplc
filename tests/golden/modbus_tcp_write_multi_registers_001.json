@@ -1,0 +1,12 @@
+{
+    "name": "写多寄存器:地址 0,2 个,值 10/258",
+    "request_hex": "00010000000b01100000000204000a0102",
+    "response_hex": "000100000006011000000002",
+    "expect": {
+        "echo": true
+    },
+    "setup": {
+        "station": 1,
+        "transaction_id": 1
+    }
+}

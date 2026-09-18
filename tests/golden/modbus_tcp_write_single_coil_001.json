@@ -1,0 +1,12 @@
+{
+    "name": "写单线圈:地址 0,置位(0xFF00)",
+    "request_hex": "00010000000601050000ff00",
+    "response_hex": "00010000000601050000ff00",
+    "expect": {
+        "echo": true
+    },
+    "setup": {
+        "station": 1,
+        "transaction_id": 1
+    }
+}

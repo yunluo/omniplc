@@ -18,8 +18,11 @@ from typing import List, Optional, Union
 from .. import convert
 from ..core.base_client import BaseClient, validate_endpoint
 from ..core.constants import (
+    MBAP_HEADER_SIZE,
     MODBUS_DEFAULT_PORT,
     MODBUS_DEFAULT_STATION,
+    MODBUS_EXCEPTION_FLAG,
+    MODBUS_MAX_ADU_SIZE,
     MODBUS_STATION_MAX,
     MODBUS_STATION_MIN,
     SERIAL_DEFAULT_BAUD_RATE,
@@ -27,6 +30,7 @@ from ..core.constants import (
     SERIAL_DEFAULT_PARITY,
     SERIAL_DEFAULT_STOP_BITS,
 )
+from ..core.errors import ProtocolFrameError, TransportClosedError
 from ..transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport, UdpTransport
 from ..types import DataType, SerialParity, WordOrder, PrimitiveValue
 from . import codec
@@ -169,12 +173,17 @@ class ModbusBaseClient(BaseClient):
         return codec.parse_read_response(response, parsed.read_function_code, count)
 
     def _write_bool_impl(self, parsed: ModbusAddress, value: bool) -> None:
-        """写一个布尔量:线圈走 FC5;寄存器位走"读-改-写"(下一阶段实现)。"""
+        """写一个布尔量:线圈走 FC5;寄存器位走"读-改-写"(同一事务锁内原子完成)。"""
         if parsed.area == ModbusArea.COIL:
             pdu = codec.build_write_single_pdu(parsed.write_single_function_code, parsed.offset, 1 if value else 0)
             self._transact(pdu)
             return
-        raise NotImplementedError("寄存器位写入(hr0.x)将在下一阶段实现")
+        bit = parsed.bit or 0
+        registers = self._read_registers(parsed, 1)
+        updated = convert.set_bit(registers[0], bit, value)
+        self._transact(
+            codec.build_write_single_pdu(parsed.write_single_function_code, parsed.offset, updated)
+        )
 
     def _write_single_register(self, parsed: ModbusAddress, value: int) -> None:
         """写单个保持寄存器(FC 6)。"""
@@ -185,6 +194,15 @@ class ModbusBaseClient(BaseClient):
         """批量写保持寄存器(FC 16)。"""
         pdu = codec.build_write_multi_pdu(parsed.write_multi_function_code, parsed.offset, registers)
         self._transact(pdu)
+
+    def _require_transport(self) -> BaseTransport:
+        """取当前传输对象(仅事务锁内调用,内部方法)。
+
+        :raises TransportClosedError: 连接未建立(正常流程下由基类先重连)
+        """
+        if self._transport is None:
+            raise TransportClosedError("连接未建立")
+        return self._transport
 
     @abstractmethod
     def _transact(self, pdu: bytes) -> bytes:
@@ -216,7 +234,22 @@ class ModbusTcpClient(ModbusBaseClient):
 
     def _transact(self, pdu: bytes) -> bytes:
         """MBAP 事务:组帧→发送→按长度收→校验事务号/站号→返回 PDU。"""
-        raise NotImplementedError("Modbus TCP 帧收发将在下一阶段实现")
+        transport = self._require_transport()
+        self._transaction_id = (self._transaction_id + 1) & 0xFFFF
+        transport.send(codec.build_mbap(self._transaction_id, self.station, pdu))
+        header = transport.recv(MBAP_HEADER_SIZE)
+        transaction_id, length = codec.parse_mbap_header(header)
+        received_id, station, response_pdu = codec.parse_mbap(header + transport.recv(length - 1))
+        if received_id != self._transaction_id:
+            raise ProtocolFrameError(
+                "MBAP 事务号不匹配:期望 {},收到 {}".format(self._transaction_id, received_id)
+            )
+        if station != self.station:
+            raise ProtocolFrameError(
+                "MBAP 站号不匹配:期望 {},收到 {}".format(self.station, station)
+            )
+        codec.check_response_exception(response_pdu, pdu[0])
+        return response_pdu
 
 
 class ModbusUdpClient(ModbusBaseClient):
@@ -237,8 +270,21 @@ class ModbusUdpClient(ModbusBaseClient):
         return UdpTransport(self._ip_address, self._port)
 
     def _transact(self, pdu: bytes) -> bytes:
-        """MBAP over UDP 事务:一请求一数据报。"""
-        raise NotImplementedError("Modbus UDP 帧收发将在下一阶段实现")
+        """MBAP over UDP 事务:一请求一数据报,整包校验事务号/站号。"""
+        transport = self._require_transport()
+        self._transaction_id = (self._transaction_id + 1) & 0xFFFF
+        transport.send(codec.build_mbap(self._transaction_id, self.station, pdu))
+        received_id, station, response_pdu = codec.parse_mbap(transport.recv(MODBUS_MAX_ADU_SIZE))
+        if received_id != self._transaction_id:
+            raise ProtocolFrameError(
+                "MBAP 事务号不匹配:期望 {},收到 {}".format(self._transaction_id, received_id)
+            )
+        if station != self.station:
+            raise ProtocolFrameError(
+                "MBAP 站号不匹配:期望 {},收到 {}".format(self.station, station)
+            )
+        codec.check_response_exception(response_pdu, pdu[0])
+        return response_pdu
 
 
 class ModbusRtuClient(ModbusBaseClient):
@@ -293,8 +339,26 @@ class ModbusRtuClient(ModbusBaseClient):
         return SerialTransport(self._serial_config)
 
     def _transact(self, pdu: bytes) -> bytes:
-        """RTU 事务:站号+PDU+CRC16 → 发送 → T3.5 静默 → 接收校验 CRC。"""
-        raise NotImplementedError("Modbus RTU 帧收发将在下一阶段实现")
+        """RTU 事务:站号+PDU+CRC16 → 发送 → 按功能码推算长度收 → 校验 CRC。
+
+        异常响应(功能码 | 0x80)恒为 2 字节 PDU,读到功能码后先行分支。
+        """
+        transport = self._require_transport()
+        station = self.station
+        transport.send(codec.build_rtu_frame(station, pdu))
+        head = transport.recv(2)
+        if head[1] & MODBUS_EXCEPTION_FLAG:
+            received_station, response_pdu = codec.parse_rtu_frame(head + transport.recv(3))
+        else:
+            received_station, response_pdu = codec.parse_rtu_frame(
+                head + transport.recv(codec.expected_response_length(pdu) + 1)
+            )
+        if received_station != station:
+            raise ProtocolFrameError(
+                "RTU 站号不匹配:期望 {},收到 {}".format(station, received_station)
+            )
+        codec.check_response_exception(response_pdu, pdu[0])
+        return response_pdu
 
 
 # ----------------------------------------------------------------------

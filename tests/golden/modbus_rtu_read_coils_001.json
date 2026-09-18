@@ -1,0 +1,20 @@
+{
+    "name": "读线圈 8 个,状态字节 0xCD(LSB 在前)",
+    "request_hex": "0101000000083dcc",
+    "response_hex": "010101cd901d",
+    "expect": {
+        "values": [
+            1,
+            0,
+            1,
+            1,
+            0,
+            0,
+            1,
+            1
+        ]
+    },
+    "setup": {
+        "station": 1
+    }
+}

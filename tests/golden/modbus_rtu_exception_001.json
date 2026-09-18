@@ -1,0 +1,11 @@
+{
+    "name": "读保持寄存器返回异常码 02(地址越界)",
+    "request_hex": "010327100002cf7a",
+    "response_hex": "018302c0f1",
+    "expect": {
+        "error_code": 2
+    },
+    "setup": {
+        "station": 1
+    }
+}

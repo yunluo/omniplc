@@ -8,6 +8,8 @@ Python 3.7 无 ``typing.Final``,以命名约定与 Code Review 约束只读性�
 """
 from __future__ import annotations
 
+from typing import Dict
+
 from ..types import SerialParity
 
 # ---------------------------------------------------------------- 默认超时(秒)
@@ -36,6 +38,36 @@ MBAP_HEADER_SIZE: int = 7
 CRC16_INIT: int = 0xFFFF
 CRC16_POLY: int = 0xA001
 """Modbus RTU CRC-16 的初始值与反射多项式。"""
+MODBUS_PROTOCOL_ID: int = 0
+"""MBAP 协议标识符,恒为 0。"""
+MODBUS_EXCEPTION_FLAG: int = 0x80
+"""异常响应功能码标志:请求功能码 | 0x80。"""
+MODBUS_COIL_ON: int = 0xFF00
+"""FC05 写线圈"ON"的线状态值。"""
+MODBUS_COIL_OFF: int = 0x0000
+"""FC05 写线圈"OFF"的线状态值。"""
+MODBUS_MAX_READ_BITS: int = 2000
+"""单次读位的数量上限(协议规定)。"""
+MODBUS_MAX_READ_REGISTERS: int = 125
+"""单次读寄存器的数量上限(协议规定)。"""
+MODBUS_MAX_WRITE_BITS: int = 1968
+"""单次写线圈的数量上限(协议规定)。"""
+MODBUS_MAX_WRITE_REGISTERS: int = 123
+"""单次写寄存器的数量上限(协议规定)。"""
+MODBUS_MAX_ADU_SIZE: int = 260
+"""MBAP 最大帧长 = 帧头 7 + 最大 PDU 253(UDP 整包接收缓冲)。"""
+MODBUS_EXCEPTION_TEXT: Dict[int, str] = {
+    0x01: "ILLEGAL FUNCTION(不支持的功能码)",
+    0x02: "ILLEGAL DATA ADDRESS(地址越界)",
+    0x03: "ILLEGAL DATA VALUE(数值非法)",
+    0x04: "SERVER DEVICE FAILURE(设备故障)",
+    0x05: "ACKNOWLEDGE(已受理,处理中)",
+    0x06: "SERVER DEVICE BUSY(设备忙)",
+    0x08: "MEMORY PARITY ERROR(存储区奇偶校验错)",
+    0x0A: "GATEWAY PATH UNAVAILABLE(网关路径不可用)",
+    0x0B: "GATEWAY TARGET DEVICE FAILED TO RESPOND(网关目标设备无响应)",
+}
+"""Modbus 标准异常码 → 可读描述(last_error 用)。"""
 
 # ---------------------------------------------------------------- 三菱 MC
 MC_DEFAULT_NETWORK_NUMBER: int = 0

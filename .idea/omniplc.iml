@@ -5,6 +5,7 @@
       <sourceFolder url="file://$MODULE_DIR$/src" />
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/.zcode" />
+      <excludeFolder url="file://$MODULE_DIR$/dist" />
     </content>
     <orderEntry type="jdk" jdkName="D:\Python_Work\omniplc\.venv" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

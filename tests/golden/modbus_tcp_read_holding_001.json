@@ -1,0 +1,15 @@
+{
+    "name": "读保持寄存器 2 个,值 20/10",
+    "request_hex": "000100000006010300000002",
+    "response_hex": "0001000000070103040014000a",
+    "expect": {
+        "values": [
+            20,
+            10
+        ]
+    },
+    "setup": {
+        "station": 1,
+        "transaction_id": 1
+    }
+}
