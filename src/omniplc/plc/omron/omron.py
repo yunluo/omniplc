@@ -16,6 +16,8 @@ import struct
 from abc import abstractmethod
 from typing import List
 
+from . import codec
+from .address import FinsAddress, parse_fins_address
 from ... import convert
 from ...core.base_client import BaseClient, validate_endpoint
 from ...core.constants import (
@@ -36,8 +38,6 @@ from ...core.validation import (
 )
 from ...transport import BaseTransport, TcpTransport, UdpTransport
 from ...types import DataType, PrimitiveValue
-from . import codec
-from .address import FinsAddress, parse_fins_address
 
 
 class _OmronFinsBase(BaseClient):

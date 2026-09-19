@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
+from .address import FinsAddress
 from ...core.constants import (
     FINS_COMMAND_AREA_READ,
     FINS_COMMAND_AREA_WRITE,
@@ -40,7 +41,6 @@ from ...core.constants import (
     FINS_TCP_MAGIC,
 )
 from ...core.errors import DeviceError, ProtocolFrameError
-from .address import FinsAddress
 
 
 def memory_codes(area: str, bank: int = 0) -> Tuple[int, int]:

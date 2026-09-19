@@ -17,6 +17,7 @@ import struct
 from enum import IntEnum
 from typing import List, Tuple
 
+from ..convert import crc16
 from ..core.constants import (
     MBAP_HEADER_SIZE,
     MODBUS_COIL_OFF,
@@ -30,7 +31,6 @@ from ..core.constants import (
     MODBUS_MAX_WRITE_REGISTERS,
     MODBUS_PROTOCOL_ID,
 )
-from ..convert import crc16
 from ..core.errors import DeviceError, ProtocolFrameError
 
 

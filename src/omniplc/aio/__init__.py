@@ -29,7 +29,7 @@ from ..core.constants import (
     SERIAL_DEFAULT_PARITY,
     SERIAL_DEFAULT_STOP_BITS,
 )
-from ..modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient, ModbusUdpClient
+from ..modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from ..modbus.modbus import _coerce_word_order
 from ..plc.melsec import MelsecMcTcpClient, MelsecMcUdpClient
 from ..plc.omron import OmronFinsTcpClient, OmronFinsUdpClient
@@ -311,14 +311,6 @@ class AModbusTcpClient(AModbusBaseClient):
     def __init__(self, ip_address: str = "127.0.0.1", port: int = MODBUS_DEFAULT_PORT, station: int = MODBUS_DEFAULT_STATION) -> None:
         """参数同 :class:`omniplc.modbus.ModbusTcpClient`。"""
         super().__init__(ModbusTcpClient(ip_address, port, station))
-
-
-class AModbusUdpClient(AModbusBaseClient):
-    """Modbus UDP 异步客户端。"""
-
-    def __init__(self, ip_address: str = "127.0.0.1", port: int = MODBUS_DEFAULT_PORT, station: int = MODBUS_DEFAULT_STATION) -> None:
-        """参数同 :class:`omniplc.modbus.ModbusUdpClient`。"""
-        super().__init__(ModbusUdpClient(ip_address, port, station))
 
 
 class AModbusRtuClient(AModbusBaseClient):

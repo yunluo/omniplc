@@ -16,7 +16,6 @@ BaseClient (ABC, 模板方法) —— 连接状态机/事务锁/惰性重连/类
 │
 ├── ModbusBaseClient(寄存器级公共逻辑:字序/类型分发/范围校验)
 │   ├── ModbusTcpClient    MBAP over TCP(502)
-│   ├── ModbusUdpClient    MBAP over UDP(502)
 │   └── ModbusRtuClient    站号+PDU+CRC16 over 串口
 │
 ├── MelsecMcTcpClient      三菱 MC 3E/4E/1E 帧 over TCP(2000)
@@ -25,7 +24,7 @@ BaseClient (ABC, 模板方法) —— 连接状态机/事务锁/惰性重连/类
 ├── OmronFinsTcpClient     欧姆龙 FINS + TCP 握手(9600)
 └── OmronFinsUdpClient     欧姆龙 FINS over UDP(9600)
 
-异步镜像(omniplc.aio):AModbusTcpClient / AModbusUdpClient / AModbusRtuClient /
+异步镜像(omniplc.aio):AModbusTcpClient / AModbusRtuClient /
 AMelsecMcTcpClient / AMelsecMcUdpClient / AOmronFinsTcpClient / AOmronFinsUdpClient
 ```
 
@@ -112,14 +111,14 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 
 | 协议             | TCP | UDP | RTU(串口)       |
 |------------------|-----|-----|-----------------|
-| Modbus           | ✅  | ✅  | ✅              |
+| Modbus           | ✅  | —   | ✅              |
 | 三菱 MC 3E/4E/1E | ✅  | ✅  | v1.x(2C/3C/4C)  |
 | 欧姆龙 FINS      | ✅  | ✅  | v1.x(Host Link) |
 
 #### 路线图
 
 - **v0.1**:架构落地 + 公共层/传输层完整实现 + 协议客户端骨架 + 100 例测试
-- **v0.2**:Modbus TCP/UDP/RTU 编解码 + 黄金报文样本 + 脚本化链路测试
+- **v0.2**:Modbus TCP/RTU 编解码 + 黄金报文样本 + 脚本化链路测试
 - **v0.3(当前)**:三菱 MC 3E/4E/1E(TCP/UDP)+ 欧姆龙 FINS TCP/UDP(握手/节点分配)
 - **v1.0**:点位表完善 + 示例 + 文档,正式发布
 - **v1.x**:MC 串口帧、FINS Host Link、心跳保活、轮询器、连接池

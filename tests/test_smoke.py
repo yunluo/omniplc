@@ -12,7 +12,6 @@ from omniplc import (
     ModbusBaseClient,
     ModbusRtuClient,
     ModbusTcpClient,
-    ModbusUdpClient,
     OmronFinsTcpClient,
     OmronFinsUdpClient,
 )
@@ -20,7 +19,6 @@ from omniplc.aio import (
     AMelsecMcTcpClient,
     AModbusRtuClient,
     AModbusTcpClient,
-    AModbusUdpClient,
     AOmronFinsTcpClient,
     AOmronFinsUdpClient,
 )
@@ -37,7 +35,6 @@ class TestPublicSurface:
     def test_all_classes_exported(self) -> None:
         for name in (
             "ModbusTcpClient",
-            "ModbusUdpClient",
             "ModbusRtuClient",
             "MelsecMcTcpClient",
             "MelsecMcUdpClient",
@@ -52,7 +49,7 @@ class TestInheritance:
 
     def test_modbus_tree(self) -> None:
         assert issubclass(ModbusBaseClient, BaseClient)
-        for cls in (ModbusTcpClient, ModbusUdpClient, ModbusRtuClient):
+        for cls in (ModbusTcpClient, ModbusRtuClient):
             assert issubclass(cls, ModbusBaseClient)
 
     def test_transport_tree(self) -> None:
@@ -124,7 +121,6 @@ class TestAsyncMirror:
     def test_construction(self) -> None:
         for make in (
             lambda: AModbusTcpClient("127.0.0.1", 502, 1),
-            lambda: AModbusUdpClient("127.0.0.1", 502, 1),
             lambda: AModbusRtuClient(1),
             lambda: AMelsecMcTcpClient("192.168.3.39", 2000, "3E"),
             lambda: AOmronFinsTcpClient("192.168.250.1"),

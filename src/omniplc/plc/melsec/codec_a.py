@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
+from .address import McAddress
 from ...core.constants import (
     MC_1E_DEVICE_CODES,
     MC_1E_ERROR_EXTRA,
@@ -27,7 +28,6 @@ from ...core.constants import (
     MC_1E_WRITE_WORD,
 )
 from ...core.errors import DeviceError, ProtocolFrameError
-from .address import McAddress
 
 
 def device_info(device: str) -> Tuple[int, bool, int]:
@@ -74,6 +74,11 @@ def build_request(
 ) -> bytes:
     """构造 1E 帧请求。
 
+    :param is_write:
+    :param is_bit:
+    :param points:
+    :param address:
+    :param monitoring_timer:
     :param pc_number: PLC 号/站号(0~255)
     :param data: 写数据(字单位逐字 0~65535;位单位 0/1 序列,长度 = points)
     :raises ValueError: 软元件/点数/数据非法

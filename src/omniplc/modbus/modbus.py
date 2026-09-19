@@ -1,11 +1,10 @@
-"""Modbus 客户端:基类 + TCP/UDP/RTU 三个走线实现。
+"""Modbus 客户端:基类 + TCP/RTU 两个走线实现。
 
 类继承::
 
     BaseClient
     └── ModbusBaseClient          寄存器级公共逻辑(字序/类型分发)
         ├── ModbusTcpClient       MBAP over TCP(默认端口 502)
-        ├── ModbusUdpClient       MBAP over UDP(默认端口 502)
         └── ModbusRtuClient       站号+PDU+CRC16 over 串口
 
 地址语法见 :mod:`omniplc.modbus.address`。
@@ -15,6 +14,8 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import List, Optional, Union
 
+from . import codec
+from .address import ModbusAddress, ModbusArea, parse_address
 from .. import convert
 from ..core.base_client import BaseClient, validate_endpoint
 from ..core.constants import (
@@ -22,7 +23,6 @@ from ..core.constants import (
     MODBUS_DEFAULT_PORT,
     MODBUS_DEFAULT_STATION,
     MODBUS_EXCEPTION_FLAG,
-    MODBUS_MAX_ADU_SIZE,
     MODBUS_STATION_MAX,
     MODBUS_STATION_MIN,
     SERIAL_DEFAULT_BAUD_RATE,
@@ -38,10 +38,8 @@ from ..core.validation import (
     require_float,
     require_int,
 )
-from ..transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport, UdpTransport
+from ..transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport
 from ..types import DataType, SerialParity, WordOrder, PrimitiveValue
-from . import codec
-from .address import ModbusAddress, ModbusArea, parse_address
 
 
 class ModbusBaseClient(BaseClient):
@@ -238,41 +236,6 @@ class ModbusTcpClient(ModbusBaseClient):
         header = transport.recv(MBAP_HEADER_SIZE)
         transaction_id, length = codec.parse_mbap_header(header)
         received_id, station, response_pdu = codec.parse_mbap(header + transport.recv(length - 1))
-        if received_id != self._transaction_id:
-            raise ProtocolFrameError(
-                "MBAP 事务号不匹配:期望 {},收到 {}".format(self._transaction_id, received_id)
-            )
-        if station != self.station:
-            raise ProtocolFrameError(
-                "MBAP 站号不匹配:期望 {},收到 {}".format(self.station, station)
-            )
-        codec.check_response_exception(response_pdu, pdu[0])
-        return response_pdu
-
-
-class ModbusUdpClient(ModbusBaseClient):
-    """Modbus UDP 客户端(默认端口 502)。
-
-    UDP 无连接,帧格式与 TCP 相同(MBAP),一问一答为一对数据报。
-    """
-
-    def __init__(self, ip_address: str = "127.0.0.1", port: int = MODBUS_DEFAULT_PORT, station: int = MODBUS_DEFAULT_STATION) -> None:
-        """初始化 Modbus UDP 客户端,参数同 :class:`ModbusTcpClient`。"""
-        validate_endpoint(ip_address, port)
-        super().__init__()
-        self._ip_address = ip_address
-        self._port = int(port)
-        self.station = station
-
-    def _create_transport(self) -> BaseTransport:
-        return UdpTransport(self._ip_address, self._port)
-
-    def _transact(self, pdu: bytes) -> bytes:
-        """MBAP over UDP 事务:一请求一数据报,整包校验事务号/站号。"""
-        transport = self._require_transport()
-        self._transaction_id = (self._transaction_id + 1) & 0xFFFF
-        transport.send(codec.build_mbap(self._transaction_id, self.station, pdu))
-        received_id, station, response_pdu = codec.parse_mbap(transport.recv(MODBUS_MAX_ADU_SIZE))
         if received_id != self._transaction_id:
             raise ProtocolFrameError(
                 "MBAP 事务号不匹配:期望 {},收到 {}".format(self._transaction_id, received_id)

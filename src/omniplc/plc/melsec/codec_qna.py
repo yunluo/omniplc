@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
+from .address import McAddress
 from ...core.constants import (
     MC_4E_RESPONSE_HEAD_SIZE,
     MC_COMMAND_BATCH_READ,
@@ -40,7 +41,6 @@ from ...core.constants import (
     MC_SUBHEADER_4E,
 )
 from ...core.errors import DeviceError, ProtocolFrameError
-from .address import McAddress
 
 _FRAME_NAMES = ("3E", "4E")
 
@@ -87,6 +87,13 @@ def build_request(
 ) -> bytes:
     """构造 3E/4E 帧请求(成批读 0104 / 成批写 0114)。
 
+    :param is_write:
+    :param is_bit:
+    :param points:
+    :param address:
+    :param monitoring_timer:
+    :param pc_number:
+    :param network_number:
     :param frame: ``"3E"`` 或 ``"4E"``
     :param serial: 序列号(仅 4E 使用,0~65535 回绕;3E 忽略)
     :param data: 写数据(字单位为逐字 0~65535;位单位为 0/1 序列,长度 = points)

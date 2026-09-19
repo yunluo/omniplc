@@ -1,4 +1,4 @@
-"""客户端帧收发测试:脚本化传输(无网络)验证 TCP/UDP/RTU 全链路。
+"""客户端帧收发测试:脚本化传输(无网络)验证 TCP/RTU 全链路。
 
 注入按脚本应答的假传输,验证:
 
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from omniplc import ModbusRtuClient, ModbusTcpClient, ModbusUdpClient
+from omniplc import ModbusRtuClient, ModbusTcpClient
 from omniplc.core.errors import DeviceError
 from omniplc.modbus import codec
 from scripted import ScriptedTransport as _ScriptedTransport
@@ -54,17 +54,6 @@ def test_tcp_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> N
     assert client.read_ushort("hr0") == (False, None)
     assert client.connected is True
     assert client.last_error is not None and "异常码 0x02" in client.last_error
-
-
-def test_udp_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
-    """UDP:一请求一数据报,整包校验。"""
-    client = ModbusUdpClient("127.0.0.1", 502, 2)
-    frame = codec.build_mbap(1, 2, _RESPONSE_ONE_REGISTER)
-    scripted = _ScriptedTransport([frame])
-    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
-    client.connect()
-    assert client.read_ushort("hr0") == (True, 20)
-    assert bytes(scripted.sent) == codec.build_mbap(1, 2, codec.build_read_pdu(3, 0, 1))
 
 
 def test_rtu_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -5,8 +5,8 @@ import socket
 from types import TracebackType
 from typing import Optional
 
-from ..core.errors import TransportClosedError
 from .base import BaseTransport
+from ..core.errors import TransportClosedError
 
 
 class UdpTransport(BaseTransport):

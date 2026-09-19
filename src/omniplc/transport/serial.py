@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Optional, Union
 
+from .base import BaseTransport
 from ..core.constants import (
     SERIAL_DEFAULT_BAUD_RATE,
     SERIAL_DEFAULT_DATA_BITS,
@@ -18,7 +19,6 @@ from ..core.constants import (
 )
 from ..core.errors import TransportClosedError
 from ..types import SerialParity
-from .base import BaseTransport
 
 
 @dataclass

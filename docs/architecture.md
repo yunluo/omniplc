@@ -55,7 +55,6 @@ BaseClient (ABC, 模板方法) ───────────── src/omnip
 │   │   _read/_write 落到位/寄存器原语;字序(ABCD/CDAB/BADC/DCBA)处理;
 │   │   int16…float64 编解码与范围校验;station/word_order 属性
 │   ├── ModbusTcpClient   → MBAP 帧      + TcpTransport(502)
-│   ├── ModbusUdpClient   → MBAP 帧      + UdpTransport(502)
 │   └── ModbusRtuClient   → 站号+PDU+CRC16 + SerialTransport(configure_serial)
 │
 ├── _MelsecMcBase (ABC, 私有) ─────────── src/omniplc/plc/melsec/melsec.py
@@ -77,12 +76,12 @@ Tag (dataclass) / TagTable (Mapping) ──── src/omniplc/tag.py(from_json/f
 
 异步镜像(omniplc/aio/,类名 = 同步类名前加 A):
 ABaseClient ── 组合同步实例 + 单线程 ThreadPoolExecutor,方法签名同名同型
-├── AModbusBaseClient → AModbusTcpClient / AModbusUdpClient / AModbusRtuClient
+├── AModbusBaseClient → AModbusTcpClient / AModbusRtuClient
 ├── AMelsecMcTcpClient / AMelsecMcUdpClient
 └── AOmronFinsTcpClient / AOmronFinsUdpClient
 ```
 
-v1 共 **7 个同步具体类 + 7 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)。
+v1 共 **6 个同步具体类 + 6 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)。
 
 ### 2.1 继承设计要点(模板方法模式)
 
@@ -275,7 +274,7 @@ class BaseClient(ABC):
 
 | 协议 | TCP | UDP | RTU(串口) |
 |---|---|---|---|
-| Modbus(FC 01/02/03/04/05/06/0F/10) | ✅ `ModbusTcpClient` | ✅ `ModbusUdpClient` | ✅ `ModbusRtuClient` |
+| Modbus(FC 01/02/03/04/05/06/0F/10) | ✅ `ModbusTcpClient` | — | ✅ `ModbusRtuClient` |
 | 三菱 MC 3E/4E(QnA 兼容) | ✅ `MelsecMcTcpClient(frame="3E"/"4E")` | ✅ `MelsecMcUdpClient` | v1.x(2C/3C/4C 帧) |
 | 三菱 MC 1E(A 兼容,A 系列) | ✅ `frame="1E"` | ✅ | v1.x |
 | 欧姆龙 FINS | ✅ `OmronFinsTcpClient`(含握手) | ✅ `OmronFinsUdpClient` | v1.x(Host Link) |
@@ -294,7 +293,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 | 本库模块 | C# 参考文件 |
 |---|---|
 | Modbus 编解码 | `ModBus/ModbusInfo.cs`(功能码/异常码/MBAP 组帧)、`Core/IMessage/ModbusTcpMessage.cs`(事务号/协议号校验、按长收包) |
-| Modbus TCP/UDP/RTU 客户端 | `ModBus/ModbusTcp/ModbusTcpNet.cs`、`ModBus/ModbusRtu/ModbusRtu.cs`(CRC16 校验) |
+| Modbus TCP/RTU 客户端 | `ModBus/ModbusTcp/ModbusTcpNet.cs`、`ModBus/ModbusRtu/ModbusRtu.cs`(CRC16 校验) |
 | 三菱 MC(3E/4E/1E,已实现) | `Profinet/Melsec/MelsecMcNet.cs`(3E)、`MelsecMcAsciiNet.cs`(ASCII 帧,v1.x)、`MelsecA1ENet.cs`(1E)、`MelsecMcDataType.cs` / `MelsecA1EDataType.cs`(软元件码表)、`MelsecHelper.cs`(核心命令构造) |
 | 欧姆龙 FINS(TCP/UDP,已实现) | `Profinet/Omron/OmronFinsNet.cs`、`OmronFinsUdp.cs`、`OmronFinsNetHelper.cs`(帧组装/解析)、`OmronFinsDataType.cs`(存储区码)、`Core/IMessage/FinsMessage.cs`(TCP 握手/帧长) |
 
@@ -346,7 +345,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | 本次 | 架构文档 + 项目骨架 + 公共层/传输层完整实现 + 测试基座 | ✅ 完成 |
-| v0.2 | Modbus TCP/UDP/RTU 编解码 + 黄金样本 + 脚本化链路测试 | ✅ 完成 |
+| v0.2 | Modbus TCP/RTU 编解码 + 黄金样本 + 脚本化链路测试 | ✅ 完成 |
 | v0.3 | 三菱 MC 3E/4E/1E(TCP/UDP)+ 欧姆龙 FINS TCP/UDP(握手/节点分配)+ 黄金样本 | ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 串口帧(2C/3C/4C)、FINS Host Link、心跳保活、轮询器、连接池 | 规划 |
