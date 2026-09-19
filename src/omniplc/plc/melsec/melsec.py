@@ -332,9 +332,7 @@ def _decode_32(data: Sequence[int], data_type: DataType) -> PrimitiveValue:
         return int.from_bytes(raw, "little", signed=True)
     if data_type is DataType.UINT:
         return int.from_bytes(raw, "little", signed=False)
-    return convert.registers_to_float32(
-        [int.from_bytes(word.to_bytes(2, "little"), "big") for word in data],
-    )
+    return struct.unpack("<f", raw)[0]
 
 
 def _decode_64(data: Sequence[int], data_type: DataType) -> PrimitiveValue:
@@ -344,9 +342,7 @@ def _decode_64(data: Sequence[int], data_type: DataType) -> PrimitiveValue:
         return int.from_bytes(raw, "little", signed=True)
     if data_type is DataType.ULONG:
         return int.from_bytes(raw, "little", signed=False)
-    return convert.registers_to_float64(
-        [int.from_bytes(word.to_bytes(2, "little"), "big") for word in data],
-    )
+    return struct.unpack("<d", raw)[0]
 
 
 def _encode_32(value: PrimitiveValue, data_type: DataType) -> List[int]:

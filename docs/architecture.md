@@ -62,6 +62,11 @@ BaseClient (ABC, 模板方法) ───────────── src/omnip
 │   ├── MelsecMcTcpClient → MC 3E/4E/1E 帧 + TcpTransport(2000)
 │   └── MelsecMcUdpClient → 同帧型 over UDP + UdpTransport(2000)
 │
+├── MelsecMxClient ────────────────────── src/omniplc/plc/melsec/mx.py
+│   │   三菱 MX Component(Windows,comtypes):ActUtlType 按逻辑站号,
+│   │   _MxComLink 把 COM 会话(Open/Close)适配为传输对象外形
+│   └── (无字节流收发;GetDevice/SetDevice/ReadDeviceBlock/WriteDeviceBlock)
+│
 └── _OmronFinsBase (ABC, 私有) ────────── src/omniplc/plc/omron/omron.py
     │   FINS 节点地址、软元件地址分发
     ├── OmronFinsTcpClient → FINS 帧+TCP 握手(_after_connect 钩子) + TcpTransport(9600)
@@ -77,11 +82,12 @@ Tag (dataclass) / TagTable (Mapping) ──── src/omniplc/tag.py(from_json/f
 异步镜像(omniplc/aio/,类名 = 同步类名前加 A):
 ABaseClient ── 组合同步实例 + 单线程 ThreadPoolExecutor,方法签名同名同型
 ├── AModbusBaseClient → AModbusTcpClient / AModbusRtuClient
-├── AMelsecMcTcpClient / AMelsecMcUdpClient
+├── AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMxClient
 └── AOmronFinsTcpClient / AOmronFinsUdpClient
 ```
 
-v1 共 **6 个同步具体类 + 6 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)。
+v1 共 **7 个同步具体类 + 7 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
+另加 MX Component(Windows/COM,单线程 executor 天然满足 ActUtlType 的 STA 模型)。
 
 ### 2.1 继承设计要点(模板方法模式)
 
@@ -272,12 +278,19 @@ class BaseClient(ABC):
 
 ## 8. v1 协议 × 走线矩阵与实现选型
 
-| 协议 | TCP | UDP | RTU(串口) |
-|---|---|---|---|
-| Modbus(FC 01/02/03/04/05/06/0F/10) | ✅ `ModbusTcpClient` | — | ✅ `ModbusRtuClient` |
-| 三菱 MC 3E/4E(QnA 兼容) | ✅ `MelsecMcTcpClient(frame="3E"/"4E")` | ✅ `MelsecMcUdpClient` | v1.x(2C/3C/4C 帧) |
-| 三菱 MC 1E(A 兼容,A 系列) | ✅ `frame="1E"` | ✅ | v1.x |
-| 欧姆龙 FINS | ✅ `OmronFinsTcpClient`(含握手) | ✅ `OmronFinsUdpClient` | v1.x(Host Link) |
+| 协议 | TCP | UDP | RTU(串口) | MX Component |
+|---|---|---|---|---|
+| Modbus(FC 01/02/03/04/05/06/0F/10) | ✅ `ModbusTcpClient` | — | ✅ `ModbusRtuClient` | — |
+| 三菱 MC 3E/4E(QnA 兼容) | ✅ `MelsecMcTcpClient(frame="3E"/"4E")` | ✅ `MelsecMcUdpClient` | v1.x(2C/3C/4C 帧) | ✅ `MelsecMxClient` |
+| 三菱 MC 1E(A 兼容,A 系列) | ✅ `frame="1E"` | ✅ | v1.x | ✅ |
+| 欧姆龙 FINS | ✅ `OmronFinsTcpClient`(含握手) | ✅ `OmronFinsUdpClient` | v1.x(Host Link) | — |
+
+MX Component 说明:``MelsecMxClient`` 经三菱 MX Component 的 ``ActUtlType``
+COM 控件(实用程序设置型)通信,通信参数在**通信设置实用程序**中配置为逻辑站号
+(0~1023),Python 侧经 comtypes 调用(``pip install omniplc[mx]``)。地址语法与
+MC 驱动一致(如 ``D100``/``M10``),软元件可用范围与进制由配置的 CPU 决定,
+编号原文直接透传给控件;错误以十六进制出错代码记入 ``last_error``(手册第 7 章)。
+COM 调用全部在客户端事务锁内串行;异步镜像经单工作线程执行,天然满足 STA。
 
 实现选型:MC、FINS 无支持 Python 3.7 的成熟维护库 → 自研;
 pymodbus 2.5.3 已停止维护且 3.x 不支持 3.7 → **Modbus 也自研**
@@ -295,6 +308,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 | Modbus 编解码 | `ModBus/ModbusInfo.cs`(功能码/异常码/MBAP 组帧)、`Core/IMessage/ModbusTcpMessage.cs`(事务号/协议号校验、按长收包) |
 | Modbus TCP/RTU 客户端 | `ModBus/ModbusTcp/ModbusTcpNet.cs`、`ModBus/ModbusRtu/ModbusRtu.cs`(CRC16 校验) |
 | 三菱 MC(3E/4E/1E,已实现) | `Profinet/Melsec/MelsecMcNet.cs`(3E)、`MelsecMcAsciiNet.cs`(ASCII 帧,v1.x)、`MelsecA1ENet.cs`(1E)、`MelsecMcDataType.cs` / `MelsecA1EDataType.cs`(软元件码表)、`MelsecHelper.cs`(核心命令构造) |
+| 三菱 MX Component(已实现) | `docs/MX Component Version 4编程手册.pdf`(ActUtlType 逻辑站号、Open/Close/GetDevice/SetDevice/ReadDeviceBlock/WriteDeviceBlock 数据布局、第 7 章出错代码) |
 | 欧姆龙 FINS(TCP/UDP,已实现) | `Profinet/Omron/OmronFinsNet.cs`、`OmronFinsUdp.cs`、`OmronFinsNetHelper.cs`(帧组装/解析)、`OmronFinsDataType.cs`(存储区码)、`Core/IMessage/FinsMessage.cs`(TCP 握手/帧长) |
 
 三菱帧实现另对照本地 Python SLMP 参考库
@@ -347,6 +361,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 | 本次 | 架构文档 + 项目骨架 + 公共层/传输层完整实现 + 测试基座 | ✅ 完成 |
 | v0.2 | Modbus TCP/RTU 编解码 + 黄金样本 + 脚本化链路测试 | ✅ 完成 |
 | v0.3 | 三菱 MC 3E/4E/1E(TCP/UDP)+ 欧姆龙 FINS TCP/UDP(握手/节点分配)+ 黄金样本 | ✅ 完成 |
+| v0.4 | 三菱 MX Component(comtypes,逻辑站号)+ Modbus UDP 移除 + MC float 解码修正 | ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 串口帧(2C/3C/4C)、FINS Host Link、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 西门子 S7(drivers 插槽已预留,沿用 BaseClient 原语模式) | 规划 |

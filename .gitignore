@@ -1,4 +1,4 @@
-# Byte-compiled / optimized / DLL files
+﻿# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
@@ -132,7 +132,7 @@ dmypy.json
 .ruff_cache/
 
 # uv
-# uv.lock 需要提交,不要忽略
+# uv.lock 闇€瑕佹彁浜?涓嶈蹇界暐
 
 # Pyre type checker
 .pyre/
@@ -142,3 +142,10 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+  
+"# 三菱版权手册仅本地参考,不入库(需要发布时删除下面一行)"  
+  
+
+# Mitsubishi copyrighted manuals stay local only
+docs/*.pdf
+

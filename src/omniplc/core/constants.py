@@ -207,6 +207,21 @@ FINS_MEMORY_CODES: Dict[str, Tuple[int, int]] = {
 FINS_BIT_WRITABLE_AREAS: Tuple[str, ...] = ("CIO", "W", "H", "A")
 """支持位区域写(0102 位单位)的存储区;D/EM 区按位写走读-改-写。"""
 
+# ---------------------------------------------------------------- 三菱 MX Component
+MX_PROG_ID: str = "ActUtlType.ActUtlType"
+"""ActUtlType 控件的 COM ProgID(实用程序设置型,按逻辑站号通信)。"""
+MX_DEFAULT_LOGICAL_STATION: int = 0
+"""默认逻辑站号(与手册默认值一致;须与通信设置实用程序中的配置一致)。"""
+MX_LOGICAL_STATION_MAX: int = 1023
+"""逻辑站号上限(手册:可设置范围 0~1023)。"""
+MX_MAX_BLOCK_WORDS: int = 960
+"""单次批量读/写的字数上限(保守值,防止超大块拖死 COM 调用)。"""
+MX_BIT_DEVICES: Tuple[str, ...] = (
+    "X", "Y", "M", "L", "S", "F", "V", "B", "SB", "DX", "DY",
+    "TS", "TC", "ST", "STS", "STC", "CS", "CC", "SM",
+)
+"""Q/R 系列常见位软元件表(用于区分位/字访问);表外软元件按字软元件处理。"""
+
 # ---------------------------------------------------------------- 通用
 BIT_INDEX_MAX: int = 63
 """位操作工具允许的最大位号。"""

@@ -1,7 +1,7 @@
 [project]
 name = "omniplc"
 version = "0.1.0"
-description = "omniplc —— 多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC / 欧姆龙 FINS)"
+description = "omniplc —— 多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC / MX Component / 欧姆龙 FINS)"
 readme = "README.md"
 requires-python = ">=3.7.9"
 license = { text = "MIT" }
@@ -36,6 +36,7 @@ dependencies = []
 
 [project.optional-dependencies]
 serial = ["pyserial>=3.5"]
+mx = ["comtypes>=1.2; platform_system == 'Windows'"]
 dev = [
     "pyserial>=3.5",
     "pytest>=7.4.4"

@@ -1,7 +1,7 @@
 """omniplc —— 多品牌多协议 PLC 统一通信库。
 
 一次编写,通过一致的 API 对接三菱(MC 协议)、欧姆龙(FINS)等 PLC,
-支持 Modbus TCP/RTU、MC 3E/4E/1E、FINS over TCP/UDP。
+支持 Modbus TCP/RTU、MC 3E/4E/1E、MC over MX Component、FINS over TCP/UDP。
 
 同步客户端::
 
@@ -23,7 +23,7 @@ from __future__ import annotations
 from . import convert
 from .core.base_client import BaseClient
 from .modbus import ModbusArea, ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
-from .plc.melsec import MelsecMcTcpClient, MelsecMcUdpClient
+from .plc.melsec import MelsecMcTcpClient, MelsecMcUdpClient, MelsecMxClient
 from .plc.omron import OmronFinsTcpClient, OmronFinsUdpClient
 from .tag import Tag, TagTable
 from .transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport, UdpTransport
@@ -43,6 +43,7 @@ __all__ = [
     # ---- 三菱 MC 客户端 ----
     "MelsecMcTcpClient",
     "MelsecMcUdpClient",
+    "MelsecMxClient",
     # ---- 欧姆龙 FINS 客户端 ----
     "OmronFinsTcpClient",
     "OmronFinsUdpClient",

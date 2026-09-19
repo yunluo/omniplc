@@ -23,6 +23,7 @@ from ..core.constants import (
     MC_DEFAULT_PORT,
     MODBUS_DEFAULT_PORT,
     MODBUS_DEFAULT_STATION,
+    MX_DEFAULT_LOGICAL_STATION,
     READ_STRING_DEFAULT_LENGTH,
     SERIAL_DEFAULT_BAUD_RATE,
     SERIAL_DEFAULT_DATA_BITS,
@@ -31,7 +32,7 @@ from ..core.constants import (
 )
 from ..modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from ..modbus.modbus import _coerce_word_order
-from ..plc.melsec import MelsecMcTcpClient, MelsecMcUdpClient
+from ..plc.melsec import MelsecMcTcpClient, MelsecMcUdpClient, MelsecMxClient
 from ..plc.omron import OmronFinsTcpClient, OmronFinsUdpClient
 from ..tag import Tag, TagTable
 from ..types import McFrame, PrimitiveValue, SerialParity
@@ -377,6 +378,26 @@ class AMelsecMcUdpClient(ABaseClient):
     ) -> None:
         """参数同 :class:`omniplc.plc.melsec.MelsecMcUdpClient`。"""
         super().__init__(MelsecMcUdpClient(ip_address, port, frame, network_number, pc_number))
+
+
+class AMelsecMxClient(ABaseClient):
+    """三菱 MX Component 异步客户端(Windows,COM)。
+
+    所有 COM 调用在单工作线程中串行执行,天然满足 ActUtlType 的
+    STA 线程模型。
+    """
+
+    def __init__(self, logical_station_number: int = MX_DEFAULT_LOGICAL_STATION) -> None:
+        """参数同 :class:`omniplc.plc.melsec.MelsecMxClient`。"""
+        super().__init__(MelsecMxClient(logical_station_number))
+
+    @property
+    def logical_station_number(self) -> int:
+        """逻辑站号(转发同步实例)。"""
+        sync = self._sync
+        if not isinstance(sync, MelsecMxClient):
+            raise TypeError("内部错误:sync 实例不是 MelsecMxClient")
+        return sync.logical_station_number
 
 
 class AOmronFinsTcpClient(ABaseClient):

@@ -20,12 +20,14 @@ BaseClient (ABC, 模板方法) —— 连接状态机/事务锁/惰性重连/类
 │
 ├── MelsecMcTcpClient      三菱 MC 3E/4E/1E 帧 over TCP(2000)
 ├── MelsecMcUdpClient      三菱 MC 同帧型 over UDP(2000)
+├── MelsecMxClient         三菱 MX Component(Windows,comtypes,逻辑站号)
 │
 ├── OmronFinsTcpClient     欧姆龙 FINS + TCP 握手(9600)
 └── OmronFinsUdpClient     欧姆龙 FINS over UDP(9600)
 
 异步镜像(omniplc.aio):AModbusTcpClient / AModbusRtuClient /
-AMelsecMcTcpClient / AMelsecMcUdpClient / AOmronFinsTcpClient / AOmronFinsUdpClient
+AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMxClient /
+AOmronFinsTcpClient / AOmronFinsUdpClient
 ```
 
 详细架构设计见 [docs/architecture.md](docs/architecture.md)。
@@ -73,6 +75,11 @@ from omniplc import MelsecMcTcpClient, OmronFinsUdpClient, McFrame
 # 三菱 MC:frame=McFrame.FRAME_3E/FRAME_4E(QnA 兼容)或 FRAME_1E(A 兼容,A 系列)
 mc = MelsecMcTcpClient(ip_address="192.168.3.39", port=2000, frame=McFrame.FRAME_3E)
 
+# 三菱 MX Component(Windows):通信参数在通信设置实用程序中配置为逻辑站号
+# 安装:pip install 'omniplc[mx]'
+from omniplc import MelsecMxClient
+mx = MelsecMxClient(logical_station_number=1)
+
 # 欧姆龙 FINS:TCP 自动做节点分配握手,UDP 无握手
 fins = OmronFinsUdpClient(ip_address="192.168.250.1", port=9600)
 ```
@@ -109,17 +116,18 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 
 #### v1 协议 × 走线矩阵
 
-| 协议             | TCP | UDP | RTU(串口)       |
-|------------------|-----|-----|-----------------|
-| Modbus           | ✅  | —   | ✅              |
-| 三菱 MC 3E/4E/1E | ✅  | ✅  | v1.x(2C/3C/4C)  |
-| 欧姆龙 FINS      | ✅  | ✅  | v1.x(Host Link) |
+| 协议             | TCP | UDP | RTU(串口)       | MX Component        |
+|------------------|-----|-----|-----------------|---------------------|
+| Modbus           | ✅  | —   | ✅              | —                   |
+| 三菱 MC 3E/4E/1E | ✅  | ✅  | v1.x(2C/3C/4C)  | ✅(Windows + COM)  |
+| 欧姆龙 FINS      | ✅  | ✅  | v1.x(Host Link) | —                   |
 
 #### 路线图
 
 - **v0.1**:架构落地 + 公共层/传输层完整实现 + 协议客户端骨架 + 100 例测试
 - **v0.2**:Modbus TCP/RTU 编解码 + 黄金报文样本 + 脚本化链路测试
-- **v0.3(当前)**:三菱 MC 3E/4E/1E(TCP/UDP)+ 欧姆龙 FINS TCP/UDP(握手/节点分配)
+- **v0.3**:三菱 MC 3E/4E/1E(TCP/UDP)+ 欧姆龙 FINS TCP/UDP(握手/节点分配)
+- **v0.4(当前)**:三菱 MX Component(comtypes,逻辑站号)+ MC float 解码修正
 - **v1.0**:点位表完善 + 示例 + 文档,正式发布
 - **v1.x**:MC 串口帧、FINS Host Link、心跳保活、轮询器、连接池
 - **v2**:西门子 S7(驱动插槽已预留)

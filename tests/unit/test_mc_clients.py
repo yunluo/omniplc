@@ -11,6 +11,8 @@ from omniplc import MelsecMcTcpClient, MelsecMcUdpClient
 from omniplc.core.constants import MC_DEFAULT_MONITOR_TIMER
 from omniplc.plc.melsec import codec_a, codec_qna
 from omniplc.plc.melsec.address import parse_mc_address
+from omniplc.plc.melsec.melsec import _encode_32
+from omniplc.types import DataType
 from scripted import ScriptedTransport
 
 
@@ -79,6 +81,17 @@ def test_tcp_1e_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bytes(client._transport.sent) == codec_a.build_request(  # type: ignore[union-attr]
         0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"), 1, False, False
     )
+
+
+def test_tcp_3e_read_float_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TCP 3E:float32 小端字序往返(回归:解码不得再做字节交换)。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    words = _encode_32(3.14, DataType.FLOAT)
+    frame = _qna_read_response(list(words))
+    _mount(monkeypatch, client, ScriptedTransport([frame[:9], frame[9:]]))
+    client.connect()
+    ok, value = client.read_float("D100")
+    assert ok is True and value is not None and abs(value - 3.14) < 1e-6
 
 
 def test_tcp_3e_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
