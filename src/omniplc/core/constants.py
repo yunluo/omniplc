@@ -8,7 +8,7 @@ Python 3.7 无 ``typing.Final``,以命名约定与 Code Review 约束只读性�
 """
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, Tuple
 
 from ..types import SerialParity
 
@@ -71,16 +71,141 @@ MODBUS_EXCEPTION_TEXT: Dict[int, str] = {
 
 # ---------------------------------------------------------------- 三菱 MC
 MC_DEFAULT_NETWORK_NUMBER: int = 0
-MC_DEFAULT_PC_NUMBER: int = 0
-MC_SUBHEADER_3E_READ: int = 0x5040
-"""占位值,实现 3E/4E 编解码时按 MELSEC 手册校正。"""
-MC_SUBHEADER_3E_WRITE: int = 0x5041
-"""占位值,实现 3E/4E 编解码时按 MELSEC 手册校正。"""
+"""默认网络编号(本网络)。"""
+MC_DEFAULT_PC_NUMBER: int = 0xFF
+"""默认 PC 编号;0xFF = 本局 CPU 直连约定值(与 HslCommunication 一致)。"""
+MC_DEFAULT_MONITOR_TIMER: int = 10
+"""CPU 监视定时器默认值,单位 250ms(10 = 等待 PLC 约 2.5 秒)。"""
+MC_DEST_MODULE_IO: int = 0x03FF
+"""目标模块 I/O 编号(CPU 直连,报文中小端两字节 FF 03)。"""
+MC_DEST_MODULE_STATION: int = 0
+"""目标模块局号(CPU 直连恒为 0)。"""
+MC_MAX_TRANSFER_POINTS: int = 900
+"""3E/4E 单事务读/写点数上限(与 HslCommunication 分块大小一致)。"""
+MC_REQUEST_HEAD_SIZE: int = 11
+"""3E/4E 请求头长度:副头部2+网络1+PC1+IO2+局1+请求数据长2+监视定时器2。"""
+MC_RESPONSE_HEAD_SIZE: int = 9
+"""3E/4E 响应头长度:副头部2+网络1+PC1+IO2+局1+应答数据长2。"""
+MC_RESPONSE_SUBHEADER_3E: int = 0xD0
+"""3E 响应(读/写)与 4E 写响应的副头部首字节。"""
+MC_RESPONSE_SUBHEADER_4E: int = 0xD4
+"""4E 读响应的副头部首字节。"""
+MC_COMMAND_BATCH_READ: int = 0x0104
+"""成批读核心命令(报文中大端两字节 01 04)。"""
+MC_COMMAND_BATCH_WRITE: int = 0x0114
+"""成批写核心命令(报文中大端两字节 01 14)。"""
+MC_SUBCOMMAND_WORD_UNITS: int = 0x0000
+"""子命令:以字为单位(小端两字节 00 00)。"""
+MC_SUBCOMMAND_BIT_UNITS: int = 0x0001
+"""子命令:以位为单位(小端两字节 01 00)。"""
+MC_MAX_DATAGRAM: int = 2048
+"""UDP 整包接收缓冲上限(足以容纳最大点数响应)。"""
+MC_SUBHEADER_3E: bytes = b"\x50\x00"
+"""3E 请求副头部(读/写相同,由命令字段区分;响应为 D0 00)。"""
+MC_SUBHEADER_4E: bytes = b"\x54\x00"
+"""4E 请求副头部(读/写相同,由命令字段区分;响应为 D4 00)。"""
+MC_4E_RESPONSE_HEAD_SIZE: int = 13
+"""4E 响应头长度:副头部2+序列号2+保留2+网络1+PC1+IO2+局1+应答数据长2。"""
+MC_1E_RESPONSE_HEAD_SIZE: int = 2
+"""1E 响应头:副头部(1) + 结束代码(1)。"""
+MC_1E_MAX_POINTS: int = 255
+"""1E 单事务点数上限(点数域高字节恒 0)。"""
+MC_1E_ERROR_EXTRA: int = 0x5B
+"""1E 该结束码的响应附带 2 字节扩展信息(TCP 需多读,防止字节流错位)。"""
+MC_1E_ERROR_EXTRA_SIZE: int = 2
+MC_1E_READ_BIT: int = 0x00
+"""1E 副头部:位单位成批读。"""
+MC_1E_READ_WORD: int = 0x01
+"""1E 副头部:字单位成批读。"""
+MC_1E_WRITE_BIT: int = 0x02
+"""1E 副头部:位单位成批写。"""
+MC_1E_WRITE_WORD: int = 0x03
+"""1E 副头部:字单位成批写。"""
+MC_DEVICE_CODES: Dict[str, Tuple[int, int, int]] = {
+    "X": (0x9C, 1, 16),
+    "Y": (0x9D, 1, 16),
+    "M": (0x90, 1, 10),
+    "S": (0x98, 1, 10),
+    "B": (0xA0, 1, 16),
+    "D": (0xA8, 0, 10),
+    "W": (0xB4, 0, 16),
+    "R": (0xAF, 0, 10),
+    "Z": (0xCC, 0, 10),
+    "ZR": (0xB0, 0, 10),
+}
+"""3E/4E 软元件码表:软元件 → (二进制码, 位软元件?, 地址进制)。
+
+来源:HslCommunication ``MelsecMcDataType`` 与 SLMP 库 ``constants.DEVICE_CODES``
+(SH-080956 手册二进制码列)一致:X/Y/W/B 十六进制,ZR 十进制;
+仅 iQ-F(FX5U)的 X/Y 为八进制,v1 按 Q/L/R 口径处理。
+"""
+MC_1E_DEVICE_CODES: Dict[str, Tuple[int, int, int]] = {
+    "X": (0x5820, 1, 8),
+    "Y": (0x5920, 1, 8),
+    "M": (0x4D20, 1, 10),
+    "S": (0x5320, 1, 10),
+    "D": (0x4420, 0, 10),
+    "R": (0x5220, 0, 10),
+}
+"""1E 软元件码表:软元件 → (两字节码, 位软元件?, 地址进制)。来源 ``MelsecA1EDataType``。"""
 
 # ---------------------------------------------------------------- 欧姆龙 FINS
 FINS_DEFAULT_DESTINATION_NETWORK: int = 0
+"""默认目标网络号(0 = 本网络)。"""
 FINS_DEFAULT_DESTINATION_NODE: int = 0
+"""默认目标节点号(0 = 握手自动获取;手工配置常用 PLC IP 地址末位)。"""
 FINS_DEFAULT_DESTINATION_UNIT: int = 0
+"""默认目标单元号(0 = CPU 单元)。"""
+FINS_ICF: int = 0x80
+"""请求 ICF:要求响应 + 非网关(响应帧为 0xC0)。"""
+FINS_RSV: int = 0x00
+"""RSV 恒为 0。"""
+FINS_GCT: int = 0x02
+"""网关允许穿越数(固定值)。"""
+FINS_HEADER_SIZE: int = 10
+"""FINS 帧头长度:ICF..SID。"""
+FINS_COMMAND_AREA_READ: int = 0x0101
+"""Area Read 命令(MRC=01, SRC=01)。"""
+FINS_COMMAND_AREA_WRITE: int = 0x0102
+"""Area Write 命令(MRC=01, SRC=02)。"""
+FINS_END_CODE_SIZE: int = 2
+"""结束码长度(大端两字节,紧跟 MRC/SRC)。"""
+FINS_END_CODE_OK: int = 0
+"""结束码:正常完成。"""
+FINS_END_CODE_TEXT: Dict[int, str] = {0: "正常完成"}
+"""常见结束码文本;未收录的提示查阅 Omron FINS 手册。"""
+FINS_MAX_DATAGRAM: int = 2048
+"""UDP 整包接收缓冲上限(足以容纳最大区域读响应)。"""
+FINS_TCP_MAGIC: bytes = b"FINS"
+"""FINS/TCP 帧头魔数。"""
+FINS_TCP_HEADER_SIZE: int = 8
+"""FINS/TCP 帧头长度:"FINS"(4) + 长度(4,大端,= 后续字节数)。"""
+FINS_TCP_COMMAND_HANDSHAKE: int = 0
+"""FINS/TCP 命令:节点分配握手。"""
+FINS_TCP_COMMAND_DATA: int = 2
+"""FINS/TCP 命令:发送 FINS 帧。"""
+FINS_HANDSHAKE_LENGTH: int = 12
+"""握手长度域(命令 4 + 错误 4 + 节点 4)。"""
+FINS_HANDSHAKE_SIZE: int = 20
+"""握手请求总长 = 帧头 8 + 长度域 12;本地节点号在帧内末字节。"""
+FINS_HANDSHAKE_RESPONSE_SIZE: int = 24
+"""握手响应总长 = 帧头 8 + 长度域 16;本地节点在 [19],PLC 节点在 [23]。"""
+FINS_EM_BANK_MAX: int = 15
+"""EM 区 bank 号上限(E0~EF)。"""
+FINS_EM_WORD_CODE_BASE: int = 0xE0
+"""EM 区字操作码基址(bank 0 → 0xE0)。"""
+FINS_EM_BIT_CODE_BASE: int = 0x20
+"""EM 区位操作码基址(bank 0 → 0x20)。"""
+FINS_MEMORY_CODES: Dict[str, Tuple[int, int]] = {
+    "CIO": (0x30, 0xB0),
+    "W": (0x31, 0xB1),
+    "H": (0x32, 0xB2),
+    "A": (0x33, 0xB3),
+    "D": (0x02, 0x82),
+}
+"""FINS 存储区码:区名 → (位操作码, 字操作码)。来源 ``OmronFinsDataType``;EM 区按 bank 换算。"""
+FINS_BIT_WRITABLE_AREAS: Tuple[str, ...] = ("CIO", "W", "H", "A")
+"""支持位区域写(0102 位单位)的存储区;D/EM 区按位写走读-改-写。"""
 
 # ---------------------------------------------------------------- 通用
 BIT_INDEX_MAX: int = 63

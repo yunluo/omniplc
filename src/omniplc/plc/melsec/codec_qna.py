@@ -1,73 +1,255 @@
 """三菱 MC 协议 QnA 兼容帧(3E/4E)编解码(纯函数)。
 
-3E/4E 帧为 QnA 兼容报文,用于 Q/Q06H、L、R 系列及 iQ-R/iQ-F 的
-以太网模块,帧头含网络号/PC 号等路由信息。
+帧布局(对照 HslCommunication ``MelsecMcNet.PackMcCommand`` 与
+SLMP 参考库 ``core.encode_3e_request``/``encode_4e_request``,SH-080956):
 
-**当前为骨架**:签名与语义已定,实现将在下一阶段(MC 驱动)完成。
+- 3E 请求 = 副头部 ``50 00`` + 网络号(1) + PC号(1) + 目标模块I/O(2,小端)
+  + 目标模块局号(1) + 请求数据长(2,小端) + 监视定时器(2,小端) + 核心命令
+- 4E 请求 = 副头部 ``54 00`` + 序列号(2,小端) + 保留(2,恒 0) + 同 3E 其余字段
+- 核心读 = ``01 04`` + 子命令(2,小端:0=字单位/1=位单位)
+  + 起始软元件编号(3,小端) + 软元件码(1) + 点数(2,小端)
+- 核心写 = ``01 14`` + 同上 + 数据
+- 数据:字单位逐字小端;位单位每字节 2 位,**高位在前**(点 0 在高半字节)
+- 3E 响应 = 副头部 ``D0 00`` + 网络(1) + PC(1) + 模块I/O(2) + 局号(1)
+  + 应答数据长(2,小端) + 结束代码(2,小端,0=成功) + 数据
+- 4E 响应 = 副头部 ``D4 00`` + 序列号(2) + 保留(2) + 网络(1) + PC(1)
+  + 模块I/O(2) + 局号(1) + 应答数据长(2) + 结束代码(2) + 数据
+- 请求数据长 = 监视定时器(2) + 命令(2) + 子命令(2) + 载荷
+
+软元件地址进制见 :data:`omniplc.core.constants.MC_DEVICE_CODES`
+(Q/L/R 口径:X/Y/W/B 十六进制,其余十进制)。
 """
 from __future__ import annotations
 
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Tuple
 
-from ...core.constants import MC_SUBHEADER_3E_READ, MC_SUBHEADER_3E_WRITE  # noqa: F401  (实现阶段使用)
+from ...core.constants import (
+    MC_4E_RESPONSE_HEAD_SIZE,
+    MC_COMMAND_BATCH_READ,
+    MC_COMMAND_BATCH_WRITE,
+    MC_DEVICE_CODES,
+    MC_DEST_MODULE_IO,
+    MC_DEST_MODULE_STATION,
+    MC_MAX_TRANSFER_POINTS,
+    MC_RESPONSE_HEAD_SIZE,
+    MC_RESPONSE_SUBHEADER_3E,
+    MC_RESPONSE_SUBHEADER_4E,
+    MC_SUBCOMMAND_BIT_UNITS,
+    MC_SUBCOMMAND_WORD_UNITS,
+    MC_SUBHEADER_3E,
+    MC_SUBHEADER_4E,
+)
+from ...core.errors import DeviceError, ProtocolFrameError
 from .address import McAddress
 
+_FRAME_NAMES = ("3E", "4E")
 
-def build_batch_read_request(
-    frame: str,
-    network_number: int,
-    pc_number: int,
-    monitoring_timer: int,
-    addresses: Sequence[McAddress],
-    word_counts: Sequence[int],
-) -> bytes:
-    """构造成批读请求(3E/4E 帧的二进制报文)。
 
-    :param frame: ``"3E"`` 或 ``"4E"``
-    :param network_number: 网络编号
-    :param pc_number: PC 编号
-    :param monitoring_timer: 监视定时器(单位 250ms,0 = 等待)
-    :param addresses: 软元件地址序列(成批读按点数访问)
-    :param word_counts: 与地址对应的读取点数
-    :return: 完整请求报文(含帧头与长度)
+def device_info(device: str) -> Tuple[int, bool, int]:
+    """查 3E/4E 软元件码表。
+
+    :return: ``(软元件码, 是否位软元件, 地址进制)``
+    :raises ValueError: 不支持的软元件
     """
-    raise NotImplementedError("MC 3E/4E 帧编解码将在下一阶段实现")
+    try:
+        code, is_bit, base = MC_DEVICE_CODES[device]
+    except KeyError:
+        raise ValueError(
+            "不支持的 MC 软元件:{!r},支持:{}".format(device, "/".join(sorted(MC_DEVICE_CODES)))
+        )
+    return code, bool(is_bit), base
 
 
-def build_batch_write_request(
+def device_number(device: str, number: str, base: int) -> int:
+    """把用户编号数字原文换算为报文中的软元件编号(按码表进制)。
+
+    :raises ValueError: 编号按目标进制解析失败
+    """
+    try:
+        return int(number, base)
+    except ValueError:
+        raise ValueError(
+            "软元件 {} 编号按 {} 进制解析失败:{!r}".format(device, base, number)
+        )
+
+
+def build_request(
     frame: str,
+    serial: int,
     network_number: int,
     pc_number: int,
     monitoring_timer: int,
     address: McAddress,
-    data: List[int],
+    points: int,
+    is_bit: bool,
+    is_write: bool,
+    data: Optional[List[int]] = None,
 ) -> bytes:
-    """构造成批写请求。
+    """构造 3E/4E 帧请求(成批读 0104 / 成批写 0114)。
 
     :param frame: ``"3E"`` 或 ``"4E"``
-    :param data: 待写数据(字/位单位,位以 0/1 表示)
+    :param serial: 序列号(仅 4E 使用,0~65535 回绕;3E 忽略)
+    :param data: 写数据(字单位为逐字 0~65535;位单位为 0/1 序列,长度 = points)
+    :raises ValueError: 帧型/软元件/点数/数据非法
     """
-    raise NotImplementedError("MC 3E/4E 帧编解码将在下一阶段实现")
+    frame_name = _check_frame(frame)
+    code, is_bit_device, base = device_info(address.device)
+    if is_bit and not is_bit_device:
+        raise ValueError(
+            "字软元件 {} 不支持位单位成批访问,请按字访问后提取位".format(address.device)
+        )
+    _check_points(points, MC_MAX_TRANSFER_POINTS)
+    number = device_number(address.device, address.number, base)
+    if number > 0xFFFFFF:
+        raise ValueError("MC 软元件编号超出 3 字节范围:{}".format(number))
+
+    command = MC_COMMAND_BATCH_WRITE if is_write else MC_COMMAND_BATCH_READ
+    subcommand = MC_SUBCOMMAND_BIT_UNITS if is_bit else MC_SUBCOMMAND_WORD_UNITS
+    core = bytearray(command.to_bytes(2, "big"))
+    core += subcommand.to_bytes(2, "little")
+    core += number.to_bytes(3, "little")
+    core.append(code)
+    core += points.to_bytes(2, "little")
+    if is_write:
+        core += _write_payload(points, is_bit, data or [])
+
+    routing = bytearray()
+    routing.append(network_number & 0xFF)
+    routing.append(pc_number & 0xFF)
+    routing += MC_DEST_MODULE_IO.to_bytes(2, "little")
+    routing.append(MC_DEST_MODULE_STATION & 0xFF)
+    _check_timer(monitoring_timer)
+    body = (
+        bytes(routing)
+        + (2 + len(core)).to_bytes(2, "little")
+        + monitoring_timer.to_bytes(2, "little")
+        + bytes(core)
+    )
+
+    if frame_name == "4E":
+        return MC_SUBHEADER_4E + serial.to_bytes(2, "little") + b"\x00\x00" + body
+    return MC_SUBHEADER_3E + body
 
 
-def parse_batch_read_response(
-    frame: str, response: bytes, word_counts: Sequence[int]
+def parse_response_head(head: bytes, frame: str) -> int:
+    """解析响应头,返回应答数据长(TCP 分段收包用)。
+
+    :param head: 已读取的响应头(3E 为 9 字节,4E 为 13 字节)
+    :param frame: ``"3E"`` 或 ``"4E"``
+    :raises ProtocolFrameError: 帧头过短/副头部非法/长度域非法
+    """
+    frame_name = _check_frame(frame)
+    expected_size = MC_4E_RESPONSE_HEAD_SIZE if frame_name == "4E" else MC_RESPONSE_HEAD_SIZE
+    if len(head) < expected_size:
+        raise ProtocolFrameError(
+            "MC 响应头不足 {} 字节:{}".format(expected_size, len(head))
+        )
+    wanted = MC_RESPONSE_SUBHEADER_4E if frame_name == "4E" else MC_RESPONSE_SUBHEADER_3E
+    if head[0] != wanted or head[1] != 0x00:
+        raise ProtocolFrameError(
+            "MC 响应副头部非法:0x{:02X} 0x{:02X}".format(head[0], head[1])
+        )
+    offset = 11 if frame_name == "4E" else 7
+    length = int.from_bytes(head[offset:offset + 2], "little")
+    if length < 2:
+        raise ProtocolFrameError(
+            "MC 应答数据长非法(至少含结束码 2 字节):{}".format(length)
+        )
+    return length
+
+
+def parse_response(
+    frame: bytes,
+    frame_type: str,
+    points: int,
+    is_bit: bool,
+    is_read: bool,
+    expected_serial: Optional[int] = None,
 ) -> List[int]:
-    """解析成批读响应,返回逐点数据(字/位)。
+    """解析 3E/4E 完整响应帧(TCP 拼接帧或 UDP 整包均可)。
 
+    :param frame: 完整响应帧
+    :param frame_type: ``"3E"`` 或 ``"4E"``
+    :param points: 请求点数(读时校验数据长度)
+    :param is_bit: 是否位单位访问
+    :param is_read: 是否读操作(写响应无数据)
+    :param expected_serial: 期望序列号(仅 4E 校验)
+    :return: 读为逐点数据(位 0/1,字 0~65535);写恒为空列表
     :raises omniplc.core.errors.DeviceError: 结束代码非 0
-    :raises omniplc.core.errors.ProtocolFrameError: 帧结构不符
+    :raises omniplc.core.errors.ProtocolFrameError: 帧结构/序列号不符
     """
-    raise NotImplementedError("MC 3E/4E 帧编解码将在下一阶段实现")
+    frame_name = _check_frame(frame_type)
+    content_length = parse_response_head(frame, frame_name)
+    is_4e = frame_name == "4E"
+    head_size = MC_4E_RESPONSE_HEAD_SIZE if is_4e else MC_RESPONSE_HEAD_SIZE
+    if len(frame) < head_size + content_length:
+        raise ProtocolFrameError(
+            "MC 响应帧不完整:期望 {} 字节,实际 {}".format(
+                head_size + content_length, len(frame)
+            )
+        )
+    if is_4e:
+        if expected_serial is not None:
+            serial = int.from_bytes(frame[2:4], "little")
+            if serial != expected_serial:
+                raise ProtocolFrameError(
+                    "MC 序列号不匹配:期望 {},收到 {}".format(expected_serial, serial)
+                )
+        end_offset = 13
+        data_offset = 15
+    else:
+        end_offset = 9
+        data_offset = 11
+    end_code = int.from_bytes(frame[end_offset:end_offset + 2], "little")
+    if end_code != 0:
+        raise DeviceError("MC 结束代码 0x{:04X},详见 MELSEC 手册".format(end_code), end_code)
+    if not is_read:
+        return []
+    expected = (points + 1) // 2 if is_bit else points * 2
+    data = frame[data_offset:data_offset + expected]
+    if len(data) != expected:
+        raise ProtocolFrameError(
+            "MC 响应数据不足:期望 {} 字节,实际 {}".format(expected, len(data))
+        )
+    if is_bit:
+        return [
+            1 if data[index // 2] & (0x10 if index % 2 == 0 else 0x01) else 0
+            for index in range(points)
+        ]
+    return [int.from_bytes(data[i:i + 2], "little") for i in range(0, expected, 2)]
 
 
-def encode_device(device: str, offset: int, bit: int, frame: str) -> Tuple[bytes, int]:
-    """软元件 → 报文中的软元件码 + 点数(查表,3E/4E 与 1E 码表不同)。
+def _check_frame(frame: str) -> str:
+    """帧型归一化与校验(内部函数)。"""
+    frame_name = str(frame).strip().upper()
+    if frame_name not in _FRAME_NAMES:
+        raise ValueError("QnA 兼容帧型必须是 3E/4E,收到:{!r}".format(frame))
+    return frame_name
 
-    :param device: 软元件记号(如 ``"D"``)
-    :param offset: 十进制偏移
-    :param bit: 位号(位访问时)
-    :param frame: 帧型(影响码表)
-    :return: ``(软元件码字节, 访问点数)``
-    """
-    raise NotImplementedError("MC 软元件码表将在下一阶段实现")
+
+def _check_points(points: int, limit: int) -> None:
+    """点数范围校验(内部函数)。"""
+    if not 1 <= points <= limit:
+        raise ValueError("MC 访问点数超出范围 1~{}:{}".format(limit, points))
+
+
+def _check_timer(monitoring_timer: int) -> None:
+    """监视定时器范围校验(内部函数)。"""
+    if not 0 <= monitoring_timer <= 0xFFFF:
+        raise ValueError("监视定时器超出范围 0~65535:{}".format(monitoring_timer))
+
+
+def _write_payload(points: int, is_bit: bool, data: List[int]) -> bytes:
+    """写数据编码:位按"每字节 2 位、高位在前"打包;字逐字小端(内部函数)。"""
+    if len(data) != points:
+        raise ValueError("写数据个数 {} 与点数 {} 不符".format(len(data), points))
+    if is_bit:
+        packed = bytearray((points + 1) // 2)
+        for index, flag in enumerate(data):
+            if flag:
+                packed[index // 2] |= 0x10 if index % 2 == 0 else 0x01
+        return bytes(packed)
+    for word in data:
+        if not 0 <= word <= 0xFFFF:
+            raise ValueError("字写数据超出范围 0~65535:{}".format(word))
+    return b"".join(word.to_bytes(2, "little") for word in data)

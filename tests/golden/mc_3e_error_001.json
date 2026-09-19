@@ -1,0 +1,14 @@
+{
+    "name": "3E 读返回结束代码 0xC059",
+    "request_hex": "500000ffff03000c000a0001040000640000a80200",
+    "response_hex": "d00000ffff0300020059c0",
+    "expect": {
+        "error_code": 49241
+    },
+    "setup": {
+        "frame": "3E",
+        "network": 0,
+        "station": 255,
+        "monitoring_timer": 10
+    }
+}

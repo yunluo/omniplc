@@ -1,0 +1,17 @@
+{
+    "name": "3E 成批读:D100 起 2 字,值 20/10",
+    "request_hex": "500000ffff03000c000a0001040000640000a80200",
+    "response_hex": "d00000ffff03000600000014000a00",
+    "expect": {
+        "values": [
+            20,
+            10
+        ]
+    },
+    "setup": {
+        "frame": "3E",
+        "network": 0,
+        "station": 255,
+        "monitoring_timer": 10
+    }
+}

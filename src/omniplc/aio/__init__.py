@@ -399,6 +399,14 @@ class AOmronFinsTcpClient(ABaseClient):
         """参数同 :class:`omniplc.plc.omron.OmronFinsTcpClient`。"""
         super().__init__(OmronFinsTcpClient(ip_address, port, local_node))
 
+    @property
+    def local_node(self) -> int:
+        """本地节点号(自动分配时在连接后可用,转发同步实例)。"""
+        sync = self._sync
+        if not isinstance(sync, OmronFinsTcpClient):
+            raise TypeError("内部错误:sync 实例不是 OmronFinsTcpClient")
+        return sync.local_node
+
 
 class AOmronFinsUdpClient(ABaseClient):
     """欧姆龙 FINS/UDP 异步客户端。"""

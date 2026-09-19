@@ -1,0 +1,22 @@
+{
+    "name": "UDP 区域读返回结束码 0x0001",
+    "request_hex": "800002000500000a00010101820064000002",
+    "response_hex": "c00002000a000005000101010001",
+    "expect": {
+        "error_code": 1
+    },
+    "setup": {
+        "transport": "udp",
+        "destination": [
+            0,
+            5,
+            0
+        ],
+        "source": [
+            0,
+            10,
+            0
+        ],
+        "sid": 1
+    }
+}

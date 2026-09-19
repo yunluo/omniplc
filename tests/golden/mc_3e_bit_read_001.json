@@ -1,0 +1,18 @@
+{
+    "name": "3E 成批读(位):M10 起 3 点,ON/OFF/ON",
+    "request_hex": "500000ffff03000c000a00010401000a0000900300",
+    "response_hex": "d00000ffff0300040000001010",
+    "expect": {
+        "values": [
+            1,
+            0,
+            1
+        ]
+    },
+    "setup": {
+        "frame": "3E",
+        "network": 0,
+        "station": 255,
+        "monitoring_timer": 10
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "name": "1E 成批写(字):D100 1 字,值 1234",
+    "request_hex": "03000a006400000020440100d204",
+    "response_hex": "8300",
+    "expect": {
+        "echo": true
+    },
+    "setup": {
+        "frame": "1E",
+        "station": 0,
+        "monitoring_timer": 10
+    }
+}

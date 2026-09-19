@@ -1,0 +1,22 @@
+{
+    "name": "UDP 区域写:W10 起 2 字,值 0x1234/0x5678",
+    "request_hex": "800002000500000a00020102b1000a00000212345678",
+    "response_hex": "c00002000a000005000201020000",
+    "expect": {
+        "echo": true
+    },
+    "setup": {
+        "transport": "udp",
+        "destination": [
+            0,
+            5,
+            0
+        ],
+        "source": [
+            0,
+            10,
+            0
+        ],
+        "sid": 2
+    }
+}

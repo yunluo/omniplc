@@ -29,6 +29,9 @@ class BaseTransport(ABC):
     :raises OSError: 底层 socket/串口错误(含超时)
     """
 
+    datagram: bool = False
+    """True = 一问一答一数据报(recv 整包);False = 流式(协议层按长收包)。"""
+
     def __init__(self) -> None:
         self._connect_timeout: float = DEFAULT_CONNECT_TIMEOUT
         self._receive_timeout: float = DEFAULT_RECEIVE_TIMEOUT

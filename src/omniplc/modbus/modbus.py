@@ -30,7 +30,14 @@ from ..core.constants import (
     SERIAL_DEFAULT_PARITY,
     SERIAL_DEFAULT_STOP_BITS,
 )
-from ..core.errors import ProtocolFrameError, TransportClosedError
+from ..core.errors import ProtocolFrameError
+from ..core.validation import (
+    check_int16,
+    check_uint16,
+    require_bool,
+    require_float,
+    require_int,
+)
 from ..transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport, UdpTransport
 from ..types import DataType, SerialParity, WordOrder, PrimitiveValue
 from . import codec
@@ -100,13 +107,13 @@ class ModbusBaseClient(BaseClient):
         """按数据类型分发到位/寄存器写原语。"""
         parsed = _check_address(address, data_type)
         if data_type is DataType.BOOL:
-            self._write_bool_impl(parsed, _require_bool(value))
+            self._write_bool_impl(parsed, require_bool(value))
             return
         if data_type is DataType.SHORT:
-            self._write_single_register(parsed, _check_int16(value))
+            self._write_single_register(parsed, check_int16(value))
             return
         if data_type is DataType.USHORT:
-            self._write_single_register(parsed, _check_uint16(value))
+            self._write_single_register(parsed, check_uint16(value))
             return
         if data_type in (DataType.INT, DataType.UINT):
             registers = _encode_32bit(value, data_type, self._word_order)
@@ -117,11 +124,11 @@ class ModbusBaseClient(BaseClient):
             self._write_registers_impl(parsed, registers)
             return
         if data_type is DataType.FLOAT:
-            registers = list(convert.float32_to_registers(_require_float(value), self._word_order))
+            registers = list(convert.float32_to_registers(require_float(value), self._word_order))
             self._write_registers_impl(parsed, registers)
             return
         if data_type is DataType.DOUBLE:
-            registers = list(convert.float64_to_registers(_require_float(value), self._word_order))
+            registers = list(convert.float64_to_registers(require_float(value), self._word_order))
             self._write_registers_impl(parsed, registers)
             return
         raise ValueError("Modbus 不支持的数据类型:{}".format(data_type))
@@ -194,15 +201,6 @@ class ModbusBaseClient(BaseClient):
         """批量写保持寄存器(FC 16)。"""
         pdu = codec.build_write_multi_pdu(parsed.write_multi_function_code, parsed.offset, registers)
         self._transact(pdu)
-
-    def _require_transport(self) -> BaseTransport:
-        """取当前传输对象(仅事务锁内调用,内部方法)。
-
-        :raises TransportClosedError: 连接未建立(正常流程下由基类先重连)
-        """
-        if self._transport is None:
-            raise TransportClosedError("连接未建立")
-        return self._transport
 
     @abstractmethod
     def _transact(self, pdu: bytes) -> bytes:
@@ -384,43 +382,6 @@ def _check_address(address: str, data_type: DataType) -> ModbusAddress:
     return parsed
 
 
-def _require_bool(value: PrimitiveValue) -> bool:
-    """校验布尔参数。"""
-    if not isinstance(value, bool):
-        raise ValueError("布尔量必须是 bool,收到:{}".format(type(value).__name__))
-    return value
-
-
-def _require_float(value: PrimitiveValue) -> float:
-    """校验浮点参数。"""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError("浮点量必须是数字,收到:{}".format(type(value).__name__))
-    return float(value)
-
-
-def _check_int16(value: PrimitiveValue) -> int:
-    """校验 16 位有符号整数范围。"""
-    number = _require_int(value)
-    if not -32768 <= number <= 32767:
-        raise ValueError("short 超出范围 -32768~32767:{}".format(number))
-    return number & 0xFFFF
-
-
-def _check_uint16(value: PrimitiveValue) -> int:
-    """校验 16 位无符号整数范围。"""
-    number = _require_int(value)
-    if not 0 <= number <= 65535:
-        raise ValueError("ushort 超出范围 0~65535:{}".format(number))
-    return number
-
-
-def _require_int(value: PrimitiveValue) -> int:
-    """校验整数参数(排除 bool)。"""
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError("整数必须是 int,收到:{}".format(type(value).__name__))
-    return value
-
-
 def _decode_32bit(registers: List[int], data_type: DataType, word_order: WordOrder) -> PrimitiveValue:
     """按类型解码 2 寄存器值。"""
     if data_type is DataType.INT:
@@ -445,7 +406,7 @@ def _decode_64bit(registers: List[int], data_type: DataType, word_order: WordOrd
 
 def _encode_32bit(value: PrimitiveValue, data_type: DataType, word_order: WordOrder) -> List[int]:
     """按类型编码 32 位整数为 2 寄存器。"""
-    number = _require_int(value)
+    number = require_int(value)
     if data_type is DataType.INT:
         if not -2147483648 <= number <= 2147483647:
             raise ValueError("int 超出 32 位范围:{}".format(number))
@@ -457,7 +418,7 @@ def _encode_32bit(value: PrimitiveValue, data_type: DataType, word_order: WordOr
 
 def _encode_64bit(value: PrimitiveValue, data_type: DataType, word_order: WordOrder) -> List[int]:
     """按类型编码 64 位整数为 4 寄存器。"""
-    number = _require_int(value)
+    number = require_int(value)
     if data_type is DataType.LONG:
         if not -9223372036854775808 <= number <= 9223372036854775807:
             raise ValueError("long 超出 64 位范围:{}".format(number))

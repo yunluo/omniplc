@@ -13,8 +13,13 @@ class TestMcAddress:
     def test_basic(self) -> None:
         parsed = parse_mc_address("D100")
         assert parsed.device == "D"
-        assert parsed.offset == 100
+        assert parsed.number == "100"
         assert parsed.bit is None
+
+    def test_hex_number(self) -> None:
+        """十六进制软元件编号保留数字原文(X/W 在 3E/4E 下为十六进制)。"""
+        assert parse_mc_address("X1F").number == "1F"
+        assert parse_mc_address("W20").number == "20"
 
     def test_case_insensitive(self) -> None:
         assert parse_mc_address("d100").device == "D"

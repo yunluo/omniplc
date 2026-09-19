@@ -1,0 +1,18 @@
+{
+    "name": "4E 成批读:D100 起 2 字,序列号 1",
+    "request_hex": "54000100000000ffff03000c000a0001040000640000a80200",
+    "response_hex": "d4000100000000ffff03000600000014000a00",
+    "expect": {
+        "values": [
+            20,
+            10
+        ]
+    },
+    "setup": {
+        "frame": "4E",
+        "network": 0,
+        "station": 255,
+        "monitoring_timer": 10,
+        "serial": 1
+    }
+}

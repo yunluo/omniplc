@@ -18,6 +18,9 @@ class UdpTransport(BaseTransport):
     - UDP 无连接概念,``connect()`` 只做本地套接字初始化,不会失败于对端
     """
 
+    datagram: bool = True
+    """一问一答一数据报:recv 整包,协议层按帧内长度字段校验。"""
+
     def __init__(self, ip_address: str, port: int) -> None:
         """初始化 UDP 传输。
 

@@ -24,7 +24,7 @@ from .constants import (
     DEFAULT_STRING_ENCODING,
     READ_STRING_DEFAULT_LENGTH,
 )
-from .errors import DeviceError, OmniPLCInternalError
+from .errors import DeviceError, OmniPLCInternalError, TransportClosedError
 from ..tag import Tag, TagTable
 from ..transport import BaseTransport
 from ..types import DataType, PrimitiveValue
@@ -492,6 +492,15 @@ class BaseClient(ABC):
     # ------------------------------------------------------------------
     # 驱动子类需要实现的协议原语
     # ------------------------------------------------------------------
+
+    def _require_transport(self) -> BaseTransport:
+        """取当前传输对象(仅事务锁内调用,内部方法)。
+
+        :raises TransportClosedError: 连接未建立(正常流程下由基类先重连)
+        """
+        if self._transport is None:
+            raise TransportClosedError("连接未建立")
+        return self._transport
 
     @abstractmethod
     def _create_transport(self) -> BaseTransport:

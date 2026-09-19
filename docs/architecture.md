@@ -266,8 +266,8 @@ class BaseClient(ABC):
 | 协议 | 语法示例 | 说明 |
 |---|---|---|
 | Modbus | `hr0` / `c7` / `di10` / `ir3` / `hr0.15` / `40001` | 前缀语法为主;兼容 Modicon 1 基风格(自动转 0 基);位号 0~15;已实现(`modbus/address.py`) |
-| 三菱 MC | `D100` / `M10` / `X20` / `Y40` / `W100` / `R100` / `Z0` / `D100.3` | 语法拆分已实现(`plc/melsec/address.py`);八进制软元件(X/Y)换算与软元件码表随帧 codec 实现 |
-| 欧姆龙 FINS | `D100` / `CIO0` / `CIO0.5` / `W10` / `H20` / `A0` / `E0_100` | 语法拆分已实现(`plc/omron/address.py`);EM 区 bank 用下划线;存储区码随帧 codec 实现 |
+| 三菱 MC | `D100` / `M10` / `X1F` / `Y40` / `W100` / `R100` / `Z0` / `ZR100` / `D100.3` | 已实现(`plc/melsec/`);编号进制按码表:X/Y/W/B 十六进制、其余十进制(Q/L/R 口径,SH-080956;1E 帧下 X/Y 八进制),地址解析保留数字原文 |
+| 欧姆龙 FINS | `D100` / `CIO0` / `CIO0.5` / `W10` / `H20` / `A0` / `E0_100` | 已实现(`plc/omron/`);存储区码随帧 codec 实现,EM 区 bank 用下划线 |
 
 解析失败统一抛 `ValueError`(参数错误约定)。
 
@@ -295,8 +295,14 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 |---|---|
 | Modbus 编解码 | `ModBus/ModbusInfo.cs`(功能码/异常码/MBAP 组帧)、`Core/IMessage/ModbusTcpMessage.cs`(事务号/协议号校验、按长收包) |
 | Modbus TCP/UDP/RTU 客户端 | `ModBus/ModbusTcp/ModbusTcpNet.cs`、`ModBus/ModbusRtu/ModbusRtu.cs`(CRC16 校验) |
-| 三菱 MC(3E/4E/1E,待实现) | `Profinet/Melsec/MelsecMcNet.cs`(3E)、`MelsecMcAsciiNet.cs`(ASCII 帧,v1.x)、`MelsecA1ENet.cs`(1E)、`MelsecMcDataType.cs` / `MelsecA1EDataType.cs`(软元件码表)、`MelsecHelper.cs`(结束码解析) |
-| 欧姆龙 FINS(TCP/UDP,待实现) | `Profinet/Omron/OmronFinsNet.cs`、`OmronFinsUdp.cs`、`OmronFinsNetHelper.cs`(帧组装/解析)、`OmronFinsDataType.cs`(存储区码)、`Core/IMessage/FinsMessage.cs`(TCP 握手/帧长) |
+| 三菱 MC(3E/4E/1E,已实现) | `Profinet/Melsec/MelsecMcNet.cs`(3E)、`MelsecMcAsciiNet.cs`(ASCII 帧,v1.x)、`MelsecA1ENet.cs`(1E)、`MelsecMcDataType.cs` / `MelsecA1EDataType.cs`(软元件码表)、`MelsecHelper.cs`(核心命令构造) |
+| 欧姆龙 FINS(TCP/UDP,已实现) | `Profinet/Omron/OmronFinsNet.cs`、`OmronFinsUdp.cs`、`OmronFinsNetHelper.cs`(帧组装/解析)、`OmronFinsDataType.cs`(存储区码)、`Core/IMessage/FinsMessage.cs`(TCP 握手/帧长) |
+
+三菱帧实现另对照本地 Python SLMP 参考库
+`D:\DOWNLOAD\plc-comm-slmp-python-main\slmp\`(SH-080956 口径,pcap 验证):
+**4E 帧带序列号**(请求副头部恒 `54 00`、响应 `D4 00`,与 Hsl 的 0x58 说法不同,
+以 SLMP 库为准)、软元件编号进制(X/Y/W/B 十六进制、ZR 十进制)、
+应答数据长字段校验均与该库一致。
 
 ## 9. 测试策略
 
@@ -341,6 +347,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 |---|---|---|
 | 本次 | 架构文档 + 项目骨架 + 公共层/传输层完整实现 + 测试基座 | ✅ 完成 |
 | v0.2 | Modbus TCP/UDP/RTU 编解码 + 黄金样本 + 脚本化链路测试 | ✅ 完成 |
-| 之后 | MC 3E/4E(TCP/UDP)→ MC 1E → FINS TCP/UDP → Tag 完善 + 示例 → v1.0 | 待开工 |
+| v0.3 | 三菱 MC 3E/4E/1E(TCP/UDP)+ 欧姆龙 FINS TCP/UDP(握手/节点分配)+ 黄金样本 | ✅ 完成 |
+| 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 串口帧(2C/3C/4C)、FINS Host Link、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 西门子 S7(drivers 插槽已预留,沿用 BaseClient 原语模式) | 规划 |

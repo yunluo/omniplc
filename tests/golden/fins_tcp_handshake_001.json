@@ -1,0 +1,12 @@
+{
+    "name": "FINS/TCP 节点分配握手(本地 0 → 分配 11,PLC 节点 5)",
+    "request_hex": "46494e530000000c000000000000000000000000",
+    "response_hex": "46494e530000001000000001000000000000000b00000005",
+    "expect": {
+        "local_node": 11,
+        "plc_node": 5
+    },
+    "setup": {
+        "transport": "tcp"
+    }
+}

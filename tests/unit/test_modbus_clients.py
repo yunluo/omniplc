@@ -10,43 +10,15 @@
 """
 from __future__ import annotations
 
-from typing import List
-
 import pytest
 
 from omniplc import ModbusRtuClient, ModbusTcpClient, ModbusUdpClient
 from omniplc.core.errors import DeviceError
 from omniplc.modbus import codec
-from omniplc.transport.base import BaseTransport
+from scripted import ScriptedTransport as _ScriptedTransport
 
 # FC03 读 1 个寄存器、字节计数 2、值 20 的标准响应 PDU
 _RESPONSE_ONE_REGISTER = bytes([3, 2, 0x00, 0x14])
-
-
-class _ScriptedTransport(BaseTransport):
-    """按脚本应答的假传输:send 记录请求,recv 按序返回预置分片。
-
-    TCP 用法:把完整应答帧按 recv 尺寸切成多个分片(如 ``frame[:7]``);
-    UDP 用法:单个分片即整个数据报。
-    """
-
-    def __init__(self, chunks: List[bytes]) -> None:
-        self._chunks = list(chunks)
-        self.sent = bytearray()
-
-    def connect(self) -> None:
-        pass
-
-    def close(self) -> None:
-        pass
-
-    def send(self, data: bytes) -> None:
-        self.sent.extend(data)
-
-    def recv(self, size: int) -> bytes:
-        if not self._chunks:
-            raise ConnectionError("脚本分片已耗尽")
-        return self._chunks.pop(0)
 
 
 def test_tcp_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:

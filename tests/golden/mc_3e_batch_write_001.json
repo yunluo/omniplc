@@ -1,0 +1,14 @@
+{
+    "name": "3E 成批写:D100 起 2 字,值 10/258",
+    "request_hex": "500000ffff030010000a0001140000640000a802000a000201",
+    "response_hex": "d00000ffff030002000000",
+    "expect": {
+        "echo": true
+    },
+    "setup": {
+        "frame": "3E",
+        "network": 0,
+        "station": 255,
+        "monitoring_timer": 10
+    }
+}
