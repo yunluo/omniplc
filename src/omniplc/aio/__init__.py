@@ -26,6 +26,8 @@ from ..core.constants import (
     MODBUS_DEFAULT_STATION,
     MX_DEFAULT_LOGICAL_STATION,
     READ_STRING_DEFAULT_LENGTH,
+    SR_DEFAULT_PORT,
+    SR_DEFAULT_SCAN_DWELL,
     SERIAL_DEFAULT_BAUD_RATE,
     SERIAL_DEFAULT_DATA_BITS,
     SERIAL_DEFAULT_PARITY,
@@ -35,6 +37,7 @@ from ..modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from ..modbus.modbus import _coerce_word_order
 from ..plc.keyence import KeyenceHostLinkTcpClient, KeyenceHostLinkUdpClient
 from ..plc.melsec import MelsecMcTcpClient, MelsecMcUdpClient, MelsecMxClient
+from ..scanner import KeyenceSrClient
 from ..plc.omron import OmronFinsTcpClient, OmronFinsUdpClient
 from ..tag import Tag, TagTable
 from ..types import McFrame, PrimitiveValue, SerialParity
@@ -424,6 +427,45 @@ class AKeyenceHostLinkUdpClient(ABaseClient):
     ) -> None:
         """参数同 :class:`omniplc.plc.keyence.KeyenceHostLinkUdpClient`。"""
         super().__init__(KeyenceHostLinkUdpClient(ip_address, port))
+
+
+class AKeyenceSrClient(ABaseClient):
+    """基恩士 SR 扫码枪异步客户端(TCP)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        port: int = SR_DEFAULT_PORT,
+        scan_dwell: float = SR_DEFAULT_SCAN_DWELL,
+    ) -> None:
+        """参数同 :class:`omniplc.scanner.KeyenceSrClient`。"""
+        super().__init__(KeyenceSrClient(ip_address, port, scan_dwell))
+
+    def _scanner(self) -> KeyenceSrClient:
+        """取扫码枪同步实例(内部属性)。"""
+        sync = self._sync
+        if not isinstance(sync, KeyenceSrClient):
+            raise TypeError("内部错误:sync 实例不是 KeyenceSrClient")
+        return sync
+
+    async def scan(
+        self, bank: Optional[int] = None, timeout: Optional[float] = None
+    ) -> Tuple[bool, Optional[str]]:
+        """触发一次扫码(语义同同步版 :meth:`KeyenceSrClient.scan`)。"""
+        return await self._run(lambda: self._scanner().scan(bank, timeout))
+
+    async def reset(self) -> bool:
+        """清缓冲并复位扫码枪。"""
+        return await self._run(self._scanner().reset)
+
+    @property
+    def scan_dwell(self) -> float:
+        """扫码窗口时长(秒)。"""
+        return self._scanner().scan_dwell
+
+    @scan_dwell.setter
+    def scan_dwell(self, seconds: float) -> None:
+        self._scanner().scan_dwell = seconds
 
 
 class AOmronFinsTcpClient(ABaseClient):

@@ -77,6 +77,10 @@ BaseClient (ABC, 模板方法) ───────────── src/omnip
     ├── KeyenceHostLinkTcpClient → TcpTransport(8000,按行逐字节收包)
     └── KeyenceHostLinkUdpClient → UdpTransport(8000,一问一答一数据报)
 
+KeyenceSrClient ─────────────────────── src/omniplc/scanner/keyence_sr.py
+    基恩士 SR 扫码枪(TCP 9004,LON → 窗口 → LOFF → 读应答;
+    scan() 返回 (是否读到, 条码文本);不实现 _read/_write 数据原语)
+
 BaseTransport (ABC) ───────────────────── src/omniplc/transport/
 ├── TcpTransport      TCP_NODELAY,recv 精确凑齐 size 字节(流式粘包处理)
 ├── UdpTransport      已连接 UDP,recv 一次返回一条数据报
@@ -89,10 +93,11 @@ ABaseClient ── 组合同步实例 + 单线程 ThreadPoolExecutor,方法签�
 ├── AModbusBaseClient → AModbusTcpClient / AModbusRtuClient
 ├── AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMxClient
 ├── AOmronFinsTcpClient / AOmronFinsUdpClient
-└── AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient
+├── AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient
+└── AKeyenceSrClient
 ```
 
-v1 共 **9 个同步具体类 + 9 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
+v1 共 **10 个同步具体类 + 10 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
 另加 MX Component(Windows/COM,单线程 executor 天然满足 ActUtlType 的 STA 模型)。
 
 ### 2.1 继承设计要点(模板方法模式)
@@ -291,6 +296,7 @@ class BaseClient(ABC):
 | 三菱 MC 1E(A 兼容,A 系列) | ✅ `frame="1E"` | ✅ | v1.x | ✅ |
 | 欧姆龙 FINS | ✅ `OmronFinsTcpClient`(含握手) | ✅ `OmronFinsUdpClient` | v1.x(Host Link) | — |
 | 基恩士 KV Host Link | ✅ `KeyenceHostLinkTcpClient` | ✅ `KeyenceHostLinkUdpClient` | — | — |
+| 基恩士 SR 扫码枪 | ✅ `KeyenceSrClient`(9004) | — | — | — |
 
 MX Component 说明:``MelsecMxClient`` 经三菱 MX Component 的 ``ActUtlType``
 COM 控件(实用程序设置型)通信,通信参数在**通信设置实用程序**中配置为逻辑站号
@@ -325,6 +331,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 | 三菱 MC(3E/4E/1E,已实现) | `Profinet/Melsec/MelsecMcNet.cs`(3E)、`MelsecMcAsciiNet.cs`(ASCII 帧,v1.x)、`MelsecA1ENet.cs`(1E)、`MelsecMcDataType.cs` / `MelsecA1EDataType.cs`(软元件码表)、`MelsecHelper.cs`(核心命令构造) |
 | 三菱 MX Component(已实现) | `docs/MX Component Version 4编程手册.pdf`(ActUtlType 逻辑站号、Open/Close/GetDevice/SetDevice/ReadDeviceBlock/WriteDeviceBlock 数据布局、第 7 章出错代码) |
 | 基恩士 KV Host Link(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\plc-comm-hostlink-python-main\src\hostlink\`(RD/RDS/WR/WRS 命令、.U/.S/.D/.L/.H 数据格式、E0~E6 出错代码、float32 两字小端、位组/X-Y 编号规则) |
+| 基恩士 SR 扫码枪(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\vention_barcode_scanner-0.8.3.tar\...\scanners\keyence.py`(TCP 9004、LON/LOFF 时序——应答在 LOFF 之后才发送、bank 0~15、BCLR/RESET、ERROR/OK 应答) |
 | 欧姆龙 FINS(TCP/UDP,已实现) | `Profinet/Omron/OmronFinsNet.cs`、`OmronFinsUdp.cs`、`OmronFinsNetHelper.cs`(帧组装/解析)、`OmronFinsDataType.cs`(存储区码)、`Core/IMessage/FinsMessage.cs`(TCP 握手/帧长) |
 
 三菱帧实现另对照本地 Python SLMP 参考库
@@ -379,6 +386,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 | v0.3 | 三菱 MC 3E/4E/1E(TCP/UDP)+ 欧姆龙 FINS TCP/UDP(握手/节点分配)+ 黄金样本 | ✅ 完成 |
 | v0.4 | 三菱 MX Component(comtypes,逻辑站号)+ Modbus UDP 移除 + MC float 解码修正 | ✅ 完成 |
 | v0.5 | 基恩士 KV Host Link(TCP/UDP,RD/RDS/WR/WRS,位组/十六进制地址)| ✅ 完成 |
+| v0.6 | 基恩士 SR 扫码枪(TCP 9004,LON/LOFF 触发扫码,bank 预设)| ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 串口帧(2C/3C/4C)、FINS Host Link、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 西门子 S7(drivers 插槽已预留,沿用 BaseClient 原语模式) | 规划 |

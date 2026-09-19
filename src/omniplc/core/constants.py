@@ -247,6 +247,28 @@ KV_HEX_NUMBER_DEVICES: Tuple[str, ...] = ("B", "VB", "W")
 KV_BIT_BANK_DEVICES: Tuple[str, ...] = ("R", "MR", "CR")
 """位组编号软元件:十进制 ``组号+位号两位``,低两位 00~15(如 R515 = 组 5 位 15)。"""
 
+# ---------------------------------------------------------------- 基恩士 SR 扫码枪
+SR_DEFAULT_PORT: int = 9004
+"""SR 系列 Ethernet 用户模式默认 TCP 端口。"""
+SR_DEFAULT_SCAN_DWELL: float = 1.0
+"""默认扫码窗口时长(秒):LON 开窗到 LOFF 关窗的等待时间。"""
+SR_BANK_MAX: int = 15
+"""预设 bank 号上限(LON,{bank:02d},0~15)。"""
+SR_RECV_MAX: int = 1024
+"""单次响应读取字节上限。"""
+SR_CMD_LON: bytes = b"LON\r"
+"""打开扫码窗口(默认 bank)。"""
+SR_CMD_LOFF: bytes = b"LOFF\r"
+"""关闭扫码窗口(触发应答发送)。"""
+SR_CMD_RESET: bytes = b"RESET\r"
+"""扫码枪复位。"""
+SR_CMD_BUFFER_CLEAR: bytes = b"BCLR\r"
+"""清除接收缓冲。"""
+SR_RESP_OK: str = "OK"
+"""命令成功应答。"""
+SR_RESP_ERROR: str = "ERROR"
+"""读码失败应答(未读到条码或距离过远)。"""
+
 # ---------------------------------------------------------------- 通用
 BIT_INDEX_MAX: int = 63
 """位操作工具允许的最大位号。"""
