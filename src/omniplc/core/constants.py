@@ -222,6 +222,31 @@ MX_BIT_DEVICES: Tuple[str, ...] = (
 )
 """Q/R 系列常见位软元件表(用于区分位/字访问);表外软元件按字软元件处理。"""
 
+# ---------------------------------------------------------------- 基恩士 KV Host Link
+KV_DEFAULT_PORT: int = 8000
+"""KV Host Link TCP/UDP 默认端口(KEYENCE 惯例值,可在 PLC 侧修改)。"""
+KV_MAX_LINE: int = 4096
+"""ASCII 响应行长度上限(驱动单次最多读 8 个字,远小于该上限)。"""
+KV_MAX_DATAGRAM: int = 2048
+"""UDP 整包接收缓冲上限。"""
+KV_ERROR_TEXT: Dict[str, str] = {
+    "E0": "软元件编号异常",
+    "E1": "命令异常",
+    "E2": "程序未登记",
+    "E4": "禁止写入",
+    "E5": "单元异常",
+    "E6": "无注释",
+}
+"""KV Host Link 出错代码文本;未收录的提示查阅 KEYENCE 手册。"""
+KV_BIT_DEVICES: Tuple[str, ...] = ("R", "B", "MR", "LR", "CR", "VB", "X", "Y", "M", "L")
+"""位软元件(R/MR/CR 为位组十进制,B/VB 十六进制,X/Y 组十进制+位 1 位十六进制,M/L 十进制)。"""
+KV_WORD_DEVICES: Tuple[str, ...] = ("DM", "EM", "FM", "ZF", "W", "TM", "Z", "CM", "VM", "D", "E", "F")
+"""字软元件(W 十六进制编号,其余十进制)。"""
+KV_HEX_NUMBER_DEVICES: Tuple[str, ...] = ("B", "VB", "W")
+"""编号为十六进制的软元件。"""
+KV_BIT_BANK_DEVICES: Tuple[str, ...] = ("R", "MR", "CR")
+"""位组编号软元件:十进制 ``组号+位号两位``,低两位 00~15(如 R515 = 组 5 位 15)。"""
+
 # ---------------------------------------------------------------- 通用
 BIT_INDEX_MAX: int = 63
 """位操作工具允许的最大位号。"""

@@ -1,7 +1,9 @@
 """omniplc —— 多品牌多协议 PLC 统一通信库。
 
-一次编写,通过一致的 API 对接三菱(MC 协议)、欧姆龙(FINS)等 PLC,
-支持 Modbus TCP/RTU、MC 3E/4E/1E、MC over MX Component、FINS over TCP/UDP。
+一次编写,通过一致的 API 对接三菱(MC 协议)、欧姆龙(FINS)、
+基恩士(KV Host Link)等 PLC,
+支持 Modbus TCP/RTU、MC 3E/4E/1E、MC over MX Component、FINS over TCP/UDP、
+KV Host Link over TCP/UDP。
 
 同步客户端::
 
@@ -25,13 +27,14 @@ from .core.base_client import BaseClient
 from .modbus import ModbusArea, ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from .plc.melsec import MelsecMcTcpClient, MelsecMcUdpClient, MelsecMxClient
 from .plc.omron import OmronFinsTcpClient, OmronFinsUdpClient
+from .plc.keyence import KeyenceHostLinkTcpClient, KeyenceHostLinkUdpClient
 from .tag import Tag, TagTable
 from .transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport, UdpTransport
 from .types import ByteOrder, DataType, McFrame, SerialParity, WordOrder
 
 __version__ = "0.1.0"
 __author__ = "云落"
-__description__ = "多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC / 欧姆龙 FINS)"
+__description__ = "多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC / 欧姆龙 FINS / 基恩士 KV Host Link)"
 
 __all__ = [
     # ---- 客户端基类 ----
@@ -44,6 +47,9 @@ __all__ = [
     "MelsecMcTcpClient",
     "MelsecMcUdpClient",
     "MelsecMxClient",
+    # ---- 基恩士 KV Host Link 客户端 ----
+    "KeyenceHostLinkTcpClient",
+    "KeyenceHostLinkUdpClient",
     # ---- 欧姆龙 FINS 客户端 ----
     "OmronFinsTcpClient",
     "OmronFinsUdpClient",

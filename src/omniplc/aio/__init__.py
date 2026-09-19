@@ -18,6 +18,7 @@ from ..core.base_client import BaseClient
 from ..core.constants import (
     DEFAULT_STRING_ENCODING,
     FINS_DEFAULT_PORT,
+    KV_DEFAULT_PORT,
     MC_DEFAULT_NETWORK_NUMBER,
     MC_DEFAULT_PC_NUMBER,
     MC_DEFAULT_PORT,
@@ -32,6 +33,7 @@ from ..core.constants import (
 )
 from ..modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from ..modbus.modbus import _coerce_word_order
+from ..plc.keyence import KeyenceHostLinkTcpClient, KeyenceHostLinkUdpClient
 from ..plc.melsec import MelsecMcTcpClient, MelsecMcUdpClient, MelsecMxClient
 from ..plc.omron import OmronFinsTcpClient, OmronFinsUdpClient
 from ..tag import Tag, TagTable
@@ -398,6 +400,30 @@ class AMelsecMxClient(ABaseClient):
         if not isinstance(sync, MelsecMxClient):
             raise TypeError("内部错误:sync 实例不是 MelsecMxClient")
         return sync.logical_station_number
+
+
+class AKeyenceHostLinkTcpClient(ABaseClient):
+    """基恩士 KV Host Link 异步客户端(TCP)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        port: int = KV_DEFAULT_PORT,
+    ) -> None:
+        """参数同 :class:`omniplc.plc.keyence.KeyenceHostLinkTcpClient`。"""
+        super().__init__(KeyenceHostLinkTcpClient(ip_address, port))
+
+
+class AKeyenceHostLinkUdpClient(ABaseClient):
+    """基恩士 KV Host Link 异步客户端(UDP)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        port: int = KV_DEFAULT_PORT,
+    ) -> None:
+        """参数同 :class:`omniplc.plc.keyence.KeyenceHostLinkUdpClient`。"""
+        super().__init__(KeyenceHostLinkUdpClient(ip_address, port))
 
 
 class AOmronFinsTcpClient(ABaseClient):

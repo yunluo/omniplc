@@ -72,6 +72,11 @@ BaseClient (ABC, 模板方法) ───────────── src/omnip
     ├── OmronFinsTcpClient → FINS 帧+TCP 握手(_after_connect 钩子) + TcpTransport(9600)
     └── OmronFinsUdpClient → FINS 帧无握手 + UdpTransport(9600)
 
+└── _KeyenceHostLinkBase (ABC, 私有) ──── src/omniplc/plc/keyence/hostlink.py
+    │   ASCII 行式协议(RD/RDS/WR/WRS + CR 结束,响应行 CR/LF)
+    ├── KeyenceHostLinkTcpClient → TcpTransport(8000,按行逐字节收包)
+    └── KeyenceHostLinkUdpClient → UdpTransport(8000,一问一答一数据报)
+
 BaseTransport (ABC) ───────────────────── src/omniplc/transport/
 ├── TcpTransport      TCP_NODELAY,recv 精确凑齐 size 字节(流式粘包处理)
 ├── UdpTransport      已连接 UDP,recv 一次返回一条数据报
@@ -83,10 +88,11 @@ Tag (dataclass) / TagTable (Mapping) ──── src/omniplc/tag.py(from_json/f
 ABaseClient ── 组合同步实例 + 单线程 ThreadPoolExecutor,方法签名同名同型
 ├── AModbusBaseClient → AModbusTcpClient / AModbusRtuClient
 ├── AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMxClient
-└── AOmronFinsTcpClient / AOmronFinsUdpClient
+├── AOmronFinsTcpClient / AOmronFinsUdpClient
+└── AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient
 ```
 
-v1 共 **7 个同步具体类 + 7 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
+v1 共 **9 个同步具体类 + 9 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
 另加 MX Component(Windows/COM,单线程 executor 天然满足 ActUtlType 的 STA 模型)。
 
 ### 2.1 继承设计要点(模板方法模式)
@@ -284,6 +290,7 @@ class BaseClient(ABC):
 | 三菱 MC 3E/4E(QnA 兼容) | ✅ `MelsecMcTcpClient(frame="3E"/"4E")` | ✅ `MelsecMcUdpClient` | v1.x(2C/3C/4C 帧) | ✅ `MelsecMxClient` |
 | 三菱 MC 1E(A 兼容,A 系列) | ✅ `frame="1E"` | ✅ | v1.x | ✅ |
 | 欧姆龙 FINS | ✅ `OmronFinsTcpClient`(含握手) | ✅ `OmronFinsUdpClient` | v1.x(Host Link) | — |
+| 基恩士 KV Host Link | ✅ `KeyenceHostLinkTcpClient` | ✅ `KeyenceHostLinkUdpClient` | — | — |
 
 MX Component 说明:``MelsecMxClient`` 经三菱 MX Component 的 ``ActUtlType``
 COM 控件(实用程序设置型)通信,通信参数在**通信设置实用程序**中配置为逻辑站号
@@ -291,6 +298,14 @@ COM 控件(实用程序设置型)通信,通信参数在**通信设置实用程�
 MC 驱动一致(如 ``D100``/``M10``),软元件可用范围与进制由配置的 CPU 决定,
 编号原文直接透传给控件;错误以十六进制出错代码记入 ``last_error``(手册第 7 章)。
 COM 调用全部在客户端事务锁内串行;异步镜像经单工作线程执行,天然满足 STA。
+
+KV Host Link 说明:``KeyenceHostLinkTcpClient/UdpClient`` 使用 ASCII 行式命令
+(RD/RDS/WR/WRS,CR 结束;响应行以 CR/LF 结束,出错应答 ``E0``~``E9`` 记入
+``last_error``)。地址语法:位软元件 ``R515``(位组:组号+两位位号)/``B1F``、
+``W100``(十六进制)/``X0F``(组号十进制+位一位十六进制)/``M100``;字软元件
+``DM100`` 等,16/32 位整型经 ``.S/.U/.L/.D`` 后缀由 PLC 原生解析,float32 为
+连续两字小端拼接,64 位整型/浮点为连续四/八字小端拼接;字软元件位访问
+(``DM100.5``,omniplc 约定十进制位号)走读-改-写。
 
 实现选型:MC、FINS 无支持 Python 3.7 的成熟维护库 → 自研;
 pymodbus 2.5.3 已停止维护且 3.x 不支持 3.7 → **Modbus 也自研**
@@ -309,6 +324,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 | Modbus TCP/RTU 客户端 | `ModBus/ModbusTcp/ModbusTcpNet.cs`、`ModBus/ModbusRtu/ModbusRtu.cs`(CRC16 校验) |
 | 三菱 MC(3E/4E/1E,已实现) | `Profinet/Melsec/MelsecMcNet.cs`(3E)、`MelsecMcAsciiNet.cs`(ASCII 帧,v1.x)、`MelsecA1ENet.cs`(1E)、`MelsecMcDataType.cs` / `MelsecA1EDataType.cs`(软元件码表)、`MelsecHelper.cs`(核心命令构造) |
 | 三菱 MX Component(已实现) | `docs/MX Component Version 4编程手册.pdf`(ActUtlType 逻辑站号、Open/Close/GetDevice/SetDevice/ReadDeviceBlock/WriteDeviceBlock 数据布局、第 7 章出错代码) |
+| 基恩士 KV Host Link(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\plc-comm-hostlink-python-main\src\hostlink\`(RD/RDS/WR/WRS 命令、.U/.S/.D/.L/.H 数据格式、E0~E6 出错代码、float32 两字小端、位组/X-Y 编号规则) |
 | 欧姆龙 FINS(TCP/UDP,已实现) | `Profinet/Omron/OmronFinsNet.cs`、`OmronFinsUdp.cs`、`OmronFinsNetHelper.cs`(帧组装/解析)、`OmronFinsDataType.cs`(存储区码)、`Core/IMessage/FinsMessage.cs`(TCP 握手/帧长) |
 
 三菱帧实现另对照本地 Python SLMP 参考库
@@ -362,6 +378,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 | v0.2 | Modbus TCP/RTU 编解码 + 黄金样本 + 脚本化链路测试 | ✅ 完成 |
 | v0.3 | 三菱 MC 3E/4E/1E(TCP/UDP)+ 欧姆龙 FINS TCP/UDP(握手/节点分配)+ 黄金样本 | ✅ 完成 |
 | v0.4 | 三菱 MX Component(comtypes,逻辑站号)+ Modbus UDP 移除 + MC float 解码修正 | ✅ 完成 |
+| v0.5 | 基恩士 KV Host Link(TCP/UDP,RD/RDS/WR/WRS,位组/十六进制地址)| ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 串口帧(2C/3C/4C)、FINS Host Link、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 西门子 S7(drivers 插槽已预留,沿用 BaseClient 原语模式) | 规划 |

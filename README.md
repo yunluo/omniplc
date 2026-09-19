@@ -23,11 +23,15 @@ BaseClient (ABC, 模板方法) —— 连接状态机/事务锁/惰性重连/类
 ├── MelsecMxClient         三菱 MX Component(Windows,comtypes,逻辑站号)
 │
 ├── OmronFinsTcpClient     欧姆龙 FINS + TCP 握手(9600)
-└── OmronFinsUdpClient     欧姆龙 FINS over UDP(9600)
+├── OmronFinsUdpClient     欧姆龙 FINS over UDP(9600)
+│
+├── KeyenceHostLinkTcpClient  基恩士 KV Host Link over TCP(8000)
+└── KeyenceHostLinkUdpClient  基恩士 KV Host Link over UDP(8000)
 
 异步镜像(omniplc.aio):AModbusTcpClient / AModbusRtuClient /
 AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMxClient /
-AOmronFinsTcpClient / AOmronFinsUdpClient
+AOmronFinsTcpClient / AOmronFinsUdpClient /
+AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient
 ```
 
 详细架构设计见 [docs/architecture.md](docs/architecture.md)。
@@ -67,7 +71,7 @@ rtu = ModbusRtuClient(station=1)
 rtu.configure_serial("COM3", baud_rate=9600)
 ```
 
-#### 三菱 / 欧姆龙
+#### 三菱 / 欧姆龙 / 基恩士
 
 ```python
 from omniplc import MelsecMcTcpClient, OmronFinsUdpClient, McFrame
@@ -82,6 +86,10 @@ mx = MelsecMxClient(logical_station_number=1)
 
 # 欧姆龙 FINS:TCP 自动做节点分配握手,UDP 无握手
 fins = OmronFinsUdpClient(ip_address="192.168.250.1", port=9600)
+
+# 基恩士 KV Host Link:ASCII 行式协议,地址如 DM100 / R515 / W100
+from omniplc import KeyenceHostLinkTcpClient
+kv = KeyenceHostLinkTcpClient(ip_address="192.168.0.10", port=8000)
 ```
 
 #### 异步(类名前加 A)
@@ -121,13 +129,15 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 | Modbus           | ✅  | —   | ✅              | —                   |
 | 三菱 MC 3E/4E/1E | ✅  | ✅  | v1.x(2C/3C/4C)  | ✅(Windows + COM)  |
 | 欧姆龙 FINS      | ✅  | ✅  | v1.x(Host Link) | —                   |
+| 基恩士 KV Host Link | ✅ | ✅ | —               | —                   |
 
 #### 路线图
 
 - **v0.1**:架构落地 + 公共层/传输层完整实现 + 协议客户端骨架 + 100 例测试
 - **v0.2**:Modbus TCP/RTU 编解码 + 黄金报文样本 + 脚本化链路测试
 - **v0.3**:三菱 MC 3E/4E/1E(TCP/UDP)+ 欧姆龙 FINS TCP/UDP(握手/节点分配)
-- **v0.4(当前)**:三菱 MX Component(comtypes,逻辑站号)+ MC float 解码修正
+- **v0.4**:三菱 MX Component(comtypes,逻辑站号)+ MC float 解码修正
+- **v0.5(当前)**:基恩士 KV Host Link(TCP/UDP,RD/RDS/WR/WRS)
 - **v1.0**:点位表完善 + 示例 + 文档,正式发布
 - **v1.x**:MC 串口帧、FINS Host Link、心跳保活、轮询器、连接池
 - **v2**:西门子 S7(驱动插槽已预留)

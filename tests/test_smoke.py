@@ -8,6 +8,8 @@ import pytest
 import omniplc
 from omniplc import (
     BaseClient,
+    KeyenceHostLinkTcpClient,
+    KeyenceHostLinkUdpClient,
     MelsecMcTcpClient,
     MelsecMcUdpClient,
     MelsecMxClient,
@@ -18,6 +20,7 @@ from omniplc import (
     OmronFinsUdpClient,
 )
 from omniplc.aio import (
+    AKeyenceHostLinkTcpClient,
     AMelsecMcTcpClient,
     AMelsecMxClient,
     AModbusRtuClient,
@@ -42,6 +45,8 @@ class TestPublicSurface:
             "MelsecMcTcpClient",
             "MelsecMcUdpClient",
             "MelsecMxClient",
+            "KeyenceHostLinkTcpClient",
+            "KeyenceHostLinkUdpClient",
             "OmronFinsTcpClient",
             "OmronFinsUdpClient",
         ):
@@ -58,6 +63,10 @@ class TestInheritance:
 
     def test_melsec_tree(self) -> None:
         for cls in (MelsecMcTcpClient, MelsecMcUdpClient, MelsecMxClient):
+            assert issubclass(cls, BaseClient)
+
+    def test_keyence_tree(self) -> None:
+        for cls in (KeyenceHostLinkTcpClient, KeyenceHostLinkUdpClient):
             assert issubclass(cls, BaseClient)
 
     def test_transport_tree(self) -> None:
@@ -132,6 +141,7 @@ class TestAsyncMirror:
             lambda: AModbusRtuClient(1),
             lambda: AMelsecMcTcpClient("192.168.3.39", 2000, "3E"),
             lambda: AMelsecMxClient(1),
+            lambda: AKeyenceHostLinkTcpClient("192.168.0.10", 8000),
             lambda: AOmronFinsTcpClient("192.168.250.1"),
             lambda: AOmronFinsUdpClient("192.168.250.1"),
         ):
