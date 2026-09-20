@@ -1,6 +1,6 @@
 # omniplc 架构设计
 
-> 版本:v0.1.0 · 更新日期:2026-09-18 · 状态:骨架已落地,协议编解码待实现
+> 版本:v0.10 · 更新日期:2026-09-20 · 状态:Modbus / 三菱 MC / FINS / KV / SR / TOYOPUC / OPC-UA 驱动已全部落地
 
 omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7+,uv 开发)。
 本文档描述 v1.0 的完整架构:分层、类设计、继承树、线程安全模型、类型标注纪律、
@@ -10,26 +10,35 @@ omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7
 
 ## 1. 总体分层
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│ 用户 API 层                                                    │
-│   协议×走线 具体客户端类(7 个同步 + 7 个异步 A 前缀镜像)          │
-│   Tag / TagTable 可选点位表层                                   │
-├──────────────────────────────────────────────────────────────┤
-│ 驱动层 drivers                                                 │
-│   modbus/(codec + address + client)                            │
-│   plc/melsec/(codec_qna 3E/4E + codec_a 1E + address + client) │
-│   plc/omron/(codec + address + client)                         │
-├──────────────────────────────────────────────────────────────┤
-│ 传输层 transport(可插拔)                                       │
-│   BaseTransport → TcpTransport / UdpTransport / SerialTransport │
-├──────────────────────────────────────────────────────────────┤
-│ 公共基础层                                                      │
-│   core/BaseClient(状态机/锁/重连/重试/类型化方法模板)             │
-│   core/errors.py(错误类集中定义)                                  │
-│   core/constants.py(全局常量集中定义)                             │
-│   types.py(DataType/WordOrder)  convert.py(纯转换函数)          │
-└──────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph UserApi["用户 API 层"]
+        Clients["协议 × 走线 具体客户端类<br/>14 个同步 + 14 个异步(A 前缀镜像)<br/>scanner:KeyenceSrClient 扫码枪<br/>Tag / TagTable 可选点位表层"]
+    end
+    subgraph Drivers["驱动层 drivers(协议编解码 + 地址解析)"]
+        Modbus["modbus/<br/>codec + address + client"]
+        Melsec["plc/melsec/<br/>codec_qna(3E/4E)+ codec_a(1E)+ address + client"]
+        Omron["plc/omron/<br/>codec + address + client"]
+        Keyence["plc/keyence/<br/>hostlink + mc(继承 MelsecMcTcpClient)"]
+        Toyopuc["plc/toyopuc/<br/>codec + address + client"]
+        Opcua["opcua/<br/>address + client(封装 asyncua)"]
+    end
+    subgraph TransportLayer["传输层 transport(可插拔)"]
+        TransportList["BaseTransport(ABC)→ TcpTransport / UdpTransport / SerialTransport"]
+    end
+    subgraph CoreLayer["公共基础层"]
+        BaseClientC["core/BaseClient<br/>状态机 / 锁 / 重连 / 重试 / 类型化方法模板"]
+        Errors["core/errors.py(错误类集中定义)"]
+        Constants["core/constants.py(全局常量集中定义)"]
+        TypesC["types.py(DataType / WordOrder…)"]
+        ConvertC["convert.py(纯转换函数)"]
+    end
+
+    UserApi ==> Drivers
+    Drivers ==> TransportLayer
+    UserApi -.-> CoreLayer
+    Drivers -.-> CoreLayer
+    TransportLayer -.-> CoreLayer
 ```
 
 设计原则:
@@ -185,17 +194,17 @@ v1 共 **14 个同步具体类 + 14 个异步镜像类**,三菱三帧型(3E/4E/1
 
 ## 4. 连接状态机与惰性重连
 
-```
-                 connect() 成功                    send/recv 失败
-   [已断开] ─────────────────→ [已连接] ───┐
-      ↑  │                              │ 读写/写失败(OSError/坏帧)
-      │  │ connect() 失败                ↓
-      │  └── 记录 last_error      _mark_disconnected()
-      │      返回 False            静默 close transport
-      │                                 │
-      │        下一次 read/write 调用    ←(惰性:没有后台线程)
-      └─────────────────────────────────┘
-            锁内自动 connect() → 成功则重发,失败返回 (False, None)
+```mermaid
+stateDiagram-v2
+    direction LR
+    state "已断开" as Disconnected
+    state "已连接(transport 就绪)" as Connected
+    [*] --> Disconnected
+    Disconnected --> Connected: connect() 成功
+    Disconnected --> Disconnected: connect() 失败 → 记录 last_error,返回 False
+    Connected --> Disconnected: 读写失败(OSError / 坏帧)→ _mark_disconnected() 静默 close transport
+    Disconnected --> Disconnected: 惰性重连(无后台线程):下一次 read/write 在锁内自动 connect(),成功则重发,失败返回 (False, None)
+    Connected --> [*]: disconnect()(幂等)
 ```
 
 - `connect()` 幂等:已连接直接返回 True;`disconnect()` 幂等。
