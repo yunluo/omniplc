@@ -35,12 +35,6 @@ from typing import List, Optional
 from ... import convert
 from ...core.base_client import BaseClient, validate_endpoint
 from ...core.constants import (
-    TOYOPUC_CMD_BIT_READ,
-    TOYOPUC_CMD_BIT_WRITE,
-    TOYOPUC_CMD_BYTE_READ,
-    TOYOPUC_CMD_BYTE_WRITE,
-    TOYOPUC_CMD_WORD_READ,
-    TOYOPUC_CMD_WORD_WRITE,
     TOYOPUC_DEFAULT_PORT,
     TOYOPUC_FRAME_HEADER_SIZE,
     TOYOPUC_MAX_BYTE_COUNT,
@@ -68,15 +62,17 @@ class _ToyopucBase(BaseClient):
     # 帧事务(由走线子类决定收包方式)
     # ------------------------------------------------------------------
 
-    def _transact(self, cmd: int, data: bytes, expected_size: Optional[int]) -> bytes:
+    def _transact(self, frame: bytes, expected_size: Optional[int] = None) -> bytes:
         """发送命令帧并返回校验后的响应数据(内部方法)。
 
+        :param frame: 完整命令帧(:mod:`.codec` 的 ``build_*`` 系列构造,
+            帧内下标 4 为命令字,响应校验据此回显)
         :param expected_size: 期望响应数据长度;None 表示不校验
         :raises ProtocolFrameError: 响应无效
         :raises DeviceError: PLC 返回出错代码
         """
         transport = self._require_transport()
-        transport.send(codec.build_command(cmd, data))
+        transport.send(frame)
         if transport.datagram:
             raw = transport.recv(TOYOPUC_MAX_DATAGRAM)
         else:
@@ -86,7 +82,7 @@ class _ToyopucBase(BaseClient):
                 raise ProtocolFrameError("TOYOPUC 响应帧长非法:{}".format(length))
             raw = header + transport.recv(length)
         resp_cmd, rc, resp_data = codec.parse_response(raw)
-        return codec.check_response(resp_cmd, rc, resp_data, cmd, expected_size)
+        return codec.check_response(resp_cmd, rc, resp_data, frame[4], expected_size)
 
     # ------------------------------------------------------------------
     # 协议原语
@@ -178,9 +174,7 @@ class _ToyopucBase(BaseClient):
         """读字符串:从字区编号起连续字节读(CMD=1E,``H`` 后缀从高字节起)。"""
         parsed = self._require_byte_range(address, length)
         data = self._transact(
-            TOYOPUC_CMD_BYTE_READ,
-            codec.pack_u16(encode_byte_address(parsed)) + codec.pack_u16(length),
-            length,
+            codec.build_byte_read(encode_byte_address(parsed), length), length
         )
         return convert.decode_string(data, encoding)
 
@@ -193,11 +187,7 @@ class _ToyopucBase(BaseClient):
         if not 1 <= len(raw) <= TOYOPUC_MAX_BYTE_COUNT:
             raise ValueError("字符串编码后必须在 1~{} 字节,收到:{}".format(TOYOPUC_MAX_BYTE_COUNT, len(raw)))
         parsed = self._require_byte_range(address, len(raw))
-        self._transact(
-            TOYOPUC_CMD_BYTE_WRITE,
-            codec.pack_u16(encode_byte_address(parsed)) + raw,
-            0,
-        )
+        self._transact(codec.build_byte_write(encode_byte_address(parsed), raw))
         return value
 
     # ------------------------------------------------------------------
@@ -208,31 +198,25 @@ class _ToyopucBase(BaseClient):
         """单位读(CMD=20),仅位软元件。"""
         if parsed.unit != "bit":
             raise ValueError("布尔读写在 TOYOPUC 上仅支持位软元件(P/K/V/T/C/L/X/Y/M)")
-        data = self._transact(TOYOPUC_CMD_BIT_READ, codec.pack_u16(encode_bit_address(parsed)), 1)
+        data = self._transact(codec.build_bit_read(encode_bit_address(parsed)), 1)
         return data[0] != 0
 
     def _write_bit(self, parsed: ToyopucAddress, value: bool) -> None:
         """单位写(CMD=21),仅位软元件。"""
         if parsed.unit != "bit":
             raise ValueError("布尔读写在 TOYOPUC 上仅支持位软元件(P/K/V/T/C/L/X/Y/M)")
-        self._transact(TOYOPUC_CMD_BIT_WRITE, codec.pack_u16(encode_bit_address(parsed)) +
-                       bytes((1 if value else 0,)), 0)
+        self._transact(codec.build_bit_write(encode_bit_address(parsed), value))
 
     def _read_words(self, parsed: ToyopucAddress, count: int) -> List[int]:
         """连续字读(CMD=1C),返回 0~65535 原始字列表(内部方法)。"""
         data = self._transact(
-            TOYOPUC_CMD_WORD_READ,
-            codec.pack_u16(encode_word_address(parsed)) + codec.pack_u16(count),
-            count * 2,
+            codec.build_word_read(encode_word_address(parsed), count), count * 2
         )
         return codec.unpack_u16(data)
 
     def _write_words(self, parsed: ToyopucAddress, words: List[int]) -> None:
         """连续字写(CMD=1D,内部方法)。"""
-        payload = codec.pack_u16(encode_word_address(parsed)) + b"".join(
-            codec.pack_u16(word) for word in words
-        )
-        self._transact(TOYOPUC_CMD_WORD_WRITE, payload, 0)
+        self._transact(codec.build_word_write(encode_word_address(parsed), words))
 
     def _read_raw(self, parsed: ToyopucAddress, byte_count: int) -> int:
         """连续字读并拼为小端原始整数(32/64 位,内部方法)。"""
