@@ -1,7 +1,7 @@
 [project]
 name = "omniplc"
 version = "0.1.0"
-description = "omniplc —— 多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC / MX Component / 欧姆龙 FINS / 基恩士 KV Host Link / KV MC 兼容 / 汇川 H3U/H5U / 丰田 TOYOPUC / OPC-UA)"
+description = "omniplc —— 多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC / MX Component / 欧姆龙 FINS / 基恩士 KV Host Link / KV MC 兼容 / 汇川 H3U/H5U / 松下 MC 兼容与 MEWTOCOL / 丰田 TOYOPUC / OPC-UA)"
 readme = "README.md"
 requires-python = ">=3.7.9"
 license = { text = "MIT" }
@@ -17,6 +17,8 @@ keywords = [
     "inovance",
     "h3u",
     "h5u",
+    "panasonic",
+    "mewtocol",
     "melsec",
     "mitsubishi",
     "omron",

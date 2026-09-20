@@ -235,6 +235,64 @@ Q/L 系列口径编码,映射关系:S 按三菱 L(92h)访问;R 与 D 统一编�
 INOVANCE_MC_R_BASE: int = 8000
 """汇川 R 与 D 统一编址偏移:经 MC 协议访问 R n 即访问 D(8000+n),如 R0 = D8000。"""
 
+# ---------------------------------------------------------------- 松下 FP 系列 MC 协议兼容
+PANASONIC_MC_DEFAULT_PORT: int = 2000
+"""松下 MC 协议兼容端口默认值(占位)。
+
+FP0H/FP7 以太网口的 MC 协议(QnA 兼容 3E 帧,仅二进制、成批读/写)
+端口在模块配置中设置,手册未规定出厂默认;此默认沿用三菱 MC 惯例
+端口(HSL ``PanasonicMcNet`` 亦继承 2000),实际以现场配置为准。
+"""
+PANASONIC_MC_DEVICE_CODES: Dict[str, Tuple[int, int, int]] = {
+    "X": (0x9C, 1, 10),
+    "Y": (0x9D, 1, 10),
+    "L": (0xA0, 1, 10),
+    "R": (0x90, 1, 10),
+    "SM": (0x91, 1, 10),
+    "TS": (0xC1, 1, 10),
+    "CS": (0xC4, 1, 10),
+    "D": (0xA8, 0, 10),
+    "LD": (0xB4, 0, 10),
+    "SD": (0xA9, 0, 10),
+    "TN": (0xC2, 0, 10),
+    "CN": (0xC5, 0, 10),
+}
+"""松下 MC 兼容(3E 帧)软元件码表:软元件 → (二进制码, 位软元件?, 帧内进制)。
+
+来源:HSL ``PanasonicMcNet``/``MelsecMcDataType.Panasonic_*``(与三菱
+Q/L 系列同码):X/Y/L/R 为"字号 + 位号"组织的位软元件(D/T/C 类似三菱
+TS/TC 记号),帧内编号 = 字号×16+位号,由客户端层换算;D/LD/TN/CN 为
+字软元件(纯十进制)。R 字号 ≥900 映射系统继电器 SM(见
+:data:`PANASONIC_MC_SM_LINEAR_BASE`),D 编号 ≥90000 映射系统寄存器 SD
+(偏移 -90000)。
+"""
+PANASONIC_MC_SM_LINEAR_BASE: int = 14400
+"""松下 SM 线性编号基点:位软元件 X/Y/L/R 的线性编号(字号×16+位号)≥ 14400
+(即字号 ≥900,记法 R9000 起)时映射到 SM,SM 编号 = 线性编号 - 14400。"""
+PANASONIC_MC_SD_BASE: int = 90000
+"""松下 SD 系统寄存器分界:D 编号 ≥ 90000 时映射 SD,SD 编号 = D 编号 - 90000。"""
+
+# ---------------------------------------------------------------- 松下 MEWTOCOL
+MEWTOCOL_DEFAULT_PORT: int = 1024
+"""MEWTOCOL 以太网默认端口(TCP/UDP,PLC 为服务器)。
+
+来源:Pro-face《MEWTOCOL-COM Ethernet Driver》目标端口号 1024;
+MewtocolNet 等实现可配,实际以 PLC 以太网模块设置为准。
+"""
+MEWTOCOL_DEFAULT_STATION: int = 1
+"""MEWTOCOL 默认站号(01~99;编程口直连场景用 :data:`MEWTOCOL_STATION_DIRECT`)。"""
+MEWTOCOL_STATION_DIRECT: int = 0xEE
+"""MEWTOCOL 直连站号(EE):经编程口/无需站号寻址的场景使用(HSL 与
+MewtocolNet 默认)。"""
+MEWTOCOL_CONTACT_AREAS: Tuple[str, ...] = ("X", "Y", "R", "T", "C", "L")
+"""MEWTOCOL 接点(位)区代码:X/Y 外部输入输出、R 内部继电器、
+T/C 定时器计数器接点、L 链接继电器。"""
+MEWTOCOL_DATA_AREAS: Tuple[str, ...] = ("D", "L", "F", "S", "K")
+"""MEWTOCOL 数据(字)区代码:D=DT 数据寄存器、L=LT 链接寄存器、
+F=FL 文件寄存器、S=SV 定时器/计数器设定值、K=EV 经过值。"""
+MEWTOCOL_MAX_DATAGRAM: int = 2048
+"""UDP 整包接收缓冲上限。"""
+
 # ---------------------------------------------------------------- 欧姆龙 FINS
 FINS_DEFAULT_DESTINATION_NETWORK: int = 0
 """默认目标网络号(0 = 本网络)。"""

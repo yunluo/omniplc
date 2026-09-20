@@ -24,10 +24,13 @@ from ..core.constants import (
     MC_DEFAULT_NETWORK_NUMBER,
     MC_DEFAULT_PC_NUMBER,
     MC_DEFAULT_PORT,
+    MEWTOCOL_DEFAULT_PORT,
+    MEWTOCOL_DEFAULT_STATION,
     MODBUS_DEFAULT_PORT,
     MODBUS_DEFAULT_STATION,
     MX_DEFAULT_LOGICAL_STATION,
     OPCUA_DEFAULT_PORT,
+    PANASONIC_MC_DEFAULT_PORT,
     READ_STRING_DEFAULT_LENGTH,
     SR_DEFAULT_PORT,
     SR_DEFAULT_SCAN_DWELL,
@@ -41,6 +44,11 @@ from ..modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from ..modbus.modbus import _coerce_word_order
 from ..plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
 from ..opcua import OpcUaClient
+from ..plc.panasonic import (
+    PanasonicMcTcpClient,
+    PanasonicMewtocolTcpClient,
+    PanasonicMewtocolUdpClient,
+)
 from ..plc.keyence import (
     KeyenceHostLinkTcpClient,
     KeyenceHostLinkUdpClient,
@@ -419,6 +427,70 @@ class AInovanceMcTcpClient(ABaseClient):
         if isinstance(sync, InovanceMcTcpClient):
             return sync.frame
         raise TypeError("内部错误")
+
+
+class APanasonicMcTcpClient(ABaseClient):
+    """松下 MC 协议兼容异步客户端(TCP,3E 帧)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        port: int = PANASONIC_MC_DEFAULT_PORT,
+        network_number: int = MC_DEFAULT_NETWORK_NUMBER,
+        pc_number: int = MC_DEFAULT_PC_NUMBER,
+    ) -> None:
+        """参数同 :class:`omniplc.plc.panasonic.PanasonicMcTcpClient`。"""
+        super().__init__(PanasonicMcTcpClient(ip_address, port, network_number, pc_number))
+
+    @property
+    def frame(self) -> McFrame:
+        """当前帧型,恒为 :attr:`McFrame.FRAME_3E`。"""
+        sync = self._sync
+        if isinstance(sync, PanasonicMcTcpClient):
+            return sync.frame
+        raise TypeError("内部错误")
+
+
+class APanasonicMewtocolTcpClient(ABaseClient):
+    """松下 MEWTOCOL 异步客户端(TCP)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        port: int = MEWTOCOL_DEFAULT_PORT,
+        station: int = MEWTOCOL_DEFAULT_STATION,
+    ) -> None:
+        """参数同 :class:`omniplc.plc.panasonic.PanasonicMewtocolTcpClient`。"""
+        super().__init__(PanasonicMewtocolTcpClient(ip_address, port, station))
+
+    @property
+    def station(self) -> int:
+        """当前站号(转发同步实例)。"""
+        sync = self._sync
+        if not isinstance(sync, PanasonicMewtocolTcpClient):
+            raise TypeError("内部错误:sync 实例不是 PanasonicMewtocolTcpClient")
+        return sync.station
+
+
+class APanasonicMewtocolUdpClient(ABaseClient):
+    """松下 MEWTOCOL 异步客户端(UDP)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        port: int = MEWTOCOL_DEFAULT_PORT,
+        station: int = MEWTOCOL_DEFAULT_STATION,
+    ) -> None:
+        """参数同 :class:`omniplc.plc.panasonic.PanasonicMewtocolUdpClient`。"""
+        super().__init__(PanasonicMewtocolUdpClient(ip_address, port, station))
+
+    @property
+    def station(self) -> int:
+        """当前站号(转发同步实例)。"""
+        sync = self._sync
+        if not isinstance(sync, PanasonicMewtocolUdpClient):
+            raise TypeError("内部错误:sync 实例不是 PanasonicMewtocolUdpClient")
+        return sync.station
 
 
 class AMelsecMcTcpClient(ABaseClient):
