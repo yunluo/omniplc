@@ -367,7 +367,9 @@ class BaseClient(ABC):
         """写入字符串(按驱动默认布局补齐/截断)。
 
         :param address: 协议地址
-        :param value: 待写入字符串
+        :param value: 待写入字符串(不支持空串;字软元件型协议无法表达
+            零长度写。支持空串的协议如 AB/OPC-UA 可用
+            ``write(address, DataType.STRING, "")`` 写入)
         :param encoding: 字符编码,默认 ASCII
         """
         if not value:

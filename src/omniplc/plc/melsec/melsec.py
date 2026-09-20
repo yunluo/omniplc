@@ -108,8 +108,8 @@ class _MelsecMcBase(BaseClient):
                     type(self).__name__, self._frame.value, supported
                 )
             )
-        self._network_number = int(network_number)
-        self._pc_number = int(pc_number)
+        self._network_number = codec_serial.check_byte_field("网络编号", network_number)
+        self._pc_number = codec_serial.check_byte_field("PC 编号", pc_number)
         self._serial = 0
 
     @property

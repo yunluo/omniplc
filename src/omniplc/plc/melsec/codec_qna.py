@@ -154,15 +154,15 @@ def build_request(
 ) -> bytes:
     """构造 3E/4E 帧请求(成批读 0104 / 成批写 0114)。
 
-    :param is_write:
-    :param is_bit:
-    :param points:
-    :param address:
-    :param monitoring_timer:
-    :param pc_number:
-    :param network_number:
     :param frame: ``"3E"`` 或 ``"4E"``
     :param serial: 序列号(仅 4E 使用,0~65535 回绕;3E 忽略)
+    :param network_number: 网络编号
+    :param pc_number: PC 编号
+    :param monitoring_timer: 监视定时器(0~65535)
+    :param address: 软元件地址
+    :param points: 访问点数
+    :param is_bit: 是否位单位访问
+    :param is_write: 是否写操作
     :param data: 写数据(字单位为逐字 0~65535;位单位为 0/1 序列,长度 = points)
     :param codes: 软元件码表(缺省三菱;基恩士 SLMP 兼容传自有码表)
     :raises ValueError: 帧型/软元件/点数/数据非法

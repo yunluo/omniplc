@@ -176,7 +176,12 @@ class _MewtocolBase(BaseClient):
                     word_count * 4, len(data_text)
                 )
             )
-        return [int(data_text[i:i + 4], 16) for i in range(0, len(data_text), 4)]
+        try:
+            return [int(data_text[i:i + 4], 16) for i in range(0, len(data_text), 4)]
+        except ValueError as exc:
+            raise ProtocolFrameError(
+                "MEWTOCOL 读响应含非十六进制数据:{!r}".format(data_text)
+            ) from exc
 
     def _write_words(self, parsed: MewtocolAddress, words: List[int]) -> None:
         """WD 成批写字软元件(逐字 4 位十六进制、高字节在前)。"""

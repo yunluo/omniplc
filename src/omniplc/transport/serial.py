@@ -100,7 +100,7 @@ class SerialTransport(BaseTransport):
         port.stopbits = getattr(serial, self._STOP_BITS_MAP[self._config.stop_bits])
         port.parity = getattr(serial, self._PARITY_MAP[_coerce_parity(self._config.parity)])
         port.timeout = self._receive_timeout
-        port.write_timeout = self._connect_timeout
+        port.write_timeout = self._receive_timeout
         port.open()
         self._serial = port
 

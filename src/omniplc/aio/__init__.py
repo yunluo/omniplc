@@ -74,7 +74,7 @@ from ..plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
 from ..scanner import KeyenceSrClient
 from ..plc.omron import OmronFinsTcpClient, OmronFinsUdpClient
 from ..tag import Tag, TagTable
-from ..types import McFrame, PrimitiveValue, SerialParity
+from ..types import DataType, McFrame, PrimitiveValue, SerialParity
 
 _T = TypeVar("_T")
 _A = TypeVar("_A", bound="ABaseClient")
@@ -170,21 +170,27 @@ class ABaseClient:
     # 通用与类型化读写(签名与同步版一致)
     # ------------------------------------------------------------------
 
-    async def read(self, address: str, data_type: str) -> Tuple[bool, Optional[PrimitiveValue]]:
+    async def read(
+        self, address: str, data_type: Union[DataType, str]
+    ) -> Tuple[bool, Optional[PrimitiveValue]]:
         """按数据类型读取一个点。"""
         return await self._run(lambda: self._sync.read(address, data_type))
 
-    async def write(self, address: str, data_type: str, value: PrimitiveValue) -> bool:
+    async def write(
+        self, address: str, data_type: Union[DataType, str], value: PrimitiveValue
+    ) -> bool:
         """按数据类型写入一个点。"""
         return await self._run(lambda: self._sync.write(address, data_type, value))
 
     async def read_many(
-        self, addresses: Sequence[str], data_type: str
+        self, addresses: Sequence[str], data_type: Union[DataType, str]
     ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
         """批量读取,逐点独立容错。"""
         return await self._run(lambda: self._sync.read_many(addresses, data_type))
 
-    async def write_many(self, items: Sequence[Tuple[str, str, PrimitiveValue]]) -> List[bool]:
+    async def write_many(
+        self, items: Sequence[Tuple[str, Union[DataType, str], PrimitiveValue]]
+    ) -> List[bool]:
         """批量写入,逐点独立容错。"""
         return await self._run(lambda: self._sync.write_many(items))
 
@@ -616,6 +622,22 @@ class AMelsecMcSerialClient(ABaseClient):
         if not isinstance(sync, MelsecMcSerialClient):
             raise TypeError("内部错误:sync 实例不是 MelsecMcSerialClient")
         return sync.station_number
+
+    @property
+    def pc_number(self) -> int:
+        """当前 PC 编号(转发同步实例)。"""
+        sync = self._sync
+        if not isinstance(sync, MelsecMcSerialClient):
+            raise TypeError("内部错误:sync 实例不是 MelsecMcSerialClient")
+        return sync.pc_number
+
+    @property
+    def module_io(self) -> int:
+        """请求目标模块 I/O 编号(仅 4C 帧,转发同步实例)。"""
+        sync = self._sync
+        if not isinstance(sync, MelsecMcSerialClient):
+            raise TypeError("内部错误:sync 实例不是 MelsecMcSerialClient")
+        return sync.module_io
 
 
 class AKeyenceMcTcpClient(ABaseClient):

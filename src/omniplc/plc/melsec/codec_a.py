@@ -74,12 +74,12 @@ def build_request(
 ) -> bytes:
     """构造 1E 帧请求。
 
-    :param is_write:
-    :param is_bit:
-    :param points:
-    :param address:
-    :param monitoring_timer:
     :param pc_number: PLC 号/站号(0~255)
+    :param monitoring_timer: 监视定时器
+    :param address: 软元件地址
+    :param points: 访问点数
+    :param is_bit: 是否位单位访问
+    :param is_write: 是否写操作
     :param data: 写数据(字单位逐字 0~65535;位单位 0/1 序列,长度 = points)
     :raises ValueError: 软元件/点数/数据非法
     """
@@ -119,6 +119,15 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
     if len(frame) < MC_1E_RESPONSE_HEAD_SIZE:
         raise ProtocolFrameError(
             "1E 响应头不足 {} 字节:{}".format(MC_1E_RESPONSE_HEAD_SIZE, len(frame))
+        )
+    expected_head = (
+        (MC_1E_READ_BIT if is_bit else MC_1E_READ_WORD)
+        if is_read
+        else (MC_1E_WRITE_BIT if is_bit else MC_1E_WRITE_WORD)
+    ) + 0x80
+    if frame[0] != expected_head:
+        raise ProtocolFrameError(
+            "1E 响应副头部不符:期望 0x{:02X},收到 0x{:02X}".format(expected_head, frame[0])
         )
     end_code = frame[1]
     if end_code != 0:

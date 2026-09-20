@@ -21,7 +21,7 @@
 from __future__ import annotations
 
 import struct
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 
 from .address import AbTag
 from ...core.constants import (
@@ -445,9 +445,10 @@ def parse_forward_open_reply(reply: bytes, request_service: int) -> Tuple[int, i
     status = cip[2]
     if status != 0:
         return status, 0
-    if len(cip) < 12:
+    data_offset = 4 + cip[3]
+    if len(cip) < data_offset + 4:
         raise ProtocolFrameError("Forward Open 应答数据域不完整")
-    return 0, struct.unpack_from("<I", cip, 4)[0]
+    return 0, struct.unpack_from("<I", cip, data_offset)[0]
 
 
 def build_forward_close(
@@ -656,7 +657,9 @@ def parse_tag_read_payload(payload: bytes) -> Tuple[int, bytes]:
     return cip_type, payload[2:]
 
 
-def decode_values(data: bytes, cip_type: int, count: int = 1) -> List[float]:
+def decode_values(
+    data: bytes, cip_type: int, count: int = 1
+) -> List[Union[int, float]]:
     """按 CIP 类型码解码定长值序列(BOOL 解码为 0/1,内部配合调用方)。"""
     if cip_type not in _CIP_TYPE_LAYOUTS:
         raise ValueError("不支持的 CIP 类型:0x{:02X}".format(cip_type))

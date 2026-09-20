@@ -169,6 +169,7 @@ class KeyenceSrClient(BaseClient):
         transport.send(command)
         text = self._read_line(transport).strip()
         if text != SR_RESP_OK:
+            # code 0 = 无具体错误码(设备应答异常但链路正常,不断线)
             raise DeviceError("SR 命令 {} 应答异常:期望 OK,收到 {!r}".format(
                 command.decode("ascii").rstrip("\r"), text
             ), 0)
