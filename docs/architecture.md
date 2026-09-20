@@ -83,6 +83,11 @@ BaseClient (ABC, 模板方法) ───────────── src/omnip
     ├── ToyopucTcpClient → TcpTransport(1025)
     └── ToyopucUdpClient → UdpTransport(1025,一问一答一数据报)
 
+└── OpcUaClient ───────────────────────── src/omniplc/opcua/client.py
+    │   OPC-UA opc.tcp 会话(封装 asyncua 1.1.5,官方继任 python-opcua);
+    │   _OpcUaSession 把会话适配为传输外形,asyncua 异常在会话边界统一翻译
+    └── (无字节流收发;get_node().read_value()/write_value() 按 VariantType 编解码)
+
 KeyenceSrClient ─────────────────────── src/omniplc/scanner/keyence_sr.py
     基恩士 SR 扫码枪(TCP 9004,LON → 窗口 → LOFF → 读应答;
     scan() 返回 (是否读到, 条码文本);不实现 _read/_write 数据原语)
@@ -101,10 +106,11 @@ ABaseClient ── 组合同步实例 + 单线程 ThreadPoolExecutor,方法签�
 ├── AOmronFinsTcpClient / AOmronFinsUdpClient
 ├── AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient
 ├── AToyopucTcpClient / AToyopucUdpClient
+├── AOpcUaClient
 └── AKeyenceSrClient
 ```
 
-v1 共 **12 个同步具体类 + 12 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
+v1 共 **13 个同步具体类 + 13 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
 另加 MX Component(Windows/COM,单线程 executor 天然满足 ActUtlType 的 STA 模型)。
 
 ### 2.1 继承设计要点(模板方法模式)
@@ -296,6 +302,7 @@ class BaseClient(ABC):
 | 三菱 MC | `D100` / `M10` / `X1F` / `Y40` / `W100` / `R100` / `Z0` / `ZR100` / `D100.3` | 已实现(`plc/melsec/`);编号进制按码表:X/Y/W/B 十六进制、其余十进制(Q/L/R 口径,SH-080956;1E 帧下 X/Y 八进制),地址解析保留数字原文 |
 | 欧姆龙 FINS | `D100` / `CIO0` / `CIO0.5` / `W10` / `H20` / `A0` / `E0_100` | 已实现(`plc/omron/`);存储区码随帧 codec 实现,EM 区 bank 用下划线 |
 | 丰田 TOYOPUC | `D0100` / `D0100L` / `D0100H` / `M0201` / `M0201W` / `X0010H` | 已实现(`plc/toyopuc/`);编号一律十六进制(手册口径);字区 S/N/R/D/B,位区 P/K/V/T/C/L/X/Y/M;L/H=低/高字节(字节访问),W=位软元件打包字 |
+| OPC-UA | `ns=2;s=Device.Tag` / `ns=4;i=100` / `i=2258` / `b=AAECAw==` / `g=…` | 已实现(`opcua/`);标准 NodeId 字符串,ns 省略默认 0;前缀大小写规范化,标识符值保留原文(`opcua/address.py`) |
 
 解析失败统一抛 `ValueError`(参数错误约定)。
 
@@ -310,6 +317,7 @@ class BaseClient(ABC):
 | 基恩士 KV Host Link | ✅ `KeyenceHostLinkTcpClient` | ✅ `KeyenceHostLinkUdpClient` | — | — |
 | 基恩士 SR 扫码枪 | ✅ `KeyenceSrClient`(9004) | — | — | — |
 | 丰田 TOYOPUC 计算机链接 | ✅ `ToyopucTcpClient` | ✅ `ToyopucUdpClient` | — | — |
+| OPC-UA(opc.tcp) | ✅ `OpcUaClient`(封装 asyncua) | — | — | — |
 
 MX Component 说明:``MelsecMxClient`` 经三菱 MX Component 的 ``ActUtlType``
 COM 控件(实用程序设置型)通信,通信参数在**通信设置实用程序**中配置为逻辑站号
@@ -338,6 +346,18 @@ TOYOPUC 计算机链接说明:``ToyopucTcpClient/UdpClient`` 使用二进制帧
 v0.7 覆盖基础软元件区;扩展区(CMD=94~99)、PC10(CMD=C2~C6)、
 中继(CMD=60)与时钟/CPU 状态(CMD=32/A0)留 v1.x。
 
+OPC-UA 说明:``OpcUaClient`` **不自研协议**(OPC-UA 是完整规范栈:
+二进制编码/会话/订阅/X.509 安全栈,自研数月且加密做错即安全事故),
+封装官方继任库 **asyncua**(``pip install omniplc[opcua]``)。
+版本钉 ``1.1.5``——官方弃用的 python-opcua(2022-07)之外唯一生态,
+且为最后支持 Python 3.7 的版本(其后版本 requires_python ≥3.8)。
+``_OpcUaSession`` 把 asyncua 同步会话适配为传输对象外形
+(connect 建 opc.tcp 会话 / close 断开并回收其后台事件循环线程,
+无字节流收发),DataType ↔ ``ua.VariantType`` 显式映射,读写走
+服务端原生编解码;``UaError``(Bad 状态码)翻译为 ``DeviceError``
+不断线,连接故障标记断开惰性重连。v0.8 为匿名/NoSecurity 连接下的
+节点读写;安全策略配置、订阅/浏览(不符合本库拉模式)留 v1.x。
+
 实现选型:MC、FINS 无支持 Python 3.7 的成熟维护库 → 自研;
 pymodbus 2.5.3 已停止维护且 3.x 不支持 3.7 → **Modbus 也自研**
 (报文简单,超时/重连/错误语义与另两家完全统一;如遇特殊需求,
@@ -358,6 +378,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 | 基恩士 KV Host Link(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\plc-comm-hostlink-python-main\src\hostlink\`(RD/RDS/WR/WRS 命令、.U/.S/.D/.L/.H 数据格式、E0~E6 出错代码、float32 两字小端、位组/X-Y 编号规则) |
 | 基恩士 SR 扫码枪(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\vention_barcode_scanner-0.8.3.tar\...\scanners\keyence.py`(TCP 9004、LON/LOFF 时序——应答在 LOFF 之后才发送、bank 0~15、BCLR/RESET、ERROR/OK 应答) |
 | 丰田 TOYOPUC 计算机链接(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\plc_comm_toyopuc-4.2.0.tar\...\toyopuc\`(**只学习协议本身**:帧格式 `00 00 LL LH CMD`/`80 RC LL LH CMD`、CMD=1C~21 基础区字/字节/位命令、软元件字/字节/位基地址与编号段、RC=10 出错码表、低字在前多字节序;**架构不参考**,仍用本库 BaseClient/Transport 模式) |
+| OPC-UA(已实现) | `asyncua==1.1.5` 安装源码(`.venv\...\asyncua\`,sync.Client 会话/`ua.VariantType` 类型表/`ua.uaerrors` 异常层次);python-opcua 已弃用仅作背景,不作为依赖 |
 | 欧姆龙 FINS(TCP/UDP,已实现) | `Profinet/Omron/OmronFinsNet.cs`、`OmronFinsUdp.cs`、`OmronFinsNetHelper.cs`(帧组装/解析)、`OmronFinsDataType.cs`(存储区码)、`Core/IMessage/FinsMessage.cs`(TCP 握手/帧长) |
 
 三菱帧实现另对照本地 Python SLMP 参考库
@@ -414,6 +435,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 | v0.5 | 基恩士 KV Host Link(TCP/UDP,RD/RDS/WR/WRS,位组/十六进制地址)| ✅ 完成 |
 | v0.6 | 基恩士 SR 扫码枪(TCP 9004,LON/LOFF 触发扫码,bank 预设)| ✅ 完成 |
 | v0.7 | 丰田 TOYOPUC 计算机链接(TCP/UDP,基础区字/字节/位访问,CMD=1C~21)| ✅ 完成 |
+| v0.8 | OPC-UA opc.tcp 会话(封装 asyncua==1.1.5,NodeId 读写,会话适配)| ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
-| v1.x | MC 串口帧(2C/3C/4C)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、心跳保活、轮询器、连接池 | 规划 |
+| v1.x | MC 串口帧(2C/3C/4C)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 西门子 S7(drivers 插槽已预留,沿用 BaseClient 原语模式) | 规划 |

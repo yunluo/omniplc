@@ -3,7 +3,8 @@
 一次编写,通过一致的 API 对接三菱(MC 协议)、欧姆龙(FINS)、
 基恩士(KV Host Link、SR 扫码枪)、丰田(TOYOPUC 计算机链接)等设备,
 支持 Modbus TCP/RTU、MC 3E/4E/1E、MC over MX Component、FINS over TCP/UDP、
-KV Host Link over TCP/UDP、SR 扫码枪、TOYOPUC 计算机链接 over TCP/UDP。
+KV Host Link over TCP/UDP、SR 扫码枪、TOYOPUC 计算机链接 over TCP/UDP、
+OPC-UA(封装 asyncua,opc.tcp 会话)。
 
 同步客户端::
 
@@ -25,6 +26,7 @@ from __future__ import annotations
 from . import convert
 from .core.base_client import BaseClient
 from .modbus import ModbusArea, ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
+from .opcua import OpcUaClient
 from .plc.melsec import MelsecMcTcpClient, MelsecMcUdpClient, MelsecMxClient
 from .plc.omron import OmronFinsTcpClient, OmronFinsUdpClient
 from .plc.keyence import KeyenceHostLinkTcpClient, KeyenceHostLinkUdpClient
@@ -60,6 +62,8 @@ __all__ = [
     # ---- 丰田 TOYOPUC 客户端 ----
     "ToyopucTcpClient",
     "ToyopucUdpClient",
+    # ---- OPC-UA 客户端 ----
+    "OpcUaClient",
     # ---- 传输层 ----
     "BaseTransport",
     "TcpTransport",

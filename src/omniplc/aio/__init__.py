@@ -36,6 +36,7 @@ from ..core.constants import (
 )
 from ..modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from ..modbus.modbus import _coerce_word_order
+from ..opcua import OpcUaClient
 from ..plc.keyence import KeyenceHostLinkTcpClient, KeyenceHostLinkUdpClient
 from ..plc.melsec import MelsecMcTcpClient, MelsecMcUdpClient, MelsecMxClient
 from ..plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
@@ -492,6 +493,18 @@ class AToyopucUdpClient(ABaseClient):
     ) -> None:
         """参数同 :class:`omniplc.plc.toyopuc.ToyopucUdpClient`。"""
         super().__init__(ToyopucUdpClient(ip_address, port))
+
+
+class AOpcUaClient(ABaseClient):
+    """OPC-UA 异步客户端(封装 asyncua,opc.tcp 会话)。
+
+    与其他 A 前缀镜像一致,所有调用经单线程 executor 串行执行;
+    asyncua.sync 内部亦有独立事件循环线程,双层串行保序。
+    """
+
+    def __init__(self, endpoint: str = "opc.tcp://192.168.0.10:4840") -> None:
+        """参数同 :class:`omniplc.opcua.OpcUaClient`。"""
+        super().__init__(OpcUaClient(endpoint))
 
 
 class AOmronFinsTcpClient(ABaseClient):

@@ -335,6 +335,12 @@ TOYOPUC_ERROR_TEXT: Dict[int, str] = {
 }
 """TOYOPUC 详细出错代码 → 可读描述(last_error 用);未收录的提示查阅手册。"""
 
+# ---------------------------------------------------------------- OPC-UA
+OPCUA_DEFAULT_PORT: int = 4840
+"""OPC-UA 标准默认端口(opc.tcp 端点未显式带端口时提示用)。"""
+OPCUA_ENDPOINT_SCHEME: str = "opc.tcp://"
+"""OPC-UA TCP 传输的端点 URL 前缀(OPC 10000-6 规范)。"""
+
 # ---------------------------------------------------------------- 通用
 BIT_INDEX_MAX: int = 63
 """位操作工具允许的最大位号。"""
