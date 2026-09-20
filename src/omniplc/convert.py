@@ -37,6 +37,8 @@ def lrc(data: BytesLike) -> int:
 
     :param data: 参与校验的字节序列(不含 LRC 本身)
     :return: 8 位无符号校验值
+
+    .. note:: Modbus ASCII 走线尚未实现,本函数为走线预留的公共工具。
     """
     total = sum(byte & 0xFF for byte in data) & 0xFF
     return (-total) & 0xFF
@@ -120,23 +122,35 @@ def bytes_to_ushort(data: bytes, byteorder: Union[ByteOrder, str] = ByteOrder.BI
 
 
 def short_to_bytes(value: int, byteorder: Union[ByteOrder, str] = ByteOrder.BIG) -> bytes:
-    """把 16 位有符号整数编码为 2 字节。"""
-    return int(value).to_bytes(2, _byteorder(byteorder), signed=True)
+    """把 16 位有符号整数编码为 2 字节。
+
+    :raises ValueError: 超出范围 -32768~32767
+    """
+    number = int(value)
+    if not -32768 <= number <= 32767:
+        raise ValueError("short 超出范围 -32768~32767:{}".format(number))
+    return number.to_bytes(2, _byteorder(byteorder), signed=True)
 
 
 def ushort_to_bytes(value: int, byteorder: Union[ByteOrder, str] = ByteOrder.BIG) -> bytes:
-    """把 16 位无符号整数编码为 2 字节。"""
-    return int(value).to_bytes(2, _byteorder(byteorder), signed=False)
+    """把 16 位无符号整数编码为 2 字节。
+
+    :raises ValueError: 超出范围 0~65535
+    """
+    number = int(value)
+    if not 0 <= number <= 65535:
+        raise ValueError("ushort 超出范围 0~65535:{}".format(number))
+    return number.to_bytes(2, _byteorder(byteorder), signed=False)
 
 
 def registers_to_int32(registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD) -> int:
     """把 2 个寄存器按指定字序解码为 32 位有符号整数。"""
-    return int.from_bytes(_registers_to_canonical(registers, word_order), "big", signed=True)
+    return int.from_bytes(registers_to_canonical(registers, word_order), "big", signed=True)
 
 
 def registers_to_uint32(registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD) -> int:
     """把 2 个寄存器按指定字序解码为 32 位无符号整数。"""
-    return int.from_bytes(_registers_to_canonical(registers, word_order), "big", signed=False)
+    return int.from_bytes(registers_to_canonical(registers, word_order), "big", signed=False)
 
 
 def int32_to_registers(value: int, word_order: WordOrder = WordOrder.ABCD) -> Tuple[int, int]:
@@ -155,7 +169,7 @@ def uint32_to_registers(value: int, word_order: WordOrder = WordOrder.ABCD) -> T
 
 def registers_to_float32(registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD) -> float:
     """把 2 个寄存器按指定字序解码为 32 位浮点数(float32)。"""
-    return struct.unpack(">f", _registers_to_canonical(registers, word_order))[0]
+    return struct.unpack(">f", registers_to_canonical(registers, word_order))[0]
 
 
 def float32_to_registers(value: float, word_order: WordOrder = WordOrder.ABCD) -> Tuple[int, int]:
@@ -171,7 +185,7 @@ def registers_to_float64(registers: Sequence[int], word_order: WordOrder = WordO
     字序按语义映射到 8 字节排列:ABCD→ABCDEFGH、CDAB→GHEFCDAB、
     BADC→BADCFEHG、DCBA→HGFEDCBA。
     """
-    return struct.unpack(">d", _registers_to_canonical(registers, word_order))[0]
+    return struct.unpack(">d", registers_to_canonical(registers, word_order))[0]
 
 
 def float64_to_registers(
@@ -181,6 +195,32 @@ def float64_to_registers(
     return cast(
         Tuple[int, int, int, int],
         _canonical_to_registers(struct.pack(">d", float(value)), word_order),
+    )
+
+
+def int64_to_registers(
+    value: int, word_order: WordOrder = WordOrder.ABCD
+) -> Tuple[int, int, int, int]:
+    """把 64 位有符号整数按指定字序编码为 4 个寄存器。
+
+    :raises ValueError: 超出 64 位有符号范围(struct 编码失败)
+    """
+    return cast(
+        Tuple[int, int, int, int],
+        _canonical_to_registers(struct.pack(">q", int(value)), word_order),
+    )
+
+
+def uint64_to_registers(
+    value: int, word_order: WordOrder = WordOrder.ABCD
+) -> Tuple[int, int, int, int]:
+    """把 64 位无符号整数按指定字序编码为 4 个寄存器。
+
+    :raises ValueError: 超出 64 位无符号范围(struct 编码失败)
+    """
+    return cast(
+        Tuple[int, int, int, int],
+        _canonical_to_registers(struct.pack(">Q", int(value)), word_order),
     )
 
 
@@ -220,8 +260,10 @@ def _byteorder(byteorder: Union[ByteOrder, str]) -> Any:
     raise ValueError("byteorder 必须是 ByteOrder.BIG/LITTLE 或 big/little,收到:{!r}".format(byteorder))
 
 
-def _registers_to_canonical(registers: Sequence[int], word_order: WordOrder) -> bytes:
-    """把寄存器序列按字序还原为"大端规范序"字节串(内部函数)。
+def registers_to_canonical(
+    registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD
+) -> bytes:
+    """把寄存器序列按字序还原为"大端规范序"字节串。
 
     输入寄存器按设备实际顺序给出(每个寄存器内部恒为大端),
     输出为该数值标准大端表示,可直接交给 struct 解码。

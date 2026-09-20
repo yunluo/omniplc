@@ -418,11 +418,11 @@ def _decode_64bit(registers: List[int], data_type: DataType, word_order: WordOrd
     """按类型解码 4 寄存器值。"""
     if data_type is DataType.LONG:
         return int.from_bytes(
-            convert._registers_to_canonical(registers, word_order), "big", signed=True
+            convert.registers_to_canonical(registers, word_order), "big", signed=True
         )
     if data_type is DataType.ULONG:
         return int.from_bytes(
-            convert._registers_to_canonical(registers, word_order), "big", signed=False
+            convert.registers_to_canonical(registers, word_order), "big", signed=False
         )
     return convert.registers_to_float64(registers, word_order)
 
@@ -445,12 +445,7 @@ def _encode_64bit(value: PrimitiveValue, data_type: DataType, word_order: WordOr
     if data_type is DataType.LONG:
         if not -9223372036854775808 <= number <= 9223372036854775807:
             raise ValueError("long 超出 64 位范围:{}".format(number))
-        raw = number.to_bytes(8, "big", signed=True)
-    else:
-        if not 0 <= number <= 18446744073709551615:
-            raise ValueError("ulong 超出 64 位范围:{}".format(number))
-        raw = number.to_bytes(8, "big", signed=False)
-    canonical = convert._reorder_bytes(raw, word_order)
-    return [
-        int.from_bytes(canonical[i:i + 2], "big") for i in range(0, 8, 2)
-    ]
+        return list(convert.int64_to_registers(number, word_order))
+    if not 0 <= number <= 18446744073709551615:
+        raise ValueError("ulong 超出 64 位范围:{}".format(number))
+    return list(convert.uint64_to_registers(number, word_order))
