@@ -51,10 +51,11 @@ def test_tcp_3e_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP 3E:请求组帧正确,响应解析出字数据。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000)
     frame = _qna_read_response([20])
-    _mount(monkeypatch, client, ScriptedTransport([frame[:9], frame[9:]]))
+    scripted = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, client, scripted)
     client.connect()
     assert client.read_ushort("D100") == (True, 20)
-    assert bytes(client._transport.sent) == codec_qna.build_request(  # type: ignore[union-attr]
+    assert bytes(scripted.sent) == codec_qna.build_request(
         "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"), 1, False, False
     )
 
@@ -63,10 +64,11 @@ def test_tcp_4e_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP 4E:13 字节头分段收包,序列号回包校验。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000, frame="4E")
     frame = _qna_read_response([20], frame="4E", serial=1)
-    _mount(monkeypatch, client, ScriptedTransport([frame[:13], frame[13:]]))
+    scripted = ScriptedTransport([frame[:13], frame[13:]])
+    _mount(monkeypatch, client, scripted)
     client.connect()
     assert client.read_ushort("D100") == (True, 20)
-    assert bytes(client._transport.sent) == codec_qna.build_request(  # type: ignore[union-attr]
+    assert bytes(scripted.sent) == codec_qna.build_request(
         "4E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"), 1, False, False
     )
 
@@ -75,10 +77,11 @@ def test_tcp_1e_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP 1E:2 字节头 + 按点数收数据。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000, frame="1E")
     frame = _one_e_read_response([20])
-    _mount(monkeypatch, client, ScriptedTransport([frame[:2], frame[2:]]))
+    scripted = ScriptedTransport([frame[:2], frame[2:]])
+    _mount(monkeypatch, client, scripted)
     client.connect()
     assert client.read_ushort("D100") == (True, 20)
-    assert bytes(client._transport.sent) == codec_a.build_request(  # type: ignore[union-attr]
+    assert bytes(scripted.sent) == codec_a.build_request(
         0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"), 1, False, False
     )
 
@@ -98,10 +101,11 @@ def test_tcp_3e_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP 3E:字写请求与回包校验。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000)
     response = _qna_write_response()
-    _mount(monkeypatch, client, ScriptedTransport([response[:9], response[9:]]))
+    scripted = ScriptedTransport([response[:9], response[9:]])
+    _mount(monkeypatch, client, scripted)
     client.connect()
     assert client.write_short("D100", 300) is True
-    assert bytes(client._transport.sent) == codec_qna.build_request(  # type: ignore[union-attr]
+    assert bytes(scripted.sent) == codec_qna.build_request(
         "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"),
         1, False, True, [300],
     )
@@ -110,10 +114,11 @@ def test_tcp_3e_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_tcp_1e_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP 1E:写响应仅 2 字节(副头部+结束码)。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000, frame="1E")
-    _mount(monkeypatch, client, ScriptedTransport([_one_e_write_response()]))
+    scripted = ScriptedTransport([_one_e_write_response()])
+    _mount(monkeypatch, client, scripted)
     client.connect()
     assert client.write_short("D100", 300) is True
-    assert bytes(client._transport.sent) == codec_a.build_request(  # type: ignore[union-attr]
+    assert bytes(scripted.sent) == codec_a.build_request(
         0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"), 1, False, True, [300]
     )
 
@@ -145,13 +150,10 @@ def test_tcp_word_bit_write_read_modify_write(monkeypatch: pytest.MonkeyPatch) -
     client = MelsecMcTcpClient("127.0.0.1", 2000)
     read_frame = _qna_read_response([0x0004])
     write_frame = _qna_write_response()
-    _mount(
-        monkeypatch,
-        client,
-        ScriptedTransport(
-            [read_frame[:9], read_frame[9:], write_frame[:9], write_frame[9:]]
-        ),
+    scripted = ScriptedTransport(
+        [read_frame[:9], read_frame[9:], write_frame[:9], write_frame[9:]]
     )
+    _mount(monkeypatch, client, scripted)
     client.connect()
     assert client.write_bool("D100.3", True) is True
     expected = codec_qna.build_request(
@@ -160,16 +162,17 @@ def test_tcp_word_bit_write_read_modify_write(monkeypatch: pytest.MonkeyPatch) -
         "3E", 2, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"),
         1, False, True, [0x000C],
     )
-    assert bytes(client._transport.sent) == expected  # type: ignore[union-attr]
+    assert bytes(scripted.sent) == expected
 
 
 def test_udp_3e_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """UDP 3E:一问一答一数据报,整包解析。"""
     client = MelsecMcUdpClient("127.0.0.1", 2000)
     frame = _qna_read_response([20])
-    _mount(monkeypatch, client, ScriptedTransport([frame], datagram=True))
+    scripted = ScriptedTransport([frame], datagram=True)
+    _mount(monkeypatch, client, scripted)
     client.connect()
     assert client.read_ushort("D100") == (True, 20)
-    assert bytes(client._transport.sent) == codec_qna.build_request(  # type: ignore[union-attr]
+    assert bytes(scripted.sent) == codec_qna.build_request(
         "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"), 1, False, False
     )

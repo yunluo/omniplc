@@ -219,7 +219,11 @@ v1 共 **10 个同步具体类 + 10 个异步镜像类**,三菱三帧型(3E/4E/1
 - 上下文管理器用 `TypeVar(_C, bound="BaseClient")` 保持 self 类型;
 - 发布 **py.typed**(PEP 561),下游项目可直接获得类型检查;
 - CI 固定跑 `mypy --python-version 3.7`(配置见 `pyproject.toml`)与 `ruff`
-  (`target-version = "py37"`)双静态检查,语法越界在 CI 就被拦下。
+  (`target-version = "py37"`)双静态检查,语法越界在 CI 就被拦下;
+- 追加 **ty**(Astral)作为第二类型检查器(`uvx ty check`,配置见
+  `pyproject.toml` 的 `[tool.ty]`),双检查器交叉验证;
+  不使用 `# type: ignore[...]` 工具特定抑制码,可空传输引用一律用
+  局部变量 + 断言收窄(两种检查器通用)。
 
 ### 6.3 核心接口签名(完整版见源码 docstring)
 

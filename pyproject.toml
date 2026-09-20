@@ -53,3 +53,20 @@ packages = ["src/omniplc"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.7"
+files = ["src", "tests"]
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+# 可选运行时依赖 serial(串口扩展)/comtypes(MX Component 扩展)无内联标注;
+# pytest 视宿主环境可能缺失:均按缺失导入处理,不影响核心代码检查。
+[[tool.mypy.overrides]]
+module = ["serial", "comtypes", "comtypes.client", "pytest"]
+ignore_missing_imports = true
+
+[tool.ty.src]
+include = ["src", "tests"]

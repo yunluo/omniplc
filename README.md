@@ -155,10 +155,11 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 #### 开发
 
 ```bash
-uv sync --extra dev        # 安装开发依赖
-uv run pytest              # 测试(无需真机)
-uv run ruff check .        # 代码检查
-uv run mypy .              # 类型检查(python_version = 3.7)
+uv sync --extra dev --extra mx   # 安装开发依赖(Windows 加装 comtypes 供静态检查解析)
+uv run python -m pytest          # 测试(无需真机;32 位 py3.7 venv 的 exe shim 兼容性问题走 -m)
+uv run ruff check .              # 代码检查
+uv run mypy                      # 类型检查(python_version = 3.7,配置见 pyproject.toml)
+uvx ty check                     # ty 类型检查(Astral,配置见 pyproject.toml [tool.ty])
 ```
 
 #### License
