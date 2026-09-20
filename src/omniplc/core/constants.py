@@ -609,6 +609,8 @@ AB_EIP_DEFAULT_SLOT: int = 0
 """默认 CPU 槽号(Unconnected Send 背板路由;0 = CPU 与以太网口同模块)。"""
 AB_EIP_SLOT_MAX: int = 31
 """槽号上限(CIP 端口段 link 为 1 字节)。"""
+AB_EIP_ORIGINATOR_VENDOR_ID: int = 0x1337
+"""Forward Open 的发起方厂商号(目标侧不校验,任意非冲突值即可;沿用参考库惯例)。"""
 AB_EIP_STRING_STRUCT_ID: int = 0x0FCE
 """Logix 标准 STRING 结构体模板实例号(写入类型域携带)。"""
 AB_EIP_STRING_MAX_CHARS: int = 82

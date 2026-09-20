@@ -832,9 +832,12 @@ class AAllenBradleyEthIpClient(ABaseClient):
         ip_address: str = "192.168.1.20",
         port: int = AB_EIP_DEFAULT_PORT,
         slot: int = AB_EIP_DEFAULT_SLOT,
+        connected_messaging: bool = False,
     ) -> None:
         """参数同 :class:`omniplc.plc.ab.AllenBradleyEthIpClient`。"""
-        super().__init__(AllenBradleyEthIpClient(ip_address, port, slot))
+        super().__init__(
+            AllenBradleyEthIpClient(ip_address, port, slot, connected_messaging)
+        )
 
     @property
     def slot(self) -> int:
@@ -843,3 +846,19 @@ class AAllenBradleyEthIpClient(ABaseClient):
         if not isinstance(sync, AllenBradleyEthIpClient):
             raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
         return sync.slot
+
+    @property
+    def connected_messaging(self) -> bool:
+        """是否走 connected 消息(转发同步实例)。"""
+        sync = self._sync
+        if not isinstance(sync, AllenBradleyEthIpClient):
+            raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
+        return sync.connected_messaging
+
+    @property
+    def connection_size(self) -> Optional[int]:
+        """生效连接尺寸(connected 模式 Forward Open 后可用,转发同步实例)。"""
+        sync = self._sync
+        if not isinstance(sync, AllenBradleyEthIpClient):
+            raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
+        return sync.connection_size

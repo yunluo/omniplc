@@ -38,6 +38,8 @@ from ...types import DataType, PrimitiveValue
 EIP_COMMAND_REGISTER_SESSION: int = 0x0065
 EIP_COMMAND_UNREGISTER_SESSION: int = 0x0066
 EIP_COMMAND_SEND_RR_DATA: int = 0x006F
+EIP_COMMAND_SEND_UNIT_DATA: int = 0x0070
+"""ENIP SendUnitData:connected 显式报文(0xA1 地址项 + 0xB1 数据项 + 序列号)。"""
 EIP_HEADER_SIZE: int = 24
 """ENIP 封装头长度(command/length/session/status/context/options)。"""
 EIP_RRDATA_PREFIX_SIZE: int = 16
@@ -45,12 +47,39 @@ EIP_RRDATA_PREFIX_SIZE: int = 16
 interface(4) + timeout(2) + 项数(2) + NullAddress 项(4) + 数据项头(4)。"""
 _CPF_ITEM_NULL_ADDRESS: int = 0x0000
 _CPF_ITEM_UNCONNECTED_DATA: int = 0x00B2
+_CPF_ITEM_CONNECTED_ADDRESS: int = 0x00A1
+"""CPF 连接地址项:4 字节连接 ID(connected 报文)。"""
+_CPF_ITEM_CONNECTED_DATA: int = 0x00B1
+"""CPF 连接数据项:序列号 + CIP 报文(connected 报文)。"""
 
 # ---- CIP 服务码 ----
 CIP_SERVICE_UNCONNECTED_SEND: int = 0x52
 CIP_SERVICE_READ_TAG: int = 0x4C
 CIP_SERVICE_WRITE_TAG: int = 0x4D
 CIP_SERVICE_READ_MODIFY_WRITE: int = 0x4E
+CIP_SERVICE_FORWARD_OPEN: int = 0x54
+"""CIP Forward Open(Connection Manager,普通连接,参数域 16 位)。"""
+CIP_SERVICE_LARGE_FORWARD_OPEN: int = 0x5B
+"""CIP Large Forward Open(参数域 32 位,连接尺寸 >505 时使用)。"""
+CIP_SERVICE_FORWARD_CLOSE: int = 0x4E
+"""CIP Forward Close(Connection Manager;与标签 RMW 同码不同类,不冲突)。"""
+
+# ---- Forward Open / SendUnitData 参数(报文常量,沿用参考库惯例值) ----
+FO_PRIORITY_TIME_TICK: int = 0x0A
+FO_TIMEOUT_TICKS: int = 0x0E
+FO_TIMEOUT_MULTIPLIER: int = 0x03
+FO_TRANSPORT_TRIGGER: int = 0xA3
+"""传输类/触发器:Class 3(应用触发,显式报文连接)。"""
+FO_OT_RPI: int = 0x00201234
+"""O->T 请求包间隔 RPI(微秒粒度)。"""
+FO_TO_RPI: int = 0x00204001
+"""T->O 请求包间隔 RPI(微秒粒度)。"""
+FO_PARAM_BASE: int = 0x4200
+"""网络连接参数基底:点对点(bit14)+ 固定尺寸(bit9),低 9 位为连接尺寸。"""
+CONNECTION_SIZE_LARGE: int = 4002
+"""Large Forward Open 连接尺寸(优先尝试)。"""
+CONNECTION_SIZE_NORMAL: int = 504
+"""普通 Forward Open 连接尺寸(Large 被拒时回落)。"""
 
 # ---- CIP 类型码(Logix) ----
 CIP_TYPE_BOOL: int = 0xC1
@@ -331,18 +360,197 @@ def bit_masks(cip_type: int, bit: int, value: bool) -> Tuple[int, int]:
 
 
 # ----------------------------------------------------------------------
+# connected 消息(Forward Open/Close + SendUnitData)
+# ----------------------------------------------------------------------
+
+def _forward_open_params(is_large: bool, connection_size: int) -> int:
+    """网络连接参数域:P2P + 固定尺寸 + 连接尺寸(内部函数)。"""
+    base = FO_PARAM_BASE << 16 if is_large else FO_PARAM_BASE
+    return base + connection_size
+
+
+def build_forward_open(
+    is_large: bool,
+    connection_size: int,
+    connection_serial: int,
+    to_connection_id: int,
+    vendor_id: int,
+    originator_serial: int,
+    slot: int,
+) -> bytes:
+    """构造 Forward Open(0x54)/ Large Forward Open(0x5B)请求 CIP 部分。
+
+    O->T 连接 ID 传 0 由目标分配(应答返回);T->O 连接 ID 由发起方指定。
+    连接路径 = 背板端口(0x01)+ 槽号 + 消息路由对象(20 02 24 01)。
+    """
+    service = CIP_SERVICE_LARGE_FORWARD_OPEN if is_large else CIP_SERVICE_FORWARD_OPEN
+    frame = bytearray(
+        struct.pack(
+            "<BBBBBBBB",
+            service,
+            2,  # CM 路径字数
+            0x20,
+            0x06,
+            0x24,
+            0x01,
+            FO_PRIORITY_TIME_TICK,
+            FO_TIMEOUT_TICKS,
+        )
+    )
+    frame += struct.pack("<II", 0, to_connection_id)
+    frame += struct.pack("<HH", connection_serial, vendor_id)
+    frame += struct.pack("<I", originator_serial)
+    frame += struct.pack("<B3x", FO_TIMEOUT_MULTIPLIER)  # 乘数 + 3 保留字节
+    frame += struct.pack("<I", FO_OT_RPI)
+    params = _forward_open_params(is_large, connection_size)
+    if is_large:
+        frame += struct.pack("<I", params)
+        frame += struct.pack("<I", FO_TO_RPI)
+        frame += struct.pack("<I", params)
+    else:
+        frame += struct.pack("<H", params)
+        frame += struct.pack("<I", FO_TO_RPI)
+        frame += struct.pack("<H", params)
+    frame += struct.pack("<B", FO_TRANSPORT_TRIGGER)
+    path = bytes((0x01, slot, 0x20, 0x02, 0x24, 0x01))
+    frame += struct.pack("<B", len(path) // 2)
+    frame += path
+    return bytes(frame)
+
+
+def parse_forward_open_reply(reply: bytes, request_service: int) -> Tuple[int, int]:
+    """解析 Forward Open 应答,返回 ``(状态码, O->T 连接 ID)``。
+
+    成功应答数据域以 O->T 连接 ID(4 字节)开头(目标分配);状态非 0
+    (如连接尺寸超限)不抛错,由调用方决定 Large→普通 回落。
+
+    :raises ProtocolFrameError: 封装/CPF/服务回显不符
+    """
+    cip = _parse_rr_data_cip(reply)
+    reply_service = cip[0]
+    if reply_service != (request_service | 0x80):
+        raise ProtocolFrameError(
+            "Forward Open 应答服务码不符:期望 0x{:02X},实际 0x{:02X}".format(
+                request_service | 0x80, reply_service
+            )
+        )
+    status = cip[2]
+    if status != 0:
+        return status, 0
+    if len(cip) < 12:
+        raise ProtocolFrameError("Forward Open 应答数据域不完整")
+    return 0, struct.unpack_from("<I", cip, 4)[0]
+
+
+def build_forward_close(
+    connection_serial: int, vendor_id: int, originator_serial: int, slot: int
+) -> bytes:
+    """构造 Forward Close(0x4E)请求 CIP 部分(路径同 Forward Open)。"""
+    frame = bytearray(
+        struct.pack(
+            "<BBBBBBBB",
+            CIP_SERVICE_FORWARD_CLOSE,
+            2,
+            0x20,
+            0x06,
+            0x24,
+            0x01,
+            FO_PRIORITY_TIME_TICK,
+            FO_TIMEOUT_TICKS,
+        )
+    )
+    frame += struct.pack("<HH", connection_serial, vendor_id)
+    frame += struct.pack("<I", originator_serial)
+    path = bytes((0x01, slot, 0x20, 0x02, 0x24, 0x01))
+    frame += struct.pack("<BB", len(path) // 2, 0x00)
+    frame += path
+    return bytes(frame)
+
+
+def parse_forward_close_reply(reply: bytes) -> int:
+    """解析 Forward Close 应答,返回状态码(非 0 由调用方尽力而为处理)。
+
+    :raises ProtocolFrameError: 封装/CPF/服务回显不符
+    """
+    cip = _parse_rr_data_cip(reply)
+    reply_service = cip[0]
+    if reply_service != (CIP_SERVICE_FORWARD_CLOSE | 0x80):
+        raise ProtocolFrameError(
+            "Forward Close 应答服务码不符:期望 0xCE,实际 0x{:02X}".format(reply_service)
+        )
+    return cip[2]
+
+
+def build_send_unit_data(
+    session_handle: int, ot_connection_id: int, sequence: int, cip_request: bytes
+) -> bytes:
+    """把 CIP 请求封装为 SendUnitData 帧(connected 标签读写)。
+
+    CPF:连接地址项(0xA1,O->T 连接 ID)+ 连接数据项(0xB1,序列号 + 请求)。
+    """
+    header = struct.pack(
+        "<HHIIQI",
+        EIP_COMMAND_SEND_UNIT_DATA,
+        22 + len(cip_request),
+        session_handle,
+        0,
+        0,
+        0,
+    )
+    prefix = struct.pack("<IHH", 0, 0, 2)
+    prefix += struct.pack("<HHI", _CPF_ITEM_CONNECTED_ADDRESS, 4, ot_connection_id)
+    prefix += struct.pack(
+        "<HHH", _CPF_ITEM_CONNECTED_DATA, len(cip_request) + 2, sequence
+    )
+    return header + prefix + cip_request
+
+
+def parse_send_unit_data_reply(
+    reply: bytes, request_service: int, to_connection_id: int, sequence: int
+) -> bytes:
+    """解析 SendUnitData 应答,返回标签服务数据域。
+
+    校验连接地址项回显 T->O 连接 ID(发起方在 Forward Open 中指定)、
+    序列号回显、服务回显与通用状态。
+
+    :raises ProtocolFrameError: 封装/CPF/连接 ID/序列号/服务回显不符
+    :raises DeviceError: CIP 通用状态非 0(不断线)
+    """
+    _check_enip_reply(reply, EIP_COMMAND_SEND_UNIT_DATA)
+    prefix = reply[EIP_HEADER_SIZE:]
+    if len(prefix) < 22:
+        raise ProtocolFrameError("SendUnitData 前缀不完整:{} 字节".format(len(prefix)))
+    item_count, address_type, address_length = struct.unpack_from("<HHH", prefix, 6)
+    if item_count != 2 or address_type != _CPF_ITEM_CONNECTED_ADDRESS or address_length != 4:
+        raise ProtocolFrameError("SendUnitData CPF 地址项非法")
+    connection_id = struct.unpack_from("<I", prefix, 12)[0]
+    if connection_id != to_connection_id:
+        raise ProtocolFrameError(
+            "连接地址项 T->O ID 不符:期望 0x{:08X},实际 0x{:08X}".format(
+                to_connection_id, connection_id
+            )
+        )
+    data_type, data_length, reply_sequence = struct.unpack_from("<HHH", prefix, 16)
+    if data_type != _CPF_ITEM_CONNECTED_DATA:
+        raise ProtocolFrameError("CPF 数据项类型非法:0x{:04X}".format(data_type))
+    cip = prefix[22:]
+    if len(cip) != data_length - 2:
+        raise ProtocolFrameError(
+            "CPF 数据项长度不符:声明 {},实际 {}".format(data_length - 2, len(cip))
+        )
+    if reply_sequence != sequence:
+        raise ProtocolFrameError(
+            "序列号回显不符:期望 {},实际 {}".format(sequence, reply_sequence)
+        )
+    return _parse_service_payload(cip, request_service)
+
+
+# ----------------------------------------------------------------------
 # 应答解析
 # ----------------------------------------------------------------------
 
-def parse_service_reply(reply: bytes, request_service: int) -> bytes:
-    """解析 SendRRData 应答,返回内嵌标签服务的数据域。
-
-    Unconnected Send 成功应答 = 服务回显(0xD2)+ 保留 + 路由状态 + 附加
-    状态长 + 内嵌服务应答(服务回显 | 0x80 + 保留 + 通用状态 + 附加长 + 数据)。
-
-    :raises ProtocolFrameError: 封装/CPF/服务回显不符
-    :raises DeviceError: 路由状态或 CIP 通用状态非 0(不断线)
-    """
+def _parse_rr_data_cip(reply: bytes) -> bytes:
+    """校验 SendRRData 封装与 CPF,返回 CIP 数据(内部函数)。"""
     _check_enip_reply(reply, EIP_COMMAND_SEND_RR_DATA)
     prefix = reply[EIP_HEADER_SIZE:]
     if len(prefix) < EIP_RRDATA_PREFIX_SIZE:
@@ -361,6 +569,19 @@ def parse_service_reply(reply: bytes, request_service: int) -> bytes:
         )
     if len(cip) < 4:
         raise ProtocolFrameError("CIP 应答不完整")
+    return cip
+
+
+def parse_service_reply(reply: bytes, request_service: int) -> bytes:
+    """解析 SendRRData 应答(Unconnected Send 包裹),返回内嵌标签服务的数据域。
+
+    Unconnected Send 成功应答 = 服务回显(0xD2)+ 保留 + 路由状态 + 附加
+    状态长 + 内嵌服务应答(服务回显 | 0x80 + 保留 + 通用状态 + 附加长 + 数据)。
+
+    :raises ProtocolFrameError: 封装/CPF/服务回显不符
+    :raises DeviceError: 路由状态或 CIP 通用状态非 0(不断线)
+    """
+    cip = _parse_rr_data_cip(reply)
 
     reply_service = cip[0]
     if reply_service != (CIP_SERVICE_UNCONNECTED_SEND | 0x80):
@@ -371,25 +592,44 @@ def parse_service_reply(reply: bytes, request_service: int) -> bytes:
     if route_status != 0:
         raise DeviceError(_status_text(route_status), route_status)
 
-    embedded = cip[4 + cip[3]:]
-    if len(embedded) < 4:
-        raise ProtocolFrameError("内嵌服务应答不完整")
-    embedded_service = embedded[0]
-    if embedded_service != (request_service | 0x80):
+    return _parse_service_payload(cip[4 + cip[3]:], request_service)
+
+
+def parse_explicit_reply(reply: bytes, request_service: int) -> bytes:
+    """解析裸 CIP 应答(RRData 无 UC 包裹,Forward Open/Close 用)。
+
+    :raises ProtocolFrameError: 封装/CPF/服务回显不符
+    :raises DeviceError: CIP 通用状态非 0
+    """
+    cip = _parse_rr_data_cip(reply)
+    return _parse_service_payload(cip, request_service)
+
+
+def _parse_service_payload(cip: bytes, request_service: int) -> bytes:
+    """校验服务回显与通用状态,返回服务数据域(内部函数)。"""
+    if len(cip) < 4:
+        raise ProtocolFrameError("CIP 服务应答不完整")
+    reply_service = cip[0]
+    if reply_service != (request_service | 0x80):
         raise ProtocolFrameError(
             "标签服务回显不符:期望 0x{:02X},实际 0x{:02X}".format(
-                request_service | 0x80, embedded_service
+                request_service | 0x80, reply_service
             )
         )
-    status = embedded[2]
+    status = cip[2]
     if status != 0:
         raise DeviceError(_status_text(status), status)
-    return embedded[4 + embedded[3]:]
+    return cip[4 + cip[3]:]
+
+
+def status_text(status: int) -> str:
+    """CIP 通用状态码 → 可读描述(未知码返回"未知错误")。"""
+    return AB_CIP_STATUS_TEXT.get(status, "未知错误")
 
 
 def _status_text(status: int) -> str:
     """CIP 通用状态 → 可读文本(内部函数)。"""
-    return "CIP 状态 0x{:02X}({})".format(status, AB_CIP_STATUS_TEXT.get(status, "未知错误"))
+    return "CIP 状态 0x{:02X}({})".format(status, status_text(status))
 
 
 def parse_tag_read_payload(payload: bytes) -> Tuple[int, bytes]:

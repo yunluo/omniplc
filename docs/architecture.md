@@ -1,6 +1,6 @@
 # omniplc 架构设计
 
-> 版本:v0.16 · 更新日期:2026-09-20 · 状态:Modbus / 三菱 MC(以太网 + 串口帧)/ FINS / KV / SR / TOYOPUC / AB EtherNet/IP / OPC-UA 驱动已全部落地
+> 版本:v0.17 · 更新日期:2026-09-20 · 状态:Modbus / 三菱 MC(以太网 + 串口帧)/ FINS / KV / SR / TOYOPUC / AB EtherNet/IP / OPC-UA 驱动已全部落地
 
 omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7+,uv 开发)。
 本文档描述 v1.0 的完整架构:分层、类设计、继承树、线程安全模型、类型标注纪律、
@@ -460,6 +460,17 @@ UDT 整体读取、批量多服务(0x0A)、分片读写(>480 字节应答)留 v1
 帧格式经 pylogix 1.1.6 / cm_ethernetip 0.1.0 / aphyt 0.1.30 三份参考实现
 交叉核证(见 §8.1)。
 
+connected 消息(v0.17):``connected_messaging=True`` 启用 Forward Open
+(Class 3 应用触发连接)——优先 Large Forward Open(0x5B,连接尺寸 4002),
+被拒回落普通(0x54,504);标签读写改走 SendUnitData(0xA1 地址项携 O->T
+连接 ID、0xB1 数据项携递增序列号,应答校验 T->O ID/序列号/服务回显);
+disconnect 尽力 Forward Close。connected 单事务开销更小、大批量轮询吞吐
+更高;代价是连接状态在目标侧维护,PLC 侧重连容忍度依固件而异——默认仍为
+unconnected。连接路径为背板端口 + 槽号 + 消息路由对象(20 02 24 01);
+O->T 连接 ID 由目标分配(请求传 0),T->O 连接 ID 由发起方指定。
+应答布局(O->T ID 紧跟状态域)经 cm_ethernetip 服务端组成与 pylogix
+客户端解析双向印证。
+
 KV Host Link 说明:``KeyenceHostLinkTcpClient/UdpClient`` 使用 ASCII 行式命令
 (RD/RDS/WR/WRS,CR 结束;响应行以 CR/LF 结束,出错应答 ``E0``~``E9`` 记入
 ``last_error``)。地址语法:位软元件 ``R515``(位组:组号+两位位号)/``B1F``、
@@ -714,6 +725,7 @@ FINS 与 fins-driver 0.3.1 对照(2026-09 复审):FINS 帧头 10 字节布局
 | v0.14 | 三菱 MC 串口帧(C24;3C 帧 ASCII 格式 4 / 4C 帧二进制格式 5,SH-080008 Appendix 7 黄金向量,DLE 附加码)| ✅ 完成 |
 | v0.15 | 基恩士 KV MC 协议兼容 UDP 走线(继承 MelsecMcUdpClient,与 TCP 版共用码表混入,端口 5000)| ✅ 完成 |
 | v0.16 | 罗克韦尔 AB EtherNet/IP(CIP;TCP 44818,RegisterSession + Unconnected Send 槽号路由,Logix 标签自描述类型发现,位/BOOL 数组 0x4E 原子写,STRING 结构体,三参考库交叉核证)| ✅ 完成 |
+| v0.17 | AB connected CIP 消息(Forward Open 大/普通回落 + SendUnitData 序列号回显校验 + Forward Close,connected_messaging 参数)| ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 西门子 S7(drivers 插槽已预留,沿用 BaseClient 原语模式) | 规划 |

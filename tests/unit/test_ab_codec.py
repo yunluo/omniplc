@@ -217,7 +217,7 @@ def test_string_struct_codec() -> None:
 
 def test_encode_value_ranges() -> None:
     """写值编码:范围校验沿用库约定(越界 ValueError)。"""
-    assert codec_cip.encode_value(DataType.SHORT, -5) == struct.pack("<h", -5)
+    assert codec_cip.encode_value(DataType.SHORT, -5) == b"\xfb\xff"
     assert codec_cip.encode_value(DataType.UINT, 4294967295) == b"\xff\xff\xff\xff"
     with pytest.raises(ValueError):
         codec_cip.encode_value(DataType.SHORT, 32768)
@@ -225,3 +225,112 @@ def test_encode_value_ranges() -> None:
         codec_cip.encode_value(DataType.ULONG, -1)
     with pytest.raises(ValueError):
         codec_cip.data_type_code(DataType.STRING)
+
+
+# ----------------------------------------------------------------------
+# connected 消息(Forward Open/Close + SendUnitData)
+# ----------------------------------------------------------------------
+
+def _rr_data_reply(cip: bytes) -> bytes:
+    """裸 CIP 应答的 RRData 包装(测试脚手架)。"""
+    header = struct.pack("<HHIIQI", 0x6F, 16 + len(cip), _SESSION, 0, 0, 0)
+    prefix = struct.pack("<IHHHHHH", 0, 0, 2, 0, 0, 0xB2, len(cip))
+    return header + prefix + cip
+
+
+def test_forward_open_golden() -> None:
+    """普通 Forward Open 字面字节(0x54,参数域 16 位,槽 0 路径)。"""
+    request = codec_cip.build_forward_open(
+        False, 504, 0x1234, 0x5678, 0x1337, 42, 0
+    )
+    assert request == bytes.fromhex(
+        "5402200624010a0e"  # 服务 + CM 路径 + 优先级/超时
+        "00000000" "78560000"  # O->T CID(0=目标分配)+ T->O CID
+        "3412" "3713" "2a000000"  # 连接序列号 + 厂商号 + 发起方序列号
+        "03000000"  # 超时乘数 + 3 保留
+        "34122000" "f843"  # O->T RPI + 参数(P2P+固定+504)
+        "01402000" "f843"  # T->O RPI + 参数
+        "a3" "03" "010020022401"  # 传输触发 + 路径字数 + 背板/槽/消息路由
+    )
+
+
+def test_forward_open_large_format() -> None:
+    """Large Forward Open:服务 0x5B、参数域 32 位(0x4200<<16 + 尺寸)。"""
+    request = codec_cip.build_forward_open(
+        True, 4002, 0x1234, 0x5678, 0x1337, 42, 0
+    )
+    assert request[0] == 0x5B
+    large_params = struct.pack("<I", (0x4200 << 16) + 4002)
+    body = request[8:]
+    assert body[24:28] == large_params
+    assert body[32:36] == large_params
+
+
+def test_forward_open_reply() -> None:
+    """应答解析:成功取 O->T 连接 ID;状态非 0 原样返回供回落判断。"""
+    reply = _rr_data_reply(
+        bytes((0xD4, 0, 0, 0)) + struct.pack("<II", 0xAABBCCDD, 0x5678)
+    )
+    assert codec_cip.parse_forward_open_reply(reply, 0x54) == (0, 0xAABBCCDD)
+    reply = _rr_data_reply(bytes((0xDB, 0, 0x01, 0)) + b"\x00\x00")
+    assert codec_cip.parse_forward_open_reply(reply, 0x5B) == (0x01, 0)
+    reply = _rr_data_reply(bytes((0xD4, 0, 0, 0)) + b"\x00" * 8)
+    with pytest.raises(ProtocolFrameError):
+        codec_cip.parse_forward_open_reply(reply, 0x5B)
+
+
+def test_forward_close_golden_and_reply() -> None:
+    """Forward Close 字面字节与应答状态解析。"""
+    request = codec_cip.build_forward_close(0x1234, 0x1337, 42, 0)
+    assert request == bytes.fromhex(
+        "4e0220062401" "0a0e"
+        "3412" "3713" "2a000000"
+        "03" "00" "010020022401"
+    )
+    reply = _rr_data_reply(bytes((0xCE, 0, 0, 0)))
+    assert codec_cip.parse_forward_close_reply(reply) == 0
+    reply = _rr_data_reply(bytes((0xCC, 0, 0, 0)))
+    with pytest.raises(ProtocolFrameError):
+        codec_cip.parse_forward_close_reply(reply)
+
+
+def test_send_unit_data_golden() -> None:
+    """SendUnitData 字面字节(0xA1 地址项 + 0xB1 数据项 + 序列号)。"""
+    request = codec_cip.build_tag_read(_MYDINT_PATH, 1)
+    frame = codec_cip.build_send_unit_data(_SESSION, 0xAABBCCDD, 1, request)
+    assert frame == bytes.fromhex(
+        "70002200" "78563412" "00000000000000000000000000000000"  # ENIP 头(len=22+12)
+        "0000000000000200"  # interface + timeout + 项数
+        "a1000400" "ddccbbaa"  # 连接地址项:O->T 连接 ID
+        "b1000e000100"  # 连接数据项:len=12+2、序列号 1
+        "4c0491064d7944696e740100"  # Tag Read
+    )
+
+
+def test_parse_send_unit_data_reply() -> None:
+    """应答解析:校验 T->O ID/序列号/服务回显/状态。"""
+    payload = bytes.fromhex("c40010040000")
+    cip = bytes((0xCC, 0, 0, 0)) + payload
+    header = struct.pack("<HHIIQI", 0x70, 22 + len(cip), _SESSION, 0, 0, 0)
+    prefix = (
+        struct.pack("<IHH", 0, 0, 2)
+        + struct.pack("<HHI", 0xA1, 4, 0x5678)
+        + struct.pack("<HHH", 0xB1, len(cip) + 2, 7)
+    )
+    reply = header + prefix + cip
+    assert codec_cip.parse_send_unit_data_reply(reply, 0x4C, 0x5678, 7) == payload
+    with pytest.raises(ProtocolFrameError):
+        codec_cip.parse_send_unit_data_reply(reply, 0x4C, 0x1111, 7)
+    with pytest.raises(ProtocolFrameError):
+        codec_cip.parse_send_unit_data_reply(reply, 0x4C, 0x5678, 8)
+    bad_cip = bytes((0xCC, 0, 0x16, 0))
+    bad_header = struct.pack("<HHIIQI", 0x70, 22 + len(bad_cip), _SESSION, 0, 0, 0)
+    bad_prefix = (
+        struct.pack("<IHH", 0, 0, 2)
+        + struct.pack("<HHI", 0xA1, 4, 0x5678)
+        + struct.pack("<HHH", 0xB1, len(bad_cip) + 2, 7)
+    )
+    bad = bad_header + bad_prefix + bad_cip
+    with pytest.raises(DeviceError) as exc_info:
+        codec_cip.parse_send_unit_data_reply(bad, 0x4C, 0x5678, 7)
+    assert exc_info.value.code == 0x16

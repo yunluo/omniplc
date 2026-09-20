@@ -13,7 +13,10 @@ import pytest
 
 from omniplc import AllenBradleyEthIpClient, DataType
 from omniplc.aio import AAllenBradleyEthIpClient
-from omniplc.core.constants import AB_EIP_DEFAULT_PORT
+from omniplc.core.constants import (
+    AB_EIP_DEFAULT_PORT,
+    AB_EIP_ORIGINATOR_VENDOR_ID,
+)
 from omniplc.plc.ab import codec_cip
 from omniplc.transport import TcpTransport
 from omniplc.types import McFrame  # noqa: F401  (保持与其他测试一致的导入面)
@@ -332,6 +335,303 @@ def test_async_mirror_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
         assert await client.connect() is True
         assert await client.read_int("MyDint") == (True, 5)
         assert await client.write_int("MyDint", 6) is True
+        await client.close()
+
+    asyncio.run(scenario())
+
+
+# ----------------------------------------------------------------------
+# connected 消息(Forward Open/Close + SendUnitData)
+# ----------------------------------------------------------------------
+
+_TO_ID = 0x11112222
+_OT_ID = 0xAABBCCDD
+
+
+def _rr_data_frame(cip: bytes) -> bytes:
+    """裸 CIP 应答的 RRData 帧(测试脚手架)。"""
+    header = struct.pack("<HHIIQI", 0x6F, 16 + len(cip), _SESSION, 0, 0, 0)
+    prefix = struct.pack("<IHHHHHH", 0, 0, 2, 0, 0, 0xB2, len(cip))
+    return header + prefix + cip
+
+
+def _forward_open_chunks(service: int, status: int = 0) -> List[bytes]:
+    """Forward Open 应答分片(成功带连接 ID 对)。"""
+    if status == 0:
+        cip = bytes((service | 0x80, 0, 0, 0)) + struct.pack("<II", _OT_ID, _TO_ID)
+    else:
+        cip = bytes((service | 0x80, 0, status, 0)) + b"\x00\x00"
+    frame = _rr_data_frame(cip)
+    return [frame[:24], frame[24:]]
+
+
+def _connected_reply_chunks(
+    payload: bytes,
+    service: int,
+    sequence: int,
+    cip_status: int = 0,
+) -> List[bytes]:
+    """SendUnitData 应答分片(T->O ID/序列号回显)。"""
+    cip = bytes((service | 0x80, 0, cip_status, 0)) + payload
+    header = struct.pack("<HHIIQI", 0x70, 22 + len(cip), _SESSION, 0, 0, 0)
+    prefix = (
+        struct.pack("<IHH", 0, 0, 2)
+        + struct.pack("<HHI", 0xA1, 4, _TO_ID)
+        + struct.pack("<HHH", 0xB1, len(cip) + 2, sequence)
+    )
+    frame = header + prefix + cip
+    return [frame[:24], frame[24:]]
+
+
+def _connected_client() -> AllenBradleyEthIpClient:
+    """connected 模式客户端,T->O 连接 ID 固定便于断言。"""
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818, connected_messaging=True)
+    client._originator_serial = 42
+    return client
+
+
+def test_connected_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """connected 读:Forward Open(Large)→ SendUnitData 往返,帧逐字节比对。"""
+    monkeypatch.setattr(
+        "omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID
+    )
+    client = _connected_client()
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _forward_open_chunks(codec_cip.CIP_SERVICE_LARGE_FORWARD_OPEN)
+        + _connected_reply_chunks(
+            _atomic_payload(0xC4, b"\x39\x05\x00\x00"),
+            codec_cip.CIP_SERVICE_READ_TAG,
+            1,
+        )
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.connection_size == codec_cip.CONNECTION_SIZE_LARGE
+    assert client.read_int("MyDint") == (True, 1337)
+    sent = bytes(scripted.sent)
+    register = codec_cip.build_register_session()
+    forward_open = codec_cip.build_rr_data(
+        _SESSION,
+        codec_cip.build_forward_open(
+            True,
+            codec_cip.CONNECTION_SIZE_LARGE,
+            client._connection_serial,
+            _TO_ID,
+            AB_EIP_ORIGINATOR_VENDOR_ID,
+            42,
+            0,
+        ),
+    )
+    tag_read = codec_cip.build_tag_read(
+        codec_cip.build_symbol_path(("MyDint",), ((),)), 1
+    )
+    unit_data = codec_cip.build_send_unit_data(_SESSION, _OT_ID, 1, tag_read)
+    assert sent == register + forward_open + unit_data
+
+
+def test_connected_fallback_to_normal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Large 被拒(状态 0x01)回落普通 Forward Open,连接尺寸 504。"""
+    monkeypatch.setattr(
+        "omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID
+    )
+    client = _connected_client()
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _forward_open_chunks(codec_cip.CIP_SERVICE_LARGE_FORWARD_OPEN, status=0x01)
+        + _forward_open_chunks(codec_cip.CIP_SERVICE_FORWARD_OPEN)
+        + _connected_reply_chunks(
+            _atomic_payload(0xC4, b"\x06\x00\x00\x00"),
+            codec_cip.CIP_SERVICE_READ_TAG,
+            1,
+        )
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.connection_size == codec_cip.CONNECTION_SIZE_NORMAL
+    assert client.read_int("MyDint") == (True, 6)
+    sent = bytes(scripted.sent)
+    tag_read = codec_cip.build_tag_read(
+        codec_cip.build_symbol_path(("MyDint",), ((),)), 1
+    )
+    large_open = codec_cip.build_rr_data(
+        _SESSION,
+        codec_cip.build_forward_open(
+            True,
+            codec_cip.CONNECTION_SIZE_LARGE,
+            client._connection_serial,
+            _TO_ID,
+            AB_EIP_ORIGINATOR_VENDOR_ID,
+            42,
+            0,
+        ),
+    )
+    normal_open = codec_cip.build_rr_data(
+        _SESSION,
+        codec_cip.build_forward_open(
+            False,
+            codec_cip.CONNECTION_SIZE_NORMAL,
+            client._connection_serial,
+            _TO_ID,
+            AB_EIP_ORIGINATOR_VENDOR_ID,
+            42,
+            0,
+        ),
+    )
+    unit_data = codec_cip.build_send_unit_data(_SESSION, _OT_ID, 1, tag_read)
+    assert sent == (
+        codec_cip.build_register_session() + large_open + normal_open + unit_data
+    )
+    assert sent[len(codec_cip.build_register_session()) + 24 + 16] == 0x5B
+    assert sent[len(codec_cip.build_register_session()) + len(large_open) + 24 + 16] == 0x54
+
+
+def test_connected_sequence_increments(monkeypatch: pytest.MonkeyPatch) -> None:
+    """connected 连续读:SendUnitData 序列号 1、2 递增。"""
+    monkeypatch.setattr(
+        "omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID
+    )
+    client = _connected_client()
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _forward_open_chunks(codec_cip.CIP_SERVICE_LARGE_FORWARD_OPEN)
+        + _connected_reply_chunks(
+            _atomic_payload(0xC4, b"\x01\x00\x00\x00"),
+            codec_cip.CIP_SERVICE_READ_TAG,
+            1,
+        )
+        + _connected_reply_chunks(
+            _atomic_payload(0xC4, b"\x02\x00\x00\x00"),
+            codec_cip.CIP_SERVICE_READ_TAG,
+            2,
+        )
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_int("MyDint") == (True, 1)
+    assert client.read_int("MyDint") == (True, 2)
+    sent = bytes(scripted.sent)
+    tag_read = codec_cip.build_tag_read(
+        codec_cip.build_symbol_path(("MyDint",), ((),)), 1
+    )
+    assert sent.endswith(
+        codec_cip.build_send_unit_data(_SESSION, _OT_ID, 2, tag_read)
+    )
+
+
+def test_connected_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> None:
+    """connected 模式 CIP 状态错误:DeviceError 不断线,不重建连接。"""
+    monkeypatch.setattr(
+        "omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID
+    )
+    client = _connected_client()
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _forward_open_chunks(codec_cip.CIP_SERVICE_LARGE_FORWARD_OPEN)
+        + _connected_reply_chunks(
+            b"", codec_cip.CIP_SERVICE_READ_TAG, 1, cip_status=0x08
+        )
+        + _connected_reply_chunks(
+            _atomic_payload(0xC4, b"\x09\x00\x00\x00"),
+            codec_cip.CIP_SERVICE_READ_TAG,
+            2,
+        )
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_int("MyDint") == (False, None)
+    assert "服务不支持" in (client.last_error or "")
+    assert client.read_int("MyDint") == (True, 9)
+    sent = bytes(scripted.sent)
+    assert sent.count(codec_cip.build_register_session()) == 1
+    # 仅一次 Forward Open(Large 签名:0x5B + CM 路径 + 优先级/超时)
+    assert sent.count(b"\x5b\x02\x20\x06\x24\x01\x0a\x0e") == 1
+
+
+def test_connected_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """connected 写:类型发现读 + SendUnitData 写(回显 0x4D)。"""
+    monkeypatch.setattr(
+        "omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID
+    )
+    client = _connected_client()
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _forward_open_chunks(codec_cip.CIP_SERVICE_LARGE_FORWARD_OPEN)
+        + _connected_reply_chunks(
+            _atomic_payload(0xC4, b"\x00\x00\x00\x00"),
+            codec_cip.CIP_SERVICE_READ_TAG,
+            1,
+        )
+        + _connected_reply_chunks(
+            b"", codec_cip.CIP_SERVICE_WRITE_TAG, 2
+        )
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.write_int("MyDint", 1337) is True
+    sent = bytes(scripted.sent)
+    write_request = codec_cip.build_tag_write(
+        codec_cip.build_symbol_path(("MyDint",), ((),)),
+        0xC4,
+        b"\x39\x05\x00\x00",
+    )
+    assert sent.endswith(
+        codec_cip.build_send_unit_data(_SESSION, _OT_ID, 2, write_request)
+    )
+
+
+def test_connected_disconnect_sends_forward_close(monkeypatch: pytest.MonkeyPatch) -> None:
+    """connected 断开:先发 Forward Close 再注销会话(应答缺失被容忍)。"""
+    monkeypatch.setattr(
+        "omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID
+    )
+    client = _connected_client()
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _forward_open_chunks(codec_cip.CIP_SERVICE_LARGE_FORWARD_OPEN)
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.disconnect() is True
+    sent = bytes(scripted.sent)
+    forward_close = codec_cip.build_rr_data(
+        _SESSION,
+        codec_cip.build_forward_close(
+            client._connection_serial,
+            AB_EIP_ORIGINATOR_VENDOR_ID,
+            42,
+            0,
+        ),
+    )
+    assert sent.endswith(forward_close + codec_cip.build_unregister_session(_SESSION))
+
+
+def test_async_mirror_connected_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """异步镜像:connected 模式单工作线程往返。"""
+
+    async def scenario() -> None:
+        monkeypatch.setattr(
+            "omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID
+        )
+        client = AAllenBradleyEthIpClient(
+            "127.0.0.1", 44818, connected_messaging=True
+        )
+        assert client.connected_messaging is True
+        sync_client = client._sync
+        assert isinstance(sync_client, AllenBradleyEthIpClient)
+        sync_client._originator_serial = 42
+        scripted = ScriptedTransport(
+            _session_chunks()
+            + _forward_open_chunks(codec_cip.CIP_SERVICE_LARGE_FORWARD_OPEN)
+            + _connected_reply_chunks(
+                _atomic_payload(0xC4, b"\x07\x00\x00\x00"),
+                codec_cip.CIP_SERVICE_READ_TAG,
+                1,
+            )
+        )
+        monkeypatch.setattr(sync_client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        assert await client.read_int("MyDint") == (True, 7)
         await client.close()
 
     asyncio.run(scenario())
