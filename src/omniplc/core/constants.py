@@ -269,6 +269,72 @@ SR_RESP_OK: str = "OK"
 SR_RESP_ERROR: str = "ERROR"
 """读码失败应答(未读到条码或距离过远)。"""
 
+# ---------------------------------------------------------------- 丰田 TOYOPUC
+TOYOPUC_DEFAULT_PORT: int = 1025
+"""TOYOPUC 计算机链接以太网默认端口(参考库示例值,可在 PLC 侧修改)。"""
+TOYOPUC_FRAME_HEADER_SIZE: int = 4
+"""帧头长度:FT(1) + RC(1) + 帧长(2,小端);帧长 = CMD(1) + 数据字节数。"""
+TOYOPUC_MAX_DATAGRAM: int = 2048
+"""UDP 整包接收缓冲上限(足以容纳最大点数响应)。"""
+TOYOPUC_FT_COMMAND: int = 0x00
+"""命令帧 FT 值(RC 恒为 0)。"""
+TOYOPUC_FT_RESPONSE: int = 0x80
+"""响应帧 FT 值。"""
+TOYOPUC_RC_OK: int = 0x00
+"""响应 RC:正常结束。"""
+TOYOPUC_RC_ERROR: int = 0x10
+"""响应 RC:命令出错;详细出错代码在 CMD 字节(无数据时)或数据末字节。"""
+TOYOPUC_CMD_WORD_READ: int = 0x1C
+"""连续字读命令(CMD=1C)。"""
+TOYOPUC_CMD_WORD_WRITE: int = 0x1D
+"""连续字写命令(CMD=1D)。"""
+TOYOPUC_CMD_BYTE_READ: int = 0x1E
+"""连续字节读命令(CMD=1E)。"""
+TOYOPUC_CMD_BYTE_WRITE: int = 0x1F
+"""连续字节写命令(CMD=1F)。"""
+TOYOPUC_CMD_BIT_READ: int = 0x20
+"""单位读命令(CMD=20)。"""
+TOYOPUC_CMD_BIT_WRITE: int = 0x21
+"""单位写命令(CMD=21)。"""
+TOYOPUC_MAX_WORD_COUNT: int = 0x0200
+"""单事务连续字读/写点数上限。"""
+TOYOPUC_MAX_BYTE_COUNT: int = 0x0400
+"""单事务连续字节读/写点数上限。"""
+TOYOPUC_BIT_DEVICES: Tuple[str, ...] = ("P", "K", "V", "T", "C", "L", "X", "Y", "M")
+"""位软元件(编号十六进制;L 为第二段起始 0x1000 的软元件)。"""
+TOYOPUC_WORD_DEVICES: Tuple[str, ...] = ("S", "N", "R", "D", "B")
+"""字软元件(编号十六进制)。"""
+TOYOPUC_ERROR_TEXT: Dict[int, str] = {
+    0x11: "CPU 模块硬件故障",
+    0x20: "中继命令 ENQ 固定数据非 0x05",
+    0x21: "中继命令传送号非法",
+    0x23: "命令码非法",
+    0x24: "子命令码非法",
+    0x25: "命令格式数据字节非法",
+    0x26: "功能调用操作数个数非法",
+    0x31: "顺序运行中禁止写入",
+    0x32: "停止保持中命令不可执行",
+    0x33: "非调试模式调用调试功能",
+    0x34: "设定禁止访问",
+    0x35: "执行优先限制设定禁止执行",
+    0x36: "其他设备执行优先限制禁止执行",
+    0x39: "写 I/O 参数后需复位才能开始扫描",
+    0x3C: "致命故障中命令不可执行",
+    0x3D: "处理竞争禁止执行",
+    0x3E: "存在复位禁止执行",
+    0x3F: "停止期间命令不可执行",
+    0x40: "地址或地址+点数越界",
+    0x41: "字/字节点数越界",
+    0x42: "发送了未指定的数据",
+    0x43: "功能调用操作数非法",
+    0x52: "定时器/计数器设定·当前值访问命令不符",
+    0x66: "中继链接模块无应答",
+    0x70: "中继链接模块不可执行",
+    0x72: "中继链接模块无应答",
+    0x73: "同一链接模块中继命令冲突,需重试",
+}
+"""TOYOPUC 详细出错代码 → 可读描述(last_error 用);未收录的提示查阅手册。"""
+
 # ---------------------------------------------------------------- 通用
 BIT_INDEX_MAX: int = 63
 """位操作工具允许的最大位号。"""

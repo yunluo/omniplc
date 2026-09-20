@@ -32,11 +32,13 @@ from ..core.constants import (
     SERIAL_DEFAULT_DATA_BITS,
     SERIAL_DEFAULT_PARITY,
     SERIAL_DEFAULT_STOP_BITS,
+    TOYOPUC_DEFAULT_PORT,
 )
 from ..modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from ..modbus.modbus import _coerce_word_order
 from ..plc.keyence import KeyenceHostLinkTcpClient, KeyenceHostLinkUdpClient
 from ..plc.melsec import MelsecMcTcpClient, MelsecMcUdpClient, MelsecMxClient
+from ..plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
 from ..scanner import KeyenceSrClient
 from ..plc.omron import OmronFinsTcpClient, OmronFinsUdpClient
 from ..tag import Tag, TagTable
@@ -466,6 +468,30 @@ class AKeyenceSrClient(ABaseClient):
     @scan_dwell.setter
     def scan_dwell(self, seconds: float) -> None:
         self._scanner().scan_dwell = seconds
+
+
+class AToyopucTcpClient(ABaseClient):
+    """丰田 TOYOPUC 计算机链接异步客户端(TCP)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        port: int = TOYOPUC_DEFAULT_PORT,
+    ) -> None:
+        """参数同 :class:`omniplc.plc.toyopuc.ToyopucTcpClient`。"""
+        super().__init__(ToyopucTcpClient(ip_address, port))
+
+
+class AToyopucUdpClient(ABaseClient):
+    """丰田 TOYOPUC 计算机链接异步客户端(UDP)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        port: int = TOYOPUC_DEFAULT_PORT,
+    ) -> None:
+        """参数同 :class:`omniplc.plc.toyopuc.ToyopucUdpClient`。"""
+        super().__init__(ToyopucUdpClient(ip_address, port))
 
 
 class AOmronFinsTcpClient(ABaseClient):

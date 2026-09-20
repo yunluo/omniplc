@@ -77,6 +77,12 @@ BaseClient (ABC, 模板方法) ───────────── src/omnip
     ├── KeyenceHostLinkTcpClient → TcpTransport(8000,按行逐字节收包)
     └── KeyenceHostLinkUdpClient → UdpTransport(8000,一问一答一数据报)
 
+└── _ToyopucBase (ABC, 私有) ──────────── src/omniplc/plc/toyopuc/toyopuc.py
+    │   TOYOPUC 计算机链接二进制帧(00 00 LL LH CMD / 80 RC LL LH CMD);
+    │   TCP 按帧头长度分段收包,UDP 一问一答一数据报
+    ├── ToyopucTcpClient → TcpTransport(1025)
+    └── ToyopucUdpClient → UdpTransport(1025,一问一答一数据报)
+
 KeyenceSrClient ─────────────────────── src/omniplc/scanner/keyence_sr.py
     基恩士 SR 扫码枪(TCP 9004,LON → 窗口 → LOFF → 读应答;
     scan() 返回 (是否读到, 条码文本);不实现 _read/_write 数据原语)
@@ -94,10 +100,11 @@ ABaseClient ── 组合同步实例 + 单线程 ThreadPoolExecutor,方法签�
 ├── AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMxClient
 ├── AOmronFinsTcpClient / AOmronFinsUdpClient
 ├── AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient
+├── AToyopucTcpClient / AToyopucUdpClient
 └── AKeyenceSrClient
 ```
 
-v1 共 **10 个同步具体类 + 10 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
+v1 共 **12 个同步具体类 + 12 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
 另加 MX Component(Windows/COM,单线程 executor 天然满足 ActUtlType 的 STA 模型)。
 
 ### 2.1 继承设计要点(模板方法模式)
@@ -288,6 +295,7 @@ class BaseClient(ABC):
 | Modbus | `hr0` / `c7` / `di10` / `ir3` / `hr0.15` / `40001` | 前缀语法为主;兼容 Modicon 1 基风格(自动转 0 基);位号 0~15;已实现(`modbus/address.py`) |
 | 三菱 MC | `D100` / `M10` / `X1F` / `Y40` / `W100` / `R100` / `Z0` / `ZR100` / `D100.3` | 已实现(`plc/melsec/`);编号进制按码表:X/Y/W/B 十六进制、其余十进制(Q/L/R 口径,SH-080956;1E 帧下 X/Y 八进制),地址解析保留数字原文 |
 | 欧姆龙 FINS | `D100` / `CIO0` / `CIO0.5` / `W10` / `H20` / `A0` / `E0_100` | 已实现(`plc/omron/`);存储区码随帧 codec 实现,EM 区 bank 用下划线 |
+| 丰田 TOYOPUC | `D0100` / `D0100L` / `D0100H` / `M0201` / `M0201W` / `X0010H` | 已实现(`plc/toyopuc/`);编号一律十六进制(手册口径);字区 S/N/R/D/B,位区 P/K/V/T/C/L/X/Y/M;L/H=低/高字节(字节访问),W=位软元件打包字 |
 
 解析失败统一抛 `ValueError`(参数错误约定)。
 
@@ -301,6 +309,7 @@ class BaseClient(ABC):
 | 欧姆龙 FINS | ✅ `OmronFinsTcpClient`(含握手) | ✅ `OmronFinsUdpClient` | v1.x(Host Link) | — |
 | 基恩士 KV Host Link | ✅ `KeyenceHostLinkTcpClient` | ✅ `KeyenceHostLinkUdpClient` | — | — |
 | 基恩士 SR 扫码枪 | ✅ `KeyenceSrClient`(9004) | — | — | — |
+| 丰田 TOYOPUC 计算机链接 | ✅ `ToyopucTcpClient` | ✅ `ToyopucUdpClient` | — | — |
 
 MX Component 说明:``MelsecMxClient`` 经三菱 MX Component 的 ``ActUtlType``
 COM 控件(实用程序设置型)通信,通信参数在**通信设置实用程序**中配置为逻辑站号
@@ -316,6 +325,18 @@ KV Host Link 说明:``KeyenceHostLinkTcpClient/UdpClient`` 使用 ASCII 行式�
 ``DM100`` 等,16/32 位整型经 ``.S/.U/.L/.D`` 后缀由 PLC 原生解析,float32 为
 连续两字小端拼接,64 位整型/浮点为连续四/八字小端拼接;字软元件位访问
 (``DM100.5``,omniplc 约定十进制位号)走读-改-写。
+
+TOYOPUC 计算机链接说明:``ToyopucTcpClient/UdpClient`` 使用二进制帧
+(命令 ``00 00 LL LH CMD [数据]``,响应 ``80 RC LL LH CMD [数据]``,
+帧长 = CMD + 数据字节数,小端)。地址语法:字软元件 ``D0100``(S/N/R/D/B,
+编号十六进制)→ 字访问(CMD=1C/1D);``D0100L``/``D0100H`` 低/高字节 →
+字节访问(CMD=1E/1F,字符串默认从低字节起);位软元件 ``M0201``
+(P/K/V/T/C/L/X/Y/M)→ 位访问(CMD=20/21);``M0201W`` 打包字 → 字访问。
+软元件基地址(字/字节/位三套)与位编号段范围照手册实现(L/M 有 0x1000
+起的第二段)。多字数据小端、低字在前(32/64 位类型与 float32/64 一致);
+出错响应 ``RC=10`` 的详细出错代码(0x40 地址越界等)记入 ``last_error``。
+v0.7 覆盖基础软元件区;扩展区(CMD=94~99)、PC10(CMD=C2~C6)、
+中继(CMD=60)与时钟/CPU 状态(CMD=32/A0)留 v1.x。
 
 实现选型:MC、FINS 无支持 Python 3.7 的成熟维护库 → 自研;
 pymodbus 2.5.3 已停止维护且 3.x 不支持 3.7 → **Modbus 也自研**
@@ -336,6 +357,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 | 三菱 MX Component(已实现) | `docs/MX Component Version 4编程手册.pdf`(ActUtlType 逻辑站号、Open/Close/GetDevice/SetDevice/ReadDeviceBlock/WriteDeviceBlock 数据布局、第 7 章出错代码) |
 | 基恩士 KV Host Link(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\plc-comm-hostlink-python-main\src\hostlink\`(RD/RDS/WR/WRS 命令、.U/.S/.D/.L/.H 数据格式、E0~E6 出错代码、float32 两字小端、位组/X-Y 编号规则) |
 | 基恩士 SR 扫码枪(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\vention_barcode_scanner-0.8.3.tar\...\scanners\keyence.py`(TCP 9004、LON/LOFF 时序——应答在 LOFF 之后才发送、bank 0~15、BCLR/RESET、ERROR/OK 应答) |
+| 丰田 TOYOPUC 计算机链接(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\plc_comm_toyopuc-4.2.0.tar\...\toyopuc\`(**只学习协议本身**:帧格式 `00 00 LL LH CMD`/`80 RC LL LH CMD`、CMD=1C~21 基础区字/字节/位命令、软元件字/字节/位基地址与编号段、RC=10 出错码表、低字在前多字节序;**架构不参考**,仍用本库 BaseClient/Transport 模式) |
 | 欧姆龙 FINS(TCP/UDP,已实现) | `Profinet/Omron/OmronFinsNet.cs`、`OmronFinsUdp.cs`、`OmronFinsNetHelper.cs`(帧组装/解析)、`OmronFinsDataType.cs`(存储区码)、`Core/IMessage/FinsMessage.cs`(TCP 握手/帧长) |
 
 三菱帧实现另对照本地 Python SLMP 参考库
@@ -391,6 +413,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 | v0.4 | 三菱 MX Component(comtypes,逻辑站号)+ Modbus UDP 移除 + MC float 解码修正 | ✅ 完成 |
 | v0.5 | 基恩士 KV Host Link(TCP/UDP,RD/RDS/WR/WRS,位组/十六进制地址)| ✅ 完成 |
 | v0.6 | 基恩士 SR 扫码枪(TCP 9004,LON/LOFF 触发扫码,bank 预设)| ✅ 完成 |
+| v0.7 | 丰田 TOYOPUC 计算机链接(TCP/UDP,基础区字/字节/位访问,CMD=1C~21)| ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
-| v1.x | MC 串口帧(2C/3C/4C)、FINS Host Link、心跳保活、轮询器、连接池 | 规划 |
+| v1.x | MC 串口帧(2C/3C/4C)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 西门子 S7(drivers 插槽已预留,沿用 BaseClient 原语模式) | 规划 |

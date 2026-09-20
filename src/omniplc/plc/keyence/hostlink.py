@@ -13,7 +13,7 @@ SHORT/USHORT  ``RD DM100.S``/``.U``
 INT/UINT      ``RD DM100.L``/``.D``(PLC 原生 32 位)
 FLOAT         ``RDS DM100.U 2`` 两字小端拼 float32
 LONG/ULONG    ``RDS DM100.U 4`` 四字小端拼 64 位整数
-DOUBLE        ``RDS DM100.U 8`` 八字小端拼 float64
+DOUBLE        ``RDS DM100.U 4`` 四字小端拼 float64
 ============  ==============================================
 """
 from __future__ import annotations
@@ -185,7 +185,7 @@ class _KeyenceHostLinkBase(BaseClient):
             words = self._read_consecutive(parsed, 4)
             raw = _words_to_bytes(words, 8)
             return int.from_bytes(raw, "little", signed=data_type is DataType.LONG)
-        words = self._read_consecutive(parsed, 8)
+        words = self._read_consecutive(parsed, 4)
         return struct.unpack("<d", _words_to_bytes(words, 8))[0]
 
     def _write_word(self, parsed: KvAddress, data_type: DataType, value: PrimitiveValue) -> None:

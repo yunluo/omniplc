@@ -1,7 +1,7 @@
 # omniplc
 
 #### 介绍
-omniplc —— 一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙等 PLC,支持 Modbus、MC(3E/4E/1E)、FINS 等协议。
+omniplc —— 一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、丰田等 PLC/扫码枪,支持 Modbus、MC(3E/4E/1E)、FINS、KV Host Link、SR、TOYOPUC 计算机链接等协议。
 
 - **Python 3.7+**,uv 开发,核心零第三方依赖
 - 命名与使用习惯对齐 pyhsl,迁移成本极低
@@ -28,12 +28,16 @@ BaseClient (ABC, 模板方法) —— 连接状态机/事务锁/惰性重连/类
 ├── KeyenceHostLinkTcpClient  基恩士 KV Host Link over TCP(8000)
 ├── KeyenceHostLinkUdpClient  基恩士 KV Host Link over UDP(8000)
 │
-└── KeyenceSrClient        基恩士 SR 扫码枪 TCP(9004,LON/LOFF 触发扫码)
+├── KeyenceSrClient        基恩士 SR 扫码枪 TCP(9004,LON/LOFF 触发扫码)
+│
+└── ToyopucTcpClient       丰田 TOYOPUC 计算机链接 over TCP(1025)
+    ToyopucUdpClient       同帧 over UDP(1025)
 
 异步镜像(omniplc.aio):AModbusTcpClient / AModbusRtuClient /
 AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMxClient /
 AOmronFinsTcpClient / AOmronFinsUdpClient /
-AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceSrClient
+AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceSrClient /
+AToyopucTcpClient / AToyopucUdpClient
 ```
 
 详细架构设计见 [docs/architecture.md](docs/architecture.md)。
@@ -73,7 +77,7 @@ rtu = ModbusRtuClient(station=1)
 rtu.configure_serial("COM3", baud_rate=9600)
 ```
 
-#### 三菱 / 欧姆龙 / 基恩士
+#### 三菱 / 欧姆龙 / 基恩士 / 丰田
 
 ```python
 from omniplc import MelsecMcTcpClient, OmronFinsUdpClient, McFrame
@@ -98,6 +102,12 @@ from omniplc import KeyenceSrClient
 sr = KeyenceSrClient(ip_address="192.168.0.10", port=9004, scan_dwell=1.0)
 sr.connect()
 ok, code = sr.scan()        # LON → 窗口 → LOFF → 读应答
+
+# 丰田 TOYOPUC 计算机链接:二进制帧,地址如 D0100 / M0201 / X0010H / M0201W
+from omniplc import ToyopucTcpClient
+toyopuc = ToyopucTcpClient(ip_address="192.168.0.10", port=1025)
+ok, value = toyopuc.read_ushort("D0100")   # 编号为十六进制
+ok = toyopuc.write_bool("M0201", True)     # 位软元件 CMD=20/21 直读直写
 ```
 
 #### 异步(类名前加 A)
@@ -139,6 +149,7 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 | 欧姆龙 FINS      | ✅  | ✅  | v1.x(Host Link) | —                   |
 | 基恩士 KV Host Link | ✅ | ✅ | —               | —                   |
 | 基恩士 SR 扫码枪 | ✅(9004) | — | —            | —                   |
+| 丰田 TOYOPUC 计算机链接 | ✅(1025) | ✅(1025) | — | —              |
 
 #### 路线图
 
@@ -147,9 +158,10 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 - **v0.3**:三菱 MC 3E/4E/1E(TCP/UDP)+ 欧姆龙 FINS TCP/UDP(握手/节点分配)
 - **v0.4**:三菱 MX Component(comtypes,逻辑站号)+ MC float 解码修正
 - **v0.5**:基恩士 KV Host Link(TCP/UDP,RD/RDS/WR/WRS)
-- **v0.6(当前)**:基恩士 SR 扫码枪(LON/LOFF 触发扫码,bank 预设)
+- **v0.6**:基恩士 SR 扫码枪(LON/LOFF 触发扫码,bank 预设)
+- **v0.7(当前)**:丰田 TOYOPUC 计算机链接(TCP/UDP,基础区字/字节/位访问)
 - **v1.0**:点位表完善 + 示例 + 文档,正式发布
-- **v1.x**:MC 串口帧、FINS Host Link、心跳保活、轮询器、连接池
+- **v1.x**:MC 串口帧、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、心跳保活、轮询器、连接池
 - **v2**:西门子 S7(驱动插槽已预留)
 
 #### 开发
