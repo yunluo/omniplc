@@ -1,10 +1,11 @@
 """omniplc —— 多品牌多协议 PLC 统一通信库。
 
 一次编写,通过一致的 API 对接三菱(MC 协议)、欧姆龙(FINS)、
-基恩士(KV Host Link、MC 协议兼容、SR 扫码枪)、丰田(TOYOPUC 计算机链接)等设备,
+基恩士(KV Host Link、MC 协议兼容、SR 扫码枪)、汇川(H3U/H5U)、
+丰田(TOYOPUC 计算机链接)等设备,
 支持 Modbus TCP/RTU、MC 3E/4E/1E、MC over MX Component、FINS over TCP/UDP、
-KV Host Link over TCP/UDP、KV MC 协议兼容(SLMP 3E)、SR 扫码枪、
-TOYOPUC 计算机链接 over TCP/UDP、OPC-UA(封装 asyncua,opc.tcp 会话)。
+KV Host Link over TCP/UDP、KV MC 协议兼容(SLMP 3E)、汇川 Modbus TCP/RTU、
+SR 扫码枪、TOYOPUC 计算机链接 over TCP/UDP、OPC-UA(封装 asyncua,opc.tcp 会话)。
 
 同步客户端::
 
@@ -34,6 +35,7 @@ from .plc.keyence import (
     KeyenceHostLinkUdpClient,
     KeyenceMcTcpClient,
 )
+from .plc.inovance import InovanceRtuClient, InovanceTcpClient
 from .plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
 from .scanner import KeyenceSrClient
 from .tag import Tag, TagTable
@@ -64,6 +66,9 @@ __all__ = [
     # ---- 欧姆龙 FINS 客户端 ----
     "OmronFinsTcpClient",
     "OmronFinsUdpClient",
+    # ---- 汇川 H3U/H5U 客户端 ----
+    "InovanceTcpClient",
+    "InovanceRtuClient",
     # ---- 丰田 TOYOPUC 客户端 ----
     "ToyopucTcpClient",
     "ToyopucUdpClient",

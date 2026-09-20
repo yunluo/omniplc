@@ -38,6 +38,7 @@ from ..core.constants import (
 )
 from ..modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from ..modbus.modbus import _coerce_word_order
+from ..plc.inovance import InovanceRtuClient, InovanceTcpClient
 from ..opcua import OpcUaClient
 from ..plc.keyence import (
     KeyenceHostLinkTcpClient,
@@ -359,6 +360,41 @@ class AModbusRtuClient(AModbusBaseClient):
         sync = self._sync
         if not isinstance(sync, ModbusRtuClient):
             raise TypeError("内部错误:sync 实例不是 ModbusRtuClient")
+        sync.configure_serial(port_name, baud_rate, data_bits, stop_bits, parity)
+
+
+class AInovanceTcpClient(ABaseClient):
+    """汇川 H3U/H5U Modbus TCP 异步客户端。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.1.88",
+        port: int = MODBUS_DEFAULT_PORT,
+        station: int = MODBUS_DEFAULT_STATION,
+    ) -> None:
+        """参数同 :class:`omniplc.plc.inovance.InovanceTcpClient`。"""
+        super().__init__(InovanceTcpClient(ip_address, port, station))
+
+
+class AInovanceRtuClient(ABaseClient):
+    """汇川 H3U/H5U Modbus RTU 异步客户端(串口)。"""
+
+    def __init__(self, station: int = MODBUS_DEFAULT_STATION) -> None:
+        """参数同 :class:`omniplc.plc.inovance.InovanceRtuClient`。"""
+        super().__init__(InovanceRtuClient(station))
+
+    def configure_serial(
+        self,
+        port_name: str,
+        baud_rate: int = SERIAL_DEFAULT_BAUD_RATE,
+        data_bits: int = SERIAL_DEFAULT_DATA_BITS,
+        stop_bits: float = 2,
+        parity: Union[SerialParity, str] = SERIAL_DEFAULT_PARITY,
+    ) -> None:
+        """配置串口参数(汇川缺省 9600-8N2,转发到同步实例)。"""
+        sync = self._sync
+        if not isinstance(sync, InovanceRtuClient):
+            raise TypeError("内部错误:sync 实例不是 InovanceRtuClient")
         sync.configure_serial(port_name, baud_rate, data_bits, stop_bits, parity)
 
 

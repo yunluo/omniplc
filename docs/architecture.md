@@ -13,13 +13,14 @@ omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7
 ```mermaid
 flowchart TB
     subgraph UserApi["用户 API 层"]
-        Clients["协议 × 走线 具体客户端类<br/>14 个同步 + 14 个异步(A 前缀镜像)<br/>scanner:KeyenceSrClient 扫码枪<br/>Tag / TagTable 可选点位表层"]
+        Clients["协议 × 走线 具体客户端类<br/>16 个同步 + 16 个异步(A 前缀镜像)<br/>scanner:KeyenceSrClient 扫码枪<br/>Tag / TagTable 可选点位表层"]
     end
     subgraph Drivers["驱动层 drivers(协议编解码 + 地址解析)"]
         Modbus["modbus/<br/>codec + address + client"]
         Melsec["plc/melsec/<br/>codec_qna(3E/4E)+ codec_a(1E)+ address + client"]
         Omron["plc/omron/<br/>codec + address + client"]
         Keyence["plc/keyence/<br/>hostlink + mc(继承 MelsecMcTcpClient)"]
+        InovanceD["plc/inovance/<br/>address(汇川→Modbus 映射)+ client(继承 Modbus)"]
         Toyopuc["plc/toyopuc/<br/>codec + address + client"]
         Opcua["opcua/<br/>address + client(封装 asyncua)"]
     end
@@ -61,6 +62,8 @@ flowchart TB
     ModbusBaseClient["ModbusBaseClient(ABC)— modbus/modbus.py<br/>_read/_write 落到位/寄存器原语;字序 ABCD/CDAB/BADC/DCBA<br/>int16…float64 编解码与范围校验;station / word_order 属性"]
     ModbusTcpClient["ModbusTcpClient<br/>MBAP 帧"]
     ModbusRtuClient["ModbusRtuClient<br/>站号 + PDU + CRC16(configure_serial)"]
+    InovanceTcpClient["InovanceTcpClient — plc/inovance/<br/>汇川 H3U/H5U Modbus TCP(502)"]
+    InovanceRtuClient["InovanceRtuClient<br/>汇川 Modbus RTU(缺省 9600-8N2)"]
 
     %% ═══ 三菱 MC / MX ═══
     MelsecMcBase["_MelsecMcBase(ABC,私有)— plc/melsec/melsec.py<br/>帧型校验(3E/4E/1E)、软元件地址分发"]
@@ -92,6 +95,8 @@ flowchart TB
     BaseClient --> ModbusBaseClient
     ModbusBaseClient --> ModbusTcpClient
     ModbusBaseClient --> ModbusRtuClient
+    ModbusBaseClient -->|"只换汇川地址映射"| InovanceTcpClient
+    ModbusBaseClient -->|"只换汇川地址映射"| InovanceRtuClient
     BaseClient --> MelsecMcBase
     MelsecMcBase --> MelsecMcTcpClient
     MelsecMcBase --> MelsecMcUdpClient
@@ -122,6 +127,8 @@ flowchart TB
 
     ModbusTcpClient -.->|"502"| TcpTransport
     ModbusRtuClient -.-> SerialTransport
+    InovanceTcpClient -.->|"502"| TcpTransport
+    InovanceRtuClient -.->|"9600-8N2"| SerialTransport
     MelsecMcTcpClient -.->|"2000"| TcpTransport
     MelsecMcUdpClient -.->|"2000"| UdpTransport
     KeyenceMcTcpClient -.->|"5000"| TcpTransport
@@ -140,7 +147,7 @@ flowchart TB
     BaseClient -.->|"bind_tags"| TagNode
 
     subgraph AsyncMirror["异步镜像(omniplc.aio):ABaseClient 组合同步实例 + 单线程 ThreadPoolExecutor,签名同名同型"]
-        AsyncList["AModbusBaseClient → AModbusTcpClient / AModbusRtuClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMxClient<br/>AOmronFinsTcpClient / AOmronFinsUdpClient<br/>AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient<br/>AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient / AKeyenceSrClient"]
+        AsyncList["AModbusBaseClient → AModbusTcpClient / AModbusRtuClient<br/>AInovanceTcpClient / AInovanceRtuClient(configure_serial 对称暴露)<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMxClient<br/>AOmronFinsTcpClient / AOmronFinsUdpClient<br/>AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient<br/>AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient / AKeyenceSrClient"]
     end
     BaseClient -.->|"组合 + 镜像"| AsyncList
 
@@ -148,7 +155,7 @@ flowchart TB
     class BaseClient,ModbusBaseClient,MelsecMcBase,OmronFinsBase,KeyenceHlBase,ToyopucBase,BaseTransportABC abstract;
 ```
 
-v1 共 **14 个同步具体类 + 14 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
+v1 共 **16 个同步具体类 + 16 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
 另加 MX Component(Windows/COM,单线程 executor 天然满足 ActUtlType 的 STA 模型)。
 
 ### 2.1 继承设计要点(模板方法模式)
@@ -351,6 +358,7 @@ class BaseClient(ABC):
 | 欧姆龙 FINS | `D100` / `CIO0` / `CIO0.5` / `W10` / `H20` / `A0` / `E0_100` / `T0` / `C10` | 已实现(`plc/omron/`);存储区码随帧 codec 实现,EM 区 bank 用下划线;T/C 为定时器/计数器(位=完成标志只读,字=当前值 PV) |
 | 丰田 TOYOPUC | `D0100` / `D0100L` / `D0100H` / `M0201` / `M0201W` / `X0010H` | 已实现(`plc/toyopuc/`);编号一律十六进制(手册口径);字区 S/N/R/D/B,位区 P/K/V/T/C/L/X/Y/M;L/H=低/高字节(字节访问),W=位软元件打包字 |
 | 基恩士 KV MC 兼容 | `R5` / `B1F` / `W10` / `DM100` / `ZR100` / `DM100.3` | 已实现(`plc/keyence/mc.py`,继承 MC);编号进制:R/DM/ZR 十进制、B/W 十六进制;仅基恩士记号(无三菱 D/M/X/Y) |
+| 汇川 H3U/H5U | `D100` / `R100` / `M10` / `SM10` / `SD10` / `S10` / `B10` / `T10` / `C10` / `X17` / `Y17` / `D100.3` | 已实现(`plc/inovance/`,继承 Modbus);位软元件→线圈区(基址按手册:M=编号、SM/SD=0x2400、S=0xE000、T=0xF000、C=0xF400、X=0xF800、Y=0xFC00、B=0x3000),字软元件→保持寄存器区(D=编号、R=0x3000);X/Y 八进制;T/C 位=接点、字=当前值(C 字仅 C0~C199,C200+ 为 32 位双寄存器不支持) |
 | OPC-UA | `ns=2;s=Device.Tag` / `ns=4;i=100` / `i=2258` / `b=AAECAw==` / `g=…` | 已实现(`opcua/`);标准 NodeId 字符串,ns 省略默认 0;前缀大小写规范化,标识符值保留原文(`opcua/address.py`) |
 
 解析失败统一抛 `ValueError`(参数错误约定)。
@@ -365,6 +373,7 @@ class BaseClient(ABC):
 | 欧姆龙 FINS | ✅ `OmronFinsTcpClient`(含握手) | ✅ `OmronFinsUdpClient` | v1.x(Host Link) | — |
 | 基恩士 KV Host Link | ✅ `KeyenceHostLinkTcpClient` | ✅ `KeyenceHostLinkUdpClient` | — | — |
 | 基恩士 KV MC 协议兼容(SLMP 3E) | ✅ `KeyenceMcTcpClient`(5000,继承 MC) | — | — | — |
+| 汇川 H3U/H5U(Modbus + 汇川映射) | ✅ `InovanceTcpClient`(502) | — | ✅ `InovanceRtuClient`(串口) | — |
 | 基恩士 SR 扫码枪 | ✅ `KeyenceSrClient`(9004) | — | — | — |
 | 丰田 TOYOPUC 计算机链接 | ✅ `ToyopucTcpClient` | ✅ `ToyopucUdpClient` | — | — |
 | OPC-UA(opc.tcp) | ✅ `OpcUaClient`(封装 asyncua) | — | — | — |
@@ -394,6 +403,21 @@ DM(数据存储,字,十进制)用 D 的 ``A8h``、ZR(文件寄存器,字,十进�
 同 ``B0h``、B(位,十六进制)/W(字,十六进制)与三菱同码同进制。
 帧型固定 3E(KV 的 SLMP 兼容不提供 4E/1E);仅接受基恩士软元件记号,
 连三菱机型请直接用 ``MelsecMcTcpClient``。
+
+汇川 H3U/H5U 说明(2026-09):汇川小型 PLC(H3U/H3S/H5U/Easy 系列)的
+TCP 与串口通信**本质是标准 Modbus**——网口 Modbus TCP 从站默认开启
+(端口 502,多数机型不可改),串口 Modbus RTU(缺省 9600-8N2)。
+``InovanceTcpClient`` / ``InovanceRtuClient`` 因此**继承 Modbus 客户端**,
+只在地址原语入口做一层翻译:位软元件(M/SM/S/T/C 接点/X/Y/B)映射到
+线圈区,字软元件(D/SD/R/T/C 当前值)映射到保持寄存器区,基址照手册
+(``INOVANCE_BIT_DEVICES``/``INOVANCE_WORD_DEVICES``);X/Y 八进制编号;
+M 编号即偏移(H3U 的 M8000~M8511 从 0x1F40 连续);C200~C255 为 32 位
+计数器(Modbus 双寄存器展开),本库 v1 不提供其字访问。T/C 为位/字
+双性质软元件,按访问类型(BOOL=接点走线圈,其余=当前值走寄存器)换算。
+字序沿用 Modbus 客户端 ``word_order`` 属性(汇川 32 位 D 值如与现场不符可改 CDAB)。
+来源:H3U 指令及编程手册 9.4.3(19010394)、H5U&Easy 编程手册 9.5.1
+"被 ModBus 访问的线圈/寄存器地址"(19011157);另对照 EMQX Neuron /
+TopStack 的汇川 Modbus 映射表(一致)。
 
 TOYOPUC 计算机链接说明:``ToyopucTcpClient/UdpClient`` 使用二进制帧
 (命令 ``00 00 LL LH CMD [数据]``,响应 ``80 RC LL LH CMD [数据]``,
@@ -461,6 +485,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 | 三菱 MX Component(已实现) | `docs/MX Component Version 4编程手册.pdf`(ActUtlType 逻辑站号、Open/Close/GetDevice/SetDevice/ReadDeviceBlock/WriteDeviceBlock 数据布局、第 7 章出错代码) |
 | 基恩士 KV Host Link(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\plc-comm-hostlink-python-main\src\hostlink\`(RD/RDS/WR/WRS 命令、.U/.S/.D/.L/.H 数据格式、E0~E6 出错代码、float32 两字小端、位组/X-Y 编号规则) |
 | 基恩士 KV MC 协议兼容(已实现) | HslCommunication `KeyenceMcNet`(QnA 3E 帧,地址支持三菱与基恩士两套记号)、Mech-Mind 集成文档 `docs.mech-mind.net`(KV-8000 MC 协议 TCP 默认端口 5000、3E 帧配置)、MELSEC/SLMP 手册软元件码表(KV SLMP 兼容:R=90h/B=A0h/DM=A8h/W=B4h/ZR=B0h);协议帧层不另立实现,复用本库 MC 模块 |
+| 汇川 H3U/H5U(已实现) | 官方手册本地 PDF:`D:\DOWNLOAD\19010394-SC_A20(19010394《H3U H3S系列可编程逻辑控制器指令及编程手册》).pdf` 第 9.4 节(Modbus 协议帧/变量编址/9.4.3 通信地址)、`D:\DOWNLOAD\19011157-SC_A21_H5U&Easy系列可编程逻辑控制器编程手册_CN_20260904.pdf` 第 9.5 节(被 ModBus 访问的线圈/寄存器地址、9600-8N2 缺省);协议帧层不另立实现,复用本库 Modbus 模块,仅做软元件→线圈/保持寄存器地址映射 |
 | 基恩士 SR 扫码枪(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\vention_barcode_scanner-0.8.3.tar\...\scanners\keyence.py`(TCP 9004、LON/LOFF 时序——应答在 LOFF 之后才发送、bank 0~15、BCLR/RESET、ERROR/OK 应答) |
 | 丰田 TOYOPUC 计算机链接(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\plc_comm_toyopuc-4.2.0.tar\...\toyopuc\`(**只学习协议本身**:帧格式 `00 00 LL LH CMD`/`80 RC LL LH CMD`、CMD=1C~21 基础区字/字节/位命令、软元件字/字节/位基地址与编号段、RC=10 出错码表、低字在前多字节序;**架构不参考**,仍用本库 BaseClient/Transport 模式) |
 | OPC-UA(已实现) | `asyncua==1.1.5` 安装源码(`.venv\...\asyncua\`,sync.Client 会话/`ua.VariantType` 类型表/`ua.uaerrors` 异常层次);python-opcua 已弃用仅作背景,不作为依赖 |
@@ -548,6 +573,7 @@ FINS 与 fins-driver 0.3.1 对照(2026-09 复审):FINS 帧头 10 字节布局
 | v0.8 | OPC-UA opc.tcp 会话(封装 asyncua==1.1.5,NodeId 读写,会话适配)| ✅ 完成 |
 | v0.9 | Modbus 对照 pymodbus 3.15 强化(RTU 广播写、FC22 掩码写、MBAP 上限);FINS 对照 fins-driver 修正 EM 字码、补 T/C 区与结束码全表 | ✅ 完成 |
 | v0.10 | 基恩士 KV MC 协议兼容(SLMP 3E 帧,继承 MelsecMcTcpClient 换软元件码表,端口 5000)| ✅ 完成 |
+| v0.11 | 汇川 H3U/H5U(Modbus TCP/RTU,继承 Modbus 客户端换汇川软元件地址映射,官方手册口径)| ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 串口帧(2C/3C/4C)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 西门子 S7(drivers 插槽已预留,沿用 BaseClient 原语模式) | 规划 |

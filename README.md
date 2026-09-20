@@ -1,7 +1,7 @@
 # omniplc
 
 #### 介绍
-omniplc —— 一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、丰田等 PLC/扫码枪与 OPC-UA 服务器,支持 Modbus、MC(3E/4E/1E)、FINS、KV Host Link、KV MC 协议兼容(SLMP)、SR、TOYOPUC 计算机链接、OPC-UA 等协议。
+omniplc —— 一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、汇川、丰田等 PLC/扫码枪与 OPC-UA 服务器,支持 Modbus、MC(3E/4E/1E)、FINS、KV Host Link、KV MC 协议兼容(SLMP)、汇川 H3U/H5U(Modbus TCP/RTU)、SR、TOYOPUC 计算机链接、OPC-UA 等协议。
 
 - **Python 3.7+**,uv 开发,核心零第三方依赖
 - 命名与使用习惯对齐 pyhsl,迁移成本极低
@@ -18,6 +18,8 @@ flowchart TB
     ModbusBaseClient["ModbusBaseClient<br/>寄存器级公共逻辑:字序 / 类型分发 / 范围校验"]
     ModbusTcpClient["ModbusTcpClient — MBAP over TCP(502)"]
     ModbusRtuClient["ModbusRtuClient — 站号+PDU+CRC16 over 串口"]
+    InovanceTcpClient["InovanceTcpClient — 汇川 H3U/H5U Modbus TCP(502)<br/>继承 Modbus,只换软元件地址映射"]
+    InovanceRtuClient["InovanceRtuClient — 汇川 H3U/H5U Modbus RTU(串口)<br/>继承 Modbus,只换软元件地址映射"]
 
     MelsecMcTcpClient["MelsecMcTcpClient — 三菱 MC 3E/4E/1E 帧 over TCP(2000)"]
     MelsecMcUdpClient["MelsecMcUdpClient — 三菱 MC 同帧型 over UDP(2000)"]
@@ -40,6 +42,8 @@ flowchart TB
     BaseClient --> ModbusBaseClient
     ModbusBaseClient --> ModbusTcpClient
     ModbusBaseClient --> ModbusRtuClient
+    ModbusBaseClient --> InovanceTcpClient
+    ModbusBaseClient --> InovanceRtuClient
     BaseClient --> MelsecMcTcpClient
     BaseClient --> MelsecMcUdpClient
     BaseClient --> MelsecMxClient
@@ -53,7 +57,7 @@ flowchart TB
     BaseClient --> ToyopucUdpClient
     BaseClient --> OpcUaClient
 
-    AsyncMirror["异步镜像(omniplc.aio,类名 = 同步类名前加 A):<br/>AModbusTcpClient / AModbusRtuClient / AMelsecMcTcpClient / AMelsecMcUdpClient<br/>AMelsecMxClient / AOmronFinsTcpClient / AOmronFinsUdpClient / AKeyenceHostLinkTcpClient<br/>AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceSrClient / AToyopucTcpClient<br/>AToyopucUdpClient / AOpcUaClient"]
+    AsyncMirror["异步镜像(omniplc.aio,类名 = 同步类名前加 A):<br/>AModbusTcpClient / AModbusRtuClient / AInovanceTcpClient / AInovanceRtuClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMxClient / AOmronFinsTcpClient<br/>AOmronFinsUdpClient / AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient<br/>AKeyenceSrClient / AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient"]
     BaseClient -.-> AsyncMirror
 ```
 
@@ -99,7 +103,7 @@ rtu = ModbusRtuClient(station=1)
 rtu.configure_serial("COM3", baud_rate=9600)
 ```
 
-#### 三菱 / 欧姆龙 / 基恩士 / 丰田
+#### 三菱 / 欧姆龙 / 基恩士 / 汇川 / 丰田
 
 ```python
 from omniplc import MelsecMcTcpClient, OmronFinsUdpClient, McFrame
@@ -125,6 +129,15 @@ from omniplc import KeyenceMcTcpClient
 kvmc = KeyenceMcTcpClient(ip_address="192.168.1.22", port=5000)
 ok, value = kvmc.read_ushort("DM100")
 ok = kvmc.write_bool("R5", True)
+
+# 汇川 H3U/H5U:Modbus TCP/RTU + 汇川软元件地址映射
+# 地址如 D100 / R100 / M10 / SM10 / X17(八进制)/ D100.3;T/C 位=接点、字=当前值
+from omniplc import InovanceTcpClient, InovanceRtuClient
+h3u = InovanceTcpClient(ip_address="192.168.1.88", port=502, station=1)
+ok, value = h3u.read_ushort("D100")
+ok = h3u.write_bool("M10", True)
+rtu2 = InovanceRtuClient(station=1)
+rtu2.configure_serial("COM3")   # 汇川缺省 9600-8N2
 
 # 基恩士 SR 扫码枪:触发式设备,scan() 返回 (是否读到, 条码文本)
 from omniplc import KeyenceSrClient
@@ -185,6 +198,7 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 | 欧姆龙 FINS      | ✅  | ✅  | v1.x(Host Link) | —                   |
 | 基恩士 KV Host Link | ✅ | ✅ | —               | —                   |
 | 基恩士 KV MC 协议兼容(SLMP 3E) | ✅(5000) | — | — | —              |
+| 汇川 H3U/H5U(Modbus + 汇川地址映射) | ✅(502) | — | ✅(9600-8N2) | —      |
 | 基恩士 SR 扫码枪 | ✅(9004) | — | —            | —                   |
 | 丰田 TOYOPUC 计算机链接 | ✅(1025) | ✅(1025) | — | —              |
 | OPC-UA(opc.tcp) | ✅(4840,封装 asyncua) | — | — | —                   |
@@ -200,7 +214,8 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 - **v0.7**:丰田 TOYOPUC 计算机链接(TCP/UDP,基础区字/字节/位访问)
 - **v0.8**:OPC-UA opc.tcp 会话(封装 asyncua 1.1.5,NodeId 读写)
 - **v0.9**:Modbus 协议对照强化(pymodbus 3.15 对照:RTU 广播写、FC22 掩码写、MBAP 长度上限)
-- **v0.10(当前)**:基恩士 KV MC 协议兼容(SLMP 3E 帧,继承 MelsecMcTcpClient 换码表)
+- **v0.10**:基恩士 KV MC 协议兼容(SLMP 3E 帧,继承 MelsecMcTcpClient 换码表)
+- **v0.11(当前)**:汇川 H3U/H5U(Modbus TCP/RTU,继承 Modbus 客户端换汇川地址映射)
 - **v1.0**:点位表完善 + 示例 + 文档,正式发布
 - **v1.x**:MC 串口帧、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池
 - **v2**:西门子 S7(驱动插槽已预留)
