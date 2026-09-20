@@ -1,6 +1,6 @@
 # omniplc 架构设计
 
-> 版本:v0.24 · 更新日期:2026-09-21 · 状态:Modbus / 三菱 MC(以太网 + 串口帧)/ FINS / NJ/NX CIP / KV / SR / TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / 西门子 S7 / OPC-UA / 通用自定义 TCP / CNC MTConnect 已全部落地,全局报文调试开关已上线
+> 版本:v0.24.1 · 更新日期:2026-09-21 · 状态:Modbus / 三菱 MC(以太网 + 串口帧)/ FINS / NJ/NX CIP / KV / SR / TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / 西门子 S7 / OPC-UA / 通用自定义 TCP / CNC MTConnect 已全部落地,全局报文调试开关已上线
 
 omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7+,uv 开发)。
 本文档描述 v1.0 的完整架构:分层、类设计、继承树、线程安全模型、类型标注纪律、
@@ -120,13 +120,13 @@ flowchart TB
     OpcUaSession["_OpcUaSession<br/>asyncua 同步会话适配;UaError 在会话边界翻译为 DeviceError"]
     AdsSession["_AdsSession<br/>pyads Connection 适配;ADSError 在会话边界翻译为 DeviceError"]
     MtcSession["_MtConnectSession<br/>http.client keep-alive 连接适配;HTTP/MTConnectError 在会话边界翻译"]
-    S7Session["_S7Session<br/>snap7 Client 适配;RuntimeError 按连接态翻译(在线 DeviceError/断连 OSError)"]
+    S7Session["_S7Session<br/>snap7 Client 适配;snap7 错误(1.x/2.x RuntimeError、3.x S7Error)按连接态翻译(在线 DeviceError/断连 OSError)"]
 
     %% ═══ CNC 机床数采(MTConnect) ═══
     MTConnectClient["MTConnectClient — cnc/mtconnect.py<br/>CNC 只读数采(HTTP/XML,Agent 默认端口 5000,标准库零依赖)<br/>地址=数据项 id/name;read_* 类型化 + snapshot() + read_conditions() + probe()"]
 
     %% ═══ 西门子 S7 ═══
-    SiemensS7Client["SiemensS7Client — plc/siemens/client.py<br/>S7-300/400/1200/1500(封装 python-snap7 1.3,rack/slot 102)<br/>DB/I/Q/M 绝对寻址,尺寸由 DataType 决定大端序;位读改写;S7 String"]
+    SiemensS7Client["SiemensS7Client — plc/siemens/client.py<br/>S7-300/400/1200/1500(封装 python-snap7:3.7~3.9→1.3,3.10+→3.x 纯 Python)<br/>rack/slot 102;DB/I/Q/M 绝对寻址,尺寸由 DataType 决定大端序;位读改写;S7 String"]
 
     %% ═══ 通用自定义 TCP ═══
     OpenTcpClient["OpenTcpClient — opentcp/client.py<br/>任意分隔符成帧设备的收发壳(delimiter/encoding/append·strip/max_frame 可配)<br/>内部缓冲:跨分片拼接、多帧逐次返回;重连清空缓冲<br/>send/send_text/receive/receive_text/transact/transact_text;无点位语义"]
@@ -596,22 +596,33 @@ ADS:部署面复杂、厂商运行库,真机联测前置)。
 
 西门子 S7 说明(2026-09):**选封装不自研(用户指示)**——S7comm 为
 完整私有协议栈(TPKT/COTP/S7 PDU、机架/槽位路由、1200/1500 的
-PUT-GET 授权与优化块限制),封装 `python-snap7==1.3`(**1.3 为最后
-支持 py3.7 的版本线**,2.x 起放弃 3.7)。wheel 捆绑 **64 位** snap7
-原生库;本库 32 位 py3.7 venv 实测捆绑库不可用(WinError 193),故
-``dll_path`` 参数透传 ``Client(lib_location=)`` 供自备 32 位 DLL。
-**python-snap7 1.3 导入期依赖 pkg_resources**(uv venv 默认无
-setuptools)→ ``s7`` extra 显式带 ``setuptools``。`SiemensS7Client`
-结构对标 ADS 驱动:`_S7Session(BaseTransport)` 适配 snap7 Client;
-snap7 抛 RuntimeError 无类型区分,以 **``Cli_GetConnected`` 连接态
+PUT-GET 授权与优化块限制),封装 `python-snap7`。**依赖按解释器版本
+二选一(``s7`` extra 环境标记,目标环境 3.7 与 3.12)**:3.7~3.9 →
+`1.3`(C 库封装末版线,wheel 捆绑 **64 位** 原生库;32 位 py3.7 venv
+实测捆绑库不可用(WinError 193),``dll_path`` 参数透传
+``Client(lib_location=)`` 供自备 32 位 DLL;**1.3 导入期依赖
+pkg_resources** → extra 显式带 ``setuptools``);3.10+ → `3.x`
+(3.0 起纯 Python 实现不再需要 DLL,官方最低 3.10;2.x 线仅 py3.9
+且 area 校验更严,窗口窄不单独适配)。结构对标 ADS 驱动:
+`_S7Session(BaseTransport)` 适配 snap7 Client。**双线 API 差异在边界
+适配**(v0.24.1,均经真库实测核证):① 错误类——1.x/2.x 抛
+RuntimeError、3.x 抛 `S7Error` 谱系(`_new_client` 探测
+`snap7.client.S7Error` 并入错误表),以 **``Cli_GetConnected`` 连接态
 判别**——在线 → DeviceError(PLC 拒绝/地址错,不断线),断连 →
-OSError 惰性重连(连接建立失败 → OSError)。地址只定区域+字节起点,
+OSError 惰性重连(连接建立失败 → OSError);② 区码——地址层出协议
+区码 int,会话边界统一转 snap7 `Areas` 枚举成员(1.x `read_area` 对
+area 做枚举成员校验,裸 int 抛 ValueError、`write_area` 取
+`area.value` 抛 AttributeError,3.x 虽收 int 也统一转,转换在
+`_snap7_area` 探测 `snap7.type`/`snap7.types` 缓存);③ 构造——
+无 dll_path 时 `Client()` 无参调用(1.x 默认参、3.x 兼容),
+dll_path 位置透传仅 C 封装线生效。地址只定区域+字节起点,
 尺寸由 DataType 决定(SHORT 2B/INT 4B/LONG 8B/REAL 4B/LREAL 8B,
 大端 int.from_bytes/struct);位为锁内读-改-写;S7 String 头 2 字节
 (声明长/实际长),写头部按实际长度(建议 ≤ PLC 声明长)。1200/1500
 须开启 PUT-GET 授权且 DB 为非优化块(docstring 注明)。多变量组包/
 块操作/SZL 留后续。**真机联测待做**;测试以假 Client 注入内存字节数组,
-不依赖 snap7 安装与 64 位环境。
+不依赖 snap7 安装与 64 位环境(1.3 枚举转换路径在装真 1.3 的 venv 中
+顺带实测,3.1.2 全路径经 uv 临时 py3.12 环境冒烟核证)。
 
 KV Host Link 说明:``KeyenceHostLinkTcpClient/UdpClient`` 使用 ASCII 行式命令
 (RD/RDS/WR/WRS,CR 结束;响应行以 CR/LF 结束,出错应答 ``E0``~``E9`` 记入
@@ -777,7 +788,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 | 丰田 TOYOPUC 计算机链接(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\plc_comm_toyopuc-4.2.0.tar\...\toyopuc\`(**只学习协议本身**:帧格式 `00 00 LL LH CMD`/`80 RC LL LH CMD`、CMD=1C~21 基础区字/字节/位命令、软元件字/字节/位基地址与编号段、RC=10 出错码表、低字在前多字节序;**架构不参考**,仍用本库 BaseClient/Transport 模式) |
 | OPC-UA(已实现) | `asyncua==1.1.5` 安装源码(`.venv\...\asyncua\`,sync.Client 会话/`ua.VariantType` 类型表/`ua.uaerrors` 异常层次);python-opcua 已弃用仅作背景,不作为依赖 |
 | MTConnect(已实现) | MTConnect 官方规范(<https://www.mtconnect.org/>;MTConnectStreams/Devices/Error 文档结构与数据项语义);`inventcom.net` FOCAS 函数参考为后续 FOCAS 封装备查 |
-| 西门子 S7(已实现) | `python-snap7==1.3` 安装源码(`.venv\...\snap7\`,Client 会话/`check_error` RuntimeError 约定/`Areas` 码表;1.3 为最后支持 py3.7 的版本线,2.x 放弃 3.7);snap7 原生库文档(<https://snap7.sourceforge.net/>) |
+| 西门子 S7(已实现) | `python-snap7` 安装源码:1.3(`.venv\...\snap7\`,Client 会话/`check_error` RuntimeError 约定/`Areas` 普通枚举码表,裸 int 区码被拒)与 3.1.2(纯 Python 实现,`snap7.error.S7Error` 谱系、`snap7.type.Areas` IntEnum、`lib_location` 兼容保留);snap7 原生库文档(<https://snap7.sourceforge.net/>) |
 | 倍福 TwinCAT ADS(已实现) | pyads==3.5.1(pip 安装源码,**封装而非移植**):`connection.py`(Connection.open/close/read_by_name/write_by_name/set_timeout 接口面)、`pyads_ex.py`(ADSError + err_code;字符串写 len+1 字节、读 1024 缓冲已核证;Windows 载 TcAdsDll.dll / Linux 载 adslib 的平台分支)、`constants.py`(PLCTYPE_* 表、STRING_BUFFER=1024、PORT_TC3PLC1=851)、`structs.py`(AmsAddr/NetId 6 字节);封装层只做 DataType→PLCTYPE 映射、范围校验、异常翻译与 NetId 组装;帧层零自研 |
 | 欧姆龙 FINS(TCP/UDP,已实现) | `Profinet/Omron/OmronFinsNet.cs`、`OmronFinsUdp.cs`、`OmronFinsNetHelper.cs`(帧组装/解析)、`OmronFinsDataType.cs`(存储区码)、`Core/IMessage/FinsMessage.cs`(TCP 握手/帧长);2026-09 复审另对照 `fins-driver 0.3.1`(PyPI,indrarudianto/fins-driver,见 §8 对照结论) |
 | 罗克韦尔 AB EtherNet/IP(已实现) | 本地 Python 参考库三份交叉核证(**只学习协议本身,不移植 API**):`D:\DOWNLOAD\pylogix-1.1.6-py2.py3-none-any\pylogix\`(ENIP 封装/RegisterSession/0x4C·0x4D·0x4E 服务/IOI 路径段 0x91·0x28·0x29·0x2A/位字与 BOOL 数组词操作/STRING 0xA0 布局;1.1.6 默认 connected 消息,本库采用其 unconnected 通道并恒包 UC Send)、`D:\DOWNLOAD\cm_ethernetip-0.1.0.tar\...\src\ethernetip\`(规范向实现:CPF 项类型 RRData=0x00B2、UC Send 请求/应答布局、CIP 状态语义)、`D:\DOWNLOAD\aphyt-0.1.30.tar\...\src\aphyt\`(unconnected 显式报文客户端佐证、符号段编码);协议帧层为本库原生纯函数实现(`plc/ab/codec_cip.py`) |
@@ -878,7 +889,8 @@ FINS 与 fins-driver 0.3.1 对照(2026-09 复审):FINS 帧头 10 字节布局
 | v0.21 | 全局报文调试开关(omniplc.set_debug;走线型在传输层统一输出请求/响应十六进制与连接事件,会话型 OPC-UA/ADS/MX 输出操作级日志;logging 记录器 omniplc.debug,无日志配置时自动落 stderr,单条转储上限 4096B)| ✅ 完成 |
 | v0.22 | 内部性能与整洁度优化(全驱动地址解析 lru_cache 4096 条缓存,结果类型均不可变,MC 事务实测提速约 12%;会话型调试日志 log_op 改 %-惰性格式化,关闭时零格式化成本;check_byte_field 由 codec_serial 归位 core/validation,纯搬家无行为变化)| ✅ 完成 |
 | v0.23 | CNC 机床数采 MTConnect(cnc/ 包;HTTP/XML 只读,Agent 默认 5000,标准库零依赖跨平台;地址=数据项 id/name,类型化读 + snapshot + read_conditions + probe;不存在/UNAVAILABLE 不断线,坏 XML 断线,MTConnectError→DeviceError;FANUC/三菱控制器经 Agent 喂数均可采)| ✅ 完成 |
-| v0.24 | 西门子 S7(封装 python-snap7 1.3,rack/slot 102;DB/I/Q/M 绝对寻址,尺寸由 DataType 决定大端序,位读改写,S7 String;RuntimeError 按 GetConnected 连接态翻译;s7 extra 带 setuptools 修 pkg_resources;64 位捆绑库/32 位 dll_path 自备)| ✅ 完成 |
+| v0.24 | 西门子 S7(封装 python-snap7,rack/slot 102;DB/I/Q/M 绝对寻址,尺寸由 DataType 决定大端序,位读改写,S7 String;错误按 GetConnected 连接态翻译;s7 extra 带 setuptools 修 pkg_resources;64 位捆绑库/32 位 dll_path 自备)| ✅ 完成 |
+| v0.24.1 | S7 依赖按解释器版本二选一(3.7~3.9 → python-snap7 1.3,3.10+ → 3.x 纯 Python 无需 DLL,环境标记自动生效);修复区码兼容(裸 int → snap7 Areas 枚举成员,1.x 裸 int 读 ValueError/写 AttributeError);错误边界适配 3.x S7Error 谱系(均真库实测:1.3 于本机 venv,3.1.2 于 uv 临时 py3.12)| ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 更多品牌/协议按需扩展(drivers 插槽沿用 BaseClient 原语模式) | 规划 |

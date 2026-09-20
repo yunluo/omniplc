@@ -791,11 +791,11 @@ dev = [
     { name = "pytest", version = "8.3.5", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version == '3.8.*'" },
     { name = "pytest", version = "8.4.2", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version == '3.9.*'" },
     { name = "pytest", version = "9.1.1", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version >= '3.10'" },
-    { name = "python-snap7" },
+    { name = "python-snap7", version = "1.3", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "python-snap7", version = "3.1.2", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "setuptools", version = "68.0.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.8'" },
     { name = "setuptools", version = "75.3.4", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version == '3.8.*'" },
     { name = "setuptools", version = "82.0.1", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version == '3.9.*'" },
-    { name = "setuptools", version = "84.0.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version >= '3.10'" },
 ]
 mx = [
     { name = "comtypes", version = "1.4.6", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.8' and sys_platform == 'win32'" },
@@ -806,11 +806,11 @@ opcua = [
     { name = "asyncua" },
 ]
 s7 = [
-    { name = "python-snap7" },
+    { name = "python-snap7", version = "1.3", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "python-snap7", version = "3.1.2", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "setuptools", version = "68.0.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.8'" },
     { name = "setuptools", version = "75.3.4", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version == '3.8.*'" },
     { name = "setuptools", version = "82.0.1", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version == '3.9.*'" },
-    { name = "setuptools", version = "84.0.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version >= '3.10'" },
 ]
 serial = [
     { name = "pyserial" },
@@ -827,10 +827,12 @@ requires-dist = [
     { name = "pyserial", marker = "extra == 'dev'", specifier = ">=3.5" },
     { name = "pyserial", marker = "extra == 'serial'", specifier = ">=3.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.4" },
-    { name = "python-snap7", marker = "extra == 'dev'", specifier = "==1.3" },
-    { name = "python-snap7", marker = "extra == 's7'", specifier = "==1.3" },
-    { name = "setuptools", marker = "extra == 'dev'" },
-    { name = "setuptools", marker = "extra == 's7'" },
+    { name = "python-snap7", marker = "python_full_version >= '3.10' and extra == 'dev'", specifier = ">=3.0" },
+    { name = "python-snap7", marker = "python_full_version >= '3.10' and extra == 's7'", specifier = ">=3.0" },
+    { name = "python-snap7", marker = "python_full_version < '3.10' and extra == 'dev'", specifier = "==1.3" },
+    { name = "python-snap7", marker = "python_full_version < '3.10' and extra == 's7'", specifier = "==1.3" },
+    { name = "setuptools", marker = "python_full_version < '3.10' and extra == 'dev'" },
+    { name = "setuptools", marker = "python_full_version < '3.10' and extra == 's7'" },
 ]
 provides-extras = ["serial", "mx", "opcua", "ads", "s7", "dev"]
 
@@ -1133,6 +1135,12 @@ wheels = [
 name = "python-snap7"
 version = "1.3"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+resolution-markers = [
+    "python_full_version > '3.9' and python_full_version < '3.10'",
+    "python_full_version == '3.9'",
+    "python_full_version == '3.8.*'",
+    "python_full_version < '3.8'",
+]
 sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/5a/20/b52b5bf781627857799dbed8173ee67b39d52ace36a35d34b898c03eed9e/python-snap7-1.3.tar.gz", hash = "sha256:fc2dada8e157a6e8f5e02b7a702f3103ec1d99ad2f06b69748a2c40405b3e229", size = 50550, upload-time = "2023-01-17T07:15:23.627Z" }
 wheels = [
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/bb/17/fda4d483902194f951d895fc717d0b0e46adc88e2f2ad304b114d2c0bdc6/python_snap7-1.3-py3-none-macosx_10_9_universal2.whl", hash = "sha256:c33ab26d7617ed527eaebdaf098f6947e70bb9338ada532db28397837a631831", size = 193828, upload-time = "2023-01-17T07:15:15.026Z" },
@@ -1140,6 +1148,19 @@ wheels = [
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/ea/14/6dda70653bcfd91010cccf5488f80c0fe9551baf8c549f5aab1eef1eb945/python_snap7-1.3-py3-none-manylinux2014_aarch64.whl", hash = "sha256:f8bb72cf387b1af8e1e1b4bbbabf086ca7694c6024129c7a52054e3913f40ad6", size = 342789, upload-time = "2023-01-17T07:15:19.359Z" },
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/d8/ac/62da014a72e2fc5fe32f80f5519ad1c3686256c4ac9b89c747406af12474/python_snap7-1.3-py3-none-manylinux_2_24_armv7l.whl", hash = "sha256:5a7aaff9caceee34cfc3d0867d734990693430c353d56de08f7baaa05e7d0265", size = 293929, upload-time = "2023-10-05T11:59:24.961Z" },
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/8a/be/552aac02b7aaaa5932acc402ba1375720050194de8ccbd1df3a5c00f3fba/python_snap7-1.3-py3-none-win_amd64.whl", hash = "sha256:6eba58676033204e36e3ff957e3823c3076a20544f501a731b2ba62d96139cc6", size = 150274, upload-time = "2023-01-17T07:15:21.715Z" },
+]
+
+[[package]]
+name = "python-snap7"
+version = "3.1.2"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+resolution-markers = [
+    "python_full_version >= '3.15'",
+    "python_full_version >= '3.10' and python_full_version < '3.15'",
+]
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/62/78/78b7b73330e357b46d2e83141259776ebf5d6c84dfb2611a88506f19d0e3/python_snap7-3.1.2.tar.gz", hash = "sha256:81913da5cff791c33d9f2ac301f2226a44487792ea8ecc2a9d63a2fbd6895c62", size = 202297, upload-time = "2026-08-10T15:21:25.39Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/9d/17/a883528236009069c421de3c426b0611bb9d0241cfd88c0cec30d87908ac/python_snap7-3.1.2-py3-none-any.whl", hash = "sha256:17a486966d415e54e0b8e2dad3204323e16c445fbc55af44d9cd3173c9573de2", size = 142212, upload-time = "2026-08-10T15:21:24.042Z" },
 ]
 
 [[package]]
@@ -1186,19 +1207,6 @@ resolution-markers = [
 sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/4f/db/cfac1baf10650ab4d1c111714410d2fbb77ac5a616db26775db562c8fab2/setuptools-82.0.1.tar.gz", hash = "sha256:7d872682c5d01cfde07da7bccc7b65469d3dca203318515ada1de5eda35efbf9", size = 1152316, upload-time = "2026-03-09T12:47:17.221Z" }
 wheels = [
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/9d/76/f789f7a86709c6b087c5a2f52f911838cad707cc613162401badc665acfe/setuptools-82.0.1-py3-none-any.whl", hash = "sha256:a59e362652f08dcd477c78bb6e7bd9d80a7995bc73ce773050228a348ce2e5bb", size = 1006223, upload-time = "2026-03-09T12:47:15.026Z" },
-]
-
-[[package]]
-name = "setuptools"
-version = "84.0.0"
-source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
-resolution-markers = [
-    "python_full_version >= '3.15'",
-    "python_full_version >= '3.10' and python_full_version < '3.15'",
-]
-sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/6d/44/f5da03a8ef95d369145c5bb53050e7877c9f3d312e128605fd9504829143/setuptools-84.0.0.tar.gz", hash = "sha256:f4695c21257f0d9b537ec2692c941d02ee143b7cc1276941349a546573b2ef73", size = 1168449, upload-time = "2026-08-08T18:27:58.365Z" }
-wheels = [
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/95/9c/c510029fc6ef33a6275cd2c5d3cecd6613dfd6aa401d57c54f1c18852ccf/setuptools-84.0.0-py3-none-any.whl", hash = "sha256:51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670", size = 818216, upload-time = "2026-08-08T18:27:56.719Z" },
 ]
 
 [[package]]

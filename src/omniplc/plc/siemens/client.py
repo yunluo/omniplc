@@ -1,10 +1,18 @@
-"""西门子 S7 客户端(封装 python-snap7 1.3,ISO-on-TCP 102)。
+"""西门子 S7 客户端(封装 python-snap7,ISO-on-TCP 102)。
 
 S7comm 是完整私有协议栈(TPKT/COTP/S7 PDU、机架/槽位路由、
 S7-1200/1500 的 PUT-GET 授权与优化块限制),**不自研**,封装成熟库
-`python-snap7`(**1.3** 为最后支持 Python 3.7 的版本线;Windows/Linux
-wheel 捆绑 64 位 snap7 原生库,32 位 Python 需自备 32 位 snap7.dll 并经
-``dll_path`` 指定)。
+`python-snap7`,依赖按解释器版本二选一(``s7`` extra 环境标记自动生效,
+核心库本体仍为 3.7.9+):
+
+- Python 3.7~3.9 → **1.3**:C 库封装末版线,wheel 捆绑 64 位原生库,
+  32 位 Python 需自备 32 位 snap7.dll 并经 ``dll_path`` 指定
+- Python 3.10+ → **3.x**:3.0 起纯 Python 实现,不再需要原生 DLL
+
+两线 API 有差异,均在边界处适配:错误类 1.x/2.x 抛 RuntimeError、
+3.x 抛 ``S7Error`` 谱系(见 ``_SNAP7_ERRORS``);area 参数 1.x/2.x 要求
+``Areas`` 枚举成员、3.x 收裸 int(统一经 :func:`_snap7_area` 转换);
+构造参数 1.x/2.x 真实加载原生库、3.x 忽略 ``lib_location``。
 
 类继承::
 
@@ -15,7 +23,7 @@ wheel 捆绑 64 位 snap7 原生库,32 位 Python 需自备 32 位 snap7.dll 并
 DataType 决定,大端序)。S7-1200/1500 侧需勾选"允许来自远程对象的
 PUT/GET 通信访问",且 DB 须为**非优化块**(绝对寻址)。
 
-错误边界:snap7 抛 RuntimeError 无类型区分,以 ``Cli_GetConnected``
+错误边界:snap7 抛错无统一类型区分,以 ``Cli_GetConnected``
 连接态判别——在线 → DeviceError(PLC 拒绝/地址错,不断线),断连 →
 OSError(惰性重连);连接建立失败 → OSError。
 
@@ -25,7 +33,7 @@ v1 范围:单点读写(位读改写)+ S7 String;多变量组包(read_multi)、
 from __future__ import annotations
 
 import struct
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 from ... import convert
 from ...core.base_client import BaseClient, validate_endpoint
@@ -60,24 +68,69 @@ _INT_FORMATS = {
 }
 """整数 DataType → struct 大端格式(含符号语义)。"""
 
+_SNAP7_ERRORS: Tuple[Any, ...] = (RuntimeError,)
+"""snap7 错误类元组(会话边界捕获):1.x/2.x 抛 RuntimeError;3.x 纯
+Python 抛 ``S7Error`` 谱系(基类挂在 snap7.client 命名空间,由
+:func:`_new_client` 探测并入表)。"""
+
+_AREAS_ENUM: Any = False
+"""snap7 ``Areas`` 枚举类缓存:False = 未探测,None = 探测失败(裸 int
+透传),否则为枚举类。1.x 在 ``snap7.types``、2.x/3.x 在 ``snap7.type``。"""
+
+
+def _snap7_area(area: int) -> Any:
+    """协议区码 int → snap7 ``Areas`` 枚举成员(内部函数)。
+
+    1.x 的 ``read_area`` 对 area 做枚举成员校验(裸 int 抛 ValueError)、
+    ``write_area`` 直接取 ``area.value``(裸 int 抛 AttributeError),
+    2.x 校验更严;3.x 虽收裸 int,统一转枚举全兼容。探测不到枚举时
+    (假 Client 单测环境)原样返回 int。
+
+    :param area: 协议区码(0x81 PE / 0x82 PA / 0x83 MK / 0x84 DB)
+    """
+    global _AREAS_ENUM
+    if _AREAS_ENUM is False:
+        _AREAS_ENUM = None
+        for module_name in ("snap7.type", "snap7.types"):
+            try:
+                module = __import__(module_name, fromlist=["Areas"])
+            except ImportError:
+                continue
+            areas = getattr(module, "Areas", None)
+            if areas is not None:
+                _AREAS_ENUM = areas
+                break
+    if _AREAS_ENUM is not None:
+        try:
+            return _AREAS_ENUM(area)
+        except ValueError:
+            pass
+    return area
+
 
 def _new_client(dll_path: str) -> Any:
     """创建 snap7 Client(模块级,单测以假对象替换;内部函数)。
 
+    :param dll_path: 原生库路径(仅 1.x/2.x 生效;3.x 纯 Python 忽略)
     :raises OSError: python-snap7 未安装或 snap7 原生库加载失败
     """
+    global _SNAP7_ERRORS
     try:
         import snap7.client
     except Exception as exc:
         raise OSError(
             "python-snap7 加载失败(pip install omniplc[s7]):{}".format(exc)
         ) from exc
+    error_base = getattr(snap7.client, "S7Error", None)
+    if error_base is not None:
+        _SNAP7_ERRORS = (RuntimeError, error_base)
     try:
         return snap7.client.Client(dll_path or None)
     except (OSError, RuntimeError) as exc:
         raise OSError(
-            "snap7 原生库加载失败:{}(64 位 Python 可用捆绑 DLL;"
-            "32 位 Python 需自备 32 位 snap7.dll,经 dll_path 参数指定)".format(exc)
+            "snap7 原生库加载失败:{}(3.7~3.9 用 python-snap7 1.3:64 位"
+            " Python 可用捆绑 DLL,32 位需自备 32 位 snap7.dll 经 dll_path"
+            " 指定;3.10+ 为纯 Python 实现无需 DLL)".format(exc)
         ) from exc
 
 
@@ -86,8 +139,9 @@ class _S7Session(BaseTransport):
 
     供 :class:`BaseClient` 的连接状态机直接管理——``connect`` 加载
     snap7 库并连 CPU,``close`` 断开并销毁;无字节流收发,区域读写经
-    :meth:`read_area` / :meth:`write_area` 完成,RuntimeError 在此边界
-    按连接态翻译(在线→DeviceError 不断线,断连→OSError 惰性重连)。
+    :meth:`read_area` / :meth:`write_area` 完成,snap7 错误(1.x/2.x
+    RuntimeError、3.x S7Error 谱系)在此边界按连接态翻译
+    (在线→DeviceError 不断线,断连→OSError 惰性重连)。
     """
 
     def __init__(
@@ -117,7 +171,7 @@ class _S7Session(BaseTransport):
         client = _new_client(self._dll_path)
         try:
             client.connect(self._ip_address, self._rack, self._slot, self._port)
-        except RuntimeError as exc:
+        except _SNAP7_ERRORS as exc:
             raise OSError(
                 "S7 连接失败:{}(检查 IP/机架/槽位,1200/1500 需开启"
                 " PUT-GET 访问授权)".format(exc)
@@ -151,8 +205,10 @@ class _S7Session(BaseTransport):
     def read_area(self, area: int, db_number: int, start: int, size: int) -> bytes:
         """读一块区域字节(会话调用,异常在此翻译)。"""
         try:
-            data = self._require_client().read_area(area, db_number, start, size)
-        except RuntimeError as exc:
+            data = self._require_client().read_area(
+                _snap7_area(area), db_number, start, size
+            )
+        except _SNAP7_ERRORS as exc:
             self._raise_link_aware(exc)
         log_op(
             self._debug_label,
@@ -168,8 +224,10 @@ class _S7Session(BaseTransport):
     def write_area(self, area: int, db_number: int, start: int, data: bytes) -> None:
         """写一块区域字节(会话调用,异常在此翻译)。"""
         try:
-            self._require_client().write_area(area, db_number, start, bytearray(data))
-        except RuntimeError as exc:
+            self._require_client().write_area(
+                _snap7_area(area), db_number, start, bytearray(data)
+            )
+        except _SNAP7_ERRORS as exc:
             self._raise_link_aware(exc)
         log_op(
             self._debug_label,
@@ -180,8 +238,8 @@ class _S7Session(BaseTransport):
             len(data),
         )
 
-    def _raise_link_aware(self, exc: RuntimeError) -> None:
-        """按 snap7 连接态翻译 RuntimeError(内部方法)。
+    def _raise_link_aware(self, exc: BaseException) -> None:
+        """按 snap7 连接态翻译错误(内部方法)。
 
         在线 → :class:`DeviceError`(PLC 侧拒绝,不断线);
         断连 → :class:`OSError`(惰性重连)。
@@ -205,7 +263,7 @@ class _S7Session(BaseTransport):
 
 
 class SiemensS7Client(BaseClient):
-    """西门子 S7 客户端(封装 python-snap7 1.3,rack/slot 路由)。
+    """西门子 S7 客户端(封装 python-snap7,rack/slot 路由)。
 
     :example::
 
@@ -230,8 +288,9 @@ class SiemensS7Client(BaseClient):
         :param rack: 机架号,S7_DEFAULT_RACK(0)
         :param slot: 槽位号,1200/1500 常用 1;300/400 的 CPU 常在 2
         :param port: ISO-on-TCP 端口,标准 102
-        :param dll_path: snap7 原生库路径显式覆盖(32 位 Python 需自备
-            32 位 snap7.dll;留空用 python-snap7 捆绑库,仅限 64 位)
+        :param dll_path: snap7 原生库路径显式覆盖,仅 1.x/2.x(C 封装线)
+            生效——32 位 Python 需自备 32 位 snap7.dll;3.x 纯 Python 实现
+            忽略此参数;留空用捆绑库
         :raises ValueError: 参数非法
         """
         validate_endpoint(ip_address, port)

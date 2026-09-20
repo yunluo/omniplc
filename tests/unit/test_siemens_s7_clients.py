@@ -2,11 +2,13 @@
 
 连接工厂 ``_new_client`` 以模块级函数隔离(同 MX Component 惯例),
 测试替换为内存版假 Client:按区域维护字节数组,可注入读写错误与断连态。
+依赖线兼容(s7 extra 按 Python 版本拆 1.3 / 3.x)以桩模块单测,
+不依赖真 snap7 的安装形态。
 """
 from __future__ import annotations
 
 import struct
-from typing import Optional
+from typing import Any, Iterator, Optional
 
 import pytest
 
@@ -25,8 +27,8 @@ class FakeS7Client:
         self.lib_location = lib_location
         self.connected_flag = True
         self.connect_args: Optional[tuple] = None
-        self.connect_error: Optional[RuntimeError] = None
-        self.read_error: Optional[RuntimeError] = None
+        self.connect_error: Optional[BaseException] = None
+        self.read_error: Optional[BaseException] = None
         self.mem: dict = {}
         self.destroyed = False
 
@@ -38,14 +40,14 @@ class FakeS7Client:
     def get_connected(self) -> bool:
         return self.connected_flag
 
-    def read_area(self, area: int, db: int, start: int, size: int) -> bytes:
+    def read_area(self, area: Any, db: int, start: int, size: int) -> bytes:
         if self.read_error is not None:
             raise self.read_error
-        buf = self.mem.setdefault((area, db), bytearray(4096))
+        buf = self.mem.setdefault((getattr(area, "value", area), db), bytearray(4096))
         return bytes(buf[start:start + size])
 
-    def write_area(self, area: int, db: int, start: int, data: bytearray) -> None:
-        buf = self.mem.setdefault((area, db), bytearray(4096))
+    def write_area(self, area: Any, db: int, start: int, data: bytearray) -> None:
+        buf = self.mem.setdefault((getattr(area, "value", area), db), bytearray(4096))
         buf[start:start + len(data)] = data
 
     def disconnect(self) -> None:
@@ -61,6 +63,14 @@ class FakeS7Client:
     def dump(self, area: int, db: int, offset: int, size: int) -> bytes:
         buf = self.mem.setdefault((area, db), bytearray(4096))
         return bytes(buf[offset:offset + size])
+
+
+@pytest.fixture(autouse=True)
+def _restore_s7_module_globals() -> Iterator[None]:
+    """收尾复位 snap7 版本探测缓存与错误类表,防跨用例污染模块全局。"""
+    yield
+    s7_module._AREAS_ENUM = False
+    s7_module._SNAP7_ERRORS = (RuntimeError,)
 
 
 def _client(monkeypatch: pytest.MonkeyPatch) -> tuple:
@@ -156,6 +166,176 @@ def test_connect_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     client = SiemensS7Client("127.0.0.1")
     assert client.connect() is False
     assert client.last_error is not None and "连接失败" in client.last_error
+
+
+# ----------------------------------------------------------------------
+# 依赖线兼容(s7 extra 按 Python 版本拆:3.7~3.9 → 1.3,3.10+ → 3.x)
+# ----------------------------------------------------------------------
+
+class TestSnap7LineCompat:
+    """python-snap7 双线 API 差异适配(枚举区码/错误类表/构造参数)。"""
+
+    def test_area_enum_conversion(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """1.x/2.x 要求 Areas 枚举成员:裸 int 按值转换(snap7.type 优先)。"""
+        import enum
+        import sys
+        import types
+
+        class Areas(enum.Enum):
+            PE = 0x81
+            PA = 0x82
+            MK = 0x83
+            DB = 0x84
+
+        pkg = types.ModuleType("snap7")
+        type_mod = types.ModuleType("snap7.type")
+        setattr(type_mod, "Areas", Areas)
+        setattr(pkg, "type", type_mod)
+        monkeypatch.setitem(sys.modules, "snap7", pkg)
+        monkeypatch.setitem(sys.modules, "snap7.type", type_mod)
+        monkeypatch.setitem(sys.modules, "snap7.types", None)  # 屏蔽 1.x 真模块
+
+        assert s7_module._snap7_area(0x84) is Areas.DB
+        assert s7_module._snap7_area(0x81) is Areas.PE
+
+    def test_area_enum_fallback_int(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """枚举不可用(无 snap7 环境/假 Client)→ 裸 int 原样透传。"""
+        import sys
+
+        monkeypatch.setitem(sys.modules, "snap7.type", None)
+        monkeypatch.setitem(sys.modules, "snap7.types", None)
+
+        assert s7_module._snap7_area(0x84) == 0x84
+        assert isinstance(s7_module._snap7_area(0x83), int)
+
+    def test_area_enum_unknown_value(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """枚举存在但区码无对应成员 → 原样透传(交由 PLC 侧报错)。"""
+        import enum
+        import sys
+        import types
+
+        class Areas(enum.Enum):
+            PE = 0x81
+            DB = 0x84
+
+        pkg = types.ModuleType("snap7")
+        type_mod = types.ModuleType("snap7.type")
+        setattr(type_mod, "Areas", Areas)
+        setattr(pkg, "type", type_mod)
+        monkeypatch.setitem(sys.modules, "snap7", pkg)
+        monkeypatch.setitem(sys.modules, "snap7.type", type_mod)
+        monkeypatch.setitem(sys.modules, "snap7.types", None)
+
+        assert s7_module._snap7_area(0x82) == 0x82
+
+    def test_error_table_refresh_and_ctor_args(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """3.x:S7Error 并入错误类表;无 dll_path 时 Client 无参构造,
+        带 dll_path 位置透传(1.x/2.x 显式加载原生库路径)。"""
+        import sys
+        import types
+
+        created = []
+
+        class _Client:
+            def __init__(self, lib_location: Optional[str] = None) -> None:
+                created.append(lib_location)
+
+        class S7Error(Exception):
+            pass
+
+        pkg = types.ModuleType("snap7")
+        client_mod = types.ModuleType("snap7.client")
+        setattr(client_mod, "Client", _Client)
+        setattr(client_mod, "S7Error", S7Error)
+        setattr(pkg, "client", client_mod)
+        monkeypatch.setitem(sys.modules, "snap7", pkg)
+        monkeypatch.setitem(sys.modules, "snap7.client", client_mod)
+
+        s7_module._new_client("")
+        assert created == [None]
+        s7_module._new_client("D:\\snap7.dll")
+        assert created == [None, "D:\\snap7.dll"]
+        assert s7_module._SNAP7_ERRORS == (RuntimeError, S7Error)
+
+    def test_link_error_translation_3x(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """3.x S7ConnectionError 谱系:在线→DeviceError 不断线;
+        断连→OSError 标记断线,下次读惰性重连(真 _new_client 全路径)。"""
+        import sys
+        import types
+
+        class S7Error(Exception):
+            pass
+
+        class S7ConnectionError(S7Error):
+            pass
+
+        created = []
+
+        class _Client(FakeS7Client):
+            def __init__(self, lib_location: Optional[str] = None) -> None:
+                FakeS7Client.__init__(self)
+                created.append(self)
+
+        pkg = types.ModuleType("snap7")
+        client_mod = types.ModuleType("snap7.client")
+        setattr(client_mod, "Client", _Client)
+        setattr(client_mod, "S7Error", S7Error)
+        setattr(pkg, "client", client_mod)
+        monkeypatch.setitem(sys.modules, "snap7", pkg)
+        monkeypatch.setitem(sys.modules, "snap7.client", client_mod)
+        monkeypatch.setitem(sys.modules, "snap7.type", None)  # 屏蔽真枚举
+        monkeypatch.setitem(sys.modules, "snap7.types", None)
+
+        client = SiemensS7Client("127.0.0.1")
+        assert client.connect() is True
+        first = created[0]
+        first.read_error = S7ConnectionError("Not connected to PLC")
+        ok, value = client.read_float("DB1.DBD6")
+        assert ok is False and value is None
+        assert client.last_error is not None and "S7 错误" in client.last_error
+        assert client.connected is True
+
+        first.connected_flag = False
+        assert client.read_float("DB1.DBD6") == (False, None)
+        assert client.connected is False
+        assert client.read_float("DB1.DBD6") == (True, 0.0)  # 新实例零内存
+        assert client.connected is True
+        assert first.destroyed is True
+        assert len(created) == 2
+
+    def test_connect_refused_3x(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """3.x 连接拒绝抛 S7ConnectionError(非 RuntimeError)→ connect() False。"""
+        import sys
+        import types
+
+        class S7Error(Exception):
+            pass
+
+        class S7ConnectionError(S7Error):
+            pass
+
+        class _Client:
+            def __init__(self, lib_location: Optional[str] = None) -> None:
+                pass
+
+            def connect(
+                self, address: str, rack: int, slot: int, tcpport: int = 102
+            ) -> None:
+                raise S7ConnectionError("TCP connection failed: refused")
+
+        pkg = types.ModuleType("snap7")
+        client_mod = types.ModuleType("snap7.client")
+        setattr(client_mod, "Client", _Client)
+        setattr(client_mod, "S7Error", S7Error)
+        setattr(pkg, "client", client_mod)
+        monkeypatch.setitem(sys.modules, "snap7", pkg)
+        monkeypatch.setitem(sys.modules, "snap7.client", client_mod)
+
+        client = SiemensS7Client("127.0.0.1")
+        assert client.connect() is False
+        assert client.last_error is not None and "连接失败" in client.last_error
 
 
 # ----------------------------------------------------------------------

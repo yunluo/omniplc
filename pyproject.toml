@@ -1,7 +1,7 @@
 [project]
 name = "omniplc"
 version = "0.1.0"
-description = "omniplc —— 多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC 3E/4E/1E 与串口 3C/4C / MX Component / 欧姆龙 FINS / NJ/NX CIP / 基恩士 KV Host Link / KV MC 兼容 / 汇川 H3U/H5U / 松下 MC 兼容与 MEWTOCOL / 丰田 TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / OPC-UA / 通用自定义 TCP)"
+description = "omniplc —— 多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC 3E/4E/1E 与串口 3C/4C / MX Component / 欧姆龙 FINS / NJ/NX CIP / 基恩士 KV Host Link / KV MC 兼容 / 汇川 H3U/H5U / 松下 MC 兼容与 MEWTOCOL / 丰田 TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / 西门子 S7 / OPC-UA / 通用自定义 TCP / CNC MTConnect)"
 readme = "README.md"
 requires-python = ">=3.7.9"
 license = { text = "MIT" }
@@ -30,6 +30,10 @@ keywords = [
     "twincat",
     "ads",
     "pyads",
+    "siemens",
+    "s7",
+    "snap7",
+    "s7comm",
     "omron",
     "opcua",
     "opc-ua",
@@ -62,15 +66,27 @@ serial = ["pyserial>=3.5"]
 mx = ["comtypes>=1.2; platform_system == 'Windows'"]
 opcua = ["asyncua==1.1.5"]
 ads = ["pyads==3.5.1"]
-s7 = ["python-snap7==1.3", "setuptools"]
+# S7 依赖按解释器版本二选一(pip/uv 环境标记自动生效,目标环境 3.7 与 3.12
+# 各取一线):
+#   3.7~3.9 → python-snap7 1.3:C 库封装末版线,64 位 wheel 捆绑原生 DLL,
+#             32 位 Python 经 dll_path 自备;1.3 导入期 import pkg_resources,
+#             uv venv 默认无 setuptools,故标记内显式带上。
+#   3.10+  → python-snap7 3.x:3.0 起纯 Python 实现,不再需要原生 DLL,
+#             官方最低要求 3.10;2.x 线(仅 py3.9,仍 C 封装)窗口窄不单独适配。
+s7 = [
+    "python-snap7==1.3; python_version < '3.10'",
+    "setuptools; python_version < '3.10'",
+    "python-snap7>=3.0; python_version >= '3.10'",
+]
 dev = [
     "pyserial>=3.5",
     "pytest>=7.4.4",
     "comtypes>=1.2",
     "asyncua==1.1.5",
     "pyads==3.5.1",
-    "python-snap7==1.3",
-    "setuptools"
+    "python-snap7==1.3; python_version < '3.10'",
+    "setuptools; python_version < '3.10'",
+    "python-snap7>=3.0; python_version >= '3.10'",
 ]
 
 [build-system]
@@ -106,6 +122,8 @@ module = [
     "pyads",
     "snap7",
     "snap7.client",
+    "snap7.type",
+    "snap7.types",
     "pytest",
 ]
 ignore_missing_imports = true

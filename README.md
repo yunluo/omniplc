@@ -262,7 +262,9 @@ ok, device = cnc.probe()               # 设备信息(name/uuid 等)
 
 # 西门子 S7(封装 python-snap7):DB/I/Q/M 绝对寻址,ISO-on-TCP 102,rack/slot 路由
 # S7-1200/1500 需勾选"允许来自远程对象的 PUT/GET 通信访问",DB 须为非优化块
-# 安装:pip install 'omniplc[s7]'(64 位 Python 用捆绑 snap7 库;32 位需自备 snap7.dll 并经 dll_path 指定)
+# 安装:pip install 'omniplc[s7]' —— 依赖按 Python 版本自动二选一:
+#   3.7~3.9 → python-snap7 1.3(C 封装,64 位用捆绑库;32 位需自备 snap7.dll 经 dll_path 指定)
+#   3.10+   → python-snap7 3.x(纯 Python 实现,无需原生 DLL)
 from omniplc import SiemensS7Client
 s7 = SiemensS7Client("192.168.0.1", rack=0, slot=1)  # 300/400 的 CPU 常在槽位 2
 s7.connect()
@@ -340,7 +342,7 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 | 丰田 TOYOPUC 计算机链接 | ✅(1025) | ✅(1025) | — | —              |
 | OPC-UA(opc.tcp) | ✅(4840,封装 asyncua) | — | — | —                   |
 | CNC 机床数采(MTConnect) | ✅(Agent 5000,HTTP/XML 只读) | — | — | —      |
-| 西门子 S7(DB/I/Q/M) | ✅(102,封装 python-snap7) | — | — | —      |
+| 西门子 S7(DB/I/Q/M) | ✅(102,封装 python-snap7:3.7~3.9→1.3,3.10+→3.x 纯 Python) | — | — | —      |
 | 通用自定义 TCP(分隔符成帧) | ✅(分隔符/编码/帧上限可配) | — | — | —      |
 
 #### 路线图
@@ -368,7 +370,8 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 - **v0.21**:全局报文调试开关(omniplc.set_debug;走线型在传输层统一输出请求/响应十六进制,会话型 OPC-UA/ADS/MX 输出操作级日志;logging 记录器 omniplc.debug,无日志配置时自动落 stderr)
 - **v0.22**:内部性能与整洁度优化(全驱动地址解析 lru_cache 缓存,MC 事务提速约 12%;会话型调试日志惰性格式化;check_byte_field 归位 core/validation)
 - **v0.23**:CNC 机床数采 MTConnect(标准库 HTTP/XML 只读,Agent 默认 5000;数据项 id 即地址,类型化读 + 全量快照 + 报警条件项 + 设备信息;FANUC/三菱等控制器均可经 Agent 采集,零第三方依赖)
-- **v0.24(当前)**:西门子 S7(封装 python-snap7 1.3,rack/slot 路由 102;DB/I/Q/M 绝对寻址,尺寸由 DataType 决定大端序,位读改写,S7 String;s7 extra 含 setuptools 供捆绑库定位;64 位 Python 用捆绑 snap7 库,32 位经 dll_path 自备)
+- **v0.24**:西门子 S7(封装 python-snap7,rack/slot 路由 102;DB/I/Q/M 绝对寻址,尺寸由 DataType 决定大端序,位读改写,S7 String;64 位 Python 用捆绑 snap7 库,32 位经 dll_path 自备)
+- **v0.24.1(当前)**:S7 依赖按 Python 版本自动二选一(3.7~3.9 → python-snap7 1.3,extra 带 setuptools 修 pkg_resources;3.10+ → 3.x 纯 Python 无需 DLL),并修复区码需转 snap7 `Areas` 枚举的兼容问题(1.x 裸 int 读抛 ValueError/写抛 AttributeError);错误边界适配 3.x `S7Error` 谱系
 - **v1.0**:点位表完善 + 示例 + 文档,正式发布
 - **v1.x**:MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、MTConnect /sample 历史流与写入、FANUC FOCAS / 三菱 CNC EZSocket(Windows DLL 封装)、心跳保活、轮询器、连接池
 - **v2**:更多品牌/协议按需扩展(驱动插槽沿用 BaseClient 原语模式)
