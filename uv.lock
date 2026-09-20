@@ -128,6 +128,9 @@ source = { editable = "." }
 
 [package.optional-dependencies]
 dev = [
+    { name = "comtypes", version = "1.4.6", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.8'" },
+    { name = "comtypes", version = "1.4.12", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version == '3.8.*'" },
+    { name = "comtypes", version = "1.4.16", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version >= '3.9'" },
     { name = "pyserial" },
     { name = "pytest", version = "7.4.4", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.8'" },
     { name = "pytest", version = "8.3.5", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version == '3.8.*'" },
@@ -146,6 +149,7 @@ serial = [
 [package.metadata]
 requires-dist = [
     { name = "comtypes", marker = "sys_platform == 'win32' and extra == 'mx'", specifier = ">=1.2" },
+    { name = "comtypes", marker = "extra == 'dev'", specifier = ">=1.2" },
     { name = "pyserial", marker = "extra == 'dev'", specifier = ">=3.5" },
     { name = "pyserial", marker = "extra == 'serial'", specifier = ">=3.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.4" },

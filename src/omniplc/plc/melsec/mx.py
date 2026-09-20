@@ -18,7 +18,7 @@ MX Component Version 4 运行时。
   位块批量,位操作一律走 ``GetDevice``/``SetDevice`` 单点
 """
 from __future__ import annotations
-
+import ctypes
 from typing import Any, List, Sequence
 
 from ... import convert
@@ -72,8 +72,6 @@ def _check_rc(code: int, method: str) -> None:
 
 def _com_get_device(com: Any, device_text: str) -> int:
     """单点读(GetDevice),返回 0~65535 原始值。"""
-    import ctypes
-
     value = ctypes.c_long()
     _check_rc(int(com.GetDevice(device_text, ctypes.byref(value))), "GetDevice")
     return int(value.value) & 0xFFFF
@@ -86,8 +84,6 @@ def _com_set_device(com: Any, device_text: str, value: int) -> None:
 
 def _com_read_words(com: Any, device_text: str, count: int) -> List[int]:
     """批量读字软元件(ReadDeviceBlock),返回 0~65535 原始字列表。"""
-    import ctypes
-
     buffer = (ctypes.c_long * count)()
     _check_rc(int(com.ReadDeviceBlock(device_text, count, buffer)), "ReadDeviceBlock")
     return [int(word) & 0xFFFF for word in buffer]
@@ -95,8 +91,6 @@ def _com_read_words(com: Any, device_text: str, count: int) -> List[int]:
 
 def _com_write_words(com: Any, device_text: str, words: Sequence[int]) -> None:
     """批量写字软元件(WriteDeviceBlock)。"""
-    import ctypes
-
     buffer = (ctypes.c_long * len(words))(*[int(word) for word in words])
     _check_rc(int(com.WriteDeviceBlock(device_text, len(words), buffer)), "WriteDeviceBlock")
 
