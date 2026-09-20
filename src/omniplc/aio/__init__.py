@@ -18,6 +18,7 @@ from ..core.base_client import BaseClient
 from ..core.constants import (
     DEFAULT_STRING_ENCODING,
     FINS_DEFAULT_PORT,
+    KEYENCE_MC_DEFAULT_PORT,
     KV_DEFAULT_PORT,
     MC_DEFAULT_NETWORK_NUMBER,
     MC_DEFAULT_PC_NUMBER,
@@ -38,7 +39,11 @@ from ..core.constants import (
 from ..modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from ..modbus.modbus import _coerce_word_order
 from ..opcua import OpcUaClient
-from ..plc.keyence import KeyenceHostLinkTcpClient, KeyenceHostLinkUdpClient
+from ..plc.keyence import (
+    KeyenceHostLinkTcpClient,
+    KeyenceHostLinkUdpClient,
+    KeyenceMcTcpClient,
+)
 from ..plc.melsec import MelsecMcTcpClient, MelsecMcUdpClient, MelsecMxClient
 from ..plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
 from ..scanner import KeyenceSrClient
@@ -399,6 +404,28 @@ class AMelsecMcUdpClient(ABaseClient):
         """当前帧型(:class:`omniplc.types.McFrame` 枚举)。"""
         sync = self._sync
         if isinstance(sync, MelsecMcUdpClient):
+            return sync.frame
+        raise TypeError("内部错误")
+
+
+class AKeyenceMcTcpClient(ABaseClient):
+    """基恩士 KV MC 协议兼容(SLMP)异步客户端(TCP,3E 帧)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.1.22",
+        port: int = KEYENCE_MC_DEFAULT_PORT,
+        network_number: int = MC_DEFAULT_NETWORK_NUMBER,
+        pc_number: int = MC_DEFAULT_PC_NUMBER,
+    ) -> None:
+        """参数同 :class:`omniplc.plc.keyence.KeyenceMcTcpClient`。"""
+        super().__init__(KeyenceMcTcpClient(ip_address, port, network_number, pc_number))
+
+    @property
+    def frame(self) -> McFrame:
+        """当前帧型,恒为 :attr:`McFrame.FRAME_3E`。"""
+        sync = self._sync
+        if isinstance(sync, KeyenceMcTcpClient):
             return sync.frame
         raise TypeError("内部错误")
 

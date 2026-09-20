@@ -1,7 +1,7 @@
 # omniplc
 
 #### 介绍
-omniplc —— 一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、丰田等 PLC/扫码枪与 OPC-UA 服务器,支持 Modbus、MC(3E/4E/1E)、FINS、KV Host Link、SR、TOYOPUC 计算机链接、OPC-UA 等协议。
+omniplc —— 一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、丰田等 PLC/扫码枪与 OPC-UA 服务器,支持 Modbus、MC(3E/4E/1E)、FINS、KV Host Link、KV MC 协议兼容(SLMP)、SR、TOYOPUC 计算机链接、OPC-UA 等协议。
 
 - **Python 3.7+**,uv 开发,核心零第三方依赖
 - 命名与使用习惯对齐 pyhsl,迁移成本极低
@@ -27,6 +27,7 @@ BaseClient (ABC, 模板方法) —— 连接状态机/事务锁/惰性重连/类
 │
 ├── KeyenceHostLinkTcpClient  基恩士 KV Host Link over TCP(8000)
 ├── KeyenceHostLinkUdpClient  基恩士 KV Host Link over UDP(8000)
+├── KeyenceMcTcpClient     基恩士 KV MC 协议兼容/SLMP 3E 帧(5000,继承 MelsecMcTcpClient)
 │
 ├── KeyenceSrClient        基恩士 SR 扫码枪 TCP(9004,LON/LOFF 触发扫码)
 │
@@ -38,8 +39,8 @@ OpcUaClient              OPC-UA opc.tcp 会话(4840,封装 asyncua)
 异步镜像(omniplc.aio):AModbusTcpClient / AModbusRtuClient /
 AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMxClient /
 AOmronFinsTcpClient / AOmronFinsUdpClient /
-AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceSrClient /
-AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient
+AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient /
+AKeyenceSrClient / AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient
 ```
 
 详细架构设计见 [docs/architecture.md](docs/architecture.md)。
@@ -104,6 +105,13 @@ fins = OmronFinsUdpClient(ip_address="192.168.250.1", port=9600)
 from omniplc import KeyenceHostLinkTcpClient
 kv = KeyenceHostLinkTcpClient(ip_address="192.168.0.10", port=8000)
 
+# 基恩士 KV MC 协议兼容(SLMP):二进制 3E 帧复用三菱实现,仅码表不同
+# 地址如 R5(位,十进制)/ DM100(字,十进制)/ B1F / W10(十六进制)/ ZR100
+from omniplc import KeyenceMcTcpClient
+kvmc = KeyenceMcTcpClient(ip_address="192.168.1.22", port=5000)
+ok, value = kvmc.read_ushort("DM100")
+ok = kvmc.write_bool("R5", True)
+
 # 基恩士 SR 扫码枪:触发式设备,scan() 返回 (是否读到, 条码文本)
 from omniplc import KeyenceSrClient
 sr = KeyenceSrClient(ip_address="192.168.0.10", port=9004, scan_dwell=1.0)
@@ -162,6 +170,7 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 | 三菱 MC 3E/4E/1E | ✅  | ✅  | v1.x(2C/3C/4C)  | ✅(Windows + COM)  |
 | 欧姆龙 FINS      | ✅  | ✅  | v1.x(Host Link) | —                   |
 | 基恩士 KV Host Link | ✅ | ✅ | —               | —                   |
+| 基恩士 KV MC 协议兼容(SLMP 3E) | ✅(5000) | — | — | —              |
 | 基恩士 SR 扫码枪 | ✅(9004) | — | —            | —                   |
 | 丰田 TOYOPUC 计算机链接 | ✅(1025) | ✅(1025) | — | —              |
 | OPC-UA(opc.tcp) | ✅(4840,封装 asyncua) | — | — | —                   |
@@ -176,7 +185,8 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 - **v0.6**:基恩士 SR 扫码枪(LON/LOFF 触发扫码,bank 预设)
 - **v0.7**:丰田 TOYOPUC 计算机链接(TCP/UDP,基础区字/字节/位访问)
 - **v0.8**:OPC-UA opc.tcp 会话(封装 asyncua 1.1.5,NodeId 读写)
-- **v0.9(当前)**:Modbus 协议对照强化(pymodbus 3.15 对照:RTU 广播写、FC22 掩码写、MBAP 长度上限)
+- **v0.9**:Modbus 协议对照强化(pymodbus 3.15 对照:RTU 广播写、FC22 掩码写、MBAP 长度上限)
+- **v0.10(当前)**:基恩士 KV MC 协议兼容(SLMP 3E 帧,继承 MelsecMcTcpClient 换码表)
 - **v1.0**:点位表完善 + 示例 + 文档,正式发布
 - **v1.x**:MC 串口帧、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池
 - **v2**:西门子 S7(驱动插槽已预留)

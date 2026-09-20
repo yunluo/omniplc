@@ -1,10 +1,10 @@
 """omniplc —— 多品牌多协议 PLC 统一通信库。
 
 一次编写,通过一致的 API 对接三菱(MC 协议)、欧姆龙(FINS)、
-基恩士(KV Host Link、SR 扫码枪)、丰田(TOYOPUC 计算机链接)等设备,
+基恩士(KV Host Link、MC 协议兼容、SR 扫码枪)、丰田(TOYOPUC 计算机链接)等设备,
 支持 Modbus TCP/RTU、MC 3E/4E/1E、MC over MX Component、FINS over TCP/UDP、
-KV Host Link over TCP/UDP、SR 扫码枪、TOYOPUC 计算机链接 over TCP/UDP、
-OPC-UA(封装 asyncua,opc.tcp 会话)。
+KV Host Link over TCP/UDP、KV MC 协议兼容(SLMP 3E)、SR 扫码枪、
+TOYOPUC 计算机链接 over TCP/UDP、OPC-UA(封装 asyncua,opc.tcp 会话)。
 
 同步客户端::
 
@@ -29,7 +29,11 @@ from .modbus import ModbusArea, ModbusBaseClient, ModbusRtuClient, ModbusTcpClie
 from .opcua import OpcUaClient
 from .plc.melsec import MelsecMcTcpClient, MelsecMcUdpClient, MelsecMxClient
 from .plc.omron import OmronFinsTcpClient, OmronFinsUdpClient
-from .plc.keyence import KeyenceHostLinkTcpClient, KeyenceHostLinkUdpClient
+from .plc.keyence import (
+    KeyenceHostLinkTcpClient,
+    KeyenceHostLinkUdpClient,
+    KeyenceMcTcpClient,
+)
 from .plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
 from .scanner import KeyenceSrClient
 from .tag import Tag, TagTable
@@ -38,7 +42,7 @@ from .types import ByteOrder, DataType, McFrame, SerialParity, WordOrder
 
 __version__ = "0.1.0"
 __author__ = "云落"
-__description__ = "多品牌多协议 PLC/扫码枪统一通信库(Modbus / 三菱 MC / 欧姆龙 FINS / 基恩士 KV Host Link / SR / 丰田 TOYOPUC)"
+__description__ = "多品牌多协议 PLC/扫码枪统一通信库(Modbus / 三菱 MC / 欧姆龙 FINS / 基恩士 KV Host Link / MC 兼容 / SR / 丰田 TOYOPUC)"
 
 __all__ = [
     # ---- 客户端基类 ----
@@ -51,9 +55,10 @@ __all__ = [
     "MelsecMcTcpClient",
     "MelsecMcUdpClient",
     "MelsecMxClient",
-    # ---- 基恩士 KV Host Link 客户端 ----
+    # ---- 基恩士 KV Host Link / MC 兼容客户端 ----
     "KeyenceHostLinkTcpClient",
     "KeyenceHostLinkUdpClient",
+    "KeyenceMcTcpClient",
     # ---- 基恩士 SR 扫码枪 ----
     "KeyenceSrClient",
     # ---- 欧姆龙 FINS 客户端 ----

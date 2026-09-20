@@ -21,7 +21,7 @@ SLMP 参考库 ``core.encode_3e_request``/``encode_4e_request``,SH-080956):
 """
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .address import McAddress
 from ...core.constants import (
@@ -45,17 +45,22 @@ from ...core.errors import DeviceError, ProtocolFrameError
 _FRAME_NAMES = ("3E", "4E")
 
 
-def device_info(device: str) -> Tuple[int, bool, int]:
+def device_info(
+    device: str,
+    codes: Optional[Dict[str, Tuple[int, int, int]]] = None,
+) -> Tuple[int, bool, int]:
     """查 3E/4E 软元件码表。
 
+    :param codes: 码表(缺省为三菱 ``MC_DEVICE_CODES``;基恩士 SLMP 兼容传 ``KEYENCE_MC_DEVICE_CODES``)
     :return: ``(软元件码, 是否位软元件, 地址进制)``
     :raises ValueError: 不支持的软元件
     """
+    table = MC_DEVICE_CODES if codes is None else codes
     try:
-        code, is_bit, base = MC_DEVICE_CODES[device]
+        code, is_bit, base = table[device]
     except KeyError:
         raise ValueError(
-            "不支持的 MC 软元件:{!r},支持:{}".format(device, "/".join(sorted(MC_DEVICE_CODES)))
+            "不支持的 MC 软元件:{!r},支持:{}".format(device, "/".join(sorted(table)))
         )
     return code, bool(is_bit), base
 
@@ -84,6 +89,7 @@ def build_request(
     is_bit: bool,
     is_write: bool,
     data: Optional[List[int]] = None,
+    codes: Optional[Dict[str, Tuple[int, int, int]]] = None,
 ) -> bytes:
     """构造 3E/4E 帧请求(成批读 0104 / 成批写 0114)。
 
@@ -97,10 +103,11 @@ def build_request(
     :param frame: ``"3E"`` 或 ``"4E"``
     :param serial: 序列号(仅 4E 使用,0~65535 回绕;3E 忽略)
     :param data: 写数据(字单位为逐字 0~65535;位单位为 0/1 序列,长度 = points)
+    :param codes: 软元件码表(缺省三菱;基恩士 SLMP 兼容传自有码表)
     :raises ValueError: 帧型/软元件/点数/数据非法
     """
     frame_name = _check_frame(frame)
-    code, is_bit_device, base = device_info(address.device)
+    code, is_bit_device, base = device_info(address.device, codes)
     if is_bit and not is_bit_device:
         raise ValueError(
             "字软元件 {} 不支持位单位成批访问,请按字访问后提取位".format(address.device)

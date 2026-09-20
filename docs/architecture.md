@@ -77,6 +77,12 @@ BaseClient (ABC, 模板方法) ───────────── src/omnip
     ├── KeyenceHostLinkTcpClient → TcpTransport(8000,按行逐字节收包)
     └── KeyenceHostLinkUdpClient → UdpTransport(8000,一问一答一数据报)
 
+└── KeyenceMcTcpClient ────────────────── src/omniplc/plc/keyence/mc.py
+    │   基恩士 KV MC 协议兼容(SLMP 3E 帧二进制,默认端口 5000):
+    │   **继承 MelsecMcTcpClient**,只覆写软元件码表(KEYENCE_MC_DEVICE_CODES)
+    │   与帧组装传表,收发/按长收包/解析全部复用三菱 MC 实现;帧型固定 3E
+    └── (地址:R 位十进制 / DM 字十进制 / B 位、W 字十六进制 / ZR 字十进制)
+
 └── _ToyopucBase (ABC, 私有) ──────────── src/omniplc/plc/toyopuc/toyopuc.py
     │   TOYOPUC 计算机链接二进制帧(00 00 LL LH CMD / 80 RC LL LH CMD);
     │   TCP 按帧头长度分段收包,UDP 一问一答一数据报
@@ -105,12 +111,13 @@ ABaseClient ── 组合同步实例 + 单线程 ThreadPoolExecutor,方法签�
 ├── AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMxClient
 ├── AOmronFinsTcpClient / AOmronFinsUdpClient
 ├── AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient
+├── AKeyenceMcTcpClient
 ├── AToyopucTcpClient / AToyopucUdpClient
 ├── AOpcUaClient
 └── AKeyenceSrClient
 ```
 
-v1 共 **13 个同步具体类 + 13 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
+v1 共 **14 个同步具体类 + 14 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
 另加 MX Component(Windows/COM,单线程 executor 天然满足 ActUtlType 的 STA 模型)。
 
 ### 2.1 继承设计要点(模板方法模式)
@@ -312,6 +319,7 @@ class BaseClient(ABC):
 | 三菱 MC | `D100` / `M10` / `X1F` / `Y40` / `W100` / `R100` / `Z0` / `ZR100` / `D100.3` | 已实现(`plc/melsec/`);编号进制按码表:X/Y/W/B 十六进制、其余十进制(Q/L/R 口径,SH-080956;1E 帧下 X/Y 八进制),地址解析保留数字原文 |
 | 欧姆龙 FINS | `D100` / `CIO0` / `CIO0.5` / `W10` / `H20` / `A0` / `E0_100` / `T0` / `C10` | 已实现(`plc/omron/`);存储区码随帧 codec 实现,EM 区 bank 用下划线;T/C 为定时器/计数器(位=完成标志只读,字=当前值 PV) |
 | 丰田 TOYOPUC | `D0100` / `D0100L` / `D0100H` / `M0201` / `M0201W` / `X0010H` | 已实现(`plc/toyopuc/`);编号一律十六进制(手册口径);字区 S/N/R/D/B,位区 P/K/V/T/C/L/X/Y/M;L/H=低/高字节(字节访问),W=位软元件打包字 |
+| 基恩士 KV MC 兼容 | `R5` / `B1F` / `W10` / `DM100` / `ZR100` / `DM100.3` | 已实现(`plc/keyence/mc.py`,继承 MC);编号进制:R/DM/ZR 十进制、B/W 十六进制;仅基恩士记号(无三菱 D/M/X/Y) |
 | OPC-UA | `ns=2;s=Device.Tag` / `ns=4;i=100` / `i=2258` / `b=AAECAw==` / `g=…` | 已实现(`opcua/`);标准 NodeId 字符串,ns 省略默认 0;前缀大小写规范化,标识符值保留原文(`opcua/address.py`) |
 
 解析失败统一抛 `ValueError`(参数错误约定)。
@@ -325,6 +333,7 @@ class BaseClient(ABC):
 | 三菱 MC 1E(A 兼容,A 系列) | ✅ `frame="1E"` | ✅ | v1.x | ✅ |
 | 欧姆龙 FINS | ✅ `OmronFinsTcpClient`(含握手) | ✅ `OmronFinsUdpClient` | v1.x(Host Link) | — |
 | 基恩士 KV Host Link | ✅ `KeyenceHostLinkTcpClient` | ✅ `KeyenceHostLinkUdpClient` | — | — |
+| 基恩士 KV MC 协议兼容(SLMP 3E) | ✅ `KeyenceMcTcpClient`(5000,继承 MC) | — | — | — |
 | 基恩士 SR 扫码枪 | ✅ `KeyenceSrClient`(9004) | — | — | — |
 | 丰田 TOYOPUC 计算机链接 | ✅ `ToyopucTcpClient` | ✅ `ToyopucUdpClient` | — | — |
 | OPC-UA(opc.tcp) | ✅ `OpcUaClient`(封装 asyncua) | — | — | — |
@@ -343,6 +352,17 @@ KV Host Link 说明:``KeyenceHostLinkTcpClient/UdpClient`` 使用 ASCII 行式�
 ``DM100`` 等,16/32 位整型经 ``.S/.U/.L/.D`` 后缀由 PLC 原生解析,float32 为
 连续两字小端拼接,64 位整型/浮点为连续四/八字小端拼接;字软元件位访问
 (``DM100.5``,omniplc 约定十进制位号)走读-改-写。
+
+KV MC 协议兼容说明(2026-09):KV-7500/8000/X 系列以太网单元提供 MC 协议
+兼容(SLMP)模式,``KeyenceMcTcpClient`` **继承 ``MelsecMcTcpClient``,
+只换软元件码表**(``KEYENCE_MC_DEVICE_CODES``),收发、按长收包与响应
+解析全部复用三菱实现——帧格式(副头部 ``50 00``、成批读 0104/写 0114、
+结束代码)与三菱 3E 二进制完全一致,默认端口 **5000**(以太网单元默认设置,
+以各机型单元设置为准)。码表:R(继电器,位,十进制)用三菱 M 的 ``90h``、
+DM(数据存储,字,十进制)用 D 的 ``A8h``、ZR(文件寄存器,字,十进制)
+同 ``B0h``、B(位,十六进制)/W(字,十六进制)与三菱同码同进制。
+帧型固定 3E(KV 的 SLMP 兼容不提供 4E/1E);仅接受基恩士软元件记号,
+连三菱机型请直接用 ``MelsecMcTcpClient``。
 
 TOYOPUC 计算机链接说明:``ToyopucTcpClient/UdpClient`` 使用二进制帧
 (命令 ``00 00 LL LH CMD [数据]``,响应 ``80 RC LL LH CMD [数据]``,
@@ -409,6 +429,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 | 三菱 MC(3E/4E/1E,已实现) | `Profinet/Melsec/MelsecMcNet.cs`(3E)、`MelsecMcAsciiNet.cs`(ASCII 帧,v1.x)、`MelsecA1ENet.cs`(1E)、`MelsecMcDataType.cs` / `MelsecA1EDataType.cs`(软元件码表)、`MelsecHelper.cs`(核心命令构造) |
 | 三菱 MX Component(已实现) | `docs/MX Component Version 4编程手册.pdf`(ActUtlType 逻辑站号、Open/Close/GetDevice/SetDevice/ReadDeviceBlock/WriteDeviceBlock 数据布局、第 7 章出错代码) |
 | 基恩士 KV Host Link(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\plc-comm-hostlink-python-main\src\hostlink\`(RD/RDS/WR/WRS 命令、.U/.S/.D/.L/.H 数据格式、E0~E6 出错代码、float32 两字小端、位组/X-Y 编号规则) |
+| 基恩士 KV MC 协议兼容(已实现) | HslCommunication `KeyenceMcNet`(QnA 3E 帧,地址支持三菱与基恩士两套记号)、Mech-Mind 集成文档 `docs.mech-mind.net`(KV-8000 MC 协议 TCP 默认端口 5000、3E 帧配置)、MELSEC/SLMP 手册软元件码表(KV SLMP 兼容:R=90h/B=A0h/DM=A8h/W=B4h/ZR=B0h);协议帧层不另立实现,复用本库 MC 模块 |
 | 基恩士 SR 扫码枪(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\vention_barcode_scanner-0.8.3.tar\...\scanners\keyence.py`(TCP 9004、LON/LOFF 时序——应答在 LOFF 之后才发送、bank 0~15、BCLR/RESET、ERROR/OK 应答) |
 | 丰田 TOYOPUC 计算机链接(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\plc_comm_toyopuc-4.2.0.tar\...\toyopuc\`(**只学习协议本身**:帧格式 `00 00 LL LH CMD`/`80 RC LL LH CMD`、CMD=1C~21 基础区字/字节/位命令、软元件字/字节/位基地址与编号段、RC=10 出错码表、低字在前多字节序;**架构不参考**,仍用本库 BaseClient/Transport 模式) |
 | OPC-UA(已实现) | `asyncua==1.1.5` 安装源码(`.venv\...\asyncua\`,sync.Client 会话/`ua.VariantType` 类型表/`ua.uaerrors` 异常层次);python-opcua 已弃用仅作背景,不作为依赖 |
@@ -494,6 +515,8 @@ FINS 与 fins-driver 0.3.1 对照(2026-09 复审):FINS 帧头 10 字节布局
 | v0.6 | 基恩士 SR 扫码枪(TCP 9004,LON/LOFF 触发扫码,bank 预设)| ✅ 完成 |
 | v0.7 | 丰田 TOYOPUC 计算机链接(TCP/UDP,基础区字/字节/位访问,CMD=1C~21)| ✅ 完成 |
 | v0.8 | OPC-UA opc.tcp 会话(封装 asyncua==1.1.5,NodeId 读写,会话适配)| ✅ 完成 |
+| v0.9 | Modbus 对照 pymodbus 3.15 强化(RTU 广播写、FC22 掩码写、MBAP 上限);FINS 对照 fins-driver 修正 EM 字码、补 T/C 区与结束码全表 | ✅ 完成 |
+| v0.10 | 基恩士 KV MC 协议兼容(SLMP 3E 帧,继承 MelsecMcTcpClient 换软元件码表,端口 5000)| ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 串口帧(2C/3C/4C)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 西门子 S7(drivers 插槽已预留,沿用 BaseClient 原语模式) | 规划 |
