@@ -1,7 +1,7 @@
 [project]
 name = "omniplc"
 version = "0.1.0"
-description = "omniplc —— 多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC 3E/4E/1E 与串口 3C/4C / MX Component / 欧姆龙 FINS / 基恩士 KV Host Link / KV MC 兼容 / 汇川 H3U/H5U / 松下 MC 兼容与 MEWTOCOL / 丰田 TOYOPUC / OPC-UA)"
+description = "omniplc —— 多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC 3E/4E/1E 与串口 3C/4C / MX Component / 欧姆龙 FINS / 基恩士 KV Host Link / KV MC 兼容 / 汇川 H3U/H5U / 松下 MC 兼容与 MEWTOCOL / 丰田 TOYOPUC / AB EtherNet/IP / OPC-UA)"
 readme = "README.md"
 requires-python = ">=3.7.9"
 license = { text = "MIT" }
@@ -22,6 +22,10 @@ keywords = [
     "melsec",
     "mitsubishi",
     "mc-serial",
+    "allen-bradley",
+    "ethernet-ip",
+    "cip",
+    "controllogix",
     "omron",
     "opcua",
     "opc-ua",

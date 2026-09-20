@@ -16,6 +16,8 @@ from typing import Callable, List, Optional, Sequence, Tuple, Type, TypeVar, Uni
 
 from ..core.base_client import BaseClient
 from ..core.constants import (
+    AB_EIP_DEFAULT_PORT,
+    AB_EIP_DEFAULT_SLOT,
     DEFAULT_STRING_ENCODING,
     FINS_DEFAULT_PORT,
     INOVANCE_MC_DEFAULT_PORT,
@@ -48,6 +50,7 @@ from ..core.constants import (
 )
 from ..modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from ..modbus.modbus import _coerce_word_order
+from ..plc.ab import AllenBradleyEthIpClient
 from ..plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
 from ..opcua import OpcUaClient
 from ..plc.panasonic import (
@@ -819,3 +822,24 @@ class AOmronFinsUdpClient(ABaseClient):
     def __init__(self, ip_address: str = "192.168.250.1", port: int = FINS_DEFAULT_PORT) -> None:
         """参数同 :class:`omniplc.plc.omron.OmronFinsUdpClient`。"""
         super().__init__(OmronFinsUdpClient(ip_address, port))
+
+
+class AAllenBradleyEthIpClient(ABaseClient):
+    """罗克韦尔 AB EtherNet/IP 异步客户端(Logix 标签读写)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.1.20",
+        port: int = AB_EIP_DEFAULT_PORT,
+        slot: int = AB_EIP_DEFAULT_SLOT,
+    ) -> None:
+        """参数同 :class:`omniplc.plc.ab.AllenBradleyEthIpClient`。"""
+        super().__init__(AllenBradleyEthIpClient(ip_address, port, slot))
+
+    @property
+    def slot(self) -> int:
+        """CPU 槽号(转发同步实例)。"""
+        sync = self._sync
+        if not isinstance(sync, AllenBradleyEthIpClient):
+            raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
+        return sync.slot

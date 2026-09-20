@@ -1,7 +1,7 @@
 # omniplc
 
 #### 介绍
-omniplc —— 一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、汇川、松下、丰田等 PLC/扫码枪与 OPC-UA 服务器,支持 Modbus、MC(3E/4E/1E 以太网帧、3C/4C 串口帧)、FINS、KV Host Link、KV MC 协议兼容(SLMP)、汇川 H3U/H5U(Modbus TCP/RTU、MC 协议兼容 3E)、松下 FP(MC 协议兼容 3E、MEWTOCOL)、SR、TOYOPUC 计算机链接、OPC-UA 等协议。
+omniplc —— 一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、汇川、松下、丰田、罗克韦尔(AB)等 PLC/扫码枪与 OPC-UA 服务器,支持 Modbus、MC(3E/4E/1E 以太网帧、3C/4C 串口帧)、FINS、KV Host Link、KV MC 协议兼容(SLMP)、汇川 H3U/H5U(Modbus TCP/RTU、MC 协议兼容 3E)、松下 FP(MC 协议兼容 3E、MEWTOCOL)、SR、TOYOPUC 计算机链接、EtherNet/IP(Logix 标签读写)、OPC-UA 等协议。
 
 - **Python 3.7+**,uv 开发,核心零第三方依赖
 - 命名与使用习惯对齐 pyhsl,迁移成本极低
@@ -35,6 +35,8 @@ flowchart TB
     OmronFinsTcpClient["OmronFinsTcpClient — 欧姆龙 FINS + TCP 握手(9600)"]
     OmronFinsUdpClient["OmronFinsUdpClient — 欧姆龙 FINS over UDP(9600)"]
 
+    AllenBradleyEthIpClient["AllenBradleyEthIpClient — 罗克韦尔 AB EtherNet/IP(44818)<br/>Logix 标签读写:unconnected 消息 + 槽号路由,标签自描述"]
+
     KeyenceHostLinkTcpClient["KeyenceHostLinkTcpClient — 基恩士 KV Host Link over TCP(8000)"]
     KeyenceHostLinkUdpClient["KeyenceHostLinkUdpClient — 基恩士 KV Host Link over UDP(8000)"]
 
@@ -62,6 +64,7 @@ flowchart TB
     BaseClient --> PanasonicMewtocolUdpClient
     BaseClient --> OmronFinsTcpClient
     BaseClient --> OmronFinsUdpClient
+    BaseClient --> AllenBradleyEthIpClient
     BaseClient --> KeyenceHostLinkTcpClient
     BaseClient --> KeyenceHostLinkUdpClient
     BaseClient --> KeyenceSrClient
@@ -69,7 +72,7 @@ flowchart TB
     BaseClient --> ToyopucUdpClient
     BaseClient --> OpcUaClient
 
-    AsyncMirror["异步镜像(omniplc.aio,类名 = 同步类名前加 A):<br/>AModbusTcpClient / AModbusRtuClient / AInovanceTcpClient / AInovanceRtuClient / AInovanceMcTcpClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient / AOmronFinsTcpClient<br/>AOmronFinsUdpClient / AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient<br/>APanasonicMcTcpClient / APanasonicMewtocolTcpClient / APanasonicMewtocolUdpClient<br/>AKeyenceSrClient / AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient"]
+    AsyncMirror["异步镜像(omniplc.aio,类名 = 同步类名前加 A):<br/>AModbusTcpClient / AModbusRtuClient / AInovanceTcpClient / AInovanceRtuClient / AInovanceMcTcpClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient / AOmronFinsTcpClient<br/>AOmronFinsUdpClient / AAllenBradleyEthIpClient / AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient<br/>APanasonicMcTcpClient / APanasonicMewtocolTcpClient / APanasonicMewtocolUdpClient<br/>AKeyenceSrClient / AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient"]
     BaseClient -.-> AsyncMirror
 ```
 
@@ -139,6 +142,14 @@ mx = MelsecMxClient(logical_station_number=1)
 
 # 欧姆龙 FINS:TCP 自动做节点分配握手,UDP 无握手
 fins = OmronFinsUdpClient(ip_address="192.168.250.1", port=9600)
+
+# 罗克韦尔 AB EtherNet/IP:Logix 标签自描述,类型不符会明确报错
+# 地址即标签名:MyDint / MyArray[5] / MyUdt.Member / MyDint.3(位)/ 程序作用域 Program:prog.Tag
+from omniplc import AllenBradleyEthIpClient
+ab = AllenBradleyEthIpClient(ip_address="192.168.1.20", port=44818, slot=0)
+ok, value = ab.read_int("MyDint")
+ok = ab.write_bool("StartCmd", True)
+ok, text = ab.read_string("RecipeName")
 
 # 基恩士 KV Host Link:ASCII 行式协议,地址如 DM100 / R515 / W100
 from omniplc import KeyenceHostLinkTcpClient
@@ -238,6 +249,7 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 | Modbus(含 FC22 掩码写) | ✅  | —   | ✅(广播写)     | —                   |
 | 三菱 MC 3E/4E/1E | ✅  | ✅  | ✅(3C/4C 串口帧) | ✅(Windows + COM)  |
 | 欧姆龙 FINS      | ✅  | ✅  | v1.x(Host Link) | —                   |
+| 罗克韦尔 AB EtherNet/IP(Logix) | ✅(44818) | — | — | —      |
 | 基恩士 KV Host Link | ✅ | ✅ | —               | —                   |
 | 基恩士 KV MC 协议兼容(SLMP 3E) | ✅(5000) | ✅(5000) | — | —              |
 | 汇川 H3U/H5U(Modbus + 汇川地址映射) | ✅(502) | — | ✅(9600-8N2) | —      |
@@ -264,7 +276,8 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 - **v0.12**:汇川 MC 协议兼容(3E 帧,继承 MelsecMcTcpClient;S→L 码、R=D+8000 统一编址、X/Y 八进制换算)
 - **v0.13**:松下 FP0H/FP7 MC 协议兼容(3E 帧)+ MEWTOCOL(TCP/UDP,1024;RCS/WCS/RD/WD,BCC 校验)
 - **v0.14**:三菱 MC 串口帧(C24;3C 帧 ASCII 格式 4 / 4C 帧二进制格式 5,帧格式按 SH-080008 Appendix 7 逐字节核证)
-- **v0.15(当前)**:基恩士 KV MC 协议兼容 UDP 走线(继承 MelsecMcUdpClient,与 TCP 版共用码表覆写,端口 5000)
+- **v0.15**:基恩士 KV MC 协议兼容 UDP 走线(继承 MelsecMcUdpClient,与 TCP 版共用码表覆写,端口 5000)
+- **v0.16(当前)**:罗克韦尔 AB EtherNet/IP(CIP,44818;Logix 标签读写,unconnected 消息 + 槽号路由,标签自描述,位/BOOL 数组原子读-改-写,STRING 结构体)
 - **v1.0**:点位表完善 + 示例 + 文档,正式发布
 - **v1.x**:MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池
 - **v2**:西门子 S7(驱动插槽已预留)
