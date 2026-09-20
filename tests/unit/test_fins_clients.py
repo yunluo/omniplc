@@ -101,6 +101,55 @@ def test_udp_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> N
     assert client.last_error is not None and "结束码 0x0001" in client.last_error
 
 
+def test_udp_timer_counter_word_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UDP:T/C 区:字访问为当前值 PV(操作码 0x89),可读写。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport([_fins_read_response([150]), _fins_write_response()])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("T0") == (True, 150)
+    expected_read = codec.build_area_read(
+        0, 5, 0, 0, 10, 0, 1, parse_fins_address("T0"), 1, False
+    )
+    assert bytes(scripted.sent[: len(expected_read)]) == expected_read
+    assert bytes(scripted.sent)[12] == 0x89  # T/C 字操作码
+    assert client.write_ushort("C10", 200) is True
+    expected_write = codec.build_area_write(
+        0, 5, 0, 0, 10, 0, 2, parse_fins_address("C10"), [200], False
+    )
+    assert bytes(scripted.sent)[len(expected_read):] == expected_write
+
+
+def test_udp_timer_flag_read_and_write_protection(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UDP:T/C 完成标志:位读(操作码 0x09)可用;位写与位号后缀拒绝。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport([_FINS_ECHO_HEAD + b"\x01" + b"\x01\x01" + b"\x00\x00" + b"\x01"])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_bool("T0") == (True, True)
+    flag_read = codec.build_area_read(
+        0, 5, 0, 0, 10, 0, 1, parse_fins_address("T0"), 1, True
+    )
+    assert bytes(scripted.sent) == flag_read
+    assert bytes(scripted.sent)[12] == 0x09
+    with pytest.raises(ValueError):
+        client.write_bool("T0", True)  # 完成标志只读
+    with pytest.raises(ValueError):
+        client.read_bool("T0.3")  # 不带位号
+    with pytest.raises(ValueError):
+        client.write_bool("C10.2", True)
+
+
+def test_fins_end_code_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UDP:全表结束码文本进 last_error(0x1101 存储区码非法)。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport([_fins_error_response(0x1101)])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("D100") == (False, None)
+    assert client.last_error is not None and "存储区码非法" in client.last_error
+
+
 def test_tcp_bad_magic_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP:响应魔数非法按坏帧处理,标记断开。"""
     client = OmronFinsTcpClient("127.0.0.1")

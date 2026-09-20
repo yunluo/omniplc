@@ -28,6 +28,7 @@ from ...core.constants import (
     FINS_DEFAULT_PORT,
     FINS_MAX_DATAGRAM,
     FINS_TCP_HEADER_SIZE,
+    FINS_TIMER_COUNTER_AREAS,
 )
 from ...core.validation import (
     check_int16,
@@ -92,6 +93,10 @@ class _OmronFinsBase(BaseClient):
         parsed = parse_fins_address(address)
         if data_type is not DataType.BOOL and parsed.bit is not None:
             raise ValueError("仅布尔类型支持位访问:{!r}".format(address))
+        if parsed.area in FINS_TIMER_COUNTER_AREAS and parsed.bit is not None:
+            raise ValueError(
+                "T/C 完成标志为单点位,地址不带位号:{!r}(示例:T0)".format(address)
+            )
         if data_type is DataType.BOOL:
             return self._read_bit_impl(parsed)
         if data_type in (DataType.SHORT, DataType.USHORT):
@@ -110,8 +115,18 @@ class _OmronFinsBase(BaseClient):
         parsed = parse_fins_address(address)
         if data_type is not DataType.BOOL and parsed.bit is not None:
             raise ValueError("仅布尔类型支持位访问:{!r}".format(address))
+        if parsed.area in FINS_TIMER_COUNTER_AREAS and parsed.bit is not None:
+            raise ValueError(
+                "T/C 完成标志为单点位,地址不带位号:{!r}(示例:T0)".format(address)
+            )
         if data_type is DataType.BOOL:
             flag = require_bool(value)
+            if parsed.area in FINS_TIMER_COUNTER_AREAS:
+                raise ValueError(
+                    "T/C 完成标志由系统驱动,只读:{!r}(写当前值请用字访问,如 write_ushort({!r}, 100))".format(
+                        address, parsed.area + str(parsed.offset)
+                    )
+                )
             if parsed.area in FINS_BIT_WRITABLE_AREAS:
                 self._write_bits(parsed, [1 if flag else 0])
             else:

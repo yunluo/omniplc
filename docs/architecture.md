@@ -310,7 +310,7 @@ class BaseClient(ABC):
 |---|---|---|
 | Modbus | `hr0` / `c7` / `di10` / `ir3` / `hr0.15` / `40001` | 前缀语法为主;兼容 Modicon 1 基风格(自动转 0 基);位号 0~15;已实现(`modbus/address.py`) |
 | 三菱 MC | `D100` / `M10` / `X1F` / `Y40` / `W100` / `R100` / `Z0` / `ZR100` / `D100.3` | 已实现(`plc/melsec/`);编号进制按码表:X/Y/W/B 十六进制、其余十进制(Q/L/R 口径,SH-080956;1E 帧下 X/Y 八进制),地址解析保留数字原文 |
-| 欧姆龙 FINS | `D100` / `CIO0` / `CIO0.5` / `W10` / `H20` / `A0` / `E0_100` | 已实现(`plc/omron/`);存储区码随帧 codec 实现,EM 区 bank 用下划线 |
+| 欧姆龙 FINS | `D100` / `CIO0` / `CIO0.5` / `W10` / `H20` / `A0` / `E0_100` / `T0` / `C10` | 已实现(`plc/omron/`);存储区码随帧 codec 实现,EM 区 bank 用下划线;T/C 为定时器/计数器(位=完成标志只读,字=当前值 PV) |
 | 丰田 TOYOPUC | `D0100` / `D0100L` / `D0100H` / `M0201` / `M0201W` / `X0010H` | 已实现(`plc/toyopuc/`);编号一律十六进制(手册口径);字区 S/N/R/D/B,位区 P/K/V/T/C/L/X/Y/M;L/H=低/高字节(字节访问),W=位软元件打包字 |
 | OPC-UA | `ns=2;s=Device.Tag` / `ns=4;i=100` / `i=2258` / `b=AAECAw==` / `g=…` | 已实现(`opcua/`);标准 NodeId 字符串,ns 省略默认 0;前缀大小写规范化,标识符值保留原文(`opcua/address.py`) |
 
@@ -412,13 +412,38 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 | 基恩士 SR 扫码枪(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\vention_barcode_scanner-0.8.3.tar\...\scanners\keyence.py`(TCP 9004、LON/LOFF 时序——应答在 LOFF 之后才发送、bank 0~15、BCLR/RESET、ERROR/OK 应答) |
 | 丰田 TOYOPUC 计算机链接(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\plc_comm_toyopuc-4.2.0.tar\...\toyopuc\`(**只学习协议本身**:帧格式 `00 00 LL LH CMD`/`80 RC LL LH CMD`、CMD=1C~21 基础区字/字节/位命令、软元件字/字节/位基地址与编号段、RC=10 出错码表、低字在前多字节序;**架构不参考**,仍用本库 BaseClient/Transport 模式) |
 | OPC-UA(已实现) | `asyncua==1.1.5` 安装源码(`.venv\...\asyncua\`,sync.Client 会话/`ua.VariantType` 类型表/`ua.uaerrors` 异常层次);python-opcua 已弃用仅作背景,不作为依赖 |
-| 欧姆龙 FINS(TCP/UDP,已实现) | `Profinet/Omron/OmronFinsNet.cs`、`OmronFinsUdp.cs`、`OmronFinsNetHelper.cs`(帧组装/解析)、`OmronFinsDataType.cs`(存储区码)、`Core/IMessage/FinsMessage.cs`(TCP 握手/帧长) |
+| 欧姆龙 FINS(TCP/UDP,已实现) | `Profinet/Omron/OmronFinsNet.cs`、`OmronFinsUdp.cs`、`OmronFinsNetHelper.cs`(帧组装/解析)、`OmronFinsDataType.cs`(存储区码)、`Core/IMessage/FinsMessage.cs`(TCP 握手/帧长);2026-09 复审另对照 `fins-driver 0.3.1`(PyPI,indrarudianto/fins-driver,见 §8 对照结论) |
 
 三菱帧实现另对照本地 Python SLMP 参考库
 `D:\DOWNLOAD\plc-comm-slmp-python-main\slmp\`(SH-080956 口径,pcap 验证):
 **4E 帧带序列号**(请求副头部恒 `54 00`、响应 `D4 00`,与 Hsl 的 0x58 说法不同,
 以 SLMP 库为准)、软元件编号进制(X/Y/W/B 十六进制、ZR 十进制)、
 应答数据长字段校验均与该库一致。
+
+FINS 与 fins-driver 0.3.1 对照(2026-09 复审):FINS 帧头 10 字节布局
+(ICF=0x80/RSV=0/GCT/目的 3 + 源 3 + SID)、命令 0101/0102、存储区码
+(CIO 30/B0、W 31/B1、H 32/B2、A 33/B3、D 02/82、EM 位 20+bank/字 A0+bank)、
+地址 3 字节编码(字 2 字节大端 + 位 1 字节)、位写每点 1 字节/字写逐字
+2 字节大端、结束码偏移 12:14 与 UDP 一问一答——**逐字节一致**。
+据此对照修正与采纳:
+
+- **修正 EM 字码基址笔误**:本库原为 `0xE0`,正确 `0xA0`
+  (手册 W340 5-2-2 与 fins-driver `EM0_WORD=0xA0~EMF_WORD=0xAF`
+  一致;0xE0 段是 bank≥16 扩展区的**位**码),原测试断言一并纠正。
+- **补 T/C(定时器/计数器)存储区**:与 fins-driver 码表一致——
+  位 09 = 完成标志(只读,地址不带位号),字 89 = 当前值 PV(可读写);
+  位写拒绝,防止误走 D/EM 的读-改-写路径改写 PV。
+- **采纳其结束码全表**(约 70 条,手册 W340 5-4-2)补全
+  `FINS_END_CODE_TEXT`,`last_error` 可读性对齐。
+- **不采纳其三处缺陷**:客户端 GCT=0x07(其自身 `Header.default()`
+  与手册均为固定 0x02,本库正确);TCP 模式裸发 FINS 帧——无 `FINS`
+  魔数/长度/命令/错误域封装、无节点分配握手,不符合 W340,无法对接
+  标准 FINS/Ethernet(本库实现完整 TCP 封帧 + 握手);代码
+  `b"\70"` 八进制转义(CIO 强制位码错)与 `MESSAGE_CLEAR`/
+  `FAL_FALS_READ` 重复为 0x0920。
+- **不采纳的功能**:0103 填充/0104 多区读/0105 传送/0401·0402 启停/
+  2301 强制置复位等运维命令与本库"点位读写"契约不符,留 v1.x;
+  EM bank≥16 扩展区(位 E0~/字 60~)与当前 bank EM(0A/98)留 v1.x。
 
 ## 9. 测试策略
 

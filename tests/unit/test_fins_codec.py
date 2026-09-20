@@ -106,10 +106,12 @@ def test_golden_handshake() -> None:
 
 
 def test_memory_codes_and_em_bank() -> None:
-    """存储区码表:D/E 区换算与非法区校验。"""
+    """存储区码表:D/E/T/C 区换算与非法区校验。"""
     assert codec.memory_codes("D") == (0x02, 0x82)
     assert codec.memory_codes("CIO") == (0x30, 0xB0)
-    assert codec.memory_codes("E", 3) == (0x23, 0xE3)
+    assert codec.memory_codes("E", 3) == (0x23, 0xA3)  # EM 字码基址 0xA0(W340 5-2-2)
+    assert codec.memory_codes("T") == (0x09, 0x89)  # 完成标志位 / 当前值字,与 C 共享
+    assert codec.memory_codes("C") == (0x09, 0x89)
     with pytest.raises(ValueError):
         codec.memory_codes("X")
     with pytest.raises(ValueError):
@@ -117,10 +119,10 @@ def test_memory_codes_and_em_bank() -> None:
 
 
 def test_em_address_uses_bank_code() -> None:
-    """EM 区地址 E0_100:字操作码 0xE0、bank 进帧。"""
+    """EM 区地址 E0_100:字操作码 0xA0、bank 进帧。"""
     parsed = parse_fins_address("E0_100")
     assert (parsed.area, parsed.bank, parsed.offset) == ("E", 0, 100)
     frame = codec.build_area_read(0, 5, 0, 0, 10, 0, 1, parsed, 1, False)
-    assert frame[12] == 0xE0
+    assert frame[12] == 0xA0
     with pytest.raises(ValueError):
         parse_fins_address("E0")
