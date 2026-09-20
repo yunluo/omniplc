@@ -133,7 +133,10 @@ class _ToyopucBase(BaseClient):
             self._write_words(parsed, [check_uint16(value)])
             return
         if data_type is DataType.INT:
-            self._write_raw(parsed, require_int(value) & 0xFFFFFFFF, 4)
+            number = require_int(value)
+            if not -2147483648 <= number <= 2147483647:
+                raise ValueError("int 超出 32 位范围:{}".format(number))
+            self._write_raw(parsed, number, 4)
             return
         if data_type is DataType.UINT:
             number = require_int(value)
@@ -142,10 +145,18 @@ class _ToyopucBase(BaseClient):
             self._write_raw(parsed, number, 4)
             return
         if data_type is DataType.FLOAT:
-            self._write_words(parsed, _bytes_to_words(struct.pack("<f", require_float(value))))
+            number_f = require_float(value)
+            try:
+                raw = struct.pack("<f", number_f)
+            except (OverflowError, ValueError) as exc:
+                raise ValueError("float 超出 float32 范围:{}".format(value)) from exc
+            self._write_words(parsed, _bytes_to_words(raw))
             return
         if data_type is DataType.LONG:
-            self._write_raw(parsed, require_int(value) & 0xFFFFFFFFFFFFFFFF, 8)
+            number = require_int(value)
+            if not -9223372036854775808 <= number <= 9223372036854775807:
+                raise ValueError("long 超出 64 位范围:{}".format(number))
+            self._write_raw(parsed, number, 8)
             return
         if data_type is DataType.ULONG:
             number = require_int(value)
@@ -154,7 +165,12 @@ class _ToyopucBase(BaseClient):
             self._write_raw(parsed, number, 8)
             return
         if data_type is DataType.DOUBLE:
-            self._write_words(parsed, _bytes_to_words(struct.pack("<d", require_float(value))))
+            number_f = require_float(value)
+            try:
+                raw = struct.pack("<d", number_f)
+            except (OverflowError, ValueError) as exc:
+                raise ValueError("double 超出 float64 范围:{}".format(value)) from exc
+            self._write_words(parsed, _bytes_to_words(raw))
             return
         raise ValueError("TOYOPUC 不支持的数据类型:{}".format(data_type))
 

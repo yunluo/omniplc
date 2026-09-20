@@ -146,17 +146,19 @@ def test_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_read_type_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
-    """读:返回类型不符/空值 → (False, None) + last_error,标记断开待重连。"""
+    """读:返回类型不符 → ValueError(参数错误,不断线);空值 → (False, None)。"""
     client = OpcUaClient("127.0.0.1", 4840)
     fake = FakeSession()
     fake.values["ns=2;s=Text"] = "abc"
     fake.values["ns=2;s=Empty"] = None
     monkeypatch.setattr(client, "_create_transport", lambda: fake)
     client.connect()
-    assert client.read_float("ns=2;s=Text") == (False, None)
-    assert client.last_error is not None and "类型不符" in client.last_error
-    assert client.read_ushort("ns=2;s=Empty") == (False, None)  # 重连后空值再失败
-    assert client.connected is False  # 内部异常统一标记断开,下轮惰性重连
+    with pytest.raises(ValueError):
+        client.read_float("ns=2;s=Text")  # 字符串节点按数值读:参数错误直接抛出
+    assert client.connected is True  # 参数错误不触碰连接
+    assert client.read_ushort("ns=2;s=Empty") == (False, None)  # 空值:设备侧条件
+    assert client.last_error is not None and "节点值为空" in client.last_error
+    assert client.connected is True  # 空值不断线、不重连
 
 
 def test_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:

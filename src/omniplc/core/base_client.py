@@ -522,12 +522,19 @@ class BaseClient(ABC):
         """协议写原语(内部方法),失败语义同 :meth:`_read`。"""
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
-        """字符串读原语,默认不支持,由驱动覆写(内部方法)。"""
-        raise NotImplementedError("当前驱动暂不支持字符串读取")
+        """字符串读原语,默认不支持,由驱动覆写(内部方法)。
+
+        缺省实现抛 :class:`DeviceError`(链路正常,由基类转
+        ``(False, None)`` + ``last_error``),不逃逸裸异常。
+        """
+        raise DeviceError("当前驱动暂不支持字符串读取", 0)
 
     def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
-        """字符串写原语,默认不支持,由驱动覆写(内部方法)。"""
-        raise NotImplementedError("当前驱动暂不支持字符串写入")
+        """字符串写原语,默认不支持,由驱动覆写(内部方法)。
+
+        缺省实现语义同 :meth:`_read_string`。
+        """
+        raise DeviceError("当前驱动暂不支持字符串写入", 0)
 
 
 def _describe(exc: BaseException) -> str:

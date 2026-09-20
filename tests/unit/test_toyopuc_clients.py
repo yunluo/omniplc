@@ -240,6 +240,24 @@ def test_tcp_write_float_consecutive(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bytes(scripted.sent) == b"\x00\x00\x07\x00\x1d\x00\x11\x00\x00\x80\x3f"
 
 
+def test_tcp_write_range_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """写:有符号整数越界/浮点溢出 → ValueError(参数校验约定),不触碰连接。"""
+    client = ToyopucTcpClient("127.0.0.1", 1025)
+    monkeypatch.setattr(client, "_create_transport", lambda: ScriptedTransport([]))
+    client.connect()
+    with pytest.raises(ValueError):
+        client.write_int("D0100", 2**31)          # int 越 32 位上限
+    with pytest.raises(ValueError):
+        client.write_int("D0100", -(2**31) - 1)   # int 越 32 位下限
+    with pytest.raises(ValueError):
+        client.write_long("D0100", 2**63)         # long 越 64 位上限
+    with pytest.raises(ValueError):
+        client.write_long("D0100", -(2**63) - 1)  # long 越 64 位下限
+    with pytest.raises(ValueError):
+        client.write_float("D0100", 1e300)        # float32 溢出(1e400 已成 inf,float64 可表示)
+    assert client.connected is True
+
+
 def test_tcp_string_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """字符串:连续字节写/读(CMD=1F/1E),从字区编号低字节起。"""
     client = ToyopucTcpClient("127.0.0.1", 1025)

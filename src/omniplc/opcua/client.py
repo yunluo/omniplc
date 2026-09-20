@@ -305,32 +305,33 @@ def _validate_endpoint_url(endpoint: str) -> None:
 def _coerce_read(value: Any, data_type: DataType, address: str) -> PrimitiveValue:
     """把服务端返回值收窄为本库基础类型(内部函数)。
 
-    :raises OmniPLCInternalError: 返回值类型与目标数据类型不符
-        (转 ``(False, None)`` + ``last_error``,标记断开待惰性重连)
+    :raises ValueError: 返回值类型与目标数据类型不符(调用方参数错误,
+        与 AB 标签"实际类型不符"同口径,直接抛出,不断线)
+    :raises DeviceError: 节点值为空(设备侧条件,链路正常,不断线不重试)
     """
     if value is None:
-        raise OmniPLCInternalError("OPC-UA 节点值为空:{}".format(address))
+        raise DeviceError("OPC-UA 节点值为空:{}".format(address), 0)
     if data_type is DataType.BOOL:
         if not isinstance(value, bool):
-            raise OmniPLCInternalError(
+            raise ValueError(
                 "OPC-UA 节点返回类型不符(期望布尔):{} ← {!r}".format(address, value)
             )
         return value
     if data_type in (DataType.SHORT, DataType.USHORT, DataType.INT, DataType.UINT,
                      DataType.LONG, DataType.ULONG):
         if isinstance(value, bool) or not isinstance(value, int):
-            raise OmniPLCInternalError(
+            raise ValueError(
                 "OPC-UA 节点返回类型不符(期望整数):{} ← {!r}".format(address, value)
             )
         return value
     if data_type in (DataType.FLOAT, DataType.DOUBLE):
         if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise OmniPLCInternalError(
+            raise ValueError(
                 "OPC-UA 节点返回类型不符(期望数值):{} ← {!r}".format(address, value)
             )
         return float(value)
     if not isinstance(value, str):
-        raise OmniPLCInternalError(
+        raise ValueError(
             "OPC-UA 节点返回类型不符(期望字符串):{} ← {!r}".format(address, value)
         )
     return value
