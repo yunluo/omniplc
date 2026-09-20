@@ -18,6 +18,7 @@ from ..core.base_client import BaseClient
 from ..core.constants import (
     DEFAULT_STRING_ENCODING,
     FINS_DEFAULT_PORT,
+    INOVANCE_MC_DEFAULT_PORT,
     KEYENCE_MC_DEFAULT_PORT,
     KV_DEFAULT_PORT,
     MC_DEFAULT_NETWORK_NUMBER,
@@ -38,7 +39,7 @@ from ..core.constants import (
 )
 from ..modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from ..modbus.modbus import _coerce_word_order
-from ..plc.inovance import InovanceRtuClient, InovanceTcpClient
+from ..plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
 from ..opcua import OpcUaClient
 from ..plc.keyence import (
     KeyenceHostLinkTcpClient,
@@ -396,6 +397,28 @@ class AInovanceRtuClient(ABaseClient):
         if not isinstance(sync, InovanceRtuClient):
             raise TypeError("内部错误:sync 实例不是 InovanceRtuClient")
         sync.configure_serial(port_name, baud_rate, data_bits, stop_bits, parity)
+
+
+class AInovanceMcTcpClient(ABaseClient):
+    """汇川 MC 协议兼容异步客户端(TCP,3E 帧)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.1.88",
+        port: int = INOVANCE_MC_DEFAULT_PORT,
+        network_number: int = MC_DEFAULT_NETWORK_NUMBER,
+        pc_number: int = MC_DEFAULT_PC_NUMBER,
+    ) -> None:
+        """参数同 :class:`omniplc.plc.inovance.InovanceMcTcpClient`。"""
+        super().__init__(InovanceMcTcpClient(ip_address, port, network_number, pc_number))
+
+    @property
+    def frame(self) -> McFrame:
+        """当前帧型,恒为 :attr:`McFrame.FRAME_3E`。"""
+        sync = self._sync
+        if isinstance(sync, InovanceMcTcpClient):
+            return sync.frame
+        raise TypeError("内部错误")
 
 
 class AMelsecMcTcpClient(ABaseClient):
