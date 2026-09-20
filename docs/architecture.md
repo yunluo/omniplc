@@ -1,6 +1,6 @@
 # omniplc 架构设计
 
-> 版本:v0.14 · 更新日期:2026-09-20 · 状态:Modbus / 三菱 MC(以太网 + 串口帧)/ FINS / KV / SR / TOYOPUC / OPC-UA 驱动已全部落地
+> 版本:v0.15 · 更新日期:2026-09-20 · 状态:Modbus / 三菱 MC(以太网 + 串口帧)/ FINS / KV / SR / TOYOPUC / OPC-UA 驱动已全部落地
 
 omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7+,uv 开发)。
 本文档描述 v1.0 的完整架构:分层、类设计、继承树、线程安全模型、类型标注纪律、
@@ -13,13 +13,13 @@ omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7
 ```mermaid
 flowchart TB
     subgraph UserApi["用户 API 层"]
-        Clients["协议 × 走线 具体客户端类<br/>21 个同步 + 21 个异步(A 前缀镜像)<br/>scanner:KeyenceSrClient 扫码枪<br/>Tag / TagTable 可选点位表层"]
+        Clients["协议 × 走线 具体客户端类<br/>22 个同步 + 22 个异步(A 前缀镜像)<br/>scanner:KeyenceSrClient 扫码枪<br/>Tag / TagTable 可选点位表层"]
     end
     subgraph Drivers["驱动层 drivers(协议编解码 + 地址解析)"]
         Modbus["modbus/<br/>codec + address + client"]
         Melsec["plc/melsec/<br/>codec_qna(3E/4E)+ codec_a(1E)+ codec_serial(3C/4C 串口帧)<br/>+ address + client"]
         Omron["plc/omron/<br/>codec + address + client"]
-        Keyence["plc/keyence/<br/>hostlink + mc(继承 MelsecMcTcpClient)"]
+        Keyence["plc/keyence/<br/>hostlink + mc(TCP/UDP,继承三菱 MC 换码表)"]
         InovanceD["plc/inovance/<br/>address(汇川→Modbus 映射)+ client(继承 Modbus)<br/>mc(MC 协议兼容,继承 MelsecMcTcpClient)"]
         PanasonicD["plc/panasonic/<br/>mc(MC 协议兼容,继承 MelsecMcTcpClient)<br/>address + codec_mewtocol + mewtocol(TCP/UDP)"]
         Toyopuc["plc/toyopuc/<br/>codec + address + client"]
@@ -71,7 +71,9 @@ flowchart TB
     MelsecMcTcpClient["MelsecMcTcpClient<br/>MC 3E/4E/1E 帧"]
     MelsecMcUdpClient["MelsecMcUdpClient<br/>同帧型 over UDP"]
     MelsecMcSerialClient["MelsecMcSerialClient — plc/melsec/melsec.py<br/>MC 串口帧(C24,configure_serial + pyserial)<br/>3C 帧 ASCII 格式 4 / 4C 帧 二进制格式 5<br/>核心命令与 3E 完全一致(codec_qna.build_core 复用)"]
-    KeyenceMcTcpClient["KeyenceMcTcpClient — plc/keyence/mc.py<br/>基恩士 KV MC 协议兼容(SLMP),帧固定 3E<br/>继承 MC 只换软元件码表(KEYENCE_MC_DEVICE_CODES)<br/>地址:R 位十进制 / DM 字十进制 / B 位、W 字十六进制 / ZR 字十进制"]
+    KeyenceMcCodeMixin["_KeyenceMcCodeMixin(混入,私有)— plc/keyence/mc.py<br/>基恩士码表覆写:device_info/build_frame 走 KEYENCE_MC_DEVICE_CODES<br/>TCP/UDP 两走线共用,帧层仍走三菱实现"]
+    KeyenceMcTcpClient["KeyenceMcTcpClient — plc/keyence/mc.py<br/>基恩士 KV MC 协议兼容(SLMP),帧固定 3E<br/>地址:R 位十进制 / DM 字十进制 / B 位、W 字十六进制 / ZR 字十进制"]
+    KeyenceMcUdpClient["KeyenceMcUdpClient<br/>同帧型 over UDP(一问一答一数据报)"]
     InovanceMcTcpClient["InovanceMcTcpClient — plc/inovance/mc.py<br/>汇川 MC 协议兼容,帧固定 3E<br/>码表 INOVANCE_MC_DEVICE_CODES + 记号换算:<br/>S→三菱 L 码(92h)/ R≡D+8000 统一编址 / X,Y 八进制名→帧内十六进制"]
     PanasonicMcTcpClient["PanasonicMcTcpClient — plc/panasonic/mc.py<br/>松下 FP0H/FP7 MC 协议兼容,帧固定 3E(仅二进制)<br/>码表 PANASONIC_MC_DEVICE_CODES(与三菱同码)+ 记号换算:<br/>X/Y/L/R 字号×16+位号 / R 字号≥900→SM / D≥90000→SD"]
     PanasonicMewtocolTcpClient["PanasonicMewtocolTcpClient — plc/panasonic/mewtocol.py<br/>MEWTOCOL ASCII 帧 + BCC(无 ETX),端口 1024<br/>RCS/WCS 单接点、RD/WD 数据区;TCP 按头 4 字节分支后精确收齐"]
@@ -108,7 +110,9 @@ flowchart TB
     MelsecMcBase --> MelsecMcTcpClient
     MelsecMcBase --> MelsecMcUdpClient
     MelsecMcBase --> MelsecMcSerialClient
-    MelsecMcTcpClient -->|"只覆写码表"| KeyenceMcTcpClient
+    MelsecMcBase --> KeyenceMcCodeMixin
+    KeyenceMcCodeMixin --> KeyenceMcTcpClient
+    KeyenceMcCodeMixin --> KeyenceMcUdpClient
     MelsecMcTcpClient -->|"码表 + 记号换算"| InovanceMcTcpClient
     MelsecMcTcpClient -->|"码表 + 记号换算"| PanasonicMcTcpClient
     BaseClient --> MewtocolBase
@@ -146,6 +150,7 @@ flowchart TB
     MelsecMcUdpClient -.->|"2000"| UdpTransport
     MelsecMcSerialClient -.->|"configure_serial"| SerialTransport
     KeyenceMcTcpClient -.->|"5000"| TcpTransport
+    KeyenceMcUdpClient -.->|"5000"| UdpTransport
     InovanceMcTcpClient -.->|"以 MC配置 为准"| TcpTransport
     PanasonicMcTcpClient -.->|"以模块配置为准"| TcpTransport
     PanasonicMewtocolTcpClient -.->|"1024"| TcpTransport
@@ -165,16 +170,17 @@ flowchart TB
     BaseClient -.->|"bind_tags"| TagNode
 
     subgraph AsyncMirror["异步镜像(omniplc.aio):ABaseClient 组合同步实例 + 单线程 ThreadPoolExecutor,签名同名同型"]
-        AsyncList["AModbusBaseClient → AModbusTcpClient / AModbusRtuClient<br/>AInovanceTcpClient / AInovanceRtuClient(configure_serial 对称暴露)/ AInovanceMcTcpClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient<br/>AOmronFinsTcpClient / AOmronFinsUdpClient<br/>AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient<br/>APanasonicMcTcpClient / APanasonicMewtocolTcpClient / APanasonicMewtocolUdpClient<br/>AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient / AKeyenceSrClient"]
+        AsyncList["AModbusBaseClient → AModbusTcpClient / AModbusRtuClient<br/>AInovanceTcpClient / AInovanceRtuClient(configure_serial 对称暴露)/ AInovanceMcTcpClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient<br/>AOmronFinsTcpClient / AOmronFinsUdpClient<br/>AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient<br/>APanasonicMcTcpClient / APanasonicMewtocolTcpClient / APanasonicMewtocolUdpClient<br/>AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient / AKeyenceSrClient"]
     end
     BaseClient -.->|"组合 + 镜像"| AsyncList
 
     classDef abstract fill:#f5f5f5,stroke:#999,stroke-dasharray:4;
-    class BaseClient,ModbusBaseClient,MelsecMcBase,OmronFinsBase,KeyenceHlBase,ToyopucBase,MewtocolBase,BaseTransportABC abstract;
+    class BaseClient,ModbusBaseClient,MelsecMcBase,KeyenceMcCodeMixin,OmronFinsBase,KeyenceHlBase,ToyopucBase,MewtocolBase,BaseTransportABC abstract;
 ```
 
-v1 共 **21 个同步具体类 + 21 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
-加串口帧(3C/4C,同一 `_MelsecMcBase` 基类),另加 MX Component(Windows/COM,
+v1 共 **22 个同步具体类 + 22 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
+加串口帧(3C/4C,同一 `_MelsecMcBase` 基类),基恩士 KV MC 兼容 TCP/UDP 两走线
+(共用 `_KeyenceMcCodeMixin` 码表覆写),另加 MX Component(Windows/COM,
 单线程 executor 天然满足 ActUtlType 的 STA 模型)。
 
 ### 2.1 继承设计要点(模板方法模式)
@@ -396,7 +402,7 @@ class BaseClient(ABC):
 | 三菱 MC 1E(A 兼容,A 系列) | ✅ `frame="1E"` | ✅ | v1.x | ✅ |
 | 欧姆龙 FINS | ✅ `OmronFinsTcpClient`(含握手) | ✅ `OmronFinsUdpClient` | v1.x(Host Link) | — |
 | 基恩士 KV Host Link | ✅ `KeyenceHostLinkTcpClient` | ✅ `KeyenceHostLinkUdpClient` | — | — |
-| 基恩士 KV MC 协议兼容(SLMP 3E) | ✅ `KeyenceMcTcpClient`(5000,继承 MC) | — | — | — |
+| 基恩士 KV MC 协议兼容(SLMP 3E) | ✅ `KeyenceMcTcpClient`(5000,继承 MC) | ✅ `KeyenceMcUdpClient`(5000,继承 MC) | — | — |
 | 汇川 H3U/H5U(Modbus + 汇川映射) | ✅ `InovanceTcpClient`(502) | — | ✅ `InovanceRtuClient`(串口) | — |
 | 汇川 MC 协议兼容(3E 帧) | ✅ `InovanceMcTcpClient`(端口以 MC配置 为准,继承 MC) | — | — | — |
 | 松下 MC 协议兼容(3E 帧,FP0H/FP7) | ✅ `PanasonicMcTcpClient`(端口以模块配置为准,继承 MC) | — | — | — |
@@ -440,11 +446,14 @@ KV Host Link 说明:``KeyenceHostLinkTcpClient/UdpClient`` 使用 ASCII 行式�
 (``DM100.5``,omniplc 约定十进制位号)走读-改-写。
 
 KV MC 协议兼容说明(2026-09):KV-7500/8000/X 系列以太网单元提供 MC 协议
-兼容(SLMP)模式,``KeyenceMcTcpClient`` **继承 ``MelsecMcTcpClient``,
-只换软元件码表**(``KEYENCE_MC_DEVICE_CODES``),收发、按长收包与响应
-解析全部复用三菱实现——帧格式(副头部 ``50 00``、成批读 0104/写 0114、
-结束代码)与三菱 3E 二进制完全一致,默认端口 **5000**(以太网单元默认设置,
-以各机型单元设置为准)。码表:R(继电器,位,十进制)用三菱 M 的 ``90h``、
+兼容(SLMP)模式,**TCP 与 UDP 走线均可用**。``KeyenceMcTcpClient`` /
+``KeyenceMcUdpClient`` 分别继承 ``MelsecMcTcpClient`` / ``MelsecMcUdpClient``,
+共用私有混入 ``_KeyenceMcCodeMixin`` **只换软元件码表**
+(``KEYENCE_MC_DEVICE_CODES``),收发、按长收包(TCP)/一问一答一数据报(UDP)
+与响应解析全部复用三菱实现——帧格式(副头部 ``50 00``、成批读 0104/写 0114、
+结束代码)与三菱 3E 二进制完全一致,默认端口 **5000**(KV Studio 单元编辑器
+"MC协议端口"设置,TCP/UDP 各自可配,以各机型单元设置为准)。码表:
+R(继电器,位,十进制)用三菱 M 的 ``90h``、
 DM(数据存储,字,十进制)用 D 的 ``A8h``、ZR(文件寄存器,字,十进制)
 同 ``B0h``、B(位,十六进制)/W(字,十六进制)与三菱同码同进制。
 帧型固定 3E(KV 的 SLMP 兼容不提供 4E/1E);仅接受基恩士软元件记号,
@@ -583,7 +592,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 | 三菱 MC 串口帧 3C/4C(已实现) | 官方手册本地 PDF:`D:\DOWNLOAD\sh080008ab.pdf`(SH-080008-AB《MELSEC Communication Protocol Reference Manual》,2022/05):4.2 节五种通信格式、4.3 节帧识别码(4C=F8H/3C=F9H)/和校验/控制码、6.1~6.2 节各帧路由字段、8.2 节成批读/写命令、**Appendix 7 完整报文设置示例**(3C 格式 1 与 4C 格式 5 读/写四例,黄金向量来源);协议核心命令复用本库 MC 模块 |
 | 三菱 MX Component(已实现) | `docs/MX Component Version 4编程手册.pdf`(ActUtlType 逻辑站号、Open/Close/GetDevice/SetDevice/ReadDeviceBlock/WriteDeviceBlock 数据布局、第 7 章出错代码) |
 | 基恩士 KV Host Link(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\plc-comm-hostlink-python-main\src\hostlink\`(RD/RDS/WR/WRS 命令、.U/.S/.D/.L/.H 数据格式、E0~E6 出错代码、float32 两字小端、位组/X-Y 编号规则) |
-| 基恩士 KV MC 协议兼容(已实现) | HslCommunication `KeyenceMcNet`(QnA 3E 帧,地址支持三菱与基恩士两套记号)、Mech-Mind 集成文档 `docs.mech-mind.net`(KV-8000 MC 协议 TCP 默认端口 5000、3E 帧配置)、MELSEC/SLMP 手册软元件码表(KV SLMP 兼容:R=90h/B=A0h/DM=A8h/W=B4h/ZR=B0h);协议帧层不另立实现,复用本库 MC 模块 |
+| 基恩士 KV MC 协议兼容(已实现) | HslCommunication `KeyenceMcNet`(QnA 3E 帧,地址支持三菱与基恩士两套记号)、Mech-Mind 集成文档 `docs.mech-mind.net`(KV-8000 MC 协议 TCP 默认端口 5000、3E 帧配置)、MELSEC/SLMP 手册软元件码表(KV SLMP 兼容:R=90h/B=A0h/DM=A8h/W=B4h/ZR=B0h);UDP 走线另对照 KV-8000/7000《用户手册》Ethernet 通信编(SLMP 兼容协议可选 TCP/UDP,端口各自可配)与 Pro-Face《KV 系列接续手册》以太网 UDP(MC 协议兼容对端)接续例;协议帧层不另立实现,复用本库 MC 模块 |
 | 汇川 H3U/H5U(已实现) | 官方手册本地 PDF:`D:\DOWNLOAD\19010394-SC_A20(19010394《H3U H3S系列可编程逻辑控制器指令及编程手册》).pdf` 第 9.4 节(Modbus 协议帧/变量编址/9.4.3 通信地址)、`D:\DOWNLOAD\19011157-SC_A21_H5U&Easy系列可编程逻辑控制器编程手册_CN_20260904.pdf` 第 9.5 节(被 ModBus 访问的线圈/寄存器地址、9600-8N2 缺省);协议帧层不另立实现,复用本库 Modbus 模块,仅做软元件→线圈/保持寄存器地址映射 |
 | 汇川 MC 协议兼容(已实现) | 官方手册本地 PDF:`D:\DOWNLOAD\19011157-SC_A21_H5U&Easy系列可编程逻辑控制器编程手册_CN_20260904.pdf` 第 16 章"MC通信"(16.1 规格 3E/4E × TCP/UDP × 二进制/ASCII、16.2 MC配置端口范围、16.4 支持规格/软元件映射表、16.5 故障码 4031/C05x);协议帧层复用本库 MC 模块,仅做汇川记号换算(S→L 码、R=D+8000、X/Y 八进制→帧内十六进制) |
 | 松下 MC 兼容(已实现) | 本地 HSL 源码 `PanasonicMcNet.cs` + `Core/Address/MelsecMcAddressData.cs`(ParsePanasonicFrom:字号×16+位号、R≥900→SM、D≥90000→SD)+ `MelsecMcDataType.cs`(Panasonic_* 软元件码,与三菱同码);松下 FP0H 产品页/以太网通信手册(QnA 兼容 3E 帧,仅二进制成批读/写);协议帧层复用本库 MC 模块 |
@@ -679,6 +688,7 @@ FINS 与 fins-driver 0.3.1 对照(2026-09 复审):FINS 帧头 10 字节布局
 | v0.12 | 汇川 MC 协议兼容(3E 帧,继承 MelsecMcTcpClient;S→L 码、R=D+8000 统一编址、X/Y 八进制换算,官方手册第 16 章口径)| ✅ 完成 |
 | v0.13 | 松下 FP0H/FP7 MC 协议兼容(3E 帧,继承 MelsecMcTcpClient)+ MEWTOCOL(TCP/UDP 1024,RCS/WCS/RD/WD,BCC 校验,错误码表)| ✅ 完成 |
 | v0.14 | 三菱 MC 串口帧(C24;3C 帧 ASCII 格式 4 / 4C 帧二进制格式 5,SH-080008 Appendix 7 黄金向量,DLE 附加码)| ✅ 完成 |
+| v0.15 | 基恩士 KV MC 协议兼容 UDP 走线(继承 MelsecMcUdpClient,与 TCP 版共用码表混入,端口 5000)| ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 西门子 S7(drivers 插槽已预留,沿用 BaseClient 原语模式) | 规划 |

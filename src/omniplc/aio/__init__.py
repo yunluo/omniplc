@@ -59,6 +59,7 @@ from ..plc.keyence import (
     KeyenceHostLinkTcpClient,
     KeyenceHostLinkUdpClient,
     KeyenceMcTcpClient,
+    KeyenceMcUdpClient,
 )
 from ..plc.melsec import (
     MelsecMcSerialClient,
@@ -632,6 +633,28 @@ class AKeyenceMcTcpClient(ABaseClient):
         """当前帧型,恒为 :attr:`McFrame.FRAME_3E`。"""
         sync = self._sync
         if isinstance(sync, KeyenceMcTcpClient):
+            return sync.frame
+        raise TypeError("内部错误")
+
+
+class AKeyenceMcUdpClient(ABaseClient):
+    """基恩士 KV MC 协议兼容(SLMP)异步客户端(UDP,3E 帧)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.1.22",
+        port: int = KEYENCE_MC_DEFAULT_PORT,
+        network_number: int = MC_DEFAULT_NETWORK_NUMBER,
+        pc_number: int = MC_DEFAULT_PC_NUMBER,
+    ) -> None:
+        """参数同 :class:`omniplc.plc.keyence.KeyenceMcUdpClient`。"""
+        super().__init__(KeyenceMcUdpClient(ip_address, port, network_number, pc_number))
+
+    @property
+    def frame(self) -> McFrame:
+        """当前帧型,恒为 :attr:`McFrame.FRAME_3E`。"""
+        sync = self._sync
+        if isinstance(sync, KeyenceMcUdpClient):
             return sync.frame
         raise TypeError("内部错误")
 

@@ -1,17 +1,18 @@
 """基恩士 MC 协议兼容(SLMP)客户端测试:帧复用三菱 3E,仅软元件码不同。
 
 覆盖:码表换码(R=90h/DM=A8h/B=A0h/W=B4h/ZR=B0h)、进制(R/DM/ZR 十进制,
-B/W 十六进制)、三菱记号拒绝、位写、字软元件位写读-改-写、异步镜像。
+B/W 十六进制)、三菱记号拒绝、位写、字软元件位写读-改-写、TCP/UDP 两走线
+(UDP 一问一答一数据报)、异步镜像。
 """
 from __future__ import annotations
 
 import asyncio
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import pytest
 
-from omniplc import KeyenceMcTcpClient
-from omniplc.aio import AKeyenceMcTcpClient
+from omniplc import KeyenceMcTcpClient, KeyenceMcUdpClient
+from omniplc.aio import AKeyenceMcTcpClient, AKeyenceMcUdpClient
 from omniplc.core.constants import (
     KEYENCE_MC_DEFAULT_PORT,
     KEYENCE_MC_DEVICE_CODES,
@@ -19,6 +20,7 @@ from omniplc.core.constants import (
 )
 from omniplc.plc.melsec import codec_qna
 from omniplc.plc.melsec.address import parse_mc_address
+from omniplc.transport import UdpTransport
 from omniplc.types import McFrame
 from scripted import ScriptedTransport
 
@@ -49,7 +51,9 @@ def _frame_tail(data: bytes) -> bytes:
 
 
 def _mount(
-    monkeypatch: pytest.MonkeyPatch, client: KeyenceMcTcpClient, scripted: ScriptedTransport
+    monkeypatch: pytest.MonkeyPatch,
+    client: Union[KeyenceMcTcpClient, KeyenceMcUdpClient],
+    scripted: ScriptedTransport,
 ) -> None:
     """挂载脚本传输(走正常 connect 流程)。"""
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
@@ -202,6 +206,52 @@ def test_mitsubishi_names_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bytes(scripted.sent) == b""
 
 
+def test_udp_defaults_and_transport() -> None:
+    """UDP 版:默认端口 5000、帧型固定 3E、走线为 UdpTransport。"""
+    client = KeyenceMcUdpClient()
+    assert client._ip_address == "192.168.1.22"
+    assert client._port == KEYENCE_MC_DEFAULT_PORT == 5000
+    assert client.frame is McFrame.FRAME_3E
+    assert isinstance(client._create_transport(), UdpTransport)
+
+
+def test_udp_read_dm100_word(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UDP DM100 字读:一问一答一数据报,应答整包解析,帧与 TCP 版一致。"""
+    client = KeyenceMcUdpClient("127.0.0.1", 5000)
+    frame = _word_read_response([20])
+    scripted = ScriptedTransport([frame], datagram=True)
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_ushort("DM100") == (True, 20)
+    sent = bytes(scripted.sent)
+    assert sent == _expected("DM100", 1, False, False)
+    assert sent[15:18] == b"\x64\x00\x00"
+    assert sent[18] == 0xA8
+
+
+def test_udp_write_dm100(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UDP DM100 写:请求帧与 TCP 版逐字节一致,写回包仅校验结束码。"""
+    client = KeyenceMcUdpClient("127.0.0.1", 5000)
+    scripted = ScriptedTransport([_write_response()], datagram=True)
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.write_short("DM100", -5) is True
+    assert bytes(scripted.sent) == _expected("DM100", 1, False, True, data=[0xFFFB])
+
+
+def test_udp_read_bool_r5_bit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UDP R5 位读:码 90h、位单位子命令,一数据报应答。"""
+    client = KeyenceMcUdpClient("127.0.0.1", 5000)
+    scripted = ScriptedTransport([_bit_read_response([1])], datagram=True)
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_bool("R5") == (True, True)
+    sent = bytes(scripted.sent)
+    assert sent == _expected("R5", 1, True, False)
+    assert sent[18] == 0x90
+    assert sent[13:15] == b"\x01\x00"
+
+
 def test_async_mirror_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """异步镜像:TCP 客户端单工作线程往返。"""
 
@@ -212,6 +262,25 @@ def test_async_mirror_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
         frame = _word_read_response([20])
         write_frame = _write_response()
         scripted = ScriptedTransport([frame[:9], frame[9:], write_frame[:9], write_frame[9:]])
+        monkeypatch.setattr(sync, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        assert await client.read_ushort("DM100") == (True, 20)
+        assert await client.write_short("DM100", 20) is True
+        await client.close()
+
+    asyncio.run(scenario())
+
+
+def test_async_mirror_udp_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """异步镜像:UDP 客户端单工作线程往返,一问一答一数据报。"""
+
+    async def scenario() -> None:
+        client = AKeyenceMcUdpClient("127.0.0.1", 5000)
+        assert client.frame is McFrame.FRAME_3E
+        sync = client._sync
+        frame = _word_read_response([20])
+        write_frame = _write_response()
+        scripted = ScriptedTransport([frame, write_frame], datagram=True)
         monkeypatch.setattr(sync, "_create_transport", lambda: scripted)
         assert await client.connect() is True
         assert await client.read_ushort("DM100") == (True, 20)

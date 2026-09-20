@@ -46,6 +46,7 @@ from .plc.keyence import (
     KeyenceHostLinkTcpClient,
     KeyenceHostLinkUdpClient,
     KeyenceMcTcpClient,
+    KeyenceMcUdpClient,
 )
 from .plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
 from .plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
@@ -74,6 +75,7 @@ __all__ = [
     "KeyenceHostLinkTcpClient",
     "KeyenceHostLinkUdpClient",
     "KeyenceMcTcpClient",
+    "KeyenceMcUdpClient",
     # ---- 基恩士 SR 扫码枪 ----
     "KeyenceSrClient",
     # ---- 欧姆龙 FINS 客户端 ----
