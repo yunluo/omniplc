@@ -604,16 +604,6 @@ def parse_service_reply(reply: bytes, request_service: int) -> bytes:
     return _parse_service_payload(cip[4 + cip[3]:], request_service)
 
 
-def parse_explicit_reply(reply: bytes, request_service: int) -> bytes:
-    """解析裸 CIP 应答(RRData 无 UC 包裹,Forward Open/Close 用)。
-
-    :raises ProtocolFrameError: 封装/CPF/服务回显不符
-    :raises DeviceError: CIP 通用状态非 0
-    """
-    cip = _parse_rr_data_cip(reply)
-    return _parse_service_payload(cip, request_service)
-
-
 def _parse_service_payload(cip: bytes, request_service: int) -> bytes:
     """校验服务回显与通用状态,返回服务数据域(内部函数)。"""
     if len(cip) < 4:

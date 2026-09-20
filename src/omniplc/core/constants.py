@@ -88,8 +88,6 @@ MC_DEST_MODULE_STATION: int = 0
 """目标模块局号(CPU 直连恒为 0)。"""
 MC_MAX_TRANSFER_POINTS: int = 900
 """3E/4E 单事务读/写点数上限(与 HslCommunication 分块大小一致)。"""
-MC_REQUEST_HEAD_SIZE: int = 11
-"""3E/4E 请求头长度:副头部2+网络1+PC1+IO2+局1+请求数据长2+监视定时器2。"""
 MC_RESPONSE_HEAD_SIZE: int = 9
 """3E/4E 响应头长度:副头部2+网络1+PC1+IO2+局1+应答数据长2。"""
 MC_RESPONSE_SUBHEADER_3E: int = 0xD0
@@ -307,9 +305,6 @@ MewtocolNet 默认)。"""
 MEWTOCOL_CONTACT_AREAS: Tuple[str, ...] = ("X", "Y", "R", "T", "C", "L")
 """MEWTOCOL 接点(位)区代码:X/Y 外部输入输出、R 内部继电器、
 T/C 定时器计数器接点、L 链接继电器。"""
-MEWTOCOL_DATA_AREAS: Tuple[str, ...] = ("D", "L", "F", "S", "K")
-"""MEWTOCOL 数据(字)区代码:D=DT 数据寄存器、L=LT 链接寄存器、
-F=FL 文件寄存器、S=SV 定时器/计数器设定值、K=EV 经过值。"""
 MEWTOCOL_MAX_DATAGRAM: int = 2048
 """UDP 整包接收缓冲上限。"""
 
@@ -437,8 +432,6 @@ FINS_TCP_COMMAND_DATA: int = 2
 """FINS/TCP 命令:发送 FINS 帧。"""
 FINS_HANDSHAKE_LENGTH: int = 12
 """握手长度域(命令 4 + 错误 4 + 节点 4)。"""
-FINS_HANDSHAKE_SIZE: int = 20
-"""握手请求总长 = 帧头 8 + 长度域 12;本地节点号在帧内末字节。"""
 FINS_HANDSHAKE_RESPONSE_SIZE: int = 24
 """握手响应总长 = 帧头 8 + 长度域 16;本地节点在 [19],PLC 节点在 [23]。"""
 FINS_EM_BANK_MAX: int = 15
@@ -599,8 +592,6 @@ TOYOPUC_ERROR_TEXT: Dict[int, str] = {
 # ---------------------------------------------------------------- OPC-UA
 OPCUA_DEFAULT_PORT: int = 4840
 """OPC-UA 标准默认端口(opc.tcp 端点未显式带端口时提示用)。"""
-OPCUA_ENDPOINT_SCHEME: str = "opc.tcp://"
-"""OPC-UA TCP 传输的端点 URL 前缀(OPC 10000-6 规范)。"""
 
 # ---------------------------------------------------------------- AB(罗克韦尔)
 AB_EIP_DEFAULT_PORT: int = 44818
