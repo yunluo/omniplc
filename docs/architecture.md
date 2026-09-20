@@ -127,6 +127,16 @@ v1 共 **13 个同步具体类 + 13 个异步镜像类**,三菱三帧型(3E/4E/1
   拆两个模块——1E 帧无网络号/PC 号前缀字段、软元件码表不同。
 - 异步侧是**组合 + 镜像**:每个 `A*Client` 持有对应同步实例,方法签名与同步版
   完全一致(返回可 await),协议逻辑只有一份。
+- **镜像对称性约定(2026-09 全库复审确立)**:A 类必须暴露同步类的全部
+  公共属性与扩展方法(`frame`/`endpoint`/`local_node`/`scan_dwell`/
+  `scan`/`reset`/`write_mask_register`/`configure_serial`…),构造参数
+  与同步版同名同型;唯二例外均由协议决定:FINS/UDP 无握手故无
+  `local_node`,OPC-UA 端点为 URL 故在统一 `ip_address/port` 入口外
+  另备 `path`(URL 路径)与 `endpoint`(完整 URL 显式覆盖)。
+- **入口与返回风格(全库约定)**:网络型客户端构造统一
+  `ip_address/port(+协议参数)`,串口为 `station + configure_serial()`;
+  读返回 `(bool, Optional[值])`、写返回 `bool`、触发式 `scan()` 返回
+  `(bool, Optional[str])`,失败原因一律进 `last_error`。
 
 ## 3. 线程安全设计
 

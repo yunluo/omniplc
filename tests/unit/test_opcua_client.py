@@ -104,7 +104,24 @@ def test_validate_endpoint_url() -> None:
         with pytest.raises(ValueError):
             _validate_endpoint_url(bad)
     with pytest.raises(ValueError):
-        OpcUaClient("opc.tcp://host:0")
+        OpcUaClient("127.0.0.1", 4840, endpoint="opc.tcp://host:0")  # 覆盖 URL 端口非法
+    with pytest.raises(ValueError):
+        OpcUaClient("127.0.0.1", 0)  # 端口越界(与全库入口校验一致)
+
+
+def test_constructor_endpoint_styles() -> None:
+    """构造入口:IP+端口(+路径)组装端点 URL,或 endpoint 显式覆盖。"""
+    assert OpcUaClient().endpoint == "opc.tcp://192.168.0.10:4840"
+    assert OpcUaClient("127.0.0.1").endpoint == "opc.tcp://127.0.0.1:4840"
+    assert OpcUaClient("127.0.0.1", 4840, "UA/Server").endpoint == \
+        "opc.tcp://127.0.0.1:4840/UA/Server"
+    assert OpcUaClient("127.0.0.1", 4840, "/UA/Server/").endpoint == \
+        "opc.tcp://127.0.0.1:4840/UA/Server"  # 路径斜杠规范化
+    url = "opc.tcp://10.0.0.1:4840/Discovered/Endpoint"
+    assert OpcUaClient("127.0.0.1", 4840, endpoint=url).endpoint == url  # 显式覆盖
+    # 入口与其他客户端一致:错误消息显示 host:port
+    client = OpcUaClient("192.168.0.7", 4840)
+    assert client._ip_address == "192.168.0.7" and client._port == 4840
 
 
 # ----------------------------------------------------------------------
@@ -113,7 +130,7 @@ def test_validate_endpoint_url() -> None:
 
 def test_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """读:BOOL/SHORT/FLOAT/STRING 按类型收窄。"""
-    client = OpcUaClient("opc.tcp://127.0.0.1:4840")
+    client = OpcUaClient("127.0.0.1", 4840)
     fake = FakeSession()
     fake.values["ns=2;s=Run"] = True
     fake.values["ns=2;s=Temp"] = -5
@@ -130,7 +147,7 @@ def test_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_read_type_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
     """读:返回类型不符/空值 → (False, None) + last_error,标记断开待重连。"""
-    client = OpcUaClient("opc.tcp://127.0.0.1:4840")
+    client = OpcUaClient("127.0.0.1", 4840)
     fake = FakeSession()
     fake.values["ns=2;s=Text"] = "abc"
     fake.values["ns=2;s=Empty"] = None
@@ -144,7 +161,7 @@ def test_read_type_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """写:值与 VariantType 成员名逐项断言。"""
-    client = OpcUaClient("opc.tcp://127.0.0.1:4840")
+    client = OpcUaClient("127.0.0.1", 4840)
     fake = FakeSession()
     monkeypatch.setattr(client, "_create_transport", lambda: fake)
     client.connect()
@@ -162,7 +179,7 @@ def test_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_write_range_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     """写:整数越界/浮点超 float32 → ValueError(参数校验约定)。"""
-    client = OpcUaClient("opc.tcp://127.0.0.1:4840")
+    client = OpcUaClient("127.0.0.1", 4840)
     fake = FakeSession()
     monkeypatch.setattr(client, "_create_transport", lambda: fake)
     client.connect()
@@ -177,7 +194,7 @@ def test_write_range_errors(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> None:
     """Bad 状态码(DeviceError)→ 失败但不断线。"""
-    client = OpcUaClient("opc.tcp://127.0.0.1:4840")
+    client = OpcUaClient("127.0.0.1", 4840)
     fake = FakeSession()
     fake.read_errors["ns=2;s=Missing"] = DeviceError(
         "OPC-UA 出错 0x80350000:BadNodeIdUnknown", 0x80350000
@@ -193,7 +210,7 @@ def test_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_connection_error_lazy_reconnect(monkeypatch: pytest.MonkeyPatch) -> None:
     """连接故障 → 标记断开;下一次读写自动重建会话(惰性重连)。"""
-    client = OpcUaClient("opc.tcp://127.0.0.1:4840")
+    client = OpcUaClient("127.0.0.1", 4840)
     sessions: list = []
     shared: dict = {"ns=2;s=Run": True}
 
@@ -216,7 +233,7 @@ def test_connection_error_lazy_reconnect(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_unsupported_data_type(monkeypatch: pytest.MonkeyPatch) -> None:
     """地址参数非法直接抛 ValueError(参数校验约定)。"""
-    client = OpcUaClient("opc.tcp://127.0.0.1:4840")
+    client = OpcUaClient("127.0.0.1", 4840)
     monkeypatch.setattr(client, "_create_transport", lambda: FakeSession())
     client.connect()
     with pytest.raises(ValueError):
@@ -261,10 +278,11 @@ def test_translate_ua_error(monkeypatch: pytest.MonkeyPatch) -> None:
 # ----------------------------------------------------------------------
 
 def test_async_mirror_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
-    """异步镜像:单工作线程往返读写。"""
+    """异步镜像:单工作线程往返读写;endpoint 属性与同步实例一致。"""
     async def scenario() -> None:
-        client = AOpcUaClient("opc.tcp://127.0.0.1:4840")
+        client = AOpcUaClient("127.0.0.1", 4840)
         sync = client._sync
+        assert client.endpoint == "opc.tcp://127.0.0.1:4840"
         fake = FakeSession()
         fake.values["ns=2;s=Run"] = True
         monkeypatch.setattr(sync, "_create_transport", lambda: fake)

@@ -116,10 +116,10 @@ toyopuc = ToyopucTcpClient(ip_address="192.168.0.10", port=1025)
 ok, value = toyopuc.read_ushort("D0100")   # 编号为十六进制
 ok = toyopuc.write_bool("M0201", True)     # 位软元件 CMD=20/21 直读直写
 
-# OPC-UA:标准 NodeId 寻址,读写按显式数据类型编解码
+# OPC-UA:标准 NodeId 寻址,读写按显式数据类型编解码;入口同其他客户端(IP+端口)
 # 安装:pip install 'omniplc[opcua]'
 from omniplc import OpcUaClient
-opc = OpcUaClient("opc.tcp://192.168.0.10:4840")
+opc = OpcUaClient("192.168.0.10", 4840)
 ok, value = opc.read_float("ns=2;s=Device.Temperature")
 ok = opc.write_ushort("ns=2;s=Device.Speed", 1200)
 ```

@@ -25,6 +25,7 @@ from ..core.constants import (
     MODBUS_DEFAULT_PORT,
     MODBUS_DEFAULT_STATION,
     MX_DEFAULT_LOGICAL_STATION,
+    OPCUA_DEFAULT_PORT,
     READ_STRING_DEFAULT_LENGTH,
     SR_DEFAULT_PORT,
     SR_DEFAULT_SCAN_DWELL,
@@ -305,6 +306,12 @@ class AModbusBaseClient(ABaseClient):
     def word_order(self, value: str) -> None:
         self._modbus.word_order = _coerce_word_order(value)
 
+    async def write_mask_register(self, address: str, and_mask: int, or_mask: int) -> bool:
+        """掩码写保持寄存器(FC22,语义同同步版)。"""
+        return await self._run(
+            lambda: self._modbus.write_mask_register(address, and_mask, or_mask)
+        )
+
     @property
     def _modbus(self) -> ModbusBaseClient:
         """取 Modbus 同步实例(内部属性)。"""
@@ -386,6 +393,14 @@ class AMelsecMcUdpClient(ABaseClient):
     ) -> None:
         """参数同 :class:`omniplc.plc.melsec.MelsecMcUdpClient`。"""
         super().__init__(MelsecMcUdpClient(ip_address, port, frame, network_number, pc_number))
+
+    @property
+    def frame(self) -> McFrame:
+        """当前帧型(:class:`omniplc.types.McFrame` 枚举)。"""
+        sync = self._sync
+        if isinstance(sync, MelsecMcUdpClient):
+            return sync.frame
+        raise TypeError("内部错误")
 
 
 class AMelsecMxClient(ABaseClient):
@@ -502,9 +517,23 @@ class AOpcUaClient(ABaseClient):
     asyncua.sync 内部亦有独立事件循环线程,双层串行保序。
     """
 
-    def __init__(self, endpoint: str = "opc.tcp://192.168.0.10:4840") -> None:
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        port: int = OPCUA_DEFAULT_PORT,
+        path: str = "",
+        endpoint: str = "",
+    ) -> None:
         """参数同 :class:`omniplc.opcua.OpcUaClient`。"""
-        super().__init__(OpcUaClient(endpoint))
+        super().__init__(OpcUaClient(ip_address, port, path, endpoint))
+
+    @property
+    def endpoint(self) -> str:
+        """opc.tcp 端点 URL(转发同步实例)。"""
+        sync = self._sync
+        if not isinstance(sync, OpcUaClient):
+            raise TypeError("内部错误:sync 实例不是 OpcUaClient")
+        return sync.endpoint
 
 
 class AOmronFinsTcpClient(ABaseClient):

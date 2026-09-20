@@ -176,3 +176,12 @@ def test_udp_3e_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bytes(scripted.sent) == codec_qna.build_request(
         "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"), 1, False, False
     )
+
+
+def test_async_mirror_frame_property_tcp_udp() -> None:
+    """异步镜像:TCP/UDP 客户端 frame 属性对称暴露。"""
+    from omniplc.aio import AMelsecMcTcpClient, AMelsecMcUdpClient
+    from omniplc.types import McFrame
+
+    assert AMelsecMcTcpClient().frame == McFrame.FRAME_3E
+    assert AMelsecMcUdpClient(frame=McFrame.FRAME_1E).frame == McFrame.FRAME_1E

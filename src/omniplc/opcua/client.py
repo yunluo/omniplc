@@ -25,15 +25,13 @@ import re
 import struct
 from typing import Any, Tuple
 
-from ..core.base_client import BaseClient
+from ..core.base_client import BaseClient, validate_endpoint
 from ..core.constants import OPCUA_DEFAULT_PORT
 from ..core.errors import DeviceError, OmniPLCInternalError, TransportClosedError
 from ..core.validation import require_bool, require_float, require_int
 from ..types import DataType, PrimitiveValue
 from ..transport.base import BaseTransport
 from .address import parse_opcua_nodeid
-
-_DEFAULT_ENDPOINT = "opc.tcp://192.168.0.10:{}".format(OPCUA_DEFAULT_PORT)
 
 _VARIANT_TYPE_NAMES = {
     DataType.BOOL: "Boolean",
@@ -178,28 +176,45 @@ class OpcUaClient(BaseClient):
     (推荐 :class:`~omniplc.types.DataType` 枚举),写入按对应
     VariantType 编码,读取按该类型校验返回值。
 
+    构造入口与其他客户端一致(IP + 端口);OPC-UA 端点 URL 由此组装,
+    ``path`` 对应 URL 路径(如 ``"UA/Server"``);服务器发现得到的
+    完整 URL 可用 ``endpoint`` 显式覆盖(高级用法)。
+
     :example::
 
-        client = OpcUaClient("opc.tcp://192.168.0.10:4840")
+        client = OpcUaClient("192.168.0.10", 4840)
         client.connect()
         ok, value = client.read_float("ns=2;s=Device.Temperature")
         ok = client.write_ushort("ns=2;s=Device.Speed", 1200)
     """
 
-    def __init__(self, endpoint: str = _DEFAULT_ENDPOINT) -> None:
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        port: int = OPCUA_DEFAULT_PORT,
+        path: str = "",
+        endpoint: str = "",
+    ) -> None:
         """初始化 OPC-UA 客户端。
 
-        :param endpoint: opc.tcp 端点 URL,如 ``"opc.tcp://192.168.0.10:4840"``
-            (端口省略时由服务端决定,标准默认 4840;可带路径)
-        :raises ValueError: 端点 URL 非法
+        :param ip_address: 服务器 IP 或主机名
+        :param port: 端口,标准默认 4840
+        :param path: 端点 URL 路径(可空,如 ``"UA/Server"``)
+        :param endpoint: 完整端点 URL 显式覆盖(以 ``opc.tcp://`` 开头;
+            用于服务器发现返回的完整 URL,设置后忽略 ip/port/path)
+        :raises ValueError: 参数非法
         """
-        _validate_endpoint_url(endpoint)
-        super().__init__(endpoint, 0)
-        self._endpoint = endpoint.strip()
+        validate_endpoint(ip_address, port)
+        super().__init__(ip_address, int(port))
+        if endpoint:
+            _validate_endpoint_url(endpoint)
+            self._endpoint = endpoint.strip()
+        else:
+            self._endpoint = _build_endpoint(ip_address, int(port), path)
 
     @property
     def endpoint(self) -> str:
-        """opc.tcp 端点 URL。"""
+        """opc.tcp 端点 URL(由 ip_address/port/path 组装或显式覆盖)。"""
         return self._endpoint
 
     # ------------------------------------------------------------------
@@ -255,6 +270,17 @@ class OpcUaClient(BaseClient):
 # ----------------------------------------------------------------------
 # 模块级辅助函数
 # ----------------------------------------------------------------------
+
+def _build_endpoint(ip_address: str, port: int, path: str) -> str:
+    """由 IP/端口/路径组装 opc.tcp 端点 URL(内部函数)。
+
+    :raises ValueError: 组装结果非法
+    """
+    cleaned = path.strip().strip("/")
+    url = "opc.tcp://{}:{}{}".format(ip_address.strip(), port, "/{}".format(cleaned) if cleaned else "")
+    _validate_endpoint_url(url)
+    return url
+
 
 def _validate_endpoint_url(endpoint: str) -> None:
     """校验 opc.tcp 端点 URL(内部函数)。

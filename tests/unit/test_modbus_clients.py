@@ -224,6 +224,27 @@ def test_mbap_length_field_overflow() -> None:
     assert "上限" in str(exc_info.value)
 
 
+def test_async_mask_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """异步镜像:掩码写(FC22)经单工作线程往返。"""
+    import asyncio
+
+    from omniplc.aio import AModbusTcpClient
+
+    async def scenario() -> None:
+        client = AModbusTcpClient("127.0.0.1", 502, 1)
+        sync = client._sync
+        request_pdu = codec.build_mask_write_pdu(100, 0x00F0, 0x0005)
+        frame = codec.build_mbap(1, 1, request_pdu)
+        scripted = _ScriptedTransport([frame[:7], frame[7:]])
+        monkeypatch.setattr(sync, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        assert await client.write_mask_register("hr100", 0x00F0, 0x0005) is True
+        assert bytes(scripted.sent) == codec.build_mbap(1, 1, request_pdu)
+        await client.close()
+
+    asyncio.run(scenario())
+
+
 def test_device_error_instance_carries_code() -> None:
     """DeviceError.code 携带原始异常码(供上层程序化判断)。"""
     with pytest.raises(DeviceError) as exc_info:
