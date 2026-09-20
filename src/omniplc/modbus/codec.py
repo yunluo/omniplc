@@ -20,15 +20,18 @@ from typing import List, Tuple
 from ..convert import crc16
 from ..core.constants import (
     MBAP_HEADER_SIZE,
+    MODBUS_COMMAND_MASK_WRITE,
     MODBUS_COIL_OFF,
     MODBUS_COIL_ON,
     MODBUS_EXCEPTION_FLAG,
     MODBUS_EXCEPTION_TEXT,
+    MODBUS_MASK_WRITE_PDU_SIZE,
     MODBUS_MAX_ADU_SIZE,
     MODBUS_MAX_READ_BITS,
     MODBUS_MAX_READ_REGISTERS,
     MODBUS_MAX_WRITE_BITS,
     MODBUS_MAX_WRITE_REGISTERS,
+    MODBUS_MBAP_LENGTH_MAX,
     MODBUS_PROTOCOL_ID,
 )
 from ..core.errors import DeviceError, ProtocolFrameError
@@ -45,6 +48,7 @@ class ModbusFunction(IntEnum):
     WRITE_SINGLE_REGISTER = 0x06
     WRITE_MULTIPLE_COILS = 0x0F
     WRITE_MULTIPLE_REGISTERS = 0x10
+    MASK_WRITE_REGISTER = 0x16
 
 
 _READ_BIT_FUNCTIONS = (ModbusFunction.READ_COILS, ModbusFunction.READ_DISCRETE_INPUTS)
@@ -205,6 +209,37 @@ def parse_write_response(pdu: bytes, request_pdu: bytes) -> None:
         )
 
 
+def build_mask_write_pdu(offset: int, and_mask: int, or_mask: int) -> bytes:
+    """构造掩码写请求 PDU(FC 22)。
+
+    设备侧原子执行 ``新值 = (当前值 AND and_mask) OR (or_mask AND NOT and_mask)``。
+
+    :param offset: 0 基保持寄存器地址
+    :param and_mask: AND 掩码(0~65535;置 0 的位被清零)
+    :param or_mask: OR 掩码(0~65535;仅在 and_mask 为 1 的位上可置 1)
+    :return: PDU 字节(功能码 + 地址 + AND 掩码 + OR 掩码,均大端)
+    :raises ValueError: 地址/掩码非法
+    """
+    _check_offset(offset)
+    if not 0 <= and_mask <= 0xFFFF:
+        raise ValueError("and_mask 超出范围 0~65535:{}".format(and_mask))
+    if not 0 <= or_mask <= 0xFFFF:
+        raise ValueError("or_mask 超出范围 0~65535:{}".format(or_mask))
+    return struct.pack(">BHHH", MODBUS_COMMAND_MASK_WRITE, offset, and_mask, or_mask)
+
+
+def parse_mask_write_response(pdu: bytes, request_pdu: bytes) -> None:
+    """校验掩码写响应(FC 22):正常应答为 7 字节请求回显。
+
+    :raises DeviceError: PLC 返回异常码
+    :raises ProtocolFrameError: 回显与请求不符
+    """
+    check_response_exception(pdu, request_pdu[0])
+    if len(pdu) != MODBUS_MASK_WRITE_PDU_SIZE or pdu != request_pdu:
+        raise ProtocolFrameError(
+            "掩码写响应回显不符:期望 {},收到 {}".format(request_pdu.hex(), pdu.hex())
+        )
+
 # ----------------------------------------------------------------------
 # MBAP 帧(TCP/UDP 共用)
 # ----------------------------------------------------------------------
@@ -242,6 +277,12 @@ def parse_mbap_header(header: bytes) -> Tuple[int, int]:
         raise ProtocolFrameError("MBAP 协议标识符必须为 0,收到:{}".format(protocol_id))
     if length < 2:
         raise ProtocolFrameError("MBAP 长度字段非法(至少含站号+功能码):{}".format(length))
+    if length > MODBUS_MBAP_LENGTH_MAX:
+        raise ProtocolFrameError(
+            "MBAP 长度字段超出上限 {}(按长收包将挂死,按坏帧处理):{}".format(
+                MODBUS_MBAP_LENGTH_MAX, length
+            )
+        )
     return transaction_id, length
 
 
@@ -338,6 +379,8 @@ def expected_response_length(request_pdu: bytes) -> int:
         ModbusFunction.WRITE_MULTIPLE_REGISTERS,
     ):
         return 5
+    if function_code == ModbusFunction.MASK_WRITE_REGISTER:
+        return MODBUS_MASK_WRITE_PDU_SIZE
     raise ProtocolFrameError("未知功能码 0x{:02X}".format(function_code))
 
 

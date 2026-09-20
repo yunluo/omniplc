@@ -54,8 +54,14 @@ MODBUS_MAX_WRITE_BITS: int = 1968
 """单次写线圈的数量上限(协议规定)。"""
 MODBUS_MAX_WRITE_REGISTERS: int = 123
 """单次写寄存器的数量上限(协议规定)。"""
+MODBUS_COMMAND_MASK_WRITE: int = 0x16
+"""掩码写保持寄存器命令(FC22,设备侧原子 AND/OR 位修改)。"""
+MODBUS_MASK_WRITE_PDU_SIZE: int = 7
+"""FC22 请求/响应 PDU 长度:功能码(1) + 地址(2) + AND 掩码(2) + OR 掩码(2)。"""
 MODBUS_MAX_ADU_SIZE: int = 260
 """MBAP 最大帧长 = 帧头 7 + 最大 PDU 253(UDP 整包接收缓冲)。"""
+MODBUS_MBAP_LENGTH_MAX: int = MODBUS_MAX_ADU_SIZE - MBAP_HEADER_SIZE + 1
+"""MBAP 长度域合法上限(= 站号 1 + PDU 253);超出按坏帧处理,防止按长收包挂死。"""
 MODBUS_EXCEPTION_TEXT: Dict[int, str] = {
     0x01: "ILLEGAL FUNCTION(不支持的功能码)",
     0x02: "ILLEGAL DATA ADDRESS(地址越界)",

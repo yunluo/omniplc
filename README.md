@@ -75,6 +75,9 @@ with ModbusTcpClient("192.168.0.10", 502, 1) as client:
 # 通用 read/write 推荐传 DataType 枚举(IDE 自动补全),也兼容字符串
 ok, value = client.read("hr0", DataType.FLOAT)
 
+# 掩码写(FC22):设备侧原子位修改,替代读-改-写两段事务
+ok = client.write_mask_register("hr100", and_mask=0xFFFE, or_mask=0x0001)
+
 # Modbus RTU(串口)
 from omniplc import ModbusRtuClient
 rtu = ModbusRtuClient(station=1)
@@ -155,7 +158,7 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 
 | 协议             | TCP | UDP | RTU(串口)       | MX Component        |
 |------------------|-----|-----|-----------------|---------------------|
-| Modbus           | ✅  | —   | ✅              | —                   |
+| Modbus(含 FC22 掩码写) | ✅  | —   | ✅(广播写)     | —                   |
 | 三菱 MC 3E/4E/1E | ✅  | ✅  | v1.x(2C/3C/4C)  | ✅(Windows + COM)  |
 | 欧姆龙 FINS      | ✅  | ✅  | v1.x(Host Link) | —                   |
 | 基恩士 KV Host Link | ✅ | ✅ | —               | —                   |
@@ -172,7 +175,8 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 - **v0.5**:基恩士 KV Host Link(TCP/UDP,RD/RDS/WR/WRS)
 - **v0.6**:基恩士 SR 扫码枪(LON/LOFF 触发扫码,bank 预设)
 - **v0.7**:丰田 TOYOPUC 计算机链接(TCP/UDP,基础区字/字节/位访问)
-- **v0.8(当前)**:OPC-UA opc.tcp 会话(封装 asyncua 1.1.5,NodeId 读写)
+- **v0.8**:OPC-UA opc.tcp 会话(封装 asyncua 1.1.5,NodeId 读写)
+- **v0.9(当前)**:Modbus 协议对照强化(pymodbus 3.15 对照:RTU 广播写、FC22 掩码写、MBAP 长度上限)
 - **v1.0**:点位表完善 + 示例 + 文档,正式发布
 - **v1.x**:MC 串口帧、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池
 - **v2**:西门子 S7(驱动插槽已预留)

@@ -125,6 +125,105 @@ def test_rtu_register_bit_write_read_modify_write(monkeypatch: pytest.MonkeyPatc
     assert bytes(scripted.sent) == expected
 
 
+def test_rtu_broadcast_write_skips_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    """RTU 广播:站号 0 写操作发送后不等响应(设备不回包),不消耗接收脚本。"""
+    client = ModbusRtuClient(station=0)
+    client.configure_serial("COM3")
+    scripted = _ScriptedTransport([])  # 无应答分片:若等待响应将超时失败
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.write_ushort("hr100", 1234) is True
+    assert bytes(scripted.sent) == codec.build_rtu_frame(0, codec.build_write_single_pdu(6, 100, 1234))
+
+
+def test_rtu_broadcast_read_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """RTU 广播:站号 0 读操作直接拒绝(设备不回包,等待只会超时)。"""
+    client = ModbusRtuClient(station=0)
+    client.configure_serial("COM3")
+    scripted = _ScriptedTransport([])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    with pytest.raises(ValueError):
+        client.read_ushort("hr0")
+    with pytest.raises(ValueError):
+        client.read_bool("c0")
+
+
+def test_tcp_station_zero_waits_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TCP:无广播语义,站号 0 写照常等待响应(Unit ID 为路由字段)。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 0)
+    request_pdu = codec.build_write_single_pdu(6, 100, 1234)
+    frame = codec.build_mbap(1, 0, request_pdu)
+    scripted = _ScriptedTransport([frame[:7], frame[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.write_ushort("hr100", 1234) is True
+    assert bytes(scripted.sent) == codec.build_mbap(1, 0, request_pdu)
+
+
+def test_mask_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TCP:FC22 掩码写请求/回显响应全链路。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    request_pdu = codec.build_mask_write_pdu(100, 0x00F0, 0x0005)
+    frame = codec.build_mbap(1, 1, request_pdu)
+    scripted = _ScriptedTransport([frame[:7], frame[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.write_mask_register("hr100", 0x00F0, 0x0005) is True
+    assert bytes(scripted.sent) == codec.build_mbap(1, 1, request_pdu)
+
+
+def test_mask_write_rtu_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """RTU:FC22 按长度推算收包(expected_response_length=7)。"""
+    client = ModbusRtuClient(station=1)
+    client.configure_serial("COM3")
+    request_pdu = codec.build_mask_write_pdu(0, 0xFFFF, 0x0001)
+    frame = codec.build_rtu_frame(1, request_pdu)
+    scripted = _ScriptedTransport([frame[:2], frame[2:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.write_mask_register("hr0", 0xFFFF, 0x0001) is True
+    assert codec.expected_response_length(request_pdu) == 7
+
+
+def test_mask_write_echo_mismatch_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TCP:FC22 响应回显不符按坏帧处理(掩码写必须原样回显)。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    bad_echo = codec.build_mask_write_pdu(100, 0x00F0, 0x0006)  # OR 掩码不符
+    scripted = _ScriptedTransport(
+        [codec.build_mbap(1, 1, bad_echo)[:7], codec.build_mbap(1, 1, bad_echo)[7:]]
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.write_mask_register("hr100", 0x00F0, 0x0005) is False
+    assert client.connected is False
+    assert client.last_error is not None and "回显" in client.last_error
+
+
+def test_mask_write_invalid_args() -> None:
+    """掩码写:非 hr 区域/位号后缀/掩码越界 → ValueError。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    with pytest.raises(ValueError):
+        client.write_mask_register("ir0", 0xFFFF, 0)  # 输入寄存器不可写
+    with pytest.raises(ValueError):
+        client.write_mask_register("hr0.3", 0xFFFF, 0)  # 不支持位号
+    with pytest.raises(ValueError):
+        client.write_mask_register("hr0", 0x10000, 0)  # and_mask 越界
+    with pytest.raises(ValueError):
+        client.write_mask_register("hr0", 0, -1)  # or_mask 越界
+
+
+def test_mbap_length_field_overflow() -> None:
+    """MBAP:长度域超出上限按坏帧拒绝(防止按长收包挂死)。"""
+    from omniplc.core.errors import ProtocolFrameError
+    from omniplc.core.constants import MODBUS_MBAP_LENGTH_MAX
+
+    bad_header = bytes([0, 1, 0, 0]) + (MODBUS_MBAP_LENGTH_MAX + 1).to_bytes(2, "big") + b"\x01"
+    with pytest.raises(ProtocolFrameError) as exc_info:
+        codec.parse_mbap_header(bad_header)
+    assert "上限" in str(exc_info.value)
+
+
 def test_device_error_instance_carries_code() -> None:
     """DeviceError.code 携带原始异常码(供上层程序化判断)。"""
     with pytest.raises(DeviceError) as exc_info:

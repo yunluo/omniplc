@@ -310,7 +310,7 @@ class BaseClient(ABC):
 
 | 协议 | TCP | UDP | RTU(串口) | MX Component |
 |---|---|---|---|---|
-| Modbus(FC 01/02/03/04/05/06/0F/10) | ✅ `ModbusTcpClient` | — | ✅ `ModbusRtuClient` | — |
+| Modbus(FC 01/02/03/04/05/06/0F/10/16) | ✅ `ModbusTcpClient` | — | ✅ `ModbusRtuClient` | — |
 | 三菱 MC 3E/4E(QnA 兼容) | ✅ `MelsecMcTcpClient(frame="3E"/"4E")` | ✅ `MelsecMcUdpClient` | v1.x(2C/3C/4C 帧) | ✅ `MelsecMxClient` |
 | 三菱 MC 1E(A 兼容,A 系列) | ✅ `frame="1E"` | ✅ | v1.x | ✅ |
 | 欧姆龙 FINS | ✅ `OmronFinsTcpClient`(含握手) | ✅ `OmronFinsUdpClient` | v1.x(Host Link) | — |
@@ -358,6 +358,29 @@ OPC-UA 说明:``OpcUaClient`` **不自研协议**(OPC-UA 是完整规范栈:
 不断线,连接故障标记断开惰性重连。v0.8 为匿名/NoSecurity 连接下的
 节点读写;安全策略配置、订阅/浏览(不符合本库拉模式)留 v1.x。
 
+Modbus 与 pymodbus 3.15.0 对照(2026-09 复审,源码
+`D:\DOWNLOAD\pymodbus-3.15.0.tar\pymodbus-3.15.0\pymodbus\`):
+帧格式、地址域 0~65535、位打包 LSB、线圈 ON=0xFF00、异常码表
+(01~08/0A/0B)、MBAP 事务号/协议号/站号校验、RTU CRC16(0xA001
+反射,低字节在前)全部一致。差异与决策:
+
+- **数量上限**:本库写线圈上限 1968(规范 0x7B0);pymodbus 的
+  ``WriteMultipleCoilsRequest.MAX_COUNT = 2000`` 比规范宽松
+  (>1968 会被合规设备拒绝),本库不改。
+- **响应校验更严**:读响应字节计数域与实际长度**精确相等**、
+  MBAP 长度域上限 254(超出按坏帧,防按长收包挂死)、FC22 掩码写
+  校验 7 字节回显;pymodbus 对三者均宽松(只按计数域解析、无上限、
+  不比对回显)。FC05/06/0F/10 写回显**有意不校验**与 pymodbus 一致
+  (兼容改写回显字段的网关;功能码与异常位仍校验)。
+- **RTU 广播(站号 0)**:写操作发送后不等响应(pymodbus
+  ``no_response_expected`` 同语义),读操作直接拒绝;TCP 无广播
+  概念,站号 0 照常收发。
+- **新增 FC 0x16 掩码写**:`write_mask_register()` 单笔设备侧原子
+  AND/OR 位修改,替代"读-改-写"两段事务(需设备支持)。
+- **不做**:ASCII 走线、诊断/报告类功能码(07/0B/0C/11/08/2B)
+  与本库"点位读写"契约不符,留 v1.x;RTU 收包靠长度推算而非
+  t1.5/t3.5 帧间时序,pymodbus 同样不做 3.5 字符静默。
+
 实现选型:MC、FINS 无支持 Python 3.7 的成熟维护库 → 自研;
 pymodbus 2.5.3 已停止维护且 3.x 不支持 3.7 → **Modbus 也自研**
 (报文简单,超时/重连/错误语义与另两家完全统一;如遇特殊需求,
@@ -371,7 +394,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 
 | 本库模块 | C# 参考文件 |
 |---|---|
-| Modbus 编解码 | `ModBus/ModbusInfo.cs`(功能码/异常码/MBAP 组帧)、`Core/IMessage/ModbusTcpMessage.cs`(事务号/协议号校验、按长收包) |
+| Modbus 编解码 | `ModBus/ModbusInfo.cs`(功能码/异常码/MBAP 组帧)、`Core/IMessage/ModbusTcpMessage.cs`(事务号/协议号校验、按长收包);2026-09 复审另对照 `D:\DOWNLOAD\pymodbus-3.15.0.tar\...\pymodbus\`(framer/pdu/异常码表,见 §8 差异决策) |
 | Modbus TCP/RTU 客户端 | `ModBus/ModbusTcp/ModbusTcpNet.cs`、`ModBus/ModbusRtu/ModbusRtu.cs`(CRC16 校验) |
 | 三菱 MC(3E/4E/1E,已实现) | `Profinet/Melsec/MelsecMcNet.cs`(3E)、`MelsecMcAsciiNet.cs`(ASCII 帧,v1.x)、`MelsecA1ENet.cs`(1E)、`MelsecMcDataType.cs` / `MelsecA1EDataType.cs`(软元件码表)、`MelsecHelper.cs`(核心命令构造) |
 | 三菱 MX Component(已实现) | `docs/MX Component Version 4编程手册.pdf`(ActUtlType 逻辑站号、Open/Close/GetDevice/SetDevice/ReadDeviceBlock/WriteDeviceBlock 数据布局、第 7 章出错代码) |

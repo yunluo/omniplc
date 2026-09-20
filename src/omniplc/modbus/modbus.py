@@ -47,7 +47,14 @@ class ModbusBaseClient(BaseClient):
 
     走线子类只需实现 :meth:`_create_transport`(传输挂载)与
     :meth:`_transact`(帧装拆:MBAP 或 RTU)。
+
+    广播语义:RTU 站号 0 为广播地址,设备不回包——写操作发送后
+    不等响应直接成功,读操作直接拒绝;TCP 无广播概念(Unit ID 为
+    路由字段),站号 0 照常收发。
     """
+
+    _BROADCAST_WITHOUT_RESPONSE: bool = False
+    """走线是否具备广播语义(RTU 为 True:站号 0 写不等响应)。"""
 
     def __init__(self) -> None:
         """初始化 Modbus 公共配置(字序默认 ABCD,站号默认 1)。"""
@@ -166,6 +173,7 @@ class ModbusBaseClient(BaseClient):
 
     def _read_bits(self, parsed: ModbusAddress, count: int) -> List[bool]:
         """读取连续位(FC 01/02)。"""
+        self._reject_broadcast_read()
         pdu = codec.build_read_pdu(parsed.read_function_code, parsed.offset, count)
         response = self._transact(pdu)
         raw_bits = codec.parse_read_response(response, parsed.read_function_code, count)
@@ -173,6 +181,7 @@ class ModbusBaseClient(BaseClient):
 
     def _read_registers(self, parsed: ModbusAddress, count: int) -> List[int]:
         """读取连续寄存器(FC 03/04),返回 0~65535 原始值列表。"""
+        self._reject_broadcast_read()
         pdu = codec.build_read_pdu(parsed.read_function_code, parsed.offset, count)
         response = self._transact(pdu)
         return codec.parse_read_response(response, parsed.read_function_code, count)
@@ -181,28 +190,68 @@ class ModbusBaseClient(BaseClient):
         """写一个布尔量:线圈走 FC5;寄存器位走"读-改-写"(同一事务锁内原子完成)。"""
         if parsed.area == ModbusArea.COIL:
             pdu = codec.build_write_single_pdu(parsed.write_single_function_code, parsed.offset, 1 if value else 0)
-            self._transact(pdu)
+            self._write_pdu(pdu)
             return
         bit = parsed.bit or 0
         registers = self._read_registers(parsed, 1)
         updated = convert.set_bit(registers[0], bit, value)
-        self._transact(
+        self._write_pdu(
             codec.build_write_single_pdu(parsed.write_single_function_code, parsed.offset, updated)
         )
 
     def _write_single_register(self, parsed: ModbusAddress, value: int) -> None:
         """写单个保持寄存器(FC 6)。"""
-        pdu = codec.build_write_single_pdu(parsed.write_single_function_code, parsed.offset, value)
-        self._transact(pdu)
+        self._write_pdu(codec.build_write_single_pdu(parsed.write_single_function_code, parsed.offset, value))
 
     def _write_registers_impl(self, parsed: ModbusAddress, registers: List[int]) -> None:
         """批量写保持寄存器(FC 16)。"""
-        pdu = codec.build_write_multi_pdu(parsed.write_multi_function_code, parsed.offset, registers)
+        self._write_pdu(codec.build_write_multi_pdu(parsed.write_multi_function_code, parsed.offset, registers))
+
+    def write_mask_register(self, address: str, and_mask: int, or_mask: int) -> bool:
+        """掩码写保持寄存器(FC 22,设备侧原子 AND/OR 位修改)。
+
+        设备执行 ``新值 = (当前值 AND and_mask) OR (or_mask AND NOT and_mask)``:
+        and_mask 置 0 的位被清零,and_mask 置 1 的位取 or_mask 对应位。
+        相比"读-改-写"两段事务,单笔事务且设备侧原子,适合位级修改;
+        需设备支持 FC 22(部分老设备/网关不支持,失败见 last_error)。
+
+        :param address: 保持寄存器地址,如 ``"hr100"``
+        :param and_mask: AND 掩码(0~65535)
+        :param or_mask: OR 掩码(0~65535)
+        :return: 是否成功
+        :raises ValueError: 地址/掩码非法
+        """
+        parsed = parse_address(address)
+        if parsed.area != ModbusArea.HOLDING_REGISTER:
+            raise ValueError("掩码写只支持保持寄存器区域(hr),收到:{!r}".format(address))
+        if parsed.bit is not None:
+            raise ValueError("掩码写地址不支持位号后缀:{!r}".format(address))
+        pdu = codec.build_mask_write_pdu(parsed.offset, int(and_mask), int(or_mask))
+        ok, _ = self._execute(
+            lambda: codec.parse_mask_write_response(self._transact(pdu), pdu),
+            is_write=True,
+        )
+        return ok
+
+    def _write_pdu(self, pdu: bytes) -> None:
+        """发送写 PDU;具备广播语义的走线在广播站号下不等响应(内部方法)。"""
+        if self._station == 0 and self._BROADCAST_WITHOUT_RESPONSE:
+            self._transact(pdu, expect_response=False)
+            return
         self._transact(pdu)
 
+    def _reject_broadcast_read(self) -> None:
+        """广播站号禁止读操作(设备不回包,等待只会超时,内部方法)。"""
+        if self._station == 0 and self._BROADCAST_WITHOUT_RESPONSE:
+            raise ValueError("广播站号(station=0)仅支持写操作,读操作请指定实际站号")
+
     @abstractmethod
-    def _transact(self, pdu: bytes) -> bytes:
-        """发送请求 PDU 并返回响应 PDU(由走线子类实现帧装拆)。"""
+    def _transact(self, pdu: bytes, expect_response: bool = True) -> bytes:
+        """发送请求 PDU 并返回响应 PDU(由走线子类实现帧装拆)。
+
+        :param expect_response: False 时不等响应直接返回空字节
+            (广播写;仅具备广播语义的走线会收到该标志)。
+        """
 
 
 class ModbusTcpClient(ModbusBaseClient):
@@ -228,8 +277,11 @@ class ModbusTcpClient(ModbusBaseClient):
     def _create_transport(self) -> BaseTransport:
         return TcpTransport(self._ip_address, self._port)
 
-    def _transact(self, pdu: bytes) -> bytes:
-        """MBAP 事务:组帧→发送→按长度收→校验事务号/站号→返回 PDU。"""
+    def _transact(self, pdu: bytes, expect_response: bool = True) -> bytes:
+        """MBAP 事务:组帧→发送→按长度收→校验事务号/站号→返回 PDU。
+
+        TCP 无广播语义(Unit ID 为路由字段),站号 0 照常等待响应。
+        """
         transport = self._require_transport()
         self._transaction_id = (self._transaction_id + 1) & 0xFFFF
         transport.send(codec.build_mbap(self._transaction_id, self.station, pdu))
@@ -251,12 +303,17 @@ class ModbusTcpClient(ModbusBaseClient):
 class ModbusRtuClient(ModbusBaseClient):
     """Modbus RTU 客户端(串口,需要 pyserial)。
 
+    站号 0 为广播地址:写操作发送后不等响应(设备不回包),
+    读操作直接拒绝;详见 :class:`ModbusBaseClient`。
+
     :example::
 
         client = ModbusRtuClient(station=1)
         client.configure_serial("COM3", baud_rate=9600)
         client.connect()
     """
+
+    _BROADCAST_WITHOUT_RESPONSE = True
 
     def __init__(self, station: int = MODBUS_DEFAULT_STATION) -> None:
         """初始化 Modbus RTU 客户端。
@@ -299,14 +356,17 @@ class ModbusRtuClient(ModbusBaseClient):
             raise ValueError("请先调用 configure_serial() 配置串口参数")
         return SerialTransport(self._serial_config)
 
-    def _transact(self, pdu: bytes) -> bytes:
+    def _transact(self, pdu: bytes, expect_response: bool = True) -> bytes:
         """RTU 事务:站号+PDU+CRC16 → 发送 → 按功能码推算长度收 → 校验 CRC。
 
-        异常响应(功能码 | 0x80)恒为 2 字节 PDU,读到功能码后先行分支。
+        异常响应(功能码 | 0x80)恒为 2 字节 PDU,读到功能码后先行分支;
+        广播写(expect_response=False)发送后不等响应,设备不回包。
         """
         transport = self._require_transport()
         station = self.station
         transport.send(codec.build_rtu_frame(station, pdu))
+        if not expect_response:
+            return b""
         head = transport.recv(2)
         if head[1] & MODBUS_EXCEPTION_FLAG:
             received_station, response_pdu = codec.parse_rtu_frame(head + transport.recv(3))
