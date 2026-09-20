@@ -29,7 +29,14 @@ from ...core.constants import (
     KV_MAX_LINE,
 )
 from ...core.errors import OmniPLCInternalError
-from ...core.validation import check_int16, check_uint16, require_bool, require_float, require_int
+from ...core.validation import (
+    check_int16,
+    check_range,
+    check_uint16,
+    require_bool,
+    require_float,
+    require_int,
+)
 from ...transport import BaseTransport, TcpTransport, UdpTransport
 from ...types import DataType, PrimitiveValue
 from . import codec
@@ -169,24 +176,24 @@ class _KeyenceHostLinkBase(BaseClient):
     # ------------------------------------------------------------------
 
     def _read_word(self, parsed: KvAddress, data_type: DataType) -> PrimitiveValue:
-        """按数据类型读取字软元件。"""
+        """按数据类型读取字软元件(.S/.L 令牌已按有符号范围校验,直接返回)。"""
         if data_type is DataType.SHORT:
-            return _to_int16(self._read_word_token(parsed, ".S"))
+            return self._read_word_token(parsed, ".S")
         if data_type is DataType.USHORT:
             return self._read_word_token(parsed, ".U")
         if data_type is DataType.INT:
-            return _to_int32(self._read_word_token(parsed, ".L"))
+            return self._read_word_token(parsed, ".L")
         if data_type is DataType.UINT:
             return self._read_word_token(parsed, ".D")
         if data_type is DataType.FLOAT:
             words = self._read_consecutive(parsed, 2)
-            return struct.unpack("<f", _words_to_bytes(words, 4))[0]
+            return struct.unpack("<f", convert.words_to_bytes(words)[:4])[0]
         if data_type in (DataType.LONG, DataType.ULONG):
             words = self._read_consecutive(parsed, 4)
-            raw = _words_to_bytes(words, 8)
+            raw = convert.words_to_bytes(words)[:8]
             return int.from_bytes(raw, "little", signed=data_type is DataType.LONG)
         words = self._read_consecutive(parsed, 4)
-        return struct.unpack("<d", _words_to_bytes(words, 8))[0]
+        return struct.unpack("<d", convert.words_to_bytes(words)[:8])[0]
 
     def _write_word(self, parsed: KvAddress, data_type: DataType, value: PrimitiveValue) -> None:
         """按数据类型写入字软元件。"""
@@ -201,34 +208,34 @@ class _KeyenceHostLinkBase(BaseClient):
             )
             return
         if data_type is DataType.INT:
-            number = require_int(value)
-            _require_range(number, -0x80000000, 0x7FFFFFFF, "int")
+            number = check_range(require_int(value), -0x80000000, 0x7FFFFFFF, "int")
             self._write_single(parsed, ".L", codec.format_value(number, ".L"))
             return
         if data_type is DataType.UINT:
-            number = require_int(value)
-            _require_range(number, 0, 0xFFFFFFFF, "uint")
+            number = check_range(require_int(value), 0, 0xFFFFFFFF, "uint")
             self._write_single(parsed, ".D", codec.format_value(number, ".D"))
             return
         if data_type is DataType.FLOAT:
+            number_f = require_float(value)
             try:
-                raw = struct.pack("<f", require_float(value))
+                raw = struct.pack("<f", number_f)
             except (OverflowError, ValueError) as exc:
                 raise ValueError("float 超出 float32 范围:{}".format(value)) from exc
-            self._write_consecutive_words(parsed, _bytes_to_words(raw))
+            self._write_consecutive_words(parsed, convert.bytes_to_words(raw))
             return
         if data_type in (DataType.LONG, DataType.ULONG):
             number = require_int(value)
             if data_type is DataType.LONG:
-                _require_range(number, -9223372036854775808, 9223372036854775807, "long")
+                check_range(number, -9223372036854775808, 9223372036854775807, "long")
                 raw = number.to_bytes(8, "little", signed=True)
             else:
-                _require_range(number, 0, 18446744073709551615, "ulong")
+                check_range(number, 0, 18446744073709551615, "ulong")
                 raw = number.to_bytes(8, "little", signed=False)
-            self._write_consecutive_words(parsed, _bytes_to_words(raw))
+            self._write_consecutive_words(parsed, convert.bytes_to_words(raw))
             return
-        raw = struct.pack("<d", require_float(value))
-        self._write_consecutive_words(parsed, _bytes_to_words(raw))
+        self._write_consecutive_words(
+            parsed, convert.bytes_to_words(struct.pack("<d", require_float(value)))
+        )
 
     def _read_word_token(self, parsed: KvAddress, data_format: str) -> int:
         """单字读并解析为整数(内部方法)。"""
@@ -332,29 +339,3 @@ def _expect_ok(response: str) -> None:
         raise OmniPLCInternalError(
             "写命令应答异常:期望 OK,收到 {!r}".format(response)
         )
-
-
-def _to_int16(raw: int) -> int:
-    """0~65535 原始字 → 有符号 16 位(内部函数)。"""
-    return raw - 0x10000 if raw >= 0x8000 else raw
-
-
-def _to_int32(raw: int) -> int:
-    """0~4294967295 原始双字 → 有符号 32 位(内部函数)。"""
-    return raw - 0x100000000 if raw >= 0x80000000 else raw
-
-
-def _require_range(number: int, low: int, high: int, name: str) -> None:
-    """整数范围校验(内部函数)。"""
-    if not low <= number <= high:
-        raise ValueError("{} 超出范围 {}~{}:{}".format(name, low, high, number))
-
-
-def _words_to_bytes(words: List[int], size: int) -> bytes:
-    """原始字列表按小端拼字节(内部函数)。"""
-    return b"".join(word.to_bytes(2, "little") for word in words)[:size]
-
-
-def _bytes_to_words(raw: bytes) -> List[int]:
-    """小端字节串拆为 0~65535 原始字列表(内部函数)。"""
-    return [int.from_bytes(raw[i:i + 2], "little") for i in range(0, len(raw), 2)]

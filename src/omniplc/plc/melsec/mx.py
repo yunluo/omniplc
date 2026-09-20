@@ -35,7 +35,7 @@ from ...core.validation import check_int16, check_uint16, require_bool
 from ...transport import BaseTransport
 from ...types import DataType, PrimitiveValue
 from .address import McAddress, parse_mc_address
-from .melsec import _decode_32, _decode_64, _encode_32, _encode_64, _to_int16
+from .melsec import _decode_32, _decode_64, _encode_32, _encode_64
 
 
 # ----------------------------------------------------------------------
@@ -240,7 +240,7 @@ class MelsecMxClient(BaseClient):
         if data_type in (DataType.SHORT, DataType.USHORT):
             raw = self._get_device(_device_text(parsed))
             if data_type is DataType.SHORT:
-                return _to_int16(raw)
+                return convert.to_signed(raw, 16)
             return raw
         if data_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
             return _decode_32(self._read_words(_device_text(parsed), 2), data_type)

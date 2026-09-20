@@ -41,8 +41,15 @@ from ...core.constants import (
     TOYOPUC_MAX_DATAGRAM,
     TOYOPUC_WORD_DEVICES,
 )
-from ...core.errors import OmniPLCInternalError, ProtocolFrameError
-from ...core.validation import check_int16, check_uint16, require_bool, require_float, require_int
+from ...core.errors import ProtocolFrameError
+from ...core.validation import (
+    check_int16,
+    check_range,
+    check_uint16,
+    require_bool,
+    require_float,
+    require_int,
+)
 from ...transport import BaseTransport, TcpTransport, UdpTransport
 from ...types import DataType, PrimitiveValue
 from . import codec
@@ -99,17 +106,17 @@ class _ToyopucBase(BaseClient):
             )
         if data_type in (DataType.SHORT, DataType.USHORT):
             words = self._read_words(parsed, 1)
-            return words[0] if data_type is DataType.USHORT else _to_signed(words[0], 16)
+            return words[0] if data_type is DataType.USHORT else convert.to_signed(words[0], 16)
         if data_type in (DataType.INT, DataType.UINT):
             raw = self._read_raw(parsed, 4)
-            return _to_signed(raw, 32) if data_type is DataType.INT else raw
+            return convert.to_signed(raw, 32) if data_type is DataType.INT else raw
         if data_type is DataType.FLOAT:
-            return struct.unpack("<f", _words_to_bytes(self._read_words(parsed, 2)))[0]
+            return struct.unpack("<f", convert.words_to_bytes(self._read_words(parsed, 2)))[0]
         if data_type in (DataType.LONG, DataType.ULONG):
             raw = self._read_raw(parsed, 8)
-            return _to_signed(raw, 64) if data_type is DataType.LONG else raw
+            return convert.to_signed(raw, 64) if data_type is DataType.LONG else raw
         if data_type is DataType.DOUBLE:
-            return struct.unpack("<d", _words_to_bytes(self._read_words(parsed, 4)))[0]
+            return struct.unpack("<d", convert.words_to_bytes(self._read_words(parsed, 4)))[0]
         raise ValueError("TOYOPUC 不支持的数据类型:{}".format(data_type))
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
@@ -129,15 +136,11 @@ class _ToyopucBase(BaseClient):
             self._write_words(parsed, [check_uint16(value)])
             return
         if data_type is DataType.INT:
-            number = require_int(value)
-            if not -2147483648 <= number <= 2147483647:
-                raise ValueError("int 超出 32 位范围:{}".format(number))
+            number = check_range(require_int(value), -2147483648, 2147483647, "int")
             self._write_raw(parsed, number, 4)
             return
         if data_type is DataType.UINT:
-            number = require_int(value)
-            if not 0 <= number <= 0xFFFFFFFF:
-                raise ValueError("uint 超出范围 0~4294967295:{}".format(number))
+            number = check_range(require_int(value), 0, 0xFFFFFFFF, "uint")
             self._write_raw(parsed, number, 4)
             return
         if data_type is DataType.FLOAT:
@@ -146,18 +149,16 @@ class _ToyopucBase(BaseClient):
                 raw = struct.pack("<f", number_f)
             except (OverflowError, ValueError) as exc:
                 raise ValueError("float 超出 float32 范围:{}".format(value)) from exc
-            self._write_words(parsed, _bytes_to_words(raw))
+            self._write_words(parsed, convert.bytes_to_words(raw))
             return
         if data_type is DataType.LONG:
-            number = require_int(value)
-            if not -9223372036854775808 <= number <= 9223372036854775807:
-                raise ValueError("long 超出 64 位范围:{}".format(number))
+            number = check_range(
+                require_int(value), -9223372036854775808, 9223372036854775807, "long"
+            )
             self._write_raw(parsed, number, 8)
             return
         if data_type is DataType.ULONG:
-            number = require_int(value)
-            if not 0 <= number <= 0xFFFFFFFFFFFFFFFF:
-                raise ValueError("ulong 超出 64 位无符号范围:{}".format(number))
+            number = check_range(require_int(value), 0, 0xFFFFFFFFFFFFFFFF, "ulong")
             self._write_raw(parsed, number, 8)
             return
         if data_type is DataType.DOUBLE:
@@ -166,7 +167,7 @@ class _ToyopucBase(BaseClient):
                 raw = struct.pack("<d", number_f)
             except (OverflowError, ValueError) as exc:
                 raise ValueError("double 超出 float64 范围:{}".format(value)) from exc
-            self._write_words(parsed, _bytes_to_words(raw))
+            self._write_words(parsed, convert.bytes_to_words(raw))
             return
         raise ValueError("TOYOPUC 不支持的数据类型:{}".format(data_type))
 
@@ -221,11 +222,11 @@ class _ToyopucBase(BaseClient):
     def _read_raw(self, parsed: ToyopucAddress, byte_count: int) -> int:
         """连续字读并拼为小端原始整数(32/64 位,内部方法)。"""
         words = self._read_words(parsed, byte_count // 2)
-        return int.from_bytes(_words_to_bytes(words), "little")
+        return int.from_bytes(convert.words_to_bytes(words), "little")
 
     def _write_raw(self, parsed: ToyopucAddress, raw: int, byte_count: int) -> None:
         """原始整数按小端拆字后连续字写(32/64 位,内部方法)。"""
-        self._write_words(parsed, _bytes_to_words(raw.to_bytes(byte_count, "little")))
+        self._write_words(parsed, convert.bytes_to_words(raw.to_bytes(byte_count, "little")))
 
     @staticmethod
     def _require_byte_range(address: str, length: int) -> ToyopucAddress:
@@ -279,24 +280,3 @@ class ToyopucUdpClient(_ToyopucBase):
 
     def _create_transport(self) -> BaseTransport:
         return UdpTransport(self._ip_address, self._port)
-
-
-# ----------------------------------------------------------------------
-# 模块级辅助函数
-# ----------------------------------------------------------------------
-
-def _to_signed(raw: int, bits: int) -> int:
-    """无符号原始值 → 有符号整数(内部函数)。"""
-    return raw - (1 << bits) if raw >= 1 << (bits - 1) else raw
-
-
-def _words_to_bytes(words: List[int]) -> bytes:
-    """原始字列表按小端拼字节(内部函数)。"""
-    return b"".join(word.to_bytes(2, "little") for word in words)
-
-
-def _bytes_to_words(raw: bytes) -> List[int]:
-    """小端字节串拆为 0~65535 原始字列表(内部函数)。"""
-    if len(raw) % 2 != 0:
-        raise OmniPLCInternalError("字编码字节数必须为偶数:{}".format(len(raw)))
-    return [int.from_bytes(raw[index:index + 2], "little") for index in range(0, len(raw), 2)]

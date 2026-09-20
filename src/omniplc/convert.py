@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import struct
-from typing import Any, Sequence, Tuple, Union, cast
+from typing import Any, List, Sequence, Tuple, Union, cast
 
 from .core.constants import BIT_INDEX_MAX, CRC16_INIT, CRC16_POLY
 from .types import ByteOrder, WordOrder
@@ -63,6 +63,46 @@ def set_bit(value: int, bit: int, on: bool) -> int:
     if on:
         return value | (1 << bit)
     return value & ~(1 << bit)
+
+
+def to_signed(raw: int, bits: int) -> int:
+    """无符号原始值按位宽转有符号整数(补码语义)。
+
+    :param raw: 0 ~ 2\\*\\*bits - 1 的无符号原始值
+    :param bits: 位宽(16/32/64)
+    :raises ValueError: raw 超出该位宽无符号范围
+    """
+    raw = int(raw)
+    if not 0 <= raw < (1 << bits):
+        raise ValueError("无符号原始值超出 {} 位范围:{}".format(bits, raw))
+    return raw - (1 << bits) if raw >= 1 << (bits - 1) else raw
+
+
+def words_to_bytes(
+    words: Sequence[int], byteorder: Union[ByteOrder, str] = ByteOrder.LITTLE
+) -> bytes:
+    """把 0~65535 原始字序列按指定字节序拼为字节串(每字 2 字节,顺序拼接)。
+
+    :param words: 原始字序列(0~65535),按传输顺序给出
+    :param byteorder: 字内字节序,默认小端
+    """
+    order = _byteorder(byteorder)
+    return b"".join((int(word) & 0xFFFF).to_bytes(2, order) for word in words)
+
+
+def bytes_to_words(
+    data: BytesLike, byteorder: Union[ByteOrder, str] = ByteOrder.LITTLE
+) -> List[int]:
+    """把字节串按指定字节序拆为 0~65535 原始字列表。
+
+    :param data: 原始字节(长度必须为偶数)
+    :param byteorder: 字内字节序,默认小端
+    :raises ValueError: 长度为奇数
+    """
+    order = _byteorder(byteorder)
+    if len(data) % 2 != 0:
+        raise ValueError("字节串长度必须为偶数,收到:{}".format(len(data)))
+    return [int.from_bytes(data[i:i + 2], order) for i in range(0, len(data), 2)]
 
 
 def bytes_to_short(data: bytes, byteorder: Union[ByteOrder, str] = ByteOrder.BIG) -> int:

@@ -43,3 +43,14 @@ def check_uint16(value: PrimitiveValue) -> int:
     if not 0 <= number <= 65535:
         raise ValueError("ushort 超出范围 0~65535:{}".format(number))
     return number
+
+
+def check_range(value: int, low: int, high: int, name: str) -> int:
+    """校验整数在 ``[low, high]`` 范围内,越界抛 :class:`ValueError`,合法原值返回。
+
+    供各驱动 32/64 位等定点范围校验复用(16 位请用 :func:`check_int16`/
+    :func:`check_uint16`,它们还带换算语义)。
+    """
+    if not low <= value <= high:
+        raise ValueError("{} 超出范围 {}~{}:{}".format(name, low, high, value))
+    return value

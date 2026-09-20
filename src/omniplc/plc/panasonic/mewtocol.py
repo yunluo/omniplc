@@ -76,7 +76,7 @@ class _MewtocolBase(BaseClient):
             return self._read_bool_impl(parsed)
         if data_type in (DataType.SHORT, DataType.USHORT):
             data = self._read_words(parsed, 1)
-            return data[0] if data_type is DataType.USHORT else _to_int16(data[0])
+            return data[0] if data_type is DataType.USHORT else convert.to_signed(data[0], 16)
         if data_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
             data = self._read_words(parsed, 2)
             return _decode_32(data, data_type)
@@ -103,7 +103,7 @@ class _MewtocolBase(BaseClient):
             else:
                 words = self._read_words(parsed, 1)
                 self._write_words(
-                    parsed, [_set_bit(words[0], parsed.bit or 0, flag)]
+                    parsed, [convert.set_bit(words[0], parsed.bit or 0, flag)]
                 )
             return
         if data_type is DataType.SHORT:
@@ -161,7 +161,7 @@ class _MewtocolBase(BaseClient):
                 )
             return data_text == "1"
         words = self._read_words(parsed, 1)
-        return _get_bit(words[0], parsed.bit or 0)
+        return convert.get_bit(words[0], parsed.bit or 0)
 
     def _read_words(self, parsed: MewtocolAddress, word_count: int) -> List[int]:
         """RD 成批读字软元件,返回 0~65535 逐字数据(高字节在前编码)。"""
@@ -251,21 +251,6 @@ class PanasonicMewtocolUdpClient(_MewtocolBase):
 # ----------------------------------------------------------------------
 # 模块级辅助函数
 # ----------------------------------------------------------------------
-
-def _to_int16(raw: int) -> int:
-    """0~65535 原始字 → 有符号 16 位(内部函数)。"""
-    return raw - 0x10000 if raw >= 0x8000 else raw
-
-
-def _get_bit(word: int, bit: int) -> bool:
-    """取字的指定位(内部函数)。"""
-    return bool((word >> bit) & 0x01)
-
-
-def _set_bit(word: int, bit: int, flag: bool) -> int:
-    """置/清字的指定位(内部函数)。"""
-    return (word | (1 << bit)) if flag else (word & ~(1 << bit) & 0xFFFF)
-
 
 def _decode_32(data: Sequence[int], data_type: DataType) -> PrimitiveValue:
     """两字数据按类型解码:低字在前、字内高字节在前(内部函数)。"""

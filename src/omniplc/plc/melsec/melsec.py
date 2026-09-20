@@ -130,7 +130,7 @@ class _MelsecMcBase(BaseClient):
             return self._read_bool_impl(parsed)
         if data_type in (DataType.SHORT, DataType.USHORT):
             data = self._read_words(parsed, 1)
-            return data[0] if data_type is DataType.USHORT else _to_int16(data[0])
+            return data[0] if data_type is DataType.USHORT else convert.to_signed(data[0], 16)
         if data_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
             data = self._read_words(parsed, 2)
             return _decode_32(data, data_type)
@@ -588,14 +588,9 @@ def _coerce_frame(value: Union[McFrame, str]) -> McFrame:
         raise ValueError("不支持的 MC 帧型:{!r},支持:{}".format(value, supported))
 
 
-def _to_int16(raw: int) -> int:
-    """0~65535 原始字 → 有符号 16 位(内部函数)。"""
-    return raw - 0x10000 if raw >= 0x8000 else raw
-
-
 def _decode_32(data: Sequence[int], data_type: DataType) -> PrimitiveValue:
     """两字数据按类型解码(MC 为小端字序:低字在前,内部函数)。"""
-    raw = b"".join(word.to_bytes(2, "little") for word in data)
+    raw = convert.words_to_bytes(data)
     if data_type is DataType.INT:
         return int.from_bytes(raw, "little", signed=True)
     if data_type is DataType.UINT:
@@ -605,7 +600,7 @@ def _decode_32(data: Sequence[int], data_type: DataType) -> PrimitiveValue:
 
 def _decode_64(data: Sequence[int], data_type: DataType) -> PrimitiveValue:
     """四字数据按类型解码(小端字序,内部函数)。"""
-    raw = b"".join(word.to_bytes(2, "little") for word in data)
+    raw = convert.words_to_bytes(data)
     if data_type is DataType.LONG:
         return int.from_bytes(raw, "little", signed=True)
     if data_type is DataType.ULONG:
@@ -627,7 +622,7 @@ def _encode_32(value: PrimitiveValue, data_type: DataType) -> List[int]:
             if not 0 <= number <= 4294967295:
                 raise ValueError("uint 超出 32 位范围:{}".format(number))
             raw = number.to_bytes(4, "little", signed=False)
-    return [int.from_bytes(raw[0:2], "little"), int.from_bytes(raw[2:4], "little")]
+    return convert.bytes_to_words(raw)
 
 
 def _encode_64(value: PrimitiveValue, data_type: DataType) -> List[int]:
@@ -644,6 +639,4 @@ def _encode_64(value: PrimitiveValue, data_type: DataType) -> List[int]:
             if not 0 <= number <= 18446744073709551615:
                 raise ValueError("ulong 超出 64 位范围:{}".format(number))
             raw = number.to_bytes(8, "little", signed=False)
-    return [
-        int.from_bytes(raw[i:i + 2], "little") for i in range(0, len(raw), 2)
-    ]
+    return convert.bytes_to_words(raw)

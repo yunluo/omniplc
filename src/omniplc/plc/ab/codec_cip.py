@@ -31,7 +31,13 @@ from ...core.constants import (
     AB_EIP_STRING_STRUCT_ID,
 )
 from ...core.errors import DeviceError, ProtocolFrameError
-from ...core.validation import check_int16, check_uint16, require_float, require_int
+from ...core.validation import (
+    check_int16,
+    check_range,
+    check_uint16,
+    require_float,
+    require_int,
+)
 from ...types import DataType, PrimitiveValue
 
 # ---- ENIP 封装(报文常量) ----
@@ -716,23 +722,16 @@ def encode_value(data_type: DataType, value: PrimitiveValue) -> bytes:
         return struct.pack("<d", require_float(value))
     number = require_int(value)
     if data_type is DataType.INT:
-        return struct.pack("<i", _check_range(number, -2147483648, 2147483647, "int"))
+        return struct.pack("<i", check_range(number, -2147483648, 2147483647, "int"))
     if data_type is DataType.UINT:
-        return struct.pack("<I", _check_range(number, 0, 4294967295, "uint"))
+        return struct.pack("<I", check_range(number, 0, 4294967295, "uint"))
     if data_type is DataType.LONG:
         return struct.pack(
-            "<q", _check_range(number, -9223372036854775808, 9223372036854775807, "long")
+            "<q", check_range(number, -9223372036854775808, 9223372036854775807, "long")
         )
     if data_type is DataType.ULONG:
-        return struct.pack("<Q", _check_range(number, 0, 18446744073709551615, "ulong"))
+        return struct.pack("<Q", check_range(number, 0, 18446744073709551615, "ulong"))
     raise ValueError("AB 不支持的数据类型:{}".format(data_type))
-
-
-def _check_range(number: int, low: int, high: int, name: str) -> int:
-    """整数范围校验(内部函数)。"""
-    if not low <= number <= high:
-        raise ValueError("{} 超出范围 {}~{}:{}".format(name, low, high, number))
-    return number
 
 
 def tag_type_path(parsed: AbTag, zero_last_index: bool = False) -> bytes:
