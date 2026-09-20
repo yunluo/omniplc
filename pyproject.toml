@@ -1,7 +1,7 @@
 [project]
 name = "omniplc"
 version = "0.1.0"
-description = "omniplc —— 多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC 3E/4E/1E 与串口 3C/4C / MX Component / 欧姆龙 FINS / 基恩士 KV Host Link / KV MC 兼容 / 汇川 H3U/H5U / 松下 MC 兼容与 MEWTOCOL / 丰田 TOYOPUC / AB EtherNet/IP / OPC-UA)"
+description = "omniplc —— 多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC 3E/4E/1E 与串口 3C/4C / MX Component / 欧姆龙 FINS / NJ/NX CIP / 基恩士 KV Host Link / KV MC 兼容 / 汇川 H3U/H5U / 松下 MC 兼容与 MEWTOCOL / 丰田 TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / OPC-UA / 通用自定义 TCP)"
 readme = "README.md"
 requires-python = ">=3.7.9"
 license = { text = "MIT" }
@@ -26,6 +26,10 @@ keywords = [
     "ethernet-ip",
     "cip",
     "controllogix",
+    "beckhoff",
+    "twincat",
+    "ads",
+    "pyads",
     "omron",
     "opcua",
     "opc-ua",
@@ -54,11 +58,13 @@ dependencies = []
 serial = ["pyserial>=3.5"]
 mx = ["comtypes>=1.2; platform_system == 'Windows'"]
 opcua = ["asyncua==1.1.5"]
+ads = ["pyads==3.5.1"]
 dev = [
     "pyserial>=3.5",
     "pytest>=7.4.4",
     "comtypes>=1.2",
-    "asyncua==1.1.5"
+    "asyncua==1.1.5",
+    "pyads==3.5.1"
 ]
 
 [build-system]
@@ -80,7 +86,7 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 
 # 可选运行时依赖 serial(串口扩展)/comtypes(MX Component 扩展)/
-# asyncua(OPC-UA 扩展)无内联标注;
+# asyncua(OPC-UA 扩展)/pyads(TwinCAT ADS 扩展)无内联标注;
 # pytest 视宿主环境可能缺失:均按缺失导入处理,不影响核心代码检查。
 [[tool.mypy.overrides]]
 module = [
@@ -90,6 +96,7 @@ module = [
     "asyncua",
     "asyncua.sync",
     "asyncua.ua",
+    "pyads",
     "pytest",
 ]
 ignore_missing_imports = true

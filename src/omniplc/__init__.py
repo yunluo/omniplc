@@ -3,9 +3,9 @@
 一次编写,通过一致的 API 对接三菱(MC 协议)、欧姆龙(FINS、NJ/NX CIP)、
 基恩士(KV Host Link、MC 协议兼容、SR 扫码枪)、汇川(H3U/H5U)、
 松下(FP 系列:MC 协议兼容、MEWTOCOL)、丰田(TOYOPUC 计算机链接)、
-罗克韦尔(Allen-Bradley,EtherNet/IP)等设备,
+罗克韦尔(Allen-Bradley,EtherNet/IP)、倍福(TwinCAT,ADS)等设备,
 支持 Modbus TCP/RTU、MC 3E/4E/1E、MC 串口 3C/4C 帧、MC over MX Component、
-FINS over TCP/UDP、NJ/NX CIP(EtherNet/IP 变量读写)、
+FINS over TCP/UDP、NJ/NX CIP(EtherNet/IP 变量读写)、TwinCAT ADS(封装 pyads)、
 KV Host Link over TCP/UDP、KV MC 协议兼容(SLMP 3E)、
 汇川 Modbus TCP/RTU 与 MC 协议兼容(3E)、
 松下 MC 协议兼容(3E)与 MEWTOCOL(TCP/UDP)、
@@ -40,6 +40,7 @@ from .plc.melsec import (
     MelsecMcUdpClient,
     MelsecMxClient,
 )
+from .plc.beckhoff import BeckhoffAdsClient
 from .plc.omron import OmronCipClient, OmronFinsTcpClient, OmronFinsUdpClient
 from .plc.ab import AllenBradleyEthIpClient
 from .plc.panasonic import (
@@ -101,6 +102,8 @@ __all__ = [
     "ToyopucUdpClient",
     # ---- 罗克韦尔 AB EtherNet/IP 客户端 ----
     "AllenBradleyEthIpClient",
+    # ---- 倍福 TwinCAT ADS 客户端 ----
+    "BeckhoffAdsClient",
     # ---- 通用自定义 TCP 客户端 ----
     "OpenTcpClient",
     # ---- OPC-UA 客户端 ----

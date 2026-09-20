@@ -1,6 +1,6 @@
 # omniplc 架构设计
 
-> 版本:v0.19 · 更新日期:2026-09-20 · 状态:Modbus / 三菱 MC(以太网 + 串口帧)/ FINS / NJ/NX CIP / KV / SR / TOYOPUC / AB EtherNet/IP / OPC-UA / 通用自定义 TCP 已全部落地
+> 版本:v0.20 · 更新日期:2026-09-20 · 状态:Modbus / 三菱 MC(以太网 + 串口帧)/ FINS / NJ/NX CIP / KV / SR / TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / OPC-UA / 通用自定义 TCP 已全部落地
 
 omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7+,uv 开发)。
 本文档描述 v1.0 的完整架构:分层、类设计、继承树、线程安全模型、类型标注纪律、
@@ -91,6 +91,9 @@ flowchart TB
 
     OmronCipClient["OmronCipClient — plc/omron/cip.py<br/>NJ/NX 内置 EtherNet/IP 变量读写(继承 AB 客户端)<br/>覆写三钩子:_route_path=空 / _wrap_unconnected=直发<br/>/_parse_unconnected_reply=一层服务头;STRING 待真机核证拒绝"]
 
+    %% ═══ 倍福 TwinCAT ADS ═══
+    BeckhoffAdsClient["BeckhoffAdsClient — plc/beckhoff/ads.py<br/>TwinCAT 变量名读写(封装 pyads 3.5.1,AMS 851)<br/>DataType→PLCTYPE 映射 + 范围校验;ADSError→DeviceError 不断线<br/>NetId 默认 IP+.1.1;Windows 需 TcAdsDll 运行库"]
+
     %% ═══ 基恩士 Host Link / SR ═══
     KeyenceHlBase["_KeyenceHostLinkBase(ABC,私有)— plc/keyence/hostlink.py<br/>ASCII 行式协议(RD/RDS/WR/WRS + CR 结束)"]
     KeyenceHostLinkTcpClient["KeyenceHostLinkTcpClient<br/>按行逐字节收包"]
@@ -105,6 +108,7 @@ flowchart TB
     OpcUaClient["OpcUaClient — opcua/client.py<br/>OPC-UA opc.tcp(封装 asyncua 1.1.5,官方继任 python-opcua)<br/>get_node().read_value()/write_value() 按 VariantType 编解码,无字节流"]
     MxComLink["_MxComLink<br/>COM 会话(Open/Close)适配为传输对象外形"]
     OpcUaSession["_OpcUaSession<br/>asyncua 同步会话适配;UaError 在会话边界翻译为 DeviceError"]
+    AdsSession["_AdsSession<br/>pyads Connection 适配;ADSError 在会话边界翻译为 DeviceError"]
 
     %% ═══ 通用自定义 TCP ═══
     OpenTcpClient["OpenTcpClient — opentcp/client.py<br/>任意分隔符成帧设备的收发壳(delimiter/encoding/append·strip/max_frame 可配)<br/>内部缓冲:跨分片拼接、多帧逐次返回;重连清空缓冲<br/>send/send_text/receive/receive_text/transact/transact_text;无点位语义"]
@@ -133,6 +137,7 @@ flowchart TB
     OmronFinsBase --> OmronFinsUdpClient
     BaseClient --> AllenBradleyEthIpClient
     AllenBradleyEthIpClient -->|"三钩子覆写:NJ/NX 直发 + 空路由"| OmronCipClient
+    BaseClient --> BeckhoffAdsClient
     BaseClient --> KeyenceHlBase
     KeyenceHlBase --> KeyenceHostLinkTcpClient
     KeyenceHlBase --> KeyenceHostLinkUdpClient
@@ -179,13 +184,14 @@ flowchart TB
     ToyopucUdpClient -.->|"1025"| UdpTransport
     MelsecMxClient -.-> MxComLink
     OpcUaClient -.->|"4840"| OpcUaSession
+    BeckhoffAdsClient -.->|"AMS 851"| AdsSession
 
     %% ═══ 点位表 / 异步镜像 ═══
     TagNode["Tag(dataclass)/ TagTable(Mapping)— tag.py(from_json / from_csv)"]
     BaseClient -.->|"bind_tags"| TagNode
 
     subgraph AsyncMirror["异步镜像(omniplc.aio):ABaseClient 组合同步实例 + 单线程 ThreadPoolExecutor,签名同名同型"]
-        AsyncList["AModbusBaseClient → AModbusTcpClient / AModbusRtuClient<br/>AInovanceTcpClient / AInovanceRtuClient(configure_serial 对称暴露)/ AInovanceMcTcpClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient<br/>AOmronFinsTcpClient / AOmronFinsUdpClient / AOmronCipClient / AAllenBradleyEthIpClient<br/>AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient<br/>APanasonicMcTcpClient / APanasonicMewtocolTcpClient / APanasonicMewtocolUdpClient<br/>AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient / AOpenTcpClient / AKeyenceSrClient"]
+        AsyncList["AModbusBaseClient → AModbusTcpClient / AModbusRtuClient<br/>AInovanceTcpClient / AInovanceRtuClient(configure_serial 对称暴露)/ AInovanceMcTcpClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient<br/>AOmronFinsTcpClient / AOmronFinsUdpClient / AOmronCipClient / ABeckhoffAdsClient / AAllenBradleyEthIpClient<br/>AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient<br/>APanasonicMcTcpClient / APanasonicMewtocolTcpClient / APanasonicMewtocolUdpClient<br/>AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient / AOpenTcpClient / AKeyenceSrClient"]
     end
     BaseClient -.->|"组合 + 镜像"| AsyncList
 
@@ -193,10 +199,11 @@ flowchart TB
     class BaseClient,ModbusBaseClient,MelsecMcBase,KeyenceMcCodeMixin,OmronFinsBase,KeyenceHlBase,ToyopucBase,MewtocolBase,BaseTransportABC abstract;
 ```
 
-v1 共 **25 个同步具体类 + 25 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
+v1 共 **26 个同步具体类 + 26 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
 加串口帧(3C/4C,同一 `_MelsecMcBase` 基类),基恩士 KV MC 兼容 TCP/UDP 两走线
 (共用 `_KeyenceMcCodeMixin` 码表覆写),罗克韦尔 AB EtherNet/IP(TCP 44818,
 unconnected 消息),欧姆龙 NJ/NX CIP(继承 AB 客户端,三钩子覆写),
+倍福 TwinCAT ADS(封装 pyads,会话适配),
 通用自定义 TCP(分隔符成帧,无点位语义),
 另加 MX Component(Windows/COM,
 单线程 executor 天然满足 ActUtlType 的 STA 模型)。
@@ -411,6 +418,7 @@ class BaseClient(ABC):
 | 罗克韦尔 AB(EtherNet/IP) | `MyDint` / `MyArray[5]` / `MyMatrix[1,2]` / `MyUdt.Member` / `Program:prog.Tag` / `MyDint.3` | 已实现(`plc/ab/`);地址即 Logix 标签名,多级成员/数组下标/程序作用域透传;`.N` 为整型位访问(设备侧 0x4E 原子读-改-写);标签自描述,实际类型由 PLC 应答返回(`ab/address.py`) |
 | 欧姆龙 NJ/NX(CIP) | `TestVar` / `MyArray[5]` / `Motor[2].Speed`(同 AB 语法) | 已实现(`plc/omron/cip.py`,继承 AB);地址即 Sysmac 变量名,标签自描述同款;NJ 标量 BOOL 直读直写、BOOL 数组按元素访问(不做 Logix 32 位打包);解析复用 `ab/address.py` |
 | 通用自定义 TCP | —(无地址概念) | 已实现(`opentcp/`);报文内容由调用方解释,`send/send_text` 发送、`receive/receive_text` 按分隔符收帧、`transact/transact_text` 一锁内发+收;`delimiter`/`encoding`/`append_delimiter`/`strip_delimiter`/`max_frame` 构造期可配 |
+| 倍福 TwinCAT(ADS) | `MAIN.nCounter` / `.gGlobal` / `GVL.MyVar` | 已实现(`plc/beckhoff/`,封装 pyads);变量名原样透传 ADS 符号服务,数据类型显式指定(IEC INT=16 位口径映射 PLCTYPE);NetId 默认 IP+.1.1、可显式覆盖 |
 
 解析失败统一抛 `ValueError`(参数错误约定)。
 
@@ -425,6 +433,7 @@ class BaseClient(ABC):
 | 罗克韦尔 AB EtherNet/IP(Logix) | ✅ `AllenBradleyEthIpClient`(44818) | — | — | — |
 | 欧姆龙 CIP / 连接型 CIP(NJ/NX) | ✅ `OmronCipClient`(44818,继承 AB) | — | — | — |
 | 通用自定义 TCP(分隔符成帧) | ✅ `OpenTcpClient`(端口按设备) | — | — | — |
+| 倍福 TwinCAT(ADS) | ✅ `BeckhoffAdsClient`(封装 pyads,AMS 851) | — | — | — |
 | 基恩士 KV Host Link | ✅ `KeyenceHostLinkTcpClient` | ✅ `KeyenceHostLinkUdpClient` | — | — |
 | 基恩士 KV MC 协议兼容(SLMP 3E) | ✅ `KeyenceMcTcpClient`(5000,继承 MC) | ✅ `KeyenceMcUdpClient`(5000,继承 MC) | — | — |
 | 汇川 H3U/H5U(Modbus + 汇川映射) | ✅ `InovanceTcpClient`(502) | — | ✅ `InovanceRtuClient`(串口) | — |
@@ -518,6 +527,28 @@ pycomm3 1.2.16 交叉核证(见 §8.1);真机联测待做。
 断线重同步。**重连时清空接收缓冲**(``_after_connect`` 钩子),旧连接的
 残字节不得串入新会话。无点位语义,``read``/``write`` 系列返回失败并
 提示使用 ``receive``/``transact``(DeviceError,不断线)。
+
+倍福 TwinCAT ADS 说明(2026-09):**选封装不自研**(用户确认)——ADS 帧
+本身不复杂(AMS 头 + 0xF005 符号句柄三次事务),难点在部署面:AMS
+NetId/路由(TC3 远程连接需先加路由)、Windows 本机路由器与直连两条路径、
+字符串定长语义、SUM 读批量、通知机制,均为 pyads 十余年现场经验覆盖;
+版本 **pyads==3.5.1**(py3.7 可解析运行,与 asyncua 同为"最后支持
+py3.7 的版本线"口径)。``BeckhoffAdsClient`` 结构对标 OPC-UA 驱动:
+`_AdsSession(BaseTransport)` 适配 pyads Connection,pyads 异常在会话
+边界统一翻译——ADSError(状态码:符号不存在/长度不符等)→ DeviceError
+(code=ADS 错误码,不断线),其余 → OmniPLCInternalError 断线惰性重连。
+**注意 Windows 缺 Beckhoff TcAdsDll 运行库时 `import pyads` 抛 OSError
+而非 ImportError**(`_load_pyads` 按 Exception 全量捕获)。构造入口
+IP + AMS 端口(TC3 运行时 1 为 851),NetId 默认 IP 拼 `.1.1` 后缀、
+可显式覆盖(6 段 0~255 校验)。DataType→PLCTYPE 按_IEC_ 口径:
+SHORT→INT(16 位)、INT→DINT(32 位)、LONG→LINT(64 位);写入先按
+本库范围校验再交 pyads(pyads 对越界直接 struct 报错,须拦截为
+ValueError)。字符串:pyads 写只发 len+1 字节(不超 PLC 变量声明长度
+即可,STRING 默认 80),字节编码由 pyads 固定 utf-8,`encoding` 参数
+不生效(docstring 已注明)。超时:连接建立时尽力 `set_timeout`
+下发 ``receive_timeout``,部分平台不支持则忽略。数组/结构体/通知
+(AdsSymbol、SUM 读)留后续版本。**本机无 TcAdsDll,真机联测待做**;
+测试以桩模块注入,不依赖 pyads 安装。
 
 KV Host Link 说明:``KeyenceHostLinkTcpClient/UdpClient`` 使用 ASCII 行式命令
 (RD/RDS/WR/WRS,CR 结束;响应行以 CR/LF 结束,出错应答 ``E0``~``E9`` 记入
@@ -682,6 +713,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 | 基恩士 SR 扫码枪(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\vention_barcode_scanner-0.8.3.tar\...\scanners\keyence.py`(TCP 9004、LON/LOFF 时序——应答在 LOFF 之后才发送、bank 0~15、BCLR/RESET、ERROR/OK 应答) |
 | 丰田 TOYOPUC 计算机链接(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\plc_comm_toyopuc-4.2.0.tar\...\toyopuc\`(**只学习协议本身**:帧格式 `00 00 LL LH CMD`/`80 RC LL LH CMD`、CMD=1C~21 基础区字/字节/位命令、软元件字/字节/位基地址与编号段、RC=10 出错码表、低字在前多字节序;**架构不参考**,仍用本库 BaseClient/Transport 模式) |
 | OPC-UA(已实现) | `asyncua==1.1.5` 安装源码(`.venv\...\asyncua\`,sync.Client 会话/`ua.VariantType` 类型表/`ua.uaerrors` 异常层次);python-opcua 已弃用仅作背景,不作为依赖 |
+| 倍福 TwinCAT ADS(已实现) | pyads==3.5.1(pip 安装源码,**封装而非移植**):`connection.py`(Connection.open/close/read_by_name/write_by_name/set_timeout 接口面)、`pyads_ex.py`(ADSError + err_code;字符串写 len+1 字节、读 1024 缓冲已核证;Windows 载 TcAdsDll.dll / Linux 载 adslib 的平台分支)、`constants.py`(PLCTYPE_* 表、STRING_BUFFER=1024、PORT_TC3PLC1=851)、`structs.py`(AmsAddr/NetId 6 字节);封装层只做 DataType→PLCTYPE 映射、范围校验、异常翻译与 NetId 组装;帧层零自研 |
 | 欧姆龙 FINS(TCP/UDP,已实现) | `Profinet/Omron/OmronFinsNet.cs`、`OmronFinsUdp.cs`、`OmronFinsNetHelper.cs`(帧组装/解析)、`OmronFinsDataType.cs`(存储区码)、`Core/IMessage/FinsMessage.cs`(TCP 握手/帧长);2026-09 复审另对照 `fins-driver 0.3.1`(PyPI,indrarudianto/fins-driver,见 §8 对照结论) |
 | 罗克韦尔 AB EtherNet/IP(已实现) | 本地 Python 参考库三份交叉核证(**只学习协议本身,不移植 API**):`D:\DOWNLOAD\pylogix-1.1.6-py2.py3-none-any\pylogix\`(ENIP 封装/RegisterSession/0x4C·0x4D·0x4E 服务/IOI 路径段 0x91·0x28·0x29·0x2A/位字与 BOOL 数组词操作/STRING 0xA0 布局;1.1.6 默认 connected 消息,本库采用其 unconnected 通道并恒包 UC Send)、`D:\DOWNLOAD\cm_ethernetip-0.1.0.tar\...\src\ethernetip\`(规范向实现:CPF 项类型 RRData=0x00B2、UC Send 请求/应答布局、CIP 状态语义)、`D:\DOWNLOAD\aphyt-0.1.30.tar\...\src\aphyt\`(unconnected 显式报文客户端佐证、符号段编码);协议帧层为本库原生纯函数实现(`plc/ab/codec_cip.py`) |
 | 欧姆龙 NJ/NX CIP(已实现) | pycomm3 1.2.16(pip 安装源码,**只学习协议本身,不移植 API**):`logix_driver.py` / `cip_driver.py`(Forward Open 连接路径 = cip_path + MSG_ROUTER_PATH,空路由时只剩消息路由对象 20 02 24 01;Micro800 为"IP 直连无背板路由"先例;`parse_cip_route` 空 path 语义)、`packets/util.py` `wrap_unconnected_send`(UC Send 布局,本库直发不包)、`const.py`(PRIORITY 0x0A/TRANSPORT_CLASS 0xA3/参数域基底 0x4200 与本库一致;tick/乘数为建议值,沿用 AB 已验证值);协议帧层零新增,复用 `plc/ab/codec_cip.py` + 三钩子覆写;NJ STRING 布局与真机行为待真机联测 |
@@ -777,6 +809,7 @@ FINS 与 fins-driver 0.3.1 对照(2026-09 复审):FINS 帧头 10 字节布局
 | v0.17 | AB connected CIP 消息(Forward Open 大/普通回落 + SendUnitData 序列号回显校验 + Forward Close,connected_messaging 参数)| ✅ 完成 |
 | v0.18 | 欧姆龙 CIP / 连接型 CIP(NJ/NX 内置 EtherNet/IP 44818;继承 AB 客户端,unconnected 直发无背板路由 + connected 连接路径只剩消息路由对象,NJ 变量读写;pycomm3 1.2.16 交叉核证)| ✅ 完成 |
 | v0.19 | 通用自定义 TCP 客户端(OpenTcpClient;分隔符成帧 + 内部缓冲,重连/超时沿用 BaseClient 属性,per-call timeout;超时不断线,坏帧/解码失败断线惰性重连,重连清空接收缓冲)| ✅ 完成 |
+| v0.20 | 倍福 TwinCAT ADS(封装 pyads 3.5.1,AMS 端口 851;变量名读写,DataType→PLCTYPE 映射,ADSError→DeviceError 不断线,NetId 默认 IP+.1.1 可覆盖)| ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 西门子 S7(drivers 插槽已预留,沿用 BaseClient 原语模式) | 规划 |

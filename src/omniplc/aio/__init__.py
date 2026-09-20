@@ -18,6 +18,7 @@ from ..core.base_client import BaseClient
 from ..core.constants import (
     AB_EIP_DEFAULT_PORT,
     AB_EIP_DEFAULT_SLOT,
+    ADS_DEFAULT_ADS_PORT,
     DEFAULT_STRING_ENCODING,
     FINS_DEFAULT_PORT,
     INOVANCE_MC_DEFAULT_PORT,
@@ -55,6 +56,7 @@ from ..modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from ..modbus.modbus import _coerce_word_order
 from ..opentcp import OpenTcpClient
 from ..plc.ab import AllenBradleyEthIpClient
+from ..plc.beckhoff import BeckhoffAdsClient
 from ..plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
 from ..opcua import OpcUaClient
 from ..plc.panasonic import (
@@ -1008,3 +1010,32 @@ class AAllenBradleyEthIpClient(ABaseClient):
         if not isinstance(sync, AllenBradleyEthIpClient):
             raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
         return sync.connection_size
+
+
+class ABeckhoffAdsClient(ABaseClient):
+    """倍福 TwinCAT ADS 异步客户端(封装 pyads,变量名读写)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        ads_port: int = ADS_DEFAULT_ADS_PORT,
+        net_id: str = "",
+    ) -> None:
+        """参数同 :class:`omniplc.plc.beckhoff.BeckhoffAdsClient`。"""
+        super().__init__(BeckhoffAdsClient(ip_address, ads_port, net_id))
+
+    @property
+    def net_id(self) -> str:
+        """目标 AMS NetId(转发同步实例)。"""
+        sync = self._sync
+        if not isinstance(sync, BeckhoffAdsClient):
+            raise TypeError("内部错误:sync 实例不是 BeckhoffAdsClient")
+        return sync.net_id
+
+    @property
+    def ads_port(self) -> int:
+        """目标 AMS 端口(转发同步实例)。"""
+        sync = self._sync
+        if not isinstance(sync, BeckhoffAdsClient):
+            raise TypeError("内部错误:sync 实例不是 BeckhoffAdsClient")
+        return sync.ads_port

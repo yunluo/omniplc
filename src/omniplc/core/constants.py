@@ -674,6 +674,12 @@ OPEN_TCP_MAX_FRAME: int = 4096
 OPEN_TCP_RECV_CHUNK: int = 256
 """OpenTcpClient 接收缓冲单次读取字节数(内部实现参数)。"""
 
+# ---------------------------------------------------------------- 倍福 TwinCAT(ADS)
+ADS_DEFAULT_ADS_PORT: int = 851
+"""TwinCAT 3 PLC 运行时 1 的默认 AMS 端口(852 起为后续运行时;TC2 为 801)。"""
+ADS_NET_ID_SUFFIX: str = ".1.1"
+"""AMS NetId 默认后缀:NetId 共 6 字节,前 4 字节通常为 IP,后两段惯例 1.1。"""
+
 # ---------------------------------------------------------------- 通用
 BIT_INDEX_MAX: int = 63
 """位操作工具允许的最大位号。"""

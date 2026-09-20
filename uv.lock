@@ -777,11 +777,15 @@ version = "0.1.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
+ads = [
+    { name = "pyads" },
+]
 dev = [
     { name = "asyncua" },
     { name = "comtypes", version = "1.4.6", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.8'" },
     { name = "comtypes", version = "1.4.12", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version == '3.8.*'" },
     { name = "comtypes", version = "1.4.16", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version >= '3.9'" },
+    { name = "pyads" },
     { name = "pyserial" },
     { name = "pytest", version = "7.4.4", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.8'" },
     { name = "pytest", version = "8.3.5", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version == '3.8.*'" },
@@ -806,11 +810,13 @@ requires-dist = [
     { name = "asyncua", marker = "extra == 'opcua'", specifier = "==1.1.5" },
     { name = "comtypes", marker = "sys_platform == 'win32' and extra == 'mx'", specifier = ">=1.2" },
     { name = "comtypes", marker = "extra == 'dev'", specifier = ">=1.2" },
+    { name = "pyads", marker = "extra == 'ads'", specifier = "==3.5.1" },
+    { name = "pyads", marker = "extra == 'dev'", specifier = "==3.5.1" },
     { name = "pyserial", marker = "extra == 'dev'", specifier = ">=3.5" },
     { name = "pyserial", marker = "extra == 'serial'", specifier = ">=3.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.4" },
 ]
-provides-extras = ["serial", "mx", "opcua", "dev"]
+provides-extras = ["serial", "mx", "opcua", "ads", "dev"]
 
 [[package]]
 name = "packaging"
@@ -891,6 +897,15 @@ resolution-markers = [
 sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/f9/e2/3e91f31a7d2b083fe6ef3fa267035b518369d9511ffab804f839851d2779/pluggy-1.6.0.tar.gz", hash = "sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3", size = 69412, upload-time = "2025-05-15T12:30:07.975Z" }
 wheels = [
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746", size = 20538, upload-time = "2025-05-15T12:30:06.134Z" },
+]
+
+[[package]]
+name = "pyads"
+version = "3.5.1"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/08/25/32e9a2db1578f83203b89806297b60732426d1a26327bcf2b43e7ee11963/pyads-3.5.1.tar.gz", hash = "sha256:badde435b1009e9d6a8b2f83a7e1ee80962d815807ac4452443616879b39a94c", size = 174530, upload-time = "2026-01-13T16:31:16.048Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/87/fa/b2b80a053a37f86c1a791d62595c2ac45988036ff861312096eb389bdd3e/pyads-3.5.1-py2.py3-none-manylinux_2_24_x86_64.whl", hash = "sha256:17e082f6c878b4a4547bb0c3bd951fa917eed6160b18aec7b71200819d7f7173", size = 226647, upload-time = "2026-01-13T16:31:14.36Z" },
 ]
 
 [[package]]

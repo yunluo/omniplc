@@ -1,7 +1,7 @@
 # omniplc
 
 #### 介绍
-omniplc —— 一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、汇川、松下、丰田、罗克韦尔(AB)等 PLC/扫码枪与 OPC-UA 服务器,支持 Modbus、MC(3E/4E/1E 以太网帧、3C/4C 串口帧)、FINS、NJ/NX CIP(EtherNet/IP)、KV Host Link、KV MC 协议兼容(SLMP)、汇川 H3U/H5U(Modbus TCP/RTU、MC 协议兼容 3E)、松下 FP(MC 协议兼容 3E、MEWTOCOL)、SR、TOYOPUC 计算机链接、EtherNet/IP(Logix 标签读写)、通用自定义 TCP(分隔符成帧)、OPC-UA 等协议。
+omniplc —— 一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、汇川、松下、丰田、罗克韦尔(AB)、倍福(TwinCAT)等 PLC/扫码枪与 OPC-UA 服务器,支持 Modbus、MC(3E/4E/1E 以太网帧、3C/4C 串口帧)、FINS、NJ/NX CIP(EtherNet/IP)、KV Host Link、KV MC 协议兼容(SLMP)、汇川 H3U/H5U(Modbus TCP/RTU、MC 协议兼容 3E)、松下 FP(MC 协议兼容 3E、MEWTOCOL)、SR、TOYOPUC 计算机链接、EtherNet/IP(Logix 标签读写)、TwinCAT ADS(封装 pyads)、通用自定义 TCP(分隔符成帧)、OPC-UA 等协议。
 
 - **Python 3.7+**,uv 开发,核心零第三方依赖
 - 命名与使用习惯对齐 pyhsl,迁移成本极低
@@ -39,6 +39,8 @@ flowchart TB
 
     OmronCipClient["OmronCipClient — 欧姆龙 NJ/NX CIP(44818)<br/>继承 AllenBradleyEthIpClient:unconnected 直发(无背板路由)<br/>connected 连接路径只剩消息路由对象,NJ 变量读写"]
 
+    BeckhoffAdsClient["BeckhoffAdsClient — 倍福 TwinCAT ADS(AMS 851,封装 pyads)<br/>变量名即地址(MAIN.nCounter),类型显式指定<br/>ADSError → DeviceError 不断线"]
+
     KeyenceHostLinkTcpClient["KeyenceHostLinkTcpClient — 基恩士 KV Host Link over TCP(8000)"]
     KeyenceHostLinkUdpClient["KeyenceHostLinkUdpClient — 基恩士 KV Host Link over UDP(8000)"]
 
@@ -68,6 +70,7 @@ flowchart TB
     BaseClient --> PanasonicMewtocolUdpClient
     BaseClient --> OmronFinsTcpClient
     BaseClient --> OmronFinsUdpClient
+    BaseClient --> BeckhoffAdsClient
     BaseClient --> AllenBradleyEthIpClient
     AllenBradleyEthIpClient --> OmronCipClient
     BaseClient --> KeyenceHostLinkTcpClient
@@ -78,7 +81,7 @@ flowchart TB
     BaseClient --> OpcUaClient
     BaseClient --> OpenTcpClient
 
-    AsyncMirror["异步镜像(omniplc.aio,类名 = 同步类名前加 A):<br/>AModbusTcpClient / AModbusRtuClient / AInovanceTcpClient / AInovanceRtuClient / AInovanceMcTcpClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient / AOmronFinsTcpClient<br/>AOmronFinsUdpClient / AOmronCipClient / AAllenBradleyEthIpClient / AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient<br/>APanasonicMcTcpClient / APanasonicMewtocolTcpClient / APanasonicMewtocolUdpClient<br/>AKeyenceSrClient / AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient / AOpenTcpClient"]
+    AsyncMirror["异步镜像(omniplc.aio,类名 = 同步类名前加 A):<br/>AModbusTcpClient / AModbusRtuClient / AInovanceTcpClient / AInovanceRtuClient / AInovanceMcTcpClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient / AOmronFinsTcpClient<br/>AOmronFinsUdpClient / AOmronCipClient / ABeckhoffAdsClient / AAllenBradleyEthIpClient / AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient<br/>APanasonicMcTcpClient / APanasonicMewtocolTcpClient / APanasonicMewtocolUdpClient<br/>AKeyenceSrClient / AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient / AOpenTcpClient"]
     BaseClient -.-> AsyncMirror
 ```
 
@@ -156,6 +159,14 @@ nj = OmronCipClient(ip_address="192.168.0.10", port=44818)
 ok, value = nj.read_int("TestVar")
 ok = nj.write_bool("RunFlag", True)
 nj_c = OmronCipClient(ip_address="192.168.0.10", connected_messaging=True)  # 连接型
+
+# 倍福 TwinCAT(ADS):变量名即地址(MAIN.nCounter / .gGlobal / GVL.MyVar)
+# 安装:pip install 'omniplc[ads]'(Windows 侧还需 Beckhoff TcAdsDll 运行库,随 TwinCAT ADS 安装)
+from omniplc import BeckhoffAdsClient
+bc = BeckhoffAdsClient(ip_address="192.168.0.10", ads_port=851)  # net_id 默认 IP+.1.1
+ok, value = bc.read_int("MAIN.nCounter")
+ok = bc.write_bool("MAIN.bStart", True)
+ok, text = bc.read_string("MAIN.sRecipe")
 
 # 罗克韦尔 AB EtherNet/IP:Logix 标签自描述,类型不符会明确报错
 # 地址即标签名:MyDint / MyArray[5] / MyUdt.Member / MyDint.3(位)/ 程序作用域 Program:prog.Tag
@@ -276,6 +287,7 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 | 三菱 MC 3E/4E/1E | ✅  | ✅  | ✅(3C/4C 串口帧) | ✅(Windows + COM)  |
 | 欧姆龙 FINS      | ✅  | ✅  | v1.x(Host Link) | —                   |
 | 欧姆龙 CIP / 连接型 CIP(NJ/NX) | ✅(44818,unconnected/connected) | — | — | —      |
+| 倍福 TwinCAT(ADS) | ✅(封装 pyads,AMS 851) | — | — | —           |
 | 罗克韦尔 AB EtherNet/IP(Logix) | ✅(44818,unconnected/connected) | — | — | —      |
 | 基恩士 KV Host Link | ✅ | ✅ | —               | —                   |
 | 基恩士 KV MC 协议兼容(SLMP 3E) | ✅(5000) | ✅(5000) | — | —              |
@@ -308,7 +320,8 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 - **v0.16**:罗克韦尔 AB EtherNet/IP(CIP,44818;Logix 标签读写,unconnected 消息 + 槽号路由,标签自描述,位/BOOL 数组原子读-改-写,STRING 结构体)
 - **v0.17**:AB connected CIP 消息(Forward Open 大/普通回落 + SendUnitData 序列号回显校验 + Forward Close,connected_messaging 参数启用)
 - **v0.18**:欧姆龙 CIP / 连接型 CIP(NJ/NX 内置 EtherNet/IP,44818;继承 AB 客户端,unconnected 直发无背板路由 + connected 连接路径只剩消息路由对象,NJ 变量读写;pycomm3 1.2.16 交叉核证)
-- **v0.19(当前)**:通用自定义 TCP 客户端(OpenTcpClient;分隔符成帧 + 内部缓冲,重连/超时沿用 BaseClient 属性,receive/transact 支持 per-call timeout;超时不断线,坏帧/解码失败断线惰性重连,重连清空接收缓冲)
+- **v0.19**:通用自定义 TCP 客户端(OpenTcpClient;分隔符成帧 + 内部缓冲,重连/超时沿用 BaseClient 属性,receive/transact 支持 per-call timeout;超时不断线,坏帧/解码失败断线惰性重连,重连清空接收缓冲)
+- **v0.20(当前)**:倍福 TwinCAT ADS(封装 pyads 3.5.1,AMS 端口 851;变量名读写,DataType→PLCTYPE 映射,ADSError→DeviceError 不断线;pyads 无 py37 语法障碍,Windows 需 TcAdsDll)
 - **v1.0**:点位表完善 + 示例 + 文档,正式发布
 - **v1.x**:MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池
 - **v2**:西门子 S7(驱动插槽已预留)
