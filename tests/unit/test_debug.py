@@ -250,3 +250,22 @@ def test_mx_ops_logged(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptur
     assert "mx://站号1 SetDevice D100 ← 7" in text
     assert "mx://站号1 ReadDeviceBlock D200×2 → [1, 2]" in text
     assert "mx://站号1 WriteDeviceBlock D200×2 ← [" in text
+
+
+def test_log_op_lazy_args_when_disabled() -> None:
+    """关闭时 log_op 不求值参数(%r 不执行——与走线型 log_frame 同口径零成本)。"""
+
+    class _Boom:
+        def __repr__(self) -> str:
+            raise AssertionError("调试关闭时不应格式化参数")
+
+    debug.log_op("tcp://x", "value %r", _Boom())  # 不抛异常即证明惰性
+
+
+def test_log_op_formats_args_when_enabled(caplog: pytest.LogCaptureFixture) -> None:
+    """开启后 log_op 按 %-模板格式化,输出与 .format 时代一致。"""
+    debug.set_debug(True)
+    with caplog.at_level(logging.DEBUG, logger="omniplc.debug"):
+        debug.log_op("opcua://x", "读 %s → %r", "ns=2;s=T", True)
+    text = "\n".join(record.getMessage() for record in caplog.records)
+    assert "opcua://x 读 ns=2;s=T → True" in text

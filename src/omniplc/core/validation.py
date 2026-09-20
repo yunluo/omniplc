@@ -54,3 +54,14 @@ def check_range(value: int, low: int, high: int, name: str) -> int:
     if not low <= value <= high:
         raise ValueError("{} 超出范围 {}~{}:{}".format(name, low, high, value))
     return value
+
+
+def check_byte_field(name: str, value: int, maximum: int = 0xFF) -> int:
+    """校验单字节路由字段(0~maximum),非法抛 :class:`ValueError`,合法原值返回。
+
+    供 MC 以太网帧路由字段(网络号/PC 号/模块 I/O/局号等)与串口帧
+    站号字段共用。
+    """
+    if not 0 <= int(value) <= maximum:
+        raise ValueError("{} 必须在 0~{} 之间,收到:{}".format(name, maximum, value))
+    return int(value)

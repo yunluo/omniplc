@@ -147,7 +147,7 @@ class _OpcUaSession(BaseTransport):
             raise
         except Exception as exc:
             raise _translate_ua_error(exc) from exc
-        log_op(self._debug_label, "读 {} → {!r}".format(node_text, value))
+        log_op(self._debug_label, "读 %s → %r", node_text, value)
         return value
 
     def write_value(self, node_text: str, value: Any, variant_name: str) -> None:
@@ -164,7 +164,7 @@ class _OpcUaSession(BaseTransport):
             raise
         except Exception as exc:
             raise _translate_ua_error(exc) from exc
-        log_op(self._debug_label, "写 {} ← {!r}({})".format(node_text, value, variant_name))
+        log_op(self._debug_label, "写 %s ← %r(%s)", node_text, value, variant_name)
 
 
 def _safe_disconnect(client: Any) -> None:

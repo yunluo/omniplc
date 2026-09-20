@@ -216,7 +216,7 @@ class MelsecMxClient(BaseClient):
                 "批量读取字数超过上限 {}:{}".format(MX_MAX_BLOCK_WORDS, count)
             )
         words = _com_read_words(self._com(), device_text, count)
-        log_op(self._debug_label, "ReadDeviceBlock {}×{} → {}".format(device_text, count, words))
+        log_op(self._debug_label, "ReadDeviceBlock %s×%d → %s", device_text, count, words)
         return words
 
     def _write_words(self, device_text: str, words: Sequence[int]) -> None:
@@ -226,18 +226,18 @@ class MelsecMxClient(BaseClient):
                 "批量写入字数超过上限 {}:{}".format(MX_MAX_BLOCK_WORDS, len(words))
             )
         _com_write_words(self._com(), device_text, words)
-        log_op(self._debug_label, "WriteDeviceBlock {}×{} ← {}".format(device_text, len(words), list(words)))
+        log_op(self._debug_label, "WriteDeviceBlock %s×%d ← %s", device_text, len(words), words)
 
     def _get_device(self, device_text: str) -> int:
         """单点读(GetDevice),返回 0~65535 原始值。"""
         raw = _com_get_device(self._com(), device_text)
-        log_op(self._debug_label, "GetDevice {} → {}".format(device_text, raw))
+        log_op(self._debug_label, "GetDevice %s → %d", device_text, raw)
         return raw
 
     def _set_device(self, device_text: str, value: int) -> None:
         """单点写(SetDevice);位软元件取最低位。"""
         _com_set_device(self._com(), device_text, value)
-        log_op(self._debug_label, "SetDevice {} ← {}".format(device_text, value))
+        log_op(self._debug_label, "SetDevice %s ← %d", device_text, value)
 
     # ------------------------------------------------------------------
     # 协议原语

@@ -199,7 +199,7 @@ class _AdsSession(BaseTransport):
             raise
         except Exception as exc:
             raise _translate_ads_error(exc) from exc
-        log_op(self._debug_label, "读 {}({}) → {!r}".format(address, plctype_name, value))
+        log_op(self._debug_label, "读 %s(%s) → %r", address, plctype_name, value)
         return value
 
     def write_by_name(self, address: str, value: Any, plctype_name: str) -> None:
@@ -216,7 +216,7 @@ class _AdsSession(BaseTransport):
             raise
         except Exception as exc:
             raise _translate_ads_error(exc) from exc
-        log_op(self._debug_label, "写 {}({}) ← {!r}".format(address, plctype_name, value))
+        log_op(self._debug_label, "写 %s(%s) ← %r", address, plctype_name, value)
 
 
 class BeckhoffAdsClient(BaseClient):

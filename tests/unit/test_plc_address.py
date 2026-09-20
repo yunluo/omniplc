@@ -52,3 +52,20 @@ class TestFinsAddress:
     def test_invalid(self, bad: str) -> None:
         with pytest.raises(ValueError):
             parse_fins_address(bad)
+
+
+class TestParseCache:
+    """地址解析结果缓存:同址命中缓存(同一实例),非法地址不缓存。"""
+
+    def test_repeat_parse_returns_cached_instance(self) -> None:
+        assert parse_mc_address("D100") is parse_mc_address("D100")
+        assert parse_fins_address("D100") is parse_fins_address("D100")
+
+    def test_different_addresses_are_distinct(self) -> None:
+        assert parse_mc_address("D100") is not parse_mc_address("D200")
+
+    def test_invalid_not_cached(self) -> None:
+        for _ in range(2):
+            with pytest.raises(ValueError):
+                parse_mc_address("D1.2.3")
+        assert parse_mc_address("D100").device == "D"  # 缓存仍正常工作

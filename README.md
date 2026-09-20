@@ -341,7 +341,8 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 - **v0.18**:欧姆龙 CIP / 连接型 CIP(NJ/NX 内置 EtherNet/IP,44818;继承 AB 客户端,unconnected 直发无背板路由 + connected 连接路径只剩消息路由对象,NJ 变量读写;pycomm3 1.2.16 交叉核证)
 - **v0.19**:通用自定义 TCP 客户端(OpenTcpClient;分隔符成帧 + 内部缓冲,重连/超时沿用 BaseClient 属性,receive/transact 支持 per-call timeout;超时不断线,坏帧/解码失败断线惰性重连,重连清空接收缓冲)
 - **v0.20**:倍福 TwinCAT ADS(封装 pyads 3.5.1,AMS 端口 851;变量名读写,DataType→PLCTYPE 映射,ADSError→DeviceError 不断线;pyads 无 py37 语法障碍,Windows 需 TcAdsDll)
-- **v0.21(当前)**:全局报文调试开关(omniplc.set_debug;走线型在传输层统一输出请求/响应十六进制,会话型 OPC-UA/ADS/MX 输出操作级日志;logging 记录器 omniplc.debug,无日志配置时自动落 stderr)
+- **v0.21**:全局报文调试开关(omniplc.set_debug;走线型在传输层统一输出请求/响应十六进制,会话型 OPC-UA/ADS/MX 输出操作级日志;logging 记录器 omniplc.debug,无日志配置时自动落 stderr)
+- **v0.22(当前)**:内部性能与整洁度优化(全驱动地址解析 lru_cache 缓存,MC 事务提速约 12%;会话型调试日志惰性格式化,关闭时零格式化成本;check_byte_field 归位 core/validation)
 - **v1.0**:点位表完善 + 示例 + 文档,正式发布
 - **v1.x**:MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池
 - **v2**:西门子 S7(驱动插槽已预留)

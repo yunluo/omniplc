@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from typing import NamedTuple, Optional
 
 _MC_ADDRESS_RE = re.compile(r"^([A-Za-z]{1,4})([0-9A-Fa-f]+)(?:\.(\d+))?$")
@@ -39,6 +40,8 @@ class McAddress(NamedTuple):
     bit: Optional[int]
 
 
+# 地址串 → 解析结果缓存(结果类型不可变):高频轮询同址免重复正则解析
+@lru_cache(maxsize=4096)
 def parse_mc_address(address: str) -> McAddress:
     """解析 MC 软元件地址字符串。
 

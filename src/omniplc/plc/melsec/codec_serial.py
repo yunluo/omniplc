@@ -42,6 +42,7 @@ from ...core.constants import (
     MC_SUBCOMMAND_WORD_UNITS,
 )
 from ...core.errors import DeviceError, ProtocolFrameError
+from ...core.validation import check_byte_field
 
 ENQ: int = 0x05
 """控制码:ENQ(询问,请求帧起始)。"""
@@ -86,13 +87,6 @@ def check_pc_number(pc_number: int) -> int:
     if value != 0xFF and not 0 <= value <= 3:
         raise ValueError("PC 编号必须是 0~3 或 0xFF,收到:{}".format(pc_number))
     return value
-
-
-def check_byte_field(name: str, value: int, maximum: int = 0xFF) -> int:
-    """校验单字节路由字段(0~maximum),非法抛 :class:`ValueError`。"""
-    if not 0 <= int(value) <= maximum:
-        raise ValueError("{} 必须在 0~{} 之间,收到:{}".format(name, maximum, value))
-    return int(value)
 
 
 def build_3c_request(

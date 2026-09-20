@@ -72,14 +72,20 @@ def log_frame(label: str, direction: str, data: bytes) -> None:
     _logger.debug("%s %s %dB: %s", label, direction, len(data), _format_hex(data))
 
 
-def log_op(label: str, message: str) -> None:
+def log_op(label: str, message: str, *args: object) -> None:
     """输出一条会话型操作/连接事件日志(内部使用)。
 
+    ``message`` 为 %-风格模板,``args`` 仅在调试开启后才格式化——
+    关闭时调用方零格式化成本(与 :func:`log_frame` 口径一致)。
+
     :param label: 走线/会话标识,如 ``opc.tcp://192.168.0.10:4840``
-    :param message: 操作描述(读写节点/变量与结果,或连接建立/断开)
+    :param message: 操作描述模板(如 ``"读 %s → %r"``)
+    :param args: 模板参数(可省略;省略时 ``message`` 原样输出)
     """
     if not _enabled:
         return
+    if args:
+        message = message % args
     _logger.debug("%s %s", label, message)
 
 

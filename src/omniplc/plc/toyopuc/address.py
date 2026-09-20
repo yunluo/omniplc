@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from typing import Dict, NamedTuple, Tuple
 
 from ...core.constants import TOYOPUC_BIT_DEVICES, TOYOPUC_WORD_DEVICES
@@ -96,6 +97,8 @@ class ToyopucAddress(NamedTuple):
         return self.suffix == "H"
 
 
+# 地址串 → 解析结果缓存(结果类型不可变):高频轮询同址免重复正则解析
+@lru_cache(maxsize=4096)
 def parse_toyopuc_address(address: str) -> ToyopucAddress:
     """解析 TOYOPUC 软元件地址字符串。
 

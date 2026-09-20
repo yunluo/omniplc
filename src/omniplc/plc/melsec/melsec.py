@@ -47,6 +47,7 @@ from ...core.constants import (
 )
 from ...core.errors import ProtocolFrameError
 from ...core.validation import (
+    check_byte_field,
     check_int16,
     check_uint16,
     require_bool,
@@ -108,8 +109,8 @@ class _MelsecMcBase(BaseClient):
                     type(self).__name__, self._frame.value, supported
                 )
             )
-        self._network_number = codec_serial.check_byte_field("网络编号", network_number)
-        self._pc_number = codec_serial.check_byte_field("PC 编号", pc_number)
+        self._network_number = check_byte_field("网络编号", network_number)
+        self._pc_number = check_byte_field("PC 编号", pc_number)
         self._serial = 0
 
     @property
@@ -391,13 +392,13 @@ class MelsecMcSerialClient(_MelsecMcBase):
         self._init_frame(frame, network_number, pc_number)
         self._pc_number = codec_serial.check_pc_number(pc_number)
         self._station_number = codec_serial.check_station_number(station_number)
-        self._self_station_number = codec_serial.check_byte_field(
+        self._self_station_number = check_byte_field(
             "本站号", self_station_number
         )
-        self._module_io = codec_serial.check_byte_field(
+        self._module_io = check_byte_field(
             "目标模块 I/O 编号", module_io, 0xFFFF
         )
-        self._module_station = codec_serial.check_byte_field(
+        self._module_station = check_byte_field(
             "目标模块局号", module_station
         )
         self._serial_config: Optional[SerialConfig] = None

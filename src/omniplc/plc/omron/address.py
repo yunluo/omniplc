@@ -18,6 +18,7 @@ FINS 存储区码(memory code)查表在编码阶段使用,见 :mod:`.codec`。
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from typing import NamedTuple, Optional
 
 _FINS_ADDRESS_RE = re.compile(r"^([A-Za-z]{1,4})(\d+)(?:\.(\d+))?$")
@@ -39,6 +40,8 @@ class FinsAddress(NamedTuple):
     bank: int = 0
 
 
+# 地址串 → 解析结果缓存(结果类型不可变):高频轮询同址免重复正则解析
+@lru_cache(maxsize=4096)
 def parse_fins_address(address: str) -> FinsAddress:
     """解析 FINS 地址字符串。
 

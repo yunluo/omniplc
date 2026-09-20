@@ -19,6 +19,7 @@ OPC-UA 以 **NodeId** 寻址,本文语法与标准字符串形式一致
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from typing import NamedTuple
 
 _NODEID_RE = re.compile(
@@ -38,6 +39,8 @@ class OpcUaNodeId(NamedTuple):
     text: str
 
 
+# 地址串 → 解析结果缓存(结果类型不可变):高频轮询同址免重复正则解析
+@lru_cache(maxsize=4096)
 def parse_opcua_nodeid(address: str) -> OpcUaNodeId:
     """解析 OPC-UA NodeId 字符串。
 

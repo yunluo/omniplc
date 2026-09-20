@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from typing import NamedTuple, Optional
 
 from ...core.constants import MEWTOCOL_CONTACT_AREAS
@@ -43,6 +44,8 @@ class MewtocolAddress(NamedTuple):
     bit: Optional[int]
 
 
+# 地址串 → 解析结果缓存(结果类型不可变):高频轮询同址免重复正则解析
+@lru_cache(maxsize=4096)
 def parse_mewtocol_address(address: str, is_bit: bool) -> MewtocolAddress:
     """解析 MEWTOCOL 软元件地址字符串。
 

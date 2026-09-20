@@ -1,6 +1,6 @@
 # omniplc 架构设计
 
-> 版本:v0.21 · 更新日期:2026-09-20 · 状态:Modbus / 三菱 MC(以太网 + 串口帧)/ FINS / NJ/NX CIP / KV / SR / TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / OPC-UA / 通用自定义 TCP 已全部落地,全局报文调试开关已上线
+> 版本:v0.22 · 更新日期:2026-09-21 · 状态:Modbus / 三菱 MC(以太网 + 串口帧)/ FINS / NJ/NX CIP / KV / SR / TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / OPC-UA / 通用自定义 TCP 已全部落地,全局报文调试开关已上线
 
 omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7+,uv 开发)。
 本文档描述 v1.0 的完整架构:分层、类设计、继承树、线程安全模型、类型标注纪律、
@@ -820,6 +820,7 @@ FINS 与 fins-driver 0.3.1 对照(2026-09 复审):FINS 帧头 10 字节布局
 | v0.19 | 通用自定义 TCP 客户端(OpenTcpClient;分隔符成帧 + 内部缓冲,重连/超时沿用 BaseClient 属性,per-call timeout;超时不断线,坏帧/解码失败断线惰性重连,重连清空接收缓冲)| ✅ 完成 |
 | v0.20 | 倍福 TwinCAT ADS(封装 pyads 3.5.1,AMS 端口 851;变量名读写,DataType→PLCTYPE 映射,ADSError→DeviceError 不断线,NetId 默认 IP+.1.1 可覆盖)| ✅ 完成 |
 | v0.21 | 全局报文调试开关(omniplc.set_debug;走线型在传输层统一输出请求/响应十六进制与连接事件,会话型 OPC-UA/ADS/MX 输出操作级日志;logging 记录器 omniplc.debug,无日志配置时自动落 stderr,单条转储上限 4096B)| ✅ 完成 |
+| v0.22 | 内部性能与整洁度优化(全驱动地址解析 lru_cache 4096 条缓存,结果类型均不可变,MC 事务实测提速约 12%;会话型调试日志 log_op 改 %-惰性格式化,关闭时零格式化成本;check_byte_field 由 codec_serial 归位 core/validation,纯搬家无行为变化)| ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 西门子 S7(drivers 插槽已预留,沿用 BaseClient 原语模式) | 规划 |
