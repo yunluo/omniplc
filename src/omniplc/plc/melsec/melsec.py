@@ -519,7 +519,8 @@ class MelsecMcSerialClient(_MelsecMcBase):
             return self._transact_4c(transport)
         return self._transact_3c(transport, tail_size)
 
-    def _transact_3c(self, transport: BaseTransport, tail_size: int) -> bytes:
+    @staticmethod
+    def _transact_3c(transport: BaseTransport, tail_size: int) -> bytes:
         """3C 收包:控制码分流(内部方法)。"""
         head = transport.recv(1)
         code = head[0]
@@ -532,7 +533,8 @@ class MelsecMcSerialClient(_MelsecMcBase):
             return head + transport.recv(16)
         raise ProtocolFrameError("3C 响应控制码非法:0x{:02X}".format(code))
 
-    def _transact_4c(self, transport: BaseTransport) -> bytes:
+    @staticmethod
+    def _transact_4c(transport: BaseTransport) -> bytes:
         """4C 收包:长度域 + 附加码还原,重组逻辑帧(内部方法)。"""
         head = transport.recv(2)
         if head != bytes([codec_serial.DLE, codec_serial.STX]):

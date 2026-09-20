@@ -127,7 +127,7 @@ class AllenBradleyEthIpClient(BaseClient):
         """Forward Open:优先 Large(4002),被拒回落普通(504)(内部方法)。"""
         transport = self._require_transport()
         self._connection_serial = (self._connection_serial + 1) & 0xFFFF
-        status = 0
+
         for is_large, size in (
             (True, codec_cip.CONNECTION_SIZE_LARGE),
             (False, codec_cip.CONNECTION_SIZE_NORMAL),
@@ -261,7 +261,8 @@ class AllenBradleyEthIpClient(BaseClient):
         self._known_types[base] = cip_type
         return cip_type
 
-    def _check_type(self, address: str, actual: int, expected: int) -> None:
+    @staticmethod
+    def _check_type(address: str, actual: int, expected: int) -> None:
         """实际类型与请求类型一致性校验(内部方法)。
 
         :raises ValueError: 类型不符(调用方参数错误)

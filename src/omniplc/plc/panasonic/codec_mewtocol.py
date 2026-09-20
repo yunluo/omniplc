@@ -144,7 +144,7 @@ def parse_response(response: bytes, station: str, command: str) -> str:
     return text[_RESPONSE_DATA_OFFSET:-3]
 
 
-def parse_expected_size(command: str, data_chars: int) -> int:
+def parse_expected_size(data_chars: int) -> int:
     """按命令与数据字符数推算 TCP 应精确接收的响应总长。"""
     return _RESPONSE_DATA_OFFSET + data_chars + 3
 

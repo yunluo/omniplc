@@ -147,7 +147,8 @@ class KeyenceSrClient(BaseClient):
     # 内部实现
     # ------------------------------------------------------------------
 
-    def _read_line(self, transport: BaseTransport) -> str:
+    @staticmethod
+    def _read_line(transport: BaseTransport) -> str:
         """读取一行以 CR 结束的应答(内部方法)。"""
         chunks = []
         started = False

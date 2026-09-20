@@ -201,7 +201,7 @@ class _MewtocolBase(BaseClient):
             if head[3:4] == b"!":
                 response = head + transport.recv(5)
             else:
-                total = codec_mewtocol.parse_expected_size(command, data_chars)
+                total = codec_mewtocol.parse_expected_size(data_chars)
                 response = head + transport.recv(total - 4)
         return codec_mewtocol.parse_response(response, self._station_text, command)
 

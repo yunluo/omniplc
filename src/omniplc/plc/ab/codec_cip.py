@@ -284,6 +284,8 @@ def build_symbol_path(
 ) -> bytes:
     """构造标签请求路径(IOI):逐级符号段 + 元素段。
 
+    :param members: 逐级成员名(结构体成员以 ``.`` 分级后拆开)
+    :param indices: 与 members 对齐的每级下标元组(无数组下标为空元组)
     :param zero_last_index: 末级成员下标置 0(类型发现读首元素用)
     """
     path = bytearray()

@@ -227,7 +227,8 @@ class _ToyopucBase(BaseClient):
         """原始整数按小端拆字后连续字写(32/64 位,内部方法)。"""
         self._write_words(parsed, _bytes_to_words(raw.to_bytes(byte_count, "little")))
 
-    def _require_byte_range(self, address: str, length: int) -> ToyopucAddress:
+    @staticmethod
+    def _require_byte_range(address: str, length: int) -> ToyopucAddress:
         """字符串存取的地址与长度校验,返回字节访问地址(内部方法)。
 
         无后缀按低字节(``L``)起;``H`` 后缀从高字节起。

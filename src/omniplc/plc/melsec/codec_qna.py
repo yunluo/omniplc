@@ -51,6 +51,7 @@ def device_info(
 ) -> Tuple[int, bool, int]:
     """查 3E/4E 软元件码表。
 
+    :param device: 软元件名(如 ``D``、``X``、``R``)
     :param codes: 码表(缺省为三菱 ``MC_DEVICE_CODES``;基恩士 SLMP 兼容传 ``KEYENCE_MC_DEVICE_CODES``)
     :return: ``(软元件码, 是否位软元件, 地址进制)``
     :raises ValueError: 不支持的软元件
