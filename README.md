@@ -11,36 +11,50 @@ omniplc —— 一个面向多品牌、多协议 PLC 的 Python 统一通信库�
 
 #### 类继承图
 
-```
-BaseClient (ABC, 模板方法) —— 连接状态机/事务锁/惰性重连/类型化读写只写一次
-│
-├── ModbusBaseClient(寄存器级公共逻辑:字序/类型分发/范围校验)
-│   ├── ModbusTcpClient    MBAP over TCP(502)
-│   └── ModbusRtuClient    站号+PDU+CRC16 over 串口
-│
-├── MelsecMcTcpClient      三菱 MC 3E/4E/1E 帧 over TCP(2000)
-├── MelsecMcUdpClient      三菱 MC 同帧型 over UDP(2000)
-├── MelsecMxClient         三菱 MX Component(Windows,comtypes,逻辑站号)
-│
-├── OmronFinsTcpClient     欧姆龙 FINS + TCP 握手(9600)
-├── OmronFinsUdpClient     欧姆龙 FINS over UDP(9600)
-│
-├── KeyenceHostLinkTcpClient  基恩士 KV Host Link over TCP(8000)
-├── KeyenceHostLinkUdpClient  基恩士 KV Host Link over UDP(8000)
-├── KeyenceMcTcpClient     基恩士 KV MC 协议兼容/SLMP 3E 帧(5000,继承 MelsecMcTcpClient)
-│
-├── KeyenceSrClient        基恩士 SR 扫码枪 TCP(9004,LON/LOFF 触发扫码)
-│
-└── ToyopucTcpClient       丰田 TOYOPUC 计算机链接 over TCP(1025)
-    ToyopucUdpClient       同帧 over UDP(1025)
+```mermaid
+flowchart TB
+    BaseClient["BaseClient(ABC,模板方法)<br/>连接状态机 / 事务锁 / 惰性重连 / 类型化读写只写一次"]
 
-OpcUaClient              OPC-UA opc.tcp 会话(4840,封装 asyncua)
+    ModbusBaseClient["ModbusBaseClient<br/>寄存器级公共逻辑:字序 / 类型分发 / 范围校验"]
+    ModbusTcpClient["ModbusTcpClient — MBAP over TCP(502)"]
+    ModbusRtuClient["ModbusRtuClient — 站号+PDU+CRC16 over 串口"]
 
-异步镜像(omniplc.aio):AModbusTcpClient / AModbusRtuClient /
-AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMxClient /
-AOmronFinsTcpClient / AOmronFinsUdpClient /
-AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient /
-AKeyenceSrClient / AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient
+    MelsecMcTcpClient["MelsecMcTcpClient — 三菱 MC 3E/4E/1E 帧 over TCP(2000)"]
+    MelsecMcUdpClient["MelsecMcUdpClient — 三菱 MC 同帧型 over UDP(2000)"]
+    MelsecMxClient["MelsecMxClient — 三菱 MX Component(Windows,comtypes,逻辑站号)"]
+    KeyenceMcTcpClient["KeyenceMcTcpClient — 基恩士 KV MC 协议兼容 / SLMP 3E 帧(5000)<br/>继承 MelsecMcTcpClient,只换软元件码表"]
+
+    OmronFinsTcpClient["OmronFinsTcpClient — 欧姆龙 FINS + TCP 握手(9600)"]
+    OmronFinsUdpClient["OmronFinsUdpClient — 欧姆龙 FINS over UDP(9600)"]
+
+    KeyenceHostLinkTcpClient["KeyenceHostLinkTcpClient — 基恩士 KV Host Link over TCP(8000)"]
+    KeyenceHostLinkUdpClient["KeyenceHostLinkUdpClient — 基恩士 KV Host Link over UDP(8000)"]
+
+    KeyenceSrClient["KeyenceSrClient — 基恩士 SR 扫码枪 TCP(9004,LON/LOFF 触发扫码)"]
+
+    ToyopucTcpClient["ToyopucTcpClient — 丰田 TOYOPUC 计算机链接 over TCP(1025)"]
+    ToyopucUdpClient["ToyopucUdpClient — TOYOPUC 同帧 over UDP(1025)"]
+
+    OpcUaClient["OpcUaClient — OPC-UA opc.tcp 会话(4840,封装 asyncua)"]
+
+    BaseClient --> ModbusBaseClient
+    ModbusBaseClient --> ModbusTcpClient
+    ModbusBaseClient --> ModbusRtuClient
+    BaseClient --> MelsecMcTcpClient
+    BaseClient --> MelsecMcUdpClient
+    BaseClient --> MelsecMxClient
+    MelsecMcTcpClient --> KeyenceMcTcpClient
+    BaseClient --> OmronFinsTcpClient
+    BaseClient --> OmronFinsUdpClient
+    BaseClient --> KeyenceHostLinkTcpClient
+    BaseClient --> KeyenceHostLinkUdpClient
+    BaseClient --> KeyenceSrClient
+    BaseClient --> ToyopucTcpClient
+    BaseClient --> ToyopucUdpClient
+    BaseClient --> OpcUaClient
+
+    AsyncMirror["异步镜像(omniplc.aio,类名 = 同步类名前加 A):<br/>AModbusTcpClient / AModbusRtuClient / AMelsecMcTcpClient / AMelsecMcUdpClient<br/>AMelsecMxClient / AOmronFinsTcpClient / AOmronFinsUdpClient / AKeyenceHostLinkTcpClient<br/>AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceSrClient / AToyopucTcpClient<br/>AToyopucUdpClient / AOpcUaClient"]
+    BaseClient -.-> AsyncMirror
 ```
 
 详细架构设计见 [docs/architecture.md](docs/architecture.md)。

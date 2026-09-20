@@ -43,78 +43,100 @@ omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7
 
 ## 2. 类继承图
 
-```
-BaseClient (ABC, 模板方法) ───────────── src/omniplc/core/base_client.py
-│   连接状态机 / RLock 事务锁 / 惰性重连 / 重试 / last_error / 上下文管理器
-│   read() / write() / read_many() / write_many()
-│   read_bool … read_ulong / read_float / read_double / read_string + write_*
-│   ——类型化方法在这里"只写一次",委托抽象原语 _read()/_write()
-│   read_tag() / write_tag() / bind_tags()
-│
-├── ModbusBaseClient (ABC) ────────────── src/omniplc/modbus/modbus.py
-│   │   _read/_write 落到位/寄存器原语;字序(ABCD/CDAB/BADC/DCBA)处理;
-│   │   int16…float64 编解码与范围校验;station/word_order 属性
-│   ├── ModbusTcpClient   → MBAP 帧      + TcpTransport(502)
-│   └── ModbusRtuClient   → 站号+PDU+CRC16 + SerialTransport(configure_serial)
-│
-├── _MelsecMcBase (ABC, 私有) ─────────── src/omniplc/plc/melsec/melsec.py
-│   │   帧型校验(3E/4E/1E)、软元件地址分发
-│   ├── MelsecMcTcpClient → MC 3E/4E/1E 帧 + TcpTransport(2000)
-│   └── MelsecMcUdpClient → 同帧型 over UDP + UdpTransport(2000)
-│
-├── MelsecMxClient ────────────────────── src/omniplc/plc/melsec/mx.py
-│   │   三菱 MX Component(Windows,comtypes):ActUtlType 按逻辑站号,
-│   │   _MxComLink 把 COM 会话(Open/Close)适配为传输对象外形
-│   └── (无字节流收发;GetDevice/SetDevice/ReadDeviceBlock/WriteDeviceBlock)
-│
-└── _OmronFinsBase (ABC, 私有) ────────── src/omniplc/plc/omron/omron.py
-    │   FINS 节点地址、软元件地址分发
-    ├── OmronFinsTcpClient → FINS 帧+TCP 握手(_after_connect 钩子) + TcpTransport(9600)
-    └── OmronFinsUdpClient → FINS 帧无握手 + UdpTransport(9600)
+```mermaid
+flowchart TB
+    %% ═══ 公共基类(实线 = 继承,虚线 = 使用/适配) ═══
+    BaseClient["BaseClient(ABC,模板方法)— core/base_client.py<br/>连接状态机 / RLock 事务锁 / 惰性重连 / 重试 / last_error / 上下文管理器<br/>read()/write()/read_many()/write_many()/read_tag()/bind_tags()<br/>read_bool…read_double / read_string + write_* ——类型化方法只写一次"]
 
-└── _KeyenceHostLinkBase (ABC, 私有) ──── src/omniplc/plc/keyence/hostlink.py
-    │   ASCII 行式协议(RD/RDS/WR/WRS + CR 结束,响应行 CR/LF)
-    ├── KeyenceHostLinkTcpClient → TcpTransport(8000,按行逐字节收包)
-    └── KeyenceHostLinkUdpClient → UdpTransport(8000,一问一答一数据报)
+    %% ═══ Modbus ═══
+    ModbusBaseClient["ModbusBaseClient(ABC)— modbus/modbus.py<br/>_read/_write 落到位/寄存器原语;字序 ABCD/CDAB/BADC/DCBA<br/>int16…float64 编解码与范围校验;station / word_order 属性"]
+    ModbusTcpClient["ModbusTcpClient<br/>MBAP 帧"]
+    ModbusRtuClient["ModbusRtuClient<br/>站号 + PDU + CRC16(configure_serial)"]
 
-└── KeyenceMcTcpClient ────────────────── src/omniplc/plc/keyence/mc.py
-    │   基恩士 KV MC 协议兼容(SLMP 3E 帧二进制,默认端口 5000):
-    │   **继承 MelsecMcTcpClient**,只覆写软元件码表(KEYENCE_MC_DEVICE_CODES)
-    │   与帧组装传表,收发/按长收包/解析全部复用三菱 MC 实现;帧型固定 3E
-    └── (地址:R 位十进制 / DM 字十进制 / B 位、W 字十六进制 / ZR 字十进制)
+    %% ═══ 三菱 MC / MX ═══
+    MelsecMcBase["_MelsecMcBase(ABC,私有)— plc/melsec/melsec.py<br/>帧型校验(3E/4E/1E)、软元件地址分发"]
+    MelsecMcTcpClient["MelsecMcTcpClient<br/>MC 3E/4E/1E 帧"]
+    MelsecMcUdpClient["MelsecMcUdpClient<br/>同帧型 over UDP"]
+    KeyenceMcTcpClient["KeyenceMcTcpClient — plc/keyence/mc.py<br/>基恩士 KV MC 协议兼容(SLMP),帧固定 3E<br/>继承 MC 只换软元件码表(KEYENCE_MC_DEVICE_CODES)<br/>地址:R 位十进制 / DM 字十进制 / B 位、W 字十六进制 / ZR 字十进制"]
+    MelsecMxClient["MelsecMxClient — plc/melsec/mx.py<br/>MX Component(Windows,comtypes),ActUtlType 按逻辑站号<br/>无字节流收发;GetDevice/SetDevice/ReadDeviceBlock/WriteDeviceBlock"]
 
-└── _ToyopucBase (ABC, 私有) ──────────── src/omniplc/plc/toyopuc/toyopuc.py
-    │   TOYOPUC 计算机链接二进制帧(00 00 LL LH CMD / 80 RC LL LH CMD);
-    │   TCP 按帧头长度分段收包,UDP 一问一答一数据报
-    ├── ToyopucTcpClient → TcpTransport(1025)
-    └── ToyopucUdpClient → UdpTransport(1025,一问一答一数据报)
+    %% ═══ 欧姆龙 FINS ═══
+    OmronFinsBase["_OmronFinsBase(ABC,私有)— plc/omron/omron.py<br/>FINS 节点地址、软元件地址分发"]
+    OmronFinsTcpClient["OmronFinsTcpClient<br/>FINS 帧 + TCP 握手(_after_connect 钩子)"]
+    OmronFinsUdpClient["OmronFinsUdpClient<br/>FINS 帧,无握手"]
 
-└── OpcUaClient ───────────────────────── src/omniplc/opcua/client.py
-    │   OPC-UA opc.tcp 会话(封装 asyncua 1.1.5,官方继任 python-opcua);
-    │   _OpcUaSession 把会话适配为传输外形,asyncua 异常在会话边界统一翻译
-    └── (无字节流收发;get_node().read_value()/write_value() 按 VariantType 编解码)
+    %% ═══ 基恩士 Host Link / SR ═══
+    KeyenceHlBase["_KeyenceHostLinkBase(ABC,私有)— plc/keyence/hostlink.py<br/>ASCII 行式协议(RD/RDS/WR/WRS + CR 结束)"]
+    KeyenceHostLinkTcpClient["KeyenceHostLinkTcpClient<br/>按行逐字节收包"]
+    KeyenceHostLinkUdpClient["KeyenceHostLinkUdpClient<br/>一问一答一数据报"]
+    KeyenceSrClient["KeyenceSrClient — scanner/keyence_sr.py<br/>SR 扫码枪:LON → 窗口 → LOFF → 读应答<br/>scan() 返回(是否读到, 条码文本);不实现 _read/_write"]
 
-KeyenceSrClient ─────────────────────── src/omniplc/scanner/keyence_sr.py
-    基恩士 SR 扫码枪(TCP 9004,LON → 窗口 → LOFF → 读应答;
-    scan() 返回 (是否读到, 条码文本);不实现 _read/_write 数据原语)
+    %% ═══ 丰田 TOYOPUC / OPC-UA ═══
+    ToyopucBase["_ToyopucBase(ABC,私有)— plc/toyopuc/toyopuc.py<br/>TOYOPUC 二进制帧(00 00 LL LH CMD / 80 RC LL LH CMD)<br/>TCP 按帧头长度分段收包,UDP 一问一答一数据报"]
+    ToyopucTcpClient["ToyopucTcpClient"]
+    ToyopucUdpClient["ToyopucUdpClient"]
+    OpcUaClient["OpcUaClient — opcua/client.py<br/>OPC-UA opc.tcp(封装 asyncua 1.1.5,官方继任 python-opcua)<br/>get_node().read_value()/write_value() 按 VariantType 编解码,无字节流"]
+    MxComLink["_MxComLink<br/>COM 会话(Open/Close)适配为传输对象外形"]
+    OpcUaSession["_OpcUaSession<br/>asyncua 同步会话适配;UaError 在会话边界翻译为 DeviceError"]
 
-BaseTransport (ABC) ───────────────────── src/omniplc/transport/
-├── TcpTransport      TCP_NODELAY,recv 精确凑齐 size 字节(流式粘包处理)
-├── UdpTransport      已连接 UDP,recv 一次返回一条数据报
-└── SerialTransport   pyserial(延迟导入),8N1 可配,SerialConfig 校验
+    %% ═══ 继承关系 ═══
+    BaseClient --> ModbusBaseClient
+    ModbusBaseClient --> ModbusTcpClient
+    ModbusBaseClient --> ModbusRtuClient
+    BaseClient --> MelsecMcBase
+    MelsecMcBase --> MelsecMcTcpClient
+    MelsecMcBase --> MelsecMcUdpClient
+    MelsecMcTcpClient -->|"只覆写码表"| KeyenceMcTcpClient
+    BaseClient --> MelsecMxClient
+    BaseClient --> OmronFinsBase
+    OmronFinsBase --> OmronFinsTcpClient
+    OmronFinsBase --> OmronFinsUdpClient
+    BaseClient --> KeyenceHlBase
+    KeyenceHlBase --> KeyenceHostLinkTcpClient
+    KeyenceHlBase --> KeyenceHostLinkUdpClient
+    BaseClient --> KeyenceSrClient
+    BaseClient --> ToyopucBase
+    ToyopucBase --> ToyopucTcpClient
+    ToyopucBase --> ToyopucUdpClient
+    BaseClient --> OpcUaClient
 
-Tag (dataclass) / TagTable (Mapping) ──── src/omniplc/tag.py(from_json/from_csv)
+    %% ═══ 传输层(可插拔;标签为默认端口) ═══
+    subgraph TransportLayer["传输层(omniplc.transport,可插拔)"]
+        BaseTransportABC["BaseTransport(ABC)"]
+        TcpTransport["TcpTransport<br/>TCP_NODELAY;recv 精确凑齐 size 字节(流式粘包处理)"]
+        UdpTransport["UdpTransport<br/>已连接 UDP;一次返回一条数据报"]
+        SerialTransport["SerialTransport<br/>pyserial(延迟导入),8N1 可配,SerialConfig 校验"]
+        BaseTransportABC --> TcpTransport
+        BaseTransportABC --> UdpTransport
+        BaseTransportABC --> SerialTransport
+    end
 
-异步镜像(omniplc/aio/,类名 = 同步类名前加 A):
-ABaseClient ── 组合同步实例 + 单线程 ThreadPoolExecutor,方法签名同名同型
-├── AModbusBaseClient → AModbusTcpClient / AModbusRtuClient
-├── AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMxClient
-├── AOmronFinsTcpClient / AOmronFinsUdpClient
-├── AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient
-├── AKeyenceMcTcpClient
-├── AToyopucTcpClient / AToyopucUdpClient
-├── AOpcUaClient
-└── AKeyenceSrClient
+    ModbusTcpClient -.->|"502"| TcpTransport
+    ModbusRtuClient -.-> SerialTransport
+    MelsecMcTcpClient -.->|"2000"| TcpTransport
+    MelsecMcUdpClient -.->|"2000"| UdpTransport
+    KeyenceMcTcpClient -.->|"5000"| TcpTransport
+    OmronFinsTcpClient -.->|"9600"| TcpTransport
+    OmronFinsUdpClient -.->|"9600"| UdpTransport
+    KeyenceHostLinkTcpClient -.->|"8000"| TcpTransport
+    KeyenceHostLinkUdpClient -.->|"8000"| UdpTransport
+    KeyenceSrClient -.->|"9004"| TcpTransport
+    ToyopucTcpClient -.->|"1025"| TcpTransport
+    ToyopucUdpClient -.->|"1025"| UdpTransport
+    MelsecMxClient -.-> MxComLink
+    OpcUaClient -.->|"4840"| OpcUaSession
+
+    %% ═══ 点位表 / 异步镜像 ═══
+    TagNode["Tag(dataclass)/ TagTable(Mapping)— tag.py(from_json / from_csv)"]
+    BaseClient -.->|"bind_tags"| TagNode
+
+    subgraph AsyncMirror["异步镜像(omniplc.aio):ABaseClient 组合同步实例 + 单线程 ThreadPoolExecutor,签名同名同型"]
+        AsyncList["AModbusBaseClient → AModbusTcpClient / AModbusRtuClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMxClient<br/>AOmronFinsTcpClient / AOmronFinsUdpClient<br/>AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient<br/>AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient / AKeyenceSrClient"]
+    end
+    BaseClient -.->|"组合 + 镜像"| AsyncList
+
+    classDef abstract fill:#f5f5f5,stroke:#999,stroke-dasharray:4;
+    class BaseClient,ModbusBaseClient,MelsecMcBase,OmronFinsBase,KeyenceHlBase,ToyopucBase,BaseTransportABC abstract;
 ```
 
 v1 共 **14 个同步具体类 + 14 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
