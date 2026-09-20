@@ -27,11 +27,18 @@ OPC-UA(封装 asyncua,opc.tcp 会话)。
     client = AModbusTcpClient("192.168.0.10", 502, 1)
     await client.connect()
     ok, value = await client.read_float("hr0")
+
+报文调试(全局开关,输出所有协议的请求/响应)::
+
+    import omniplc
+
+    omniplc.set_debug(True)
 """
 from __future__ import annotations
 
 from . import convert
 from .core.base_client import BaseClient
+from .core.debug import set_debug
 from .modbus import ModbusArea, ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from .opcua import OpcUaClient
 from .plc.melsec import (
@@ -126,6 +133,8 @@ __all__ = [
     "ModbusArea",
     # ---- 纯帮助函数模块(转换/校验和) ----
     "convert",
+    # ---- 全局调试 ----
+    "set_debug",
     # ---- 元数据 ----
     "__version__",
     "__author__",

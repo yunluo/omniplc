@@ -17,6 +17,7 @@ from ..core.constants import (
     SERIAL_DEFAULT_PARITY,
     SERIAL_DEFAULT_STOP_BITS,
 )
+from ..core.debug import RECV_MARK, SEND_MARK, log_frame, log_op
 from ..core.errors import TransportClosedError
 from ..types import SerialParity
 
@@ -79,6 +80,7 @@ class SerialTransport(BaseTransport):
         config.validate()
         self._config = config
         self._serial: Optional[Any] = None
+        self._debug_label = "serial://{}({})".format(config.port_name, config.baud_rate)
 
     def connect(self) -> None:
         """打开串口。
@@ -103,6 +105,7 @@ class SerialTransport(BaseTransport):
         port.write_timeout = self._receive_timeout
         port.open()
         self._serial = port
+        log_op(self._debug_label, "已连接")
 
     def close(self) -> None:
         """关闭串口,幂等。"""
@@ -111,6 +114,7 @@ class SerialTransport(BaseTransport):
                 self._serial.close()
             finally:
                 self._serial = None
+            log_op(self._debug_label, "已断开")
 
     def send(self, data: bytes) -> None:
         """发送字节。
@@ -119,6 +123,7 @@ class SerialTransport(BaseTransport):
         :raises OSError: 发送失败或超时
         """
         port = self._require_serial()
+        log_frame(self._debug_label, SEND_MARK, data)
         port.write(data)
 
     def recv(self, size: int) -> bytes:
@@ -135,7 +140,9 @@ class SerialTransport(BaseTransport):
                 raise TransportClosedError("串口读取超时(receive_timeout={})".format(self._receive_timeout))
             chunks.append(chunk)
             received += len(chunk)
-        return b"".join(chunks)
+        frame = b"".join(chunks)
+        log_frame(self._debug_label, RECV_MARK, frame)
+        return frame
 
     def _require_serial(self) -> Any:
         """取当前串口对象,未打开则抛出。"""

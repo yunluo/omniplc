@@ -35,6 +35,7 @@ from ...core.constants import (
     ADS_DEFAULT_ADS_PORT,
     ADS_NET_ID_SUFFIX,
 )
+from ...core.debug import log_op
 from ...core.errors import DeviceError, OmniPLCInternalError, TransportClosedError
 from ...core.validation import (
     check_range,
@@ -127,6 +128,7 @@ class _AdsSession(BaseTransport):
         self._net_id = net_id
         self._ads_port = ads_port
         self._connection: Any = None
+        self._debug_label = "ads://{}:{}".format(net_id, ads_port)
 
     def connect(self) -> None:
         """打开 AMS 连接(每次连接新建 pyads Connection)。
@@ -158,6 +160,7 @@ class _AdsSession(BaseTransport):
             connection.set_timeout(int(self._receive_timeout * 1000))
         except Exception:
             pass  # 超时下发尽力而为(部分平台/路由器形态不支持)
+        log_op(self._debug_label, "会话已建立")
 
     def close(self) -> None:
         """关闭 AMS 连接,幂等。"""
@@ -165,6 +168,7 @@ class _AdsSession(BaseTransport):
         if connection is None:
             return
         _safe_close(connection)
+        log_op(self._debug_label, "会话已断开")
 
     def send(self, data: bytes) -> None:
         """ADS 为会话型协议,无字节流收发(不调用)。"""
@@ -190,11 +194,13 @@ class _AdsSession(BaseTransport):
         if plctype is None:
             raise OmniPLCInternalError("ADS 类型解析失败:{}".format(plctype_name))
         try:
-            return self.connection.read_by_name(address, plctype)
+            value = self.connection.read_by_name(address, plctype)
         except OSError:
             raise
         except Exception as exc:
             raise _translate_ads_error(exc) from exc
+        log_op(self._debug_label, "读 {}({}) → {!r}".format(address, plctype_name, value))
+        return value
 
     def write_by_name(self, address: str, value: Any, plctype_name: str) -> None:
         """按变量名写值(会话调用,pyads 异常在此翻译)。"""
@@ -210,6 +216,7 @@ class _AdsSession(BaseTransport):
             raise
         except Exception as exc:
             raise _translate_ads_error(exc) from exc
+        log_op(self._debug_label, "写 {}({}) ← {!r}".format(address, plctype_name, value))
 
 
 class BeckhoffAdsClient(BaseClient):

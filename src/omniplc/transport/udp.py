@@ -6,6 +6,7 @@ from types import TracebackType
 from typing import Optional
 
 from .base import BaseTransport
+from ..core.debug import RECV_MARK, SEND_MARK, log_frame, log_op
 from ..core.errors import TransportClosedError
 
 
@@ -31,6 +32,7 @@ class UdpTransport(BaseTransport):
         self._ip_address = ip_address
         self._port = port
         self._socket: Optional[socket.socket] = None
+        self._debug_label = "udp://{}:{}".format(ip_address, port)
 
     def connect(self) -> None:
         """初始化 UDP 套接字并固定对端。
@@ -42,6 +44,7 @@ class UdpTransport(BaseTransport):
         sock.connect((self._ip_address, self._port))
         sock.settimeout(self._receive_timeout)
         self._socket = sock
+        log_op(self._debug_label, "已连接")
 
     def close(self) -> None:
         """关闭 UDP 套接字,幂等。"""
@@ -50,6 +53,7 @@ class UdpTransport(BaseTransport):
                 self._socket.close()
             finally:
                 self._socket = None
+            log_op(self._debug_label, "已断开")
 
     def send(self, data: bytes) -> None:
         """发送一条数据报到固定对端。
@@ -58,6 +62,7 @@ class UdpTransport(BaseTransport):
         :raises OSError: 发送失败或超时
         """
         sock = self._require_socket()
+        log_frame(self._debug_label, SEND_MARK, data)
         sock.send(data)
 
     def recv(self, size: int) -> bytes:
@@ -68,7 +73,9 @@ class UdpTransport(BaseTransport):
         :raises OSError: 接收超时
         """
         sock = self._require_socket()
-        return sock.recv(size)
+        frame = sock.recv(size)
+        log_frame(self._debug_label, RECV_MARK, frame)
+        return frame
 
     def _require_socket(self) -> socket.socket:
         """取当前 socket,未初始化则抛出。"""

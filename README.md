@@ -6,6 +6,7 @@ omniplc —— 一个面向多品牌、多协议 PLC 的 Python 统一通信库�
 - **Python 3.7+**,uv 开发,核心零第三方依赖
 - 命名与使用习惯对齐 pyhsl,迁移成本极低
 - 全量类型标注(PEP 484 + py.typed),mypy 检查通过
+- 内置全局报文调试开关(`omniplc.set_debug(True)` 一键输出所有协议的请求/响应报文)
 - 线程安全、惰性自动重连、可配置超时/重试
 - 同步 + 异步(异步类 = 同步类名前加 `A`)双轨 API
 
@@ -249,6 +250,24 @@ ok, raw = dev.receive()                # 按分隔符收一帧(bytes),跨分片�
 ok, text = dev.transact_text("VER")    # 发送并收一帧(str);坏帧/解码失败断线重连,超时不断线
 ```
 
+#### 报文调试(全局开关)
+
+```python
+import omniplc
+
+omniplc.set_debug(True)   # 之后所有协议客户端输出请求/响应报文(十六进制)
+omniplc.set_debug(False)  # 关闭
+```
+
+- 走线型协议(TCP/UDP/串口)在传输层统一挂钩,输出每次收发的原始字节;
+  TCP 应答分多段到达时按段输出。输出形如
+  `tcp://192.168.0.10:2000 → 发送 12B: 50 00 00 FF …`(单条最多转储 4096B)
+- 会话型协议(OPC-UA / ADS / MX Component 无字节流)输出操作级日志,
+  如 `ads://192.168.0.10.1.1:851 读 MAIN.rTemp(PLCTYPE_REAL) → 3.14`
+- 输出走 `logging`(记录器名 `omniplc.debug`,DEBUG 级):应用已配置
+  logging 时自动汇入既有日志体系;未配置时自动挂 stderr 处理器,开箱即用
+- 进程级开关,同步与异步客户端共用;连接建立/断开也会输出,便于观察惰性重连
+
 #### 异步(类名前加 A)
 
 ```python
@@ -321,7 +340,8 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 - **v0.17**:AB connected CIP 消息(Forward Open 大/普通回落 + SendUnitData 序列号回显校验 + Forward Close,connected_messaging 参数启用)
 - **v0.18**:欧姆龙 CIP / 连接型 CIP(NJ/NX 内置 EtherNet/IP,44818;继承 AB 客户端,unconnected 直发无背板路由 + connected 连接路径只剩消息路由对象,NJ 变量读写;pycomm3 1.2.16 交叉核证)
 - **v0.19**:通用自定义 TCP 客户端(OpenTcpClient;分隔符成帧 + 内部缓冲,重连/超时沿用 BaseClient 属性,receive/transact 支持 per-call timeout;超时不断线,坏帧/解码失败断线惰性重连,重连清空接收缓冲)
-- **v0.20(当前)**:倍福 TwinCAT ADS(封装 pyads 3.5.1,AMS 端口 851;变量名读写,DataType→PLCTYPE 映射,ADSError→DeviceError 不断线;pyads 无 py37 语法障碍,Windows 需 TcAdsDll)
+- **v0.20**:倍福 TwinCAT ADS(封装 pyads 3.5.1,AMS 端口 851;变量名读写,DataType→PLCTYPE 映射,ADSError→DeviceError 不断线;pyads 无 py37 语法障碍,Windows 需 TcAdsDll)
+- **v0.21(当前)**:全局报文调试开关(omniplc.set_debug;走线型在传输层统一输出请求/响应十六进制,会话型 OPC-UA/ADS/MX 输出操作级日志;logging 记录器 omniplc.debug,无日志配置时自动落 stderr)
 - **v1.0**:点位表完善 + 示例 + 文档,正式发布
 - **v1.x**:MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池
 - **v2**:西门子 S7(驱动插槽已预留)

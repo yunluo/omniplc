@@ -6,6 +6,7 @@ from types import TracebackType
 from typing import Optional
 
 from .base import BaseTransport
+from ..core.debug import RECV_MARK, SEND_MARK, log_frame, log_op
 from ..core.errors import TransportClosedError
 
 
@@ -26,6 +27,7 @@ class TcpTransport(BaseTransport):
         self._ip_address = ip_address
         self._port = port
         self._socket: Optional[socket.socket] = None
+        self._debug_label = "tcp://{}:{}".format(ip_address, port)
 
     def connect(self) -> None:
         """建立 TCP 连接。
@@ -39,6 +41,7 @@ class TcpTransport(BaseTransport):
         sock.settimeout(self._receive_timeout)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self._socket = sock
+        log_op(self._debug_label, "已连接")
 
     def close(self) -> None:
         """关闭 TCP 连接,幂等。"""
@@ -47,6 +50,7 @@ class TcpTransport(BaseTransport):
                 self._socket.close()
             finally:
                 self._socket = None
+            log_op(self._debug_label, "已断开")
 
     def send(self, data: bytes) -> None:
         """发送字节,阻塞直到全部发出。
@@ -55,6 +59,7 @@ class TcpTransport(BaseTransport):
         :raises OSError: 发送失败或超时
         """
         sock = self._require_socket()
+        log_frame(self._debug_label, SEND_MARK, data)
         sock.sendall(data)
 
     def recv(self, size: int) -> bytes:
@@ -73,7 +78,9 @@ class TcpTransport(BaseTransport):
                 raise TransportClosedError("TCP 连接已被对端关闭")
             chunks.append(chunk)
             received += len(chunk)
-        return b"".join(chunks)
+        frame = b"".join(chunks)
+        log_frame(self._debug_label, RECV_MARK, frame)
+        return frame
 
     def _require_socket(self) -> socket.socket:
         """取当前 socket,未连接则抛出。"""

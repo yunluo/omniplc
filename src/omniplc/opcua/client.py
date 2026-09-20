@@ -27,6 +27,7 @@ from typing import Any, Tuple
 
 from ..core.base_client import BaseClient, validate_endpoint
 from ..core.constants import OPCUA_DEFAULT_PORT
+from ..core.debug import log_op
 from ..core.errors import DeviceError, OmniPLCInternalError, TransportClosedError
 from ..core.validation import require_bool, require_float, require_int
 from ..types import DataType, PrimitiveValue
@@ -89,6 +90,7 @@ class _OpcUaSession(BaseTransport):
         super().__init__()
         self._endpoint = endpoint
         self._client: Any = None
+        self._debug_label = "opcua://{}".format(endpoint)
 
     def connect(self) -> None:
         """建立 opc.tcp 会话(每次连接新建 asyncua 客户端与后台事件循环)。
@@ -112,6 +114,7 @@ class _OpcUaSession(BaseTransport):
                 "OPC-UA 连接失败:{}({})".format(type(exc).__name__, exc)
             )
         self._client = client
+        log_op(self._debug_label, "会话已建立")
 
     def close(self) -> None:
         """断开 opc.tcp 会话,幂等。"""
@@ -119,6 +122,7 @@ class _OpcUaSession(BaseTransport):
         if client is None:
             return
         _safe_disconnect(client)
+        log_op(self._debug_label, "会话已断开")
 
     def send(self, data: bytes) -> None:
         """OPC-UA 为会话型协议,无字节流收发(不调用)。"""
@@ -138,11 +142,13 @@ class _OpcUaSession(BaseTransport):
     def read_value(self, node_text: str) -> Any:
         """读节点当前值(会话调用,asyncua 异常在此翻译)。"""
         try:
-            return self.client.get_node(node_text).read_value()
+            value = self.client.get_node(node_text).read_value()
         except OSError:
             raise
         except Exception as exc:
             raise _translate_ua_error(exc) from exc
+        log_op(self._debug_label, "读 {} → {!r}".format(node_text, value))
+        return value
 
     def write_value(self, node_text: str, value: Any, variant_name: str) -> None:
         """按 VariantType 写节点值(会话调用,asyncua 异常在此翻译)。"""
@@ -158,6 +164,7 @@ class _OpcUaSession(BaseTransport):
             raise
         except Exception as exc:
             raise _translate_ua_error(exc) from exc
+        log_op(self._debug_label, "写 {} ← {!r}({})".format(node_text, value, variant_name))
 
 
 def _safe_disconnect(client: Any) -> None:

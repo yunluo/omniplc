@@ -30,6 +30,7 @@ from ...core.constants import (
     MX_MAX_BLOCK_WORDS,
     MX_PROG_ID,
 )
+from ...core.debug import log_op
 from ...core.errors import OmniPLCInternalError, TransportClosedError
 from ...core.validation import check_int16, check_uint16, require_bool
 from ...transport import BaseTransport
@@ -107,6 +108,7 @@ class _MxComLink(BaseTransport):
         super().__init__()
         self._logical_station_number = logical_station_number
         self._com: Any = None
+        self._debug_label = "mx://站号{}".format(logical_station_number)
 
     def connect(self) -> None:
         """打开 COM 通信线路(Open)。
@@ -130,6 +132,7 @@ class _MxComLink(BaseTransport):
                 )
             )
         self._com = com
+        log_op(self._debug_label, "会话已建立")
 
     def close(self) -> None:
         """关闭 COM 通信线路(Close),幂等。"""
@@ -142,6 +145,7 @@ class _MxComLink(BaseTransport):
             return
         if code != 0:
             raise OSError("MX Component Close 失败:返回码 {}".format(_format_code(code)))
+        log_op(self._debug_label, "会话已断开")
 
     def send(self, data: bytes) -> None:
         """MX 通道无字节流收发(不调用)。"""
@@ -187,6 +191,7 @@ class MelsecMxClient(BaseClient):
                 )
             )
         self._logical_station_number = int(logical_station_number)
+        self._debug_label = "mx://站号{}".format(self._logical_station_number)
 
     @property
     def logical_station_number(self) -> int:
@@ -210,7 +215,9 @@ class MelsecMxClient(BaseClient):
             raise ValueError(
                 "批量读取字数超过上限 {}:{}".format(MX_MAX_BLOCK_WORDS, count)
             )
-        return _com_read_words(self._com(), device_text, count)
+        words = _com_read_words(self._com(), device_text, count)
+        log_op(self._debug_label, "ReadDeviceBlock {}×{} → {}".format(device_text, count, words))
+        return words
 
     def _write_words(self, device_text: str, words: Sequence[int]) -> None:
         """批量写字软元件(WriteDeviceBlock)。"""
@@ -219,14 +226,18 @@ class MelsecMxClient(BaseClient):
                 "批量写入字数超过上限 {}:{}".format(MX_MAX_BLOCK_WORDS, len(words))
             )
         _com_write_words(self._com(), device_text, words)
+        log_op(self._debug_label, "WriteDeviceBlock {}×{} ← {}".format(device_text, len(words), list(words)))
 
     def _get_device(self, device_text: str) -> int:
         """单点读(GetDevice),返回 0~65535 原始值。"""
-        return _com_get_device(self._com(), device_text)
+        raw = _com_get_device(self._com(), device_text)
+        log_op(self._debug_label, "GetDevice {} → {}".format(device_text, raw))
+        return raw
 
     def _set_device(self, device_text: str, value: int) -> None:
         """单点写(SetDevice);位软元件取最低位。"""
         _com_set_device(self._com(), device_text, value)
+        log_op(self._debug_label, "SetDevice {} ← {}".format(device_text, value))
 
     # ------------------------------------------------------------------
     # 协议原语

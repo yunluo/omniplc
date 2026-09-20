@@ -1,6 +1,6 @@
 # omniplc 架构设计
 
-> 版本:v0.20 · 更新日期:2026-09-20 · 状态:Modbus / 三菱 MC(以太网 + 串口帧)/ FINS / NJ/NX CIP / KV / SR / TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / OPC-UA / 通用自定义 TCP 已全部落地
+> 版本:v0.21 · 更新日期:2026-09-20 · 状态:Modbus / 三菱 MC(以太网 + 串口帧)/ FINS / NJ/NX CIP / KV / SR / TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / OPC-UA / 通用自定义 TCP 已全部落地,全局报文调试开关已上线
 
 omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7+,uv 开发)。
 本文档描述 v1.0 的完整架构:分层、类设计、继承树、线程安全模型、类型标注纪律、
@@ -13,7 +13,7 @@ omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7
 ```mermaid
 flowchart TB
     subgraph UserApi["用户 API 层"]
-        Clients["协议 × 走线 具体客户端类<br/>23 个同步 + 23 个异步(A 前缀镜像)<br/>scanner:KeyenceSrClient 扫码枪<br/>Tag / TagTable 可选点位表层"]
+        Clients["协议 × 走线 具体客户端类<br/>26 个同步 + 26 个异步(A 前缀镜像)<br/>scanner:KeyenceSrClient 扫码枪<br/>Tag / TagTable 可选点位表层"]
     end
     subgraph Drivers["驱动层 drivers(协议编解码 + 地址解析)"]
         Modbus["modbus/<br/>codec + address + client"]
@@ -33,6 +33,7 @@ flowchart TB
         BaseClientC["core/BaseClient<br/>状态机 / 锁 / 重连 / 重试 / 类型化方法模板"]
         Errors["core/errors.py(错误类集中定义)"]
         Constants["core/constants.py(全局常量集中定义)"]
+        DebugC["core/debug.py(全局报文调试开关 set_debug)"]
         TypesC["types.py(DataType / WordOrder…)"]
         ConvertC["convert.py(纯转换函数)"]
     end
@@ -52,6 +53,14 @@ flowchart TB
 3. **公共逻辑在 `BaseClient` 收口一次**——锁、重连、重试、类型化读写全协议共享;
 4. **对外 API 不抛自定义异常**——读返回 `(bool, value)`,写返回 `bool`,
    失败原因进 `last_error`(与 pyhsl 使用习惯一致)。
+
+报文调试(全局开关):`omniplc.core.debug.set_debug(True)` 进程级生效。
+走线型协议在 ``TcpTransport``/``UdpTransport``/``SerialTransport`` 的
+``send``/``recv`` 统一输出原始字节(方向 + 长度 + 十六进制,单条最多转储
+4096B),连接建立/断开事件一并输出;会话型(OPC-UA/ADS/MX Component)
+无字节流,在会话读写方法/客户端 COM 调用点输出操作级日志。输出统一走
+logging 记录器 ``omniplc.debug``(DEBUG 级):应用已配置日志时沿 propagate
+汇入既有体系;未配置任何处理器时自动挂 stderr 处理器,保证开箱即用。
 
 ## 2. 类继承图
 
@@ -810,6 +819,7 @@ FINS 与 fins-driver 0.3.1 对照(2026-09 复审):FINS 帧头 10 字节布局
 | v0.18 | 欧姆龙 CIP / 连接型 CIP(NJ/NX 内置 EtherNet/IP 44818;继承 AB 客户端,unconnected 直发无背板路由 + connected 连接路径只剩消息路由对象,NJ 变量读写;pycomm3 1.2.16 交叉核证)| ✅ 完成 |
 | v0.19 | 通用自定义 TCP 客户端(OpenTcpClient;分隔符成帧 + 内部缓冲,重连/超时沿用 BaseClient 属性,per-call timeout;超时不断线,坏帧/解码失败断线惰性重连,重连清空接收缓冲)| ✅ 完成 |
 | v0.20 | 倍福 TwinCAT ADS(封装 pyads 3.5.1,AMS 端口 851;变量名读写,DataType→PLCTYPE 映射,ADSError→DeviceError 不断线,NetId 默认 IP+.1.1 可覆盖)| ✅ 完成 |
+| v0.21 | 全局报文调试开关(omniplc.set_debug;走线型在传输层统一输出请求/响应十六进制与连接事件,会话型 OPC-UA/ADS/MX 输出操作级日志;logging 记录器 omniplc.debug,无日志配置时自动落 stderr,单条转储上限 4096B)| ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 西门子 S7(drivers 插槽已预留,沿用 BaseClient 原语模式) | 规划 |
