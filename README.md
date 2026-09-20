@@ -1,7 +1,7 @@
 # omniplc
 
 #### 介绍
-omniplc —— 一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、汇川、松下、丰田、罗克韦尔(AB)、倍福(TwinCAT)等 PLC/扫码枪、OPC-UA 服务器与 CNC 机床(MTConnect),支持 Modbus、MC(3E/4E/1E 以太网帧、3C/4C 串口帧)、FINS、NJ/NX CIP(EtherNet/IP)、KV Host Link、KV MC 协议兼容(SLMP)、汇川 H3U/H5U(Modbus TCP/RTU、MC 协议兼容 3E)、松下 FP(MC 协议兼容 3E、MEWTOCOL)、SR、TOYOPUC 计算机链接、EtherNet/IP(Logix 标签读写)、TwinCAT ADS(封装 pyads)、通用自定义 TCP(分隔符成帧)、OPC-UA、MTConnect 数采等协议。
+omniplc —— 一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、汇川、松下、丰田、罗克韦尔(AB)、倍福(TwinCAT)、西门子(S7)等 PLC/扫码枪、OPC-UA 服务器与 CNC 机床(MTConnect),支持 Modbus、MC(3E/4E/1E 以太网帧、3C/4C 串口帧)、FINS、NJ/NX CIP(EtherNet/IP)、KV Host Link、KV MC 协议兼容(SLMP)、汇川 H3U/H5U(Modbus TCP/RTU、MC 协议兼容 3E)、松下 FP(MC 协议兼容 3E、MEWTOCOL)、SR、TOYOPUC 计算机链接、EtherNet/IP(Logix 标签读写)、TwinCAT ADS(封装 pyads)、西门子 S7(封装 python-snap7,DB/I/Q/M)、通用自定义 TCP(分隔符成帧)、OPC-UA、MTConnect 数采等协议。
 
 - **Python 3.7+**,uv 开发,核心零第三方依赖
 - 命名与使用习惯对齐 pyhsl,迁移成本极低
@@ -259,6 +259,17 @@ ok, program = cnc.read_string("program")
 ok, items = cnc.snapshot()             # 全量当前值快照 {数据项 id: 文本值}
 ok, alarms = cnc.read_conditions()     # 条件项(Fault/Warning/Normal)列表
 ok, device = cnc.probe()               # 设备信息(name/uuid 等)
+
+# 西门子 S7(封装 python-snap7):DB/I/Q/M 绝对寻址,ISO-on-TCP 102,rack/slot 路由
+# S7-1200/1500 需勾选"允许来自远程对象的 PUT/GET 通信访问",DB 须为非优化块
+# 安装:pip install 'omniplc[s7]'(64 位 Python 用捆绑 snap7 库;32 位需自备 snap7.dll 并经 dll_path 指定)
+from omniplc import SiemensS7Client
+s7 = SiemensS7Client("192.168.0.1", rack=0, slot=1)  # 300/400 的 CPU 常在槽位 2
+s7.connect()
+ok, temp = s7.read_float("DB1.DBD6")   # DB 双字起点,REAL
+ok = s7.write_bool("DB1.DBX0.3", True) # DB 位(锁内读-改-写)
+ok, current = s7.read_ushort("MW10")   # Merker 字
+ok, text = s7.read_string("DB1.DBS20", length=32)  # S7 String(头 2 字节声明/实际长)
 ```
 
 #### 报文调试(全局开关)
@@ -329,6 +340,7 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 | 丰田 TOYOPUC 计算机链接 | ✅(1025) | ✅(1025) | — | —              |
 | OPC-UA(opc.tcp) | ✅(4840,封装 asyncua) | — | — | —                   |
 | CNC 机床数采(MTConnect) | ✅(Agent 5000,HTTP/XML 只读) | — | — | —      |
+| 西门子 S7(DB/I/Q/M) | ✅(102,封装 python-snap7) | — | — | —      |
 | 通用自定义 TCP(分隔符成帧) | ✅(分隔符/编码/帧上限可配) | — | — | —      |
 
 #### 路线图
@@ -355,10 +367,11 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 - **v0.20**:倍福 TwinCAT ADS(封装 pyads 3.5.1,AMS 端口 851;变量名读写,DataType→PLCTYPE 映射,ADSError→DeviceError 不断线;pyads 无 py37 语法障碍,Windows 需 TcAdsDll)
 - **v0.21**:全局报文调试开关(omniplc.set_debug;走线型在传输层统一输出请求/响应十六进制,会话型 OPC-UA/ADS/MX 输出操作级日志;logging 记录器 omniplc.debug,无日志配置时自动落 stderr)
 - **v0.22**:内部性能与整洁度优化(全驱动地址解析 lru_cache 缓存,MC 事务提速约 12%;会话型调试日志惰性格式化;check_byte_field 归位 core/validation)
-- **v0.23(当前)**:CNC 机床数采 MTConnect(标准库 HTTP/XML 只读,Agent 默认 5000;数据项 id 即地址,类型化读 + 全量快照 + 报警条件项 + 设备信息;FANUC/三菱等控制器均可经 Agent 采集,零第三方依赖)
+- **v0.23**:CNC 机床数采 MTConnect(标准库 HTTP/XML 只读,Agent 默认 5000;数据项 id 即地址,类型化读 + 全量快照 + 报警条件项 + 设备信息;FANUC/三菱等控制器均可经 Agent 采集,零第三方依赖)
+- **v0.24(当前)**:西门子 S7(封装 python-snap7 1.3,rack/slot 路由 102;DB/I/Q/M 绝对寻址,尺寸由 DataType 决定大端序,位读改写,S7 String;s7 extra 含 setuptools 供捆绑库定位;64 位 Python 用捆绑 snap7 库,32 位经 dll_path 自备)
 - **v1.0**:点位表完善 + 示例 + 文档,正式发布
 - **v1.x**:MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、MTConnect /sample 历史流与写入、FANUC FOCAS / 三菱 CNC EZSocket(Windows DLL 封装)、心跳保活、轮询器、连接池
-- **v2**:西门子 S7(驱动插槽已预留)
+- **v2**:更多品牌/协议按需扩展(驱动插槽沿用 BaseClient 原语模式)
 
 #### 开发
 

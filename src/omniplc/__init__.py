@@ -12,7 +12,8 @@ KV Host Link over TCP/UDP、KV MC 协议兼容(SLMP 3E)、
 SR 扫码枪、TOYOPUC 计算机链接 over TCP/UDP、EtherNet/IP(Logix 标签读写)、
 通用自定义 TCP(分隔符成帧,收发行为可配)、
 OPC-UA(封装 asyncua,opc.tcp 会话)、
-CNC 机床数采(MTConnect Agent,HTTP/XML 只读)。
+CNC 机床数采(MTConnect Agent,HTTP/XML 只读)、
+西门子 S7(封装 python-snap7,DB/I/Q/M 绝对寻址)。
 
 同步客户端::
 
@@ -49,6 +50,7 @@ from .plc.melsec import (
     MelsecMcUdpClient,
     MelsecMxClient,
 )
+from .plc.siemens import SiemensS7Client
 from .plc.beckhoff import BeckhoffAdsClient
 from .plc.omron import OmronCipClient, OmronFinsTcpClient, OmronFinsUdpClient
 from .plc.ab import AllenBradleyEthIpClient
@@ -113,6 +115,8 @@ __all__ = [
     "AllenBradleyEthIpClient",
     # ---- 倍福 TwinCAT ADS 客户端 ----
     "BeckhoffAdsClient",
+    # ---- 西门子 S7 客户端 ----
+    "SiemensS7Client",
     # ---- 通用自定义 TCP 客户端 ----
     "OpenTcpClient",
     # ---- OPC-UA 客户端 ----

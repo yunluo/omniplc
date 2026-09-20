@@ -62,12 +62,15 @@ serial = ["pyserial>=3.5"]
 mx = ["comtypes>=1.2; platform_system == 'Windows'"]
 opcua = ["asyncua==1.1.5"]
 ads = ["pyads==3.5.1"]
+s7 = ["python-snap7==1.3", "setuptools"]
 dev = [
     "pyserial>=3.5",
     "pytest>=7.4.4",
     "comtypes>=1.2",
     "asyncua==1.1.5",
-    "pyads==3.5.1"
+    "pyads==3.5.1",
+    "python-snap7==1.3",
+    "setuptools"
 ]
 
 [build-system]
@@ -89,7 +92,8 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 
 # 可选运行时依赖 serial(串口扩展)/comtypes(MX Component 扩展)/
-# asyncua(OPC-UA 扩展)/pyads(TwinCAT ADS 扩展)无内联标注;
+# asyncua(OPC-UA 扩展)/pyads(TwinCAT ADS 扩展)/python-snap7(S7 扩展)
+# 无内联标注;
 # pytest 视宿主环境可能缺失:均按缺失导入处理,不影响核心代码检查。
 [[tool.mypy.overrides]]
 module = [
@@ -100,6 +104,8 @@ module = [
     "asyncua.sync",
     "asyncua.ua",
     "pyads",
+    "snap7",
+    "snap7.client",
     "pytest",
 ]
 ignore_missing_imports = true

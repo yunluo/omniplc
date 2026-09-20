@@ -44,6 +44,9 @@ from ..core.constants import (
     OPEN_TCP_DEFAULT_PORT,
     OPEN_TCP_MAX_FRAME,
     MTCONNECT_DEFAULT_PORT,
+    S7_DEFAULT_PORT,
+    S7_DEFAULT_RACK,
+    S7_DEFAULT_SLOT,
     PANASONIC_MC_DEFAULT_PORT,
     READ_STRING_DEFAULT_LENGTH,
     SR_DEFAULT_PORT,
@@ -60,6 +63,7 @@ from ..opentcp import OpenTcpClient
 from ..plc.ab import AllenBradleyEthIpClient
 from ..plc.beckhoff import BeckhoffAdsClient
 from ..plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
+from ..plc.siemens import SiemensS7Client
 from ..opcua import OpcUaClient
 from ..plc.panasonic import (
     PanasonicMcTcpClient,
@@ -1072,3 +1076,35 @@ class ABeckhoffAdsClient(ABaseClient):
         if not isinstance(sync, BeckhoffAdsClient):
             raise TypeError("内部错误:sync 实例不是 BeckhoffAdsClient")
         return sync.ads_port
+
+
+class ASiemensS7Client(ABaseClient):
+    """西门子 S7 异步客户端(封装 python-snap7,DB/I/Q/M 绝对寻址)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.1",
+        rack: int = S7_DEFAULT_RACK,
+        slot: int = S7_DEFAULT_SLOT,
+        port: int = S7_DEFAULT_PORT,
+        dll_path: str = "",
+    ) -> None:
+        """参数同 :class:`omniplc.plc.siemens.SiemensS7Client`。"""
+        super().__init__(SiemensS7Client(ip_address, rack, slot, port, dll_path))
+
+    def _client(self) -> SiemensS7Client:
+        """取 S7 同步实例(内部属性)。"""
+        sync = self._sync
+        if not isinstance(sync, SiemensS7Client):
+            raise TypeError("内部错误:sync 实例不是 SiemensS7Client")
+        return sync
+
+    @property
+    def rack(self) -> int:
+        """机架号(转发同步实例)。"""
+        return self._client().rack
+
+    @property
+    def slot(self) -> int:
+        """槽位号(转发同步实例)。"""
+        return self._client().slot
