@@ -680,6 +680,10 @@ ADS_DEFAULT_ADS_PORT: int = 851
 ADS_NET_ID_SUFFIX: str = ".1.1"
 """AMS NetId 默认后缀:NetId 共 6 字节,前 4 字节通常为 IP,后两段惯例 1.1。"""
 
+# ---------------------------------------------------------------- CNC 机床数采(MTConnect)
+MTCONNECT_DEFAULT_PORT: int = 5000
+"""MTConnect Agent 的默认 HTTP 端口(实际以机床侧 Agent 配置为准)。"""
+
 # ---------------------------------------------------------------- 通用
 BIT_INDEX_MAX: int = 63
 """位操作工具允许的最大位号。"""

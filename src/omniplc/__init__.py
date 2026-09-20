@@ -11,7 +11,8 @@ KV Host Link over TCP/UDP、KV MC 协议兼容(SLMP 3E)、
 松下 MC 协议兼容(3E)与 MEWTOCOL(TCP/UDP)、
 SR 扫码枪、TOYOPUC 计算机链接 over TCP/UDP、EtherNet/IP(Logix 标签读写)、
 通用自定义 TCP(分隔符成帧,收发行为可配)、
-OPC-UA(封装 asyncua,opc.tcp 会话)。
+OPC-UA(封装 asyncua,opc.tcp 会话)、
+CNC 机床数采(MTConnect Agent,HTTP/XML 只读)。
 
 同步客户端::
 
@@ -37,6 +38,7 @@ OPC-UA(封装 asyncua,opc.tcp 会话)。
 from __future__ import annotations
 
 from . import convert
+from .cnc import MTConnectClient
 from .core.base_client import BaseClient
 from .core.debug import set_debug
 from .modbus import ModbusArea, ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
@@ -115,6 +117,8 @@ __all__ = [
     "OpenTcpClient",
     # ---- OPC-UA 客户端 ----
     "OpcUaClient",
+    # ---- CNC 机床数采客户端 ----
+    "MTConnectClient",
     # ---- 传输层 ----
     "BaseTransport",
     "TcpTransport",

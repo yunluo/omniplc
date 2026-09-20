@@ -12,9 +12,10 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from types import TracebackType
-from typing import Callable, List, Optional, Sequence, Tuple, Type, TypeVar, Union
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
 
 from ..core.base_client import BaseClient
+from ..cnc import MTConnectClient
 from ..core.constants import (
     AB_EIP_DEFAULT_PORT,
     AB_EIP_DEFAULT_SLOT,
@@ -42,6 +43,7 @@ from ..core.constants import (
     OPEN_TCP_DEFAULT_DELIMITER,
     OPEN_TCP_DEFAULT_PORT,
     OPEN_TCP_MAX_FRAME,
+    MTCONNECT_DEFAULT_PORT,
     PANASONIC_MC_DEFAULT_PORT,
     READ_STRING_DEFAULT_LENGTH,
     SR_DEFAULT_PORT,
@@ -970,6 +972,37 @@ class AOpenTcpClient(ABaseClient):
     def max_frame(self) -> int:
         """帧内容字节上限(转发同步实例)。"""
         return self._client().max_frame
+
+
+class AMTConnectClient(ABaseClient):
+    """CNC MTConnect 异步客户端(HTTP/XML 只读数采)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        port: int = MTCONNECT_DEFAULT_PORT,
+    ) -> None:
+        """参数同 :class:`omniplc.cnc.MTConnectClient`。"""
+        super().__init__(MTConnectClient(ip_address, port))
+
+    def _client(self) -> MTConnectClient:
+        """取 MTConnect 同步实例(内部属性)。"""
+        sync = self._sync
+        if not isinstance(sync, MTConnectClient):
+            raise TypeError("内部错误:sync 实例不是 MTConnectClient")
+        return sync
+
+    async def snapshot(self) -> Tuple[bool, Optional[Dict[str, str]]]:
+        """读取 /current 全量数据项快照(id/name → 文本值)。"""
+        return await self._run(lambda: self._client().snapshot())
+
+    async def read_conditions(self) -> Tuple[bool, Optional[List[Dict[str, str]]]]:
+        """读取条件项(报警/警告/正常)当前列表。"""
+        return await self._run(lambda: self._client().read_conditions())
+
+    async def probe(self) -> Tuple[bool, Optional[Dict[str, str]]]:
+        """读取 /probe 设备信息。"""
+        return await self._run(lambda: self._client().probe())
 
 
 class AAllenBradleyEthIpClient(ABaseClient):
