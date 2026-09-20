@@ -3,8 +3,8 @@
 一次编写,通过一致的 API 对接三菱(MC 协议)、欧姆龙(FINS)、
 基恩士(KV Host Link、MC 协议兼容、SR 扫码枪)、汇川(H3U/H5U)、
 松下(FP 系列:MC 协议兼容、MEWTOCOL)、丰田(TOYOPUC 计算机链接)等设备,
-支持 Modbus TCP/RTU、MC 3E/4E/1E、MC over MX Component、FINS over TCP/UDP、
-KV Host Link over TCP/UDP、KV MC 协议兼容(SLMP 3E)、
+支持 Modbus TCP/RTU、MC 3E/4E/1E、MC 串口 3C/4C 帧、MC over MX Component、
+FINS over TCP/UDP、KV Host Link over TCP/UDP、KV MC 协议兼容(SLMP 3E)、
 汇川 Modbus TCP/RTU 与 MC 协议兼容(3E)、
 松下 MC 协议兼容(3E)与 MEWTOCOL(TCP/UDP)、
 SR 扫码枪、TOYOPUC 计算机链接 over TCP/UDP、OPC-UA(封装 asyncua,opc.tcp 会话)。
@@ -30,7 +30,12 @@ from . import convert
 from .core.base_client import BaseClient
 from .modbus import ModbusArea, ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from .opcua import OpcUaClient
-from .plc.melsec import MelsecMcTcpClient, MelsecMcUdpClient, MelsecMxClient
+from .plc.melsec import (
+    MelsecMcSerialClient,
+    MelsecMcTcpClient,
+    MelsecMcUdpClient,
+    MelsecMxClient,
+)
 from .plc.omron import OmronFinsTcpClient, OmronFinsUdpClient
 from .plc.panasonic import (
     PanasonicMcTcpClient,
@@ -63,6 +68,7 @@ __all__ = [
     # ---- 三菱 MC 客户端 ----
     "MelsecMcTcpClient",
     "MelsecMcUdpClient",
+    "MelsecMcSerialClient",
     "MelsecMxClient",
     # ---- 基恩士 KV Host Link / MC 兼容客户端 ----
     "KeyenceHostLinkTcpClient",

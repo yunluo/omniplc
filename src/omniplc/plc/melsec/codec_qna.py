@@ -78,6 +78,66 @@ def device_number(device: str, number: str, base: int) -> int:
         )
 
 
+def build_core(
+    address: McAddress,
+    points: int,
+    is_bit: bool,
+    is_write: bool,
+    data: Optional[List[int]] = None,
+    codes: Optional[Dict[str, Tuple[int, int, int]]] = None,
+) -> bytes:
+    """构造 QnA 兼容核心命令(命令+子命令+软元件+点数+写数据)。
+
+    3E/4E(以太网)与 4C 格式 5(串口二进制)的请求核心完全一致
+    (SH-080008 手册 8.2 节:软元件码/编号/点数三帧同格式),供两处复用。
+
+    :param address: 软元件地址
+    :param points: 访问点数
+    :param is_bit: 是否位单位
+    :param is_write: 是否写操作
+    :param data: 写数据(字单位逐字 0~65535;位单位 0/1 序列,长度 = points)
+    :param codes: 软元件码表(缺省三菱)
+    :return: 核心命令字节(命令 2 + 子命令 2 + 编号 3 + 码 1 + 点数 2 + 写数据)
+    :raises ValueError: 软元件/点数/数据非法
+    """
+    code, is_bit_device, base = device_info(address.device, codes)
+    if is_bit and not is_bit_device:
+        raise ValueError(
+            "字软元件 {} 不支持位单位成批访问,请按字访问后提取位".format(address.device)
+        )
+    _check_points(points, MC_MAX_TRANSFER_POINTS)
+    number = device_number(address.device, address.number, base)
+    if number > 0xFFFFFF:
+        raise ValueError("MC 软元件编号超出 3 字节范围:{}".format(number))
+
+    command = MC_COMMAND_BATCH_WRITE if is_write else MC_COMMAND_BATCH_READ
+    subcommand = MC_SUBCOMMAND_BIT_UNITS if is_bit else MC_SUBCOMMAND_WORD_UNITS
+    core = bytearray(command.to_bytes(2, "big"))
+    core += subcommand.to_bytes(2, "little")
+    core += number.to_bytes(3, "little")
+    core.append(code)
+    core += points.to_bytes(2, "little")
+    if is_write:
+        core += _write_payload(points, is_bit, data or [])
+    return bytes(core)
+
+
+def parse_data(data: bytes, points: int, is_bit: bool) -> List[int]:
+    """解析读响应数据段:位按半字节(高半字节在前),字逐字小端。
+
+    :param data: 响应数据段(长度已由调用方校验)
+    :param points: 请求点数
+    :param is_bit: 是否位单位
+    :return: 逐点数据(位 0/1,字 0~65535)
+    """
+    if is_bit:
+        return [
+            1 if data[index // 2] & (0x10 if index % 2 == 0 else 0x01) else 0
+            for index in range(points)
+        ]
+    return [int.from_bytes(data[i:i + 2], "little") for i in range(0, points * 2, 2)]
+
+
 def build_request(
     frame: str,
     serial: int,
@@ -107,25 +167,7 @@ def build_request(
     :raises ValueError: 帧型/软元件/点数/数据非法
     """
     frame_name = _check_frame(frame)
-    code, is_bit_device, base = device_info(address.device, codes)
-    if is_bit and not is_bit_device:
-        raise ValueError(
-            "字软元件 {} 不支持位单位成批访问,请按字访问后提取位".format(address.device)
-        )
-    _check_points(points, MC_MAX_TRANSFER_POINTS)
-    number = device_number(address.device, address.number, base)
-    if number > 0xFFFFFF:
-        raise ValueError("MC 软元件编号超出 3 字节范围:{}".format(number))
-
-    command = MC_COMMAND_BATCH_WRITE if is_write else MC_COMMAND_BATCH_READ
-    subcommand = MC_SUBCOMMAND_BIT_UNITS if is_bit else MC_SUBCOMMAND_WORD_UNITS
-    core = bytearray(command.to_bytes(2, "big"))
-    core += subcommand.to_bytes(2, "little")
-    core += number.to_bytes(3, "little")
-    core.append(code)
-    core += points.to_bytes(2, "little")
-    if is_write:
-        core += _write_payload(points, is_bit, data or [])
+    core = build_core(address, points, is_bit, is_write, data, codes)
 
     routing = bytearray()
     routing.append(network_number & 0xFF)
@@ -225,12 +267,7 @@ def parse_response(
         raise ProtocolFrameError(
             "MC 响应数据不足:期望 {} 字节,实际 {}".format(expected, len(data))
         )
-    if is_bit:
-        return [
-            1 if data[index // 2] & (0x10 if index % 2 == 0 else 0x01) else 0
-            for index in range(points)
-        ]
-    return [int.from_bytes(data[i:i + 2], "little") for i in range(0, expected, 2)]
+    return parse_data(data, points, is_bit)
 
 
 def _check_frame(frame: str) -> str:

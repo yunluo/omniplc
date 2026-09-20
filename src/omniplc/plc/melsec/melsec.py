@@ -1,13 +1,16 @@
-"""三菱 MELSEC MC 协议客户端(3E/4E/1E 帧 × TCP/UDP 走线)。
+"""三菱 MELSEC MC 协议客户端(3E/4E/1E 帧 × TCP/UDP 走线 + 3C/4C 串口帧)。
 
 类继承::
 
     BaseClient
-    ├── MelsecMcTcpClient   3E/4E/1E 帧 over TCP(默认端口 2000)
-    └── MelsecMcUdpClient   3E/4E/1E 帧 over UDP(默认端口 2000)
+    ├── MelsecMcTcpClient     3E/4E/1E 帧 over TCP(默认端口 2000)
+    ├── MelsecMcUdpClient     3E/4E/1E 帧 over UDP(默认端口 2000)
+    └── MelsecMcSerialClient  3C/4C 帧 over 串口(C24,9600,需 pyserial)
 
-两走线共享同一套帧编解码(:mod:`.codec_qna` 与 :mod:`.codec_a`),
-接收策略按走线区分:TCP 按响应头长度分段收包,UDP 整包接收。
+以太网与串口走线共享同一套软元件码表与核心命令(:mod:`.codec_qna`),
+帧封装按帧型分发:1E → :mod:`.codec_a`,3E/4E → :mod:`.codec_qna`,
+3C/4C → :mod:`.codec_serial`;接收策略按走线区分:TCP 按响应头长度
+分段收包,UDP 整包接收,串口按控制码与长度域逐段收包。
 """
 from __future__ import annotations
 
@@ -15,7 +18,7 @@ import struct
 from abc import abstractmethod
 from typing import List, Optional, Sequence, Tuple, Union
 
-from . import codec_a, codec_qna
+from . import codec_a, codec_qna, codec_serial
 from .address import McAddress, parse_mc_address
 from ... import convert
 from ...core.base_client import BaseClient, validate_endpoint
@@ -30,7 +33,19 @@ from ...core.constants import (
     MC_DEFAULT_PORT,
     MC_MAX_DATAGRAM,
     MC_RESPONSE_HEAD_SIZE,
+    MC_SERIAL_DEFAULT_MODULE_IO,
+    MC_SERIAL_DEFAULT_MODULE_STATION,
+    MC_SERIAL_DEFAULT_NETWORK_NUMBER,
+    MC_SERIAL_DEFAULT_PC_NUMBER,
+    MC_SERIAL_DEFAULT_SELF_STATION,
+    MC_SERIAL_DEFAULT_STATION,
+    MC_SERIAL_FRAME_ID_4C,
+    SERIAL_DEFAULT_BAUD_RATE,
+    SERIAL_DEFAULT_DATA_BITS,
+    SERIAL_DEFAULT_PARITY,
+    SERIAL_DEFAULT_STOP_BITS,
 )
+from ...core.errors import ProtocolFrameError
 from ...core.validation import (
     check_int16,
     check_uint16,
@@ -38,12 +53,22 @@ from ...core.validation import (
     require_float,
     require_int,
 )
-from ...transport import BaseTransport, TcpTransport, UdpTransport
-from ...types import DataType, McFrame, PrimitiveValue
+from ...transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport, UdpTransport
+from ...types import DataType, McFrame, PrimitiveValue, SerialParity
 
 
 class _MelsecMcBase(BaseClient):
-    """MC 客户端公共基类:帧型/序列号管理与软元件地址分发(私有)。"""
+    """MC 客户端公共基类:帧型/序列号管理与软元件地址分发(私有)。
+
+    各走线子类通过 ``_SUPPORTED_FRAMES`` 声明可用帧型,跨走线使用帧型
+    在构造时报错(如 TCP 走线传 3C 帧、串口走线传 3E 帧)。
+    """
+
+    _SUPPORTED_FRAMES: Tuple[McFrame, ...] = (
+        McFrame.FRAME_3E,
+        McFrame.FRAME_4E,
+        McFrame.FRAME_1E,
+    )
 
     def __init__(
         self,
@@ -66,7 +91,23 @@ class _MelsecMcBase(BaseClient):
         """
         validate_endpoint(ip_address, port)
         super().__init__(ip_address, port)
+        self._init_frame(frame, network_number, pc_number)
+
+    def _init_frame(
+        self,
+        frame: Union[McFrame, str],
+        network_number: int,
+        pc_number: int,
+    ) -> None:
+        """校验并登记帧型与网络路由参数(串口走线复用,内部方法)。"""
         self._frame = _coerce_frame(frame)
+        if self._frame not in self._SUPPORTED_FRAMES:
+            supported = "/".join(member.value for member in self._SUPPORTED_FRAMES)
+            raise ValueError(
+                "{} 不支持帧型 {},支持:{}".format(
+                    type(self).__name__, self._frame.value, supported
+                )
+            )
         self._network_number = int(network_number)
         self._pc_number = int(pc_number)
         self._serial = 0
@@ -303,6 +344,231 @@ class MelsecMcUdpClient(_MelsecMcBase):
 
     def _create_transport(self) -> BaseTransport:
         return UdpTransport(self._ip_address, self._port)
+
+
+class MelsecMcSerialClient(_MelsecMcBase):
+    """三菱 MC 客户端(串口走线,C24 等串口通信模块,需要 pyserial)。
+
+    - ``McFrame.FRAME_3C``:QnA 兼容 3C 帧,ASCII 通信格式 4(默认)
+    - ``McFrame.FRAME_4C``:QnA 扩展 4C 帧,二进制通信格式 5
+
+    串口参数须在连接前配置(与 :class:`~omniplc.modbus.ModbusRtuClient`
+    一致的 ``configure_serial`` 惯例);波特率/校验位等须与 C24 侧
+    "传送设定" 一致。
+
+    :example::
+
+        client = MelsecMcSerialClient(frame=McFrame.FRAME_4C)
+        client.configure_serial("COM3", 9600)
+        client.connect()
+    """
+
+    _SUPPORTED_FRAMES: Tuple[McFrame, ...] = (McFrame.FRAME_3C, McFrame.FRAME_4C)
+
+    def __init__(
+        self,
+        frame: Union[McFrame, str] = McFrame.FRAME_3C,
+        station_number: int = MC_SERIAL_DEFAULT_STATION,
+        network_number: int = MC_SERIAL_DEFAULT_NETWORK_NUMBER,
+        pc_number: int = MC_SERIAL_DEFAULT_PC_NUMBER,
+        self_station_number: int = MC_SERIAL_DEFAULT_SELF_STATION,
+        module_io: int = MC_SERIAL_DEFAULT_MODULE_IO,
+        module_station: int = MC_SERIAL_DEFAULT_MODULE_STATION,
+    ) -> None:
+        """初始化 MC 串口客户端(默认访问连接站 CPU)。
+
+        :param frame: 帧型,``McFrame.FRAME_3C``(ASCII 格式 4)或
+            ``McFrame.FRAME_4C``(二进制格式 5);也兼容 ``"3C"``/``"4C"`` 字符串
+        :param station_number: 站号 0~31(0 = 连接站/主机站)
+        :param network_number: 网络编号(0 = 本网络)
+        :param pc_number: PC 编号(0~3 或 0xFF;0xFF = 连接站 CPU)
+        :param self_station_number: 本站号(m:n 多点连接时外部设备自身站号)
+        :param module_io: 请求目标模块 I/O 编号(4C 帧使用,CPU 直连 0x03FF)
+        :param module_station: 请求目标模块局号(4C 帧使用,CPU 直连 0)
+        :raises ValueError: 参数非法
+        """
+        BaseClient.__init__(self, "", 0)
+        self._init_frame(frame, network_number, pc_number)
+        self._pc_number = codec_serial.check_pc_number(pc_number)
+        self._station_number = codec_serial.check_station_number(station_number)
+        self._self_station_number = codec_serial.check_byte_field(
+            "本站号", self_station_number
+        )
+        self._module_io = codec_serial.check_byte_field(
+            "目标模块 I/O 编号", module_io, 0xFFFF
+        )
+        self._module_station = codec_serial.check_byte_field(
+            "目标模块局号", module_station
+        )
+        self._serial_config: Optional[SerialConfig] = None
+
+    @property
+    def station_number(self) -> int:
+        """当前站号。"""
+        return self._station_number
+
+    @property
+    def pc_number(self) -> int:
+        """当前 PC 编号。"""
+        return self._pc_number
+
+    @property
+    def module_io(self) -> int:
+        """请求目标模块 I/O 编号(仅 4C 帧)。"""
+        return self._module_io
+
+    def configure_serial(
+        self,
+        port_name: str,
+        baud_rate: int = SERIAL_DEFAULT_BAUD_RATE,
+        data_bits: int = SERIAL_DEFAULT_DATA_BITS,
+        stop_bits: float = SERIAL_DEFAULT_STOP_BITS,
+        parity: Union[SerialParity, str] = SERIAL_DEFAULT_PARITY,
+    ) -> None:
+        """配置串口参数(必须在 connect 之前调用)。
+
+        :param port_name: 串口名,如 ``"COM3"``(Windows)或 ``"/dev/ttyS0"``
+        :param baud_rate: 波特率,默认 9600(须与 C24 传送设定一致)
+        :param data_bits: 数据位 5~8,默认 8
+        :param stop_bits: 停止位 1/1.5/2,默认 1
+        :param parity: 校验位,推荐 :class:`omniplc.types.SerialParity` 枚举,
+            也兼容 ``"N"``/``"E"``/``"O"`` 字符串
+        :raises ValueError: 参数非法
+        """
+        self._serial_config = SerialConfig(
+            port_name=port_name,
+            baud_rate=baud_rate,
+            data_bits=data_bits,
+            stop_bits=stop_bits,
+            parity=parity,
+        )
+
+    def _create_transport(self) -> BaseTransport:
+        if self._serial_config is None:
+            raise ValueError("请先调用 configure_serial() 配置串口参数")
+        return SerialTransport(self._serial_config)
+
+    def _build_frame(
+        self,
+        parsed: McAddress,
+        points: int,
+        is_bit: bool,
+        is_write: bool,
+        data: Optional[List[int]] = None,
+    ) -> bytes:
+        """按 3C/4C 帧型构造完整请求帧(内部方法)。"""
+        if self._frame is McFrame.FRAME_3C:
+            return codec_serial.build_3c_request(
+                self._station_number,
+                self._network_number,
+                self._pc_number,
+                self._self_station_number,
+                parsed,
+                points,
+                is_bit,
+                is_write,
+                data,
+            )
+        return codec_serial.build_4c_request(
+            self._station_number,
+            self._network_number,
+            self._pc_number,
+            self._module_io,
+            self._module_station,
+            self._self_station_number,
+            parsed,
+            points,
+            is_bit,
+            is_write,
+            data,
+        )
+
+    def _parse_read(self, response: bytes, points: int, is_bit: bool) -> List[int]:
+        """按当前串口帧型解析读响应(内部方法)。"""
+        return self._parse_serial(response, points, is_bit, is_read=True)
+
+    def _parse_write(self, response: bytes) -> None:
+        """按当前串口帧型校验写响应(错误代码非 0 抛 DeviceError,内部方法)。"""
+        self._parse_serial(response, 0, False, is_read=False)
+
+    def _parse_serial(
+        self, response: bytes, points: int, is_bit: bool, is_read: bool
+    ) -> List[int]:
+        """串口帧响应解析分发(内部方法)。"""
+        if self._frame is McFrame.FRAME_3C:
+            return codec_serial.parse_3c_response(response, points, is_bit, is_read)
+        return codec_serial.parse_4c_response(response, points, is_bit, is_read)
+
+    def _read_tail_size(self, points: int, is_bit: bool) -> int:
+        """3C 读响应 ETX 之前的数据字符数(4C 由长度域决定,传 0)。"""
+        if self._frame is McFrame.FRAME_3C:
+            return points if is_bit else points * 4
+        return 0
+
+    def _transact(self, request: bytes, tail_size: int = 0) -> bytes:
+        """发送请求并按串口帧格式接收完整响应(内部方法)。
+
+        3C:首字节分流控制码——STX 收正文+ETX+和校验+CR LF,
+        ACK 收帧识别码+路由+CR LF,NAK 另加错误代码;
+        4C:DLE STX 起始,按长度域(处理附加码)收正文至 DLE ETX+和校验,
+        并重组为未填充的逻辑帧交解析层。
+        """
+        transport = self._require_transport()
+        transport.send(request)
+        if self._frame is McFrame.FRAME_4C:
+            return self._transact_4c(transport)
+        return self._transact_3c(transport, tail_size)
+
+    def _transact_3c(self, transport: BaseTransport, tail_size: int) -> bytes:
+        """3C 收包:控制码分流(内部方法)。"""
+        head = transport.recv(1)
+        code = head[0]
+        if code == codec_serial.STX:
+            # 帧识别码(2) + 路由回显(8) + 数据 + ETX(1) + 和校验(2) + CR LF(2)
+            return head + transport.recv(10 + tail_size + 5)
+        if code == codec_serial.ACK:
+            return head + transport.recv(12)
+        if code == codec_serial.NAK:
+            return head + transport.recv(16)
+        raise ProtocolFrameError("3C 响应控制码非法:0x{:02X}".format(code))
+
+    def _transact_4c(self, transport: BaseTransport) -> bytes:
+        """4C 收包:长度域 + 附加码还原,重组逻辑帧(内部方法)。"""
+        head = transport.recv(2)
+        if head != bytes([codec_serial.DLE, codec_serial.STX]):
+            raise ProtocolFrameError(
+                "4C 响应必须以 DLE STX 开头:0x{:02X} 0x{:02X}".format(head[0], head[1])
+            )
+        first = transport.recv(1)[0]
+        if first == codec_serial.DLE:
+            first = transport.recv(1)[0]
+        second = transport.recv(1)[0]
+        if second == codec_serial.DLE:
+            second = transport.recv(1)[0]
+        length = first | second << 8
+        if length < 12:
+            raise ProtocolFrameError(
+                "4C 应答数据长非法(至少含帧识别码+路由+应答识别码+结束代码):{}".format(
+                    length
+                )
+            )
+        frame_id = transport.recv(1)
+        if frame_id[0] != MC_SERIAL_FRAME_ID_4C:
+            raise ProtocolFrameError(
+                "4C 帧识别码不符:期望 F8H,收到 0x{:02X}".format(frame_id[0])
+            )
+        body = bytearray()
+        while len(body) < length - 1:
+            raw = transport.recv(1)[0]
+            if raw == codec_serial.DLE:
+                following = transport.recv(1)[0]
+                if following != codec_serial.DLE:
+                    raise ProtocolFrameError(
+                        "4C 附加码之后必须是 10H,收到 0x{:02X}".format(following)
+                    )
+            body.append(raw)
+        trailer = transport.recv(4)
+        return length.to_bytes(2, "little") + frame_id + bytes(body) + trailer
 
 
 # ----------------------------------------------------------------------

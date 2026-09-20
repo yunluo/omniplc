@@ -155,6 +155,26 @@ MC_1E_DEVICE_CODES: Dict[str, Tuple[int, int, int]] = {
 }
 """1E 软元件码表:软元件 → (两字节码, 位软元件?, 地址进制)。来源 ``MelsecA1EDataType``。"""
 
+# ---------------------------------------------------------------- 三菱 MC 串口帧(3C/4C)
+MC_SERIAL_FRAME_ID_3C: int = 0xF9
+"""3C 帧(QnA 兼容 ASCII)帧识别码,报文中两字符 ``"F9"``(SH-080008 4.3 节)。"""
+MC_SERIAL_FRAME_ID_4C: int = 0xF8
+"""4C 帧(QnA 扩展二进制)帧识别码,报文中单字节 F8H(同上;格式 5 专属帧型)。"""
+MC_SERIAL_STATION_MAX: int = 0x1F
+"""站号上限:0~31(00H~1FH,多点连接访问目标站;连接站固定 0)。"""
+MC_SERIAL_DEFAULT_STATION: int = 0
+"""默认站号(0 = 连接站/主机站)。"""
+MC_SERIAL_DEFAULT_NETWORK_NUMBER: int = 0
+"""默认网络编号(0 = 本网络)。"""
+MC_SERIAL_DEFAULT_PC_NUMBER: int = 0xFF
+"""默认 PC 编号(FFH = 连接站 CPU;串口帧可选 00~03/FF)。"""
+MC_SERIAL_DEFAULT_SELF_STATION: int = 0
+"""默认本站号(m:n 多点连接时外部设备自身站号;直连为 0)。"""
+MC_SERIAL_DEFAULT_MODULE_IO: int = 0x03FF
+"""4C 帧请求目标模块 I/O 编号默认值(CPU 直连 03FF,报文小端 FF 03)。"""
+MC_SERIAL_DEFAULT_MODULE_STATION: int = 0
+"""4C 帧请求目标模块局号默认值(CPU 直连恒为 0)。"""
+
 # ---------------------------------------------------------------- 基恩士 MC 协议兼容
 KEYENCE_MC_DEFAULT_PORT: int = 5000
 """基恩士 KV 系列 MC 协议兼容(SLMP)默认 TCP 端口(以太网单元设置默认值)。"""

@@ -24,6 +24,12 @@ from ..core.constants import (
     MC_DEFAULT_NETWORK_NUMBER,
     MC_DEFAULT_PC_NUMBER,
     MC_DEFAULT_PORT,
+    MC_SERIAL_DEFAULT_MODULE_IO,
+    MC_SERIAL_DEFAULT_MODULE_STATION,
+    MC_SERIAL_DEFAULT_NETWORK_NUMBER,
+    MC_SERIAL_DEFAULT_PC_NUMBER,
+    MC_SERIAL_DEFAULT_SELF_STATION,
+    MC_SERIAL_DEFAULT_STATION,
     MEWTOCOL_DEFAULT_PORT,
     MEWTOCOL_DEFAULT_STATION,
     MODBUS_DEFAULT_PORT,
@@ -54,7 +60,12 @@ from ..plc.keyence import (
     KeyenceHostLinkUdpClient,
     KeyenceMcTcpClient,
 )
-from ..plc.melsec import MelsecMcTcpClient, MelsecMcUdpClient, MelsecMxClient
+from ..plc.melsec import (
+    MelsecMcSerialClient,
+    MelsecMcTcpClient,
+    MelsecMcUdpClient,
+    MelsecMxClient,
+)
 from ..plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
 from ..scanner import KeyenceSrClient
 from ..plc.omron import OmronFinsTcpClient, OmronFinsUdpClient
@@ -537,6 +548,70 @@ class AMelsecMcUdpClient(ABaseClient):
         if isinstance(sync, MelsecMcUdpClient):
             return sync.frame
         raise TypeError("内部错误")
+
+
+class AMelsecMcSerialClient(ABaseClient):
+    """三菱 MC 异步客户端(串口,3C/4C 帧,需 pyserial)。
+
+    串口参数需在 connect 前配置::
+
+        client = AMelsecMcSerialClient(frame=McFrame.FRAME_4C)
+        client.configure_serial("COM3", 9600)
+        await client.connect()
+    """
+
+    def __init__(
+        self,
+        frame: Union[McFrame, str] = McFrame.FRAME_3C,
+        station_number: int = MC_SERIAL_DEFAULT_STATION,
+        network_number: int = MC_SERIAL_DEFAULT_NETWORK_NUMBER,
+        pc_number: int = MC_SERIAL_DEFAULT_PC_NUMBER,
+        self_station_number: int = MC_SERIAL_DEFAULT_SELF_STATION,
+        module_io: int = MC_SERIAL_DEFAULT_MODULE_IO,
+        module_station: int = MC_SERIAL_DEFAULT_MODULE_STATION,
+    ) -> None:
+        """参数同 :class:`omniplc.plc.melsec.MelsecMcSerialClient`。"""
+        super().__init__(
+            MelsecMcSerialClient(
+                frame,
+                station_number,
+                network_number,
+                pc_number,
+                self_station_number,
+                module_io,
+                module_station,
+            )
+        )
+
+    def configure_serial(
+        self,
+        port_name: str,
+        baud_rate: int = SERIAL_DEFAULT_BAUD_RATE,
+        data_bits: int = SERIAL_DEFAULT_DATA_BITS,
+        stop_bits: float = SERIAL_DEFAULT_STOP_BITS,
+        parity: Union[SerialParity, str] = SERIAL_DEFAULT_PARITY,
+    ) -> None:
+        """配置串口参数(转发到同步实例,推荐 :class:`~omniplc.types.SerialParity` 枚举)。"""
+        sync = self._sync
+        if not isinstance(sync, MelsecMcSerialClient):
+            raise TypeError("内部错误:sync 实例不是 MelsecMcSerialClient")
+        sync.configure_serial(port_name, baud_rate, data_bits, stop_bits, parity)
+
+    @property
+    def frame(self) -> McFrame:
+        """当前帧型(:class:`omniplc.types.McFrame` 枚举)。"""
+        sync = self._sync
+        if isinstance(sync, MelsecMcSerialClient):
+            return sync.frame
+        raise TypeError("内部错误")
+
+    @property
+    def station_number(self) -> int:
+        """当前站号(转发同步实例)。"""
+        sync = self._sync
+        if not isinstance(sync, MelsecMcSerialClient):
+            raise TypeError("内部错误:sync 实例不是 MelsecMcSerialClient")
+        return sync.station_number
 
 
 class AKeyenceMcTcpClient(ABaseClient):

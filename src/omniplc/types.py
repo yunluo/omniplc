@@ -113,10 +113,14 @@ class SerialParity(Enum):
 class McFrame(Enum):
     """三菱 MC 协议帧型。
 
-    - ``FRAME_3E``/``FRAME_4E``:QnA 兼容帧(Q/L/R/iQ-R/iQ-F 系列)
-    - ``FRAME_1E``:A 兼容帧(A 系列)
+    - ``FRAME_3E``/``FRAME_4E``:QnA 兼容帧(Q/L/R/iQ-R/iQ-F 系列,以太网)
+    - ``FRAME_1E``:A 兼容帧(A 系列,以太网)
+    - ``FRAME_3C``/``FRAME_4C``:QnA 兼容串口帧(C24 串口模块;
+      3C 为 ASCII 帧(格式 4),4C 为二进制帧(格式 5),仅 :class:`~omniplc.plc.melsec.MelsecMcSerialClient` 使用)
     """
 
     FRAME_3E = "3E"
     FRAME_4E = "4E"
     FRAME_1E = "1E"
+    FRAME_3C = "3C"
+    FRAME_4C = "4C"

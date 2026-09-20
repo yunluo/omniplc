@@ -1,7 +1,7 @@
 # omniplc
 
 #### 介绍
-omniplc —— 一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、汇川、松下、丰田等 PLC/扫码枪与 OPC-UA 服务器,支持 Modbus、MC(3E/4E/1E)、FINS、KV Host Link、KV MC 协议兼容(SLMP)、汇川 H3U/H5U(Modbus TCP/RTU、MC 协议兼容 3E)、松下 FP(MC 协议兼容 3E、MEWTOCOL)、SR、TOYOPUC 计算机链接、OPC-UA 等协议。
+omniplc —— 一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、汇川、松下、丰田等 PLC/扫码枪与 OPC-UA 服务器,支持 Modbus、MC(3E/4E/1E 以太网帧、3C/4C 串口帧)、FINS、KV Host Link、KV MC 协议兼容(SLMP)、汇川 H3U/H5U(Modbus TCP/RTU、MC 协议兼容 3E)、松下 FP(MC 协议兼容 3E、MEWTOCOL)、SR、TOYOPUC 计算机链接、OPC-UA 等协议。
 
 - **Python 3.7+**,uv 开发,核心零第三方依赖
 - 命名与使用习惯对齐 pyhsl,迁移成本极低
@@ -23,6 +23,7 @@ flowchart TB
 
     MelsecMcTcpClient["MelsecMcTcpClient — 三菱 MC 3E/4E/1E 帧 over TCP(2000)"]
     MelsecMcUdpClient["MelsecMcUdpClient — 三菱 MC 同帧型 over UDP(2000)"]
+    MelsecMcSerialClient["MelsecMcSerialClient — 三菱 MC 串口帧(C24)<br/>3C 帧 ASCII 格式 4 / 4C 帧 二进制格式 5,需 pyserial"]
     MelsecMxClient["MelsecMxClient — 三菱 MX Component(Windows,comtypes,逻辑站号)"]
     KeyenceMcTcpClient["KeyenceMcTcpClient — 基恩士 KV MC 协议兼容 / SLMP 3E 帧(5000)<br/>继承 MelsecMcTcpClient,只换软元件码表"]
     InovanceMcTcpClient["InovanceMcTcpClient — 汇川 MC 协议兼容 3E 帧<br/>继承 MelsecMcTcpClient,换码表 + 记号换算(S→L 码、R=D+8000、X/Y 八进制)"]
@@ -50,6 +51,7 @@ flowchart TB
     ModbusBaseClient --> InovanceRtuClient
     BaseClient --> MelsecMcTcpClient
     BaseClient --> MelsecMcUdpClient
+    BaseClient --> MelsecMcSerialClient
     BaseClient --> MelsecMxClient
     MelsecMcTcpClient --> KeyenceMcTcpClient
     MelsecMcTcpClient --> InovanceMcTcpClient
@@ -65,7 +67,7 @@ flowchart TB
     BaseClient --> ToyopucUdpClient
     BaseClient --> OpcUaClient
 
-    AsyncMirror["异步镜像(omniplc.aio,类名 = 同步类名前加 A):<br/>AModbusTcpClient / AModbusRtuClient / AInovanceTcpClient / AInovanceRtuClient / AInovanceMcTcpClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMxClient / AOmronFinsTcpClient<br/>AOmronFinsUdpClient / AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient<br/>APanasonicMcTcpClient / APanasonicMewtocolTcpClient / APanasonicMewtocolUdpClient<br/>AKeyenceSrClient / AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient"]
+    AsyncMirror["异步镜像(omniplc.aio,类名 = 同步类名前加 A):<br/>AModbusTcpClient / AModbusRtuClient / AInovanceTcpClient / AInovanceRtuClient / AInovanceMcTcpClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient / AOmronFinsTcpClient<br/>AOmronFinsUdpClient / AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient<br/>APanasonicMcTcpClient / APanasonicMewtocolTcpClient / APanasonicMewtocolUdpClient<br/>AKeyenceSrClient / AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient"]
     BaseClient -.-> AsyncMirror
 ```
 
@@ -75,7 +77,7 @@ flowchart TB
 
 ```bash
 uv add omniplc            # 或 pip install omniplc
-uv add 'omniplc[serial]'  # 需要 Modbus RTU(串口)时
+uv add 'omniplc[serial]'  # 需要 Modbus RTU 或三菱 MC 串口 3C/4C 帧时(pyserial)
 uv add 'omniplc[mx]'      # 需要三菱 MX Component(Windows)时
 uv add 'omniplc[opcua]'   # 需要 OPC-UA 时(安装 asyncua)
 ```
@@ -118,6 +120,15 @@ from omniplc import MelsecMcTcpClient, OmronFinsUdpClient, McFrame
 
 # 三菱 MC:frame=McFrame.FRAME_3E/FRAME_4E(QnA 兼容)或 FRAME_1E(A 兼容,A 系列)
 mc = MelsecMcTcpClient(ip_address="192.168.3.39", port=2000, frame=McFrame.FRAME_3E)
+
+# 三菱 MC 串口帧(C24 串口模块,需 pyserial):3C=ASCII 格式 4,4C=二进制格式 5
+# 软元件地址与 3E 帧一致;串口参数须与 C24"传送设定"一致,默认访问连接站 CPU(PC 号 FF)
+from omniplc import MelsecMcSerialClient
+mc_sio = MelsecMcSerialClient(frame=McFrame.FRAME_4C)
+mc_sio.configure_serial("COM3", baud_rate=9600)
+mc_sio.connect()
+ok, value = mc_sio.read_ushort("D100")
+ok = mc_sio.write_bool("M100", True)
 
 # 三菱 MX Component(Windows):通信参数在通信设置实用程序中配置为逻辑站号
 # 安装:pip install 'omniplc[mx]'
@@ -222,7 +233,7 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 | 协议             | TCP | UDP | RTU(串口)       | MX Component        |
 |------------------|-----|-----|-----------------|---------------------|
 | Modbus(含 FC22 掩码写) | ✅  | —   | ✅(广播写)     | —                   |
-| 三菱 MC 3E/4E/1E | ✅  | ✅  | v1.x(2C/3C/4C)  | ✅(Windows + COM)  |
+| 三菱 MC 3E/4E/1E | ✅  | ✅  | ✅(3C/4C 串口帧) | ✅(Windows + COM)  |
 | 欧姆龙 FINS      | ✅  | ✅  | v1.x(Host Link) | —                   |
 | 基恩士 KV Host Link | ✅ | ✅ | —               | —                   |
 | 基恩士 KV MC 协议兼容(SLMP 3E) | ✅(5000) | — | — | —              |
@@ -248,9 +259,10 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 - **v0.10**:基恩士 KV MC 协议兼容(SLMP 3E 帧,继承 MelsecMcTcpClient 换码表)
 - **v0.11**:汇川 H3U/H5U(Modbus TCP/RTU,继承 Modbus 客户端换汇川地址映射)
 - **v0.12**:汇川 MC 协议兼容(3E 帧,继承 MelsecMcTcpClient;S→L 码、R=D+8000 统一编址、X/Y 八进制换算)
-- **v0.13(当前)**:松下 FP0H/FP7 MC 协议兼容(3E 帧)+ MEWTOCOL(TCP/UDP,1024;RCS/WCS/RD/WD,BCC 校验)
+- **v0.13**:松下 FP0H/FP7 MC 协议兼容(3E 帧)+ MEWTOCOL(TCP/UDP,1024;RCS/WCS/RD/WD,BCC 校验)
+- **v0.14(当前)**:三菱 MC 串口帧(C24;3C 帧 ASCII 格式 4 / 4C 帧二进制格式 5,帧格式按 SH-080008 Appendix 7 逐字节核证)
 - **v1.0**:点位表完善 + 示例 + 文档,正式发布
-- **v1.x**:MC 串口帧、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池
+- **v1.x**:MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池
 - **v2**:西门子 S7(驱动插槽已预留)
 
 #### 开发
