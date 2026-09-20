@@ -664,6 +664,16 @@ AB_CIP_STATUS_TEXT: dict = {
 }
 """CIP 通用状态码 → 可读描述(last_error 用;未收录的提示十六进制原文)。"""
 
+# ---------------------------------------------------------------- 通用自定义 TCP
+OPEN_TCP_DEFAULT_PORT: int = 9000
+"""OpenTcpClient 默认端口(自定义设备无统一标准,仅占位,按现场配置)。"""
+OPEN_TCP_DEFAULT_DELIMITER: str = "\r\n"
+"""OpenTcpClient 默认帧分隔符(CR LF,行式协议最常见的应答结尾)。"""
+OPEN_TCP_MAX_FRAME: int = 4096
+"""OpenTcpClient 帧内容字节上限(不含分隔符;超限未见到分隔符按坏帧断线惰性重连)。"""
+OPEN_TCP_RECV_CHUNK: int = 256
+"""OpenTcpClient 接收缓冲单次读取字节数(内部实现参数)。"""
+
 # ---------------------------------------------------------------- 通用
 BIT_INDEX_MAX: int = 63
 """位操作工具允许的最大位号。"""

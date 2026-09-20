@@ -38,6 +38,9 @@ from ..core.constants import (
     MODBUS_DEFAULT_STATION,
     MX_DEFAULT_LOGICAL_STATION,
     OPCUA_DEFAULT_PORT,
+    OPEN_TCP_DEFAULT_DELIMITER,
+    OPEN_TCP_DEFAULT_PORT,
+    OPEN_TCP_MAX_FRAME,
     PANASONIC_MC_DEFAULT_PORT,
     READ_STRING_DEFAULT_LENGTH,
     SR_DEFAULT_PORT,
@@ -50,6 +53,7 @@ from ..core.constants import (
 )
 from ..modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from ..modbus.modbus import _coerce_word_order
+from ..opentcp import OpenTcpClient
 from ..plc.ab import AllenBradleyEthIpClient
 from ..plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
 from ..opcua import OpcUaClient
@@ -873,6 +877,97 @@ class AOmronCipClient(ABaseClient):
         if not isinstance(sync, OmronCipClient):
             raise TypeError("内部错误:sync 实例不是 OmronCipClient")
         return sync.connection_size
+
+
+class AOpenTcpClient(ABaseClient):
+    """通用自定义 TCP/IP 异步客户端(分隔符成帧,收发行为可配)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        port: int = OPEN_TCP_DEFAULT_PORT,
+        delimiter: Union[str, bytes] = OPEN_TCP_DEFAULT_DELIMITER,
+        encoding: str = "utf-8",
+        append_delimiter: bool = True,
+        strip_delimiter: bool = True,
+        max_frame: int = OPEN_TCP_MAX_FRAME,
+    ) -> None:
+        """参数同 :class:`omniplc.opentcp.OpenTcpClient`。"""
+        super().__init__(
+            OpenTcpClient(
+                ip_address,
+                port,
+                delimiter,
+                encoding,
+                append_delimiter,
+                strip_delimiter,
+                max_frame,
+            )
+        )
+
+    def _client(self) -> OpenTcpClient:
+        """取通用 TCP 同步实例(内部属性)。"""
+        sync = self._sync
+        if not isinstance(sync, OpenTcpClient):
+            raise TypeError("内部错误:sync 实例不是 OpenTcpClient")
+        return sync
+
+    async def send(self, data: bytes) -> bool:
+        """原样发送字节(语义同同步版 :meth:`OpenTcpClient.send`)。"""
+        return await self._run(lambda: self._client().send(data))
+
+    async def send_text(self, text: str) -> bool:
+        """编码发送文本(可自动补分隔符)。"""
+        return await self._run(lambda: self._client().send_text(text))
+
+    async def receive(
+        self, timeout: Optional[float] = None
+    ) -> Tuple[bool, Optional[bytes]]:
+        """按分隔符收一帧(bytes)。"""
+        return await self._run(lambda: self._client().receive(timeout))
+
+    async def receive_text(
+        self, timeout: Optional[float] = None
+    ) -> Tuple[bool, Optional[str]]:
+        """收一帧并解码为文本。"""
+        return await self._run(lambda: self._client().receive_text(timeout))
+
+    async def transact(
+        self, data: bytes, timeout: Optional[float] = None
+    ) -> Tuple[bool, Optional[bytes]]:
+        """发送字节并收一帧应答。"""
+        return await self._run(lambda: self._client().transact(data, timeout))
+
+    async def transact_text(
+        self, text: str, timeout: Optional[float] = None
+    ) -> Tuple[bool, Optional[str]]:
+        """发送文本并收一帧应答解码为文本。"""
+        return await self._run(lambda: self._client().transact_text(text, timeout))
+
+    @property
+    def delimiter(self) -> bytes:
+        """帧分隔符(转发同步实例)。"""
+        return self._client().delimiter
+
+    @property
+    def encoding(self) -> str:
+        """文本收发的字符编码(转发同步实例)。"""
+        return self._client().encoding
+
+    @property
+    def append_delimiter(self) -> bool:
+        """发送文本时是否自动补分隔符(转发同步实例)。"""
+        return self._client().append_delimiter
+
+    @property
+    def strip_delimiter(self) -> bool:
+        """收帧返回时是否去掉末尾分隔符(转发同步实例)。"""
+        return self._client().strip_delimiter
+
+    @property
+    def max_frame(self) -> int:
+        """帧内容字节上限(转发同步实例)。"""
+        return self._client().max_frame
 
 
 class AAllenBradleyEthIpClient(ABaseClient):

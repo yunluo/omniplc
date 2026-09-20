@@ -10,6 +10,7 @@ KV Host Link over TCP/UDP、KV MC 协议兼容(SLMP 3E)、
 汇川 Modbus TCP/RTU 与 MC 协议兼容(3E)、
 松下 MC 协议兼容(3E)与 MEWTOCOL(TCP/UDP)、
 SR 扫码枪、TOYOPUC 计算机链接 over TCP/UDP、EtherNet/IP(Logix 标签读写)、
+通用自定义 TCP(分隔符成帧,收发行为可配)、
 OPC-UA(封装 asyncua,opc.tcp 会话)。
 
 同步客户端::
@@ -54,6 +55,7 @@ from .plc.keyence import (
 )
 from .plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
 from .plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
+from .opentcp import OpenTcpClient
 from .scanner import KeyenceSrClient
 from .tag import Tag, TagTable
 from .transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport, UdpTransport
@@ -99,6 +101,8 @@ __all__ = [
     "ToyopucUdpClient",
     # ---- 罗克韦尔 AB EtherNet/IP 客户端 ----
     "AllenBradleyEthIpClient",
+    # ---- 通用自定义 TCP 客户端 ----
+    "OpenTcpClient",
     # ---- OPC-UA 客户端 ----
     "OpcUaClient",
     # ---- 传输层 ----

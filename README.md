@@ -1,7 +1,7 @@
 # omniplc
 
 #### 介绍
-omniplc —— 一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、汇川、松下、丰田、罗克韦尔(AB)等 PLC/扫码枪与 OPC-UA 服务器,支持 Modbus、MC(3E/4E/1E 以太网帧、3C/4C 串口帧)、FINS、NJ/NX CIP(EtherNet/IP)、KV Host Link、KV MC 协议兼容(SLMP)、汇川 H3U/H5U(Modbus TCP/RTU、MC 协议兼容 3E)、松下 FP(MC 协议兼容 3E、MEWTOCOL)、SR、TOYOPUC 计算机链接、EtherNet/IP(Logix 标签读写)、OPC-UA 等协议。
+omniplc —— 一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、汇川、松下、丰田、罗克韦尔(AB)等 PLC/扫码枪与 OPC-UA 服务器,支持 Modbus、MC(3E/4E/1E 以太网帧、3C/4C 串口帧)、FINS、NJ/NX CIP(EtherNet/IP)、KV Host Link、KV MC 协议兼容(SLMP)、汇川 H3U/H5U(Modbus TCP/RTU、MC 协议兼容 3E)、松下 FP(MC 协议兼容 3E、MEWTOCOL)、SR、TOYOPUC 计算机链接、EtherNet/IP(Logix 标签读写)、通用自定义 TCP(分隔符成帧)、OPC-UA 等协议。
 
 - **Python 3.7+**,uv 开发,核心零第三方依赖
 - 命名与使用习惯对齐 pyhsl,迁移成本极低
@@ -49,6 +49,8 @@ flowchart TB
 
     OpcUaClient["OpcUaClient — OPC-UA opc.tcp 会话(4840,封装 asyncua)"]
 
+    OpenTcpClient["OpenTcpClient — 通用自定义 TCP/IP 客户端(端口按设备)<br/>分隔符成帧 + 内部缓冲,重连/超时沿用 BaseClient 属性<br/>send/send_text/receive/receive_text/transact*"]
+
     BaseClient --> ModbusBaseClient
     ModbusBaseClient --> ModbusTcpClient
     ModbusBaseClient --> ModbusRtuClient
@@ -74,8 +76,9 @@ flowchart TB
     BaseClient --> ToyopucTcpClient
     BaseClient --> ToyopucUdpClient
     BaseClient --> OpcUaClient
+    BaseClient --> OpenTcpClient
 
-    AsyncMirror["异步镜像(omniplc.aio,类名 = 同步类名前加 A):<br/>AModbusTcpClient / AModbusRtuClient / AInovanceTcpClient / AInovanceRtuClient / AInovanceMcTcpClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient / AOmronFinsTcpClient<br/>AOmronFinsUdpClient / AOmronCipClient / AAllenBradleyEthIpClient / AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient<br/>APanasonicMcTcpClient / APanasonicMewtocolTcpClient / APanasonicMewtocolUdpClient<br/>AKeyenceSrClient / AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient"]
+    AsyncMirror["异步镜像(omniplc.aio,类名 = 同步类名前加 A):<br/>AModbusTcpClient / AModbusRtuClient / AInovanceTcpClient / AInovanceRtuClient / AInovanceMcTcpClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient / AOmronFinsTcpClient<br/>AOmronFinsUdpClient / AOmronCipClient / AAllenBradleyEthIpClient / AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient<br/>APanasonicMcTcpClient / APanasonicMewtocolTcpClient / APanasonicMewtocolUdpClient<br/>AKeyenceSrClient / AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient / AOpenTcpClient"]
     BaseClient -.-> AsyncMirror
 ```
 
@@ -223,6 +226,16 @@ from omniplc import OpcUaClient
 opc = OpcUaClient("192.168.0.10", 4840)
 ok, value = opc.read_float("ns=2;s=Device.Temperature")
 ok = opc.write_ushort("ns=2;s=Device.Speed", 1200)
+
+# 通用自定义 TCP:任意分隔符成帧设备(称重仪表、传感器、自定义程序等)
+# 分隔符/编码/收发行为构造期可配;超时与重连沿用属性(client.receive_timeout / client.retries)
+from omniplc import OpenTcpClient
+dev = OpenTcpClient(ip_address="192.168.0.10", port=9000, delimiter="\r\n")
+dev.receive_timeout = 2.0
+dev.connect()
+ok = dev.send_text("READ")             # 自动补分隔符(append_delimiter 可关)
+ok, raw = dev.receive()                # 按分隔符收一帧(bytes),跨分片自动拼接
+ok, text = dev.transact_text("VER")    # 发送并收一帧(str);坏帧/解码失败断线重连,超时不断线
 ```
 
 #### 异步(类名前加 A)
@@ -273,6 +286,7 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 | 基恩士 SR 扫码枪 | ✅(9004) | — | —            | —                   |
 | 丰田 TOYOPUC 计算机链接 | ✅(1025) | ✅(1025) | — | —              |
 | OPC-UA(opc.tcp) | ✅(4840,封装 asyncua) | — | — | —                   |
+| 通用自定义 TCP(分隔符成帧) | ✅(分隔符/编码/帧上限可配) | — | — | —      |
 
 #### 路线图
 
@@ -293,7 +307,8 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 - **v0.15**:基恩士 KV MC 协议兼容 UDP 走线(继承 MelsecMcUdpClient,与 TCP 版共用码表覆写,端口 5000)
 - **v0.16**:罗克韦尔 AB EtherNet/IP(CIP,44818;Logix 标签读写,unconnected 消息 + 槽号路由,标签自描述,位/BOOL 数组原子读-改-写,STRING 结构体)
 - **v0.17**:AB connected CIP 消息(Forward Open 大/普通回落 + SendUnitData 序列号回显校验 + Forward Close,connected_messaging 参数启用)
-- **v0.18(当前)**:欧姆龙 CIP / 连接型 CIP(NJ/NX 内置 EtherNet/IP,44818;继承 AB 客户端,unconnected 直发无背板路由 + connected 连接路径只剩消息路由对象,NJ 变量读写;pycomm3 1.2.16 交叉核证)
+- **v0.18**:欧姆龙 CIP / 连接型 CIP(NJ/NX 内置 EtherNet/IP,44818;继承 AB 客户端,unconnected 直发无背板路由 + connected 连接路径只剩消息路由对象,NJ 变量读写;pycomm3 1.2.16 交叉核证)
+- **v0.19(当前)**:通用自定义 TCP 客户端(OpenTcpClient;分隔符成帧 + 内部缓冲,重连/超时沿用 BaseClient 属性,receive/transact 支持 per-call timeout;超时不断线,坏帧/解码失败断线惰性重连,重连清空接收缓冲)
 - **v1.0**:点位表完善 + 示例 + 文档,正式发布
 - **v1.x**:MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池
 - **v2**:西门子 S7(驱动插槽已预留)
