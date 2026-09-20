@@ -1,7 +1,8 @@
 """EtherNet/IP(CIP)编解码纯函数——ENIP 封装 + CIP 消息路由服务。
 
-帧格式按 CIP/EtherNet/IP 规范实现,并经三份参考实现交叉核证
-(pylogix 1.1.6 / cm_ethernetip 0.1.0 / aphyt 0.1.30,见 architecture.md §8.1):
+帧格式按 CIP/EtherNet/IP 规范实现,并经参考实现交叉核证
+(pylogix 1.1.6 / cm_ethernetip 0.1.0 / aphyt 0.1.30 / pycomm3 1.2.16,
+见 architecture.md §8.1):
 
 - ENIP 封装头 24 字节:command(H) + length(H) + session(I) + status(I)
   + sender context(8) + options(I)
@@ -10,7 +11,9 @@
 - SendRRData 公共包格式(CPF)两项:NullAddress(0x0000,长 0)
   + UnconnectedData(0x00B2;0x00B1 是 connected 数据项,不用于 RRData)
 - CIP Unconnected Send(服务 ``0x52``,Connection Manager 类 0x06 实例 1)
-  包裹实际标签服务,路由段 = 背板端口(0x01)+ 槽号
+  包裹实际标签服务,路由段 = 背板端口(0x01)+ 槽号;NJ/NX 等内置以太网口
+  设备目标即消息路由器本体,不经此包裹,请求/应答直接承载于 0xB2 项
+  (见 :mod:`omniplc.plc.omron.cip`,pycomm3 对 Micro800 同款处理)
 - Logix 标签服务:读 ``0x4C`` / 写 ``0x4D`` / 读-改-写 ``0x4E``
 - 符号段 ``0x91`` + 名字长度 + 名字(补齐偶对齐);元素段
   ``0x28``/``0x29``/``0x2A``(1/2/4 字节下标)
@@ -384,12 +387,15 @@ def build_forward_open(
     to_connection_id: int,
     vendor_id: int,
     originator_serial: int,
-    slot: int,
+    route_path: bytes,
 ) -> bytes:
     """构造 Forward Open(0x54)/ Large Forward Open(0x5B)请求 CIP 部分。
 
     O->T 连接 ID 传 0 由目标分配(应答返回);T->O 连接 ID 由发起方指定。
-    连接路径 = 背板端口(0x01)+ 槽号 + 消息路由对象(20 02 24 01)。
+    连接路径 = 路由段 + 消息路由对象(20 02 24 01);AB 传背板路由
+    (端口 0x01 + 槽号),NJ/NX 等内置口目标即 CPU 传空字节串。
+
+    :raises ValueError: 路由段长度为奇数
     """
     service = CIP_SERVICE_LARGE_FORWARD_OPEN if is_large else CIP_SERVICE_FORWARD_OPEN
     frame = bytearray(
@@ -420,7 +426,9 @@ def build_forward_open(
         frame += struct.pack("<I", FO_TO_RPI)
         frame += struct.pack("<H", params)
     frame += struct.pack("<B", FO_TRANSPORT_TRIGGER)
-    path = bytes((0x01, slot, 0x20, 0x02, 0x24, 0x01))
+    if len(route_path) % 2:
+        raise ValueError("CIP 路由段长度必须为偶数:{}".format(route_path.hex()))
+    path = route_path + bytes((0x20, 0x02, 0x24, 0x01))
     frame += struct.pack("<B", len(path) // 2)
     frame += path
     return bytes(frame)
@@ -452,9 +460,12 @@ def parse_forward_open_reply(reply: bytes, request_service: int) -> Tuple[int, i
 
 
 def build_forward_close(
-    connection_serial: int, vendor_id: int, originator_serial: int, slot: int
+    connection_serial: int, vendor_id: int, originator_serial: int, route_path: bytes
 ) -> bytes:
-    """构造 Forward Close(0x4E)请求 CIP 部分(路径同 Forward Open)。"""
+    """构造 Forward Close(0x4E)请求 CIP 部分(路径同 Forward Open)。
+
+    :raises ValueError: 路由段长度为奇数
+    """
     frame = bytearray(
         struct.pack(
             "<BBBBBBBB",
@@ -470,7 +481,9 @@ def build_forward_close(
     )
     frame += struct.pack("<HH", connection_serial, vendor_id)
     frame += struct.pack("<I", originator_serial)
-    path = bytes((0x01, slot, 0x20, 0x02, 0x24, 0x01))
+    if len(route_path) % 2:
+        raise ValueError("CIP 路由段长度必须为偶数:{}".format(route_path.hex()))
+    path = route_path + bytes((0x20, 0x02, 0x24, 0x01))
     frame += struct.pack("<BB", len(path) // 2, 0x00)
     frame += path
     return bytes(frame)
@@ -602,6 +615,19 @@ def parse_service_reply(reply: bytes, request_service: int) -> bytes:
         raise DeviceError(_status_text(route_status), route_status)
 
     return _parse_service_payload(cip[4 + cip[3]:], request_service)
+
+
+def parse_direct_service_reply(reply: bytes, request_service: int) -> bytes:
+    """解析 SendRRData 直发应答(不经 Unconnected Send 包裹),返回服务数据域。
+
+    NJ/NX 等内置以太网口设备目标即消息路由器本体:RRData 的 Unconnected
+    Data 项直接承载服务应答(服务回显 | 0x80 + 保留 + 通用状态 + 附加长 +
+    数据),无 :func:`parse_service_reply` 要剥的 0xD2 外层头。
+
+    :raises ProtocolFrameError: 封装/CPF/服务回显不符
+    :raises DeviceError: CIP 通用状态非 0(不断线)
+    """
+    return _parse_service_payload(_parse_rr_data_cip(reply), request_service)
 
 
 def _parse_service_payload(cip: bytes, request_service: int) -> bytes:

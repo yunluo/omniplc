@@ -20,6 +20,9 @@
 
 地址语法见 :mod:`.address`;多级成员/数组下标/程序作用域均原样透传。
 UDT 整体读取、批量多服务(0x0A)、分片读写在 v1.x 规划。
+
+继承定制点:`_route_path` / `_wrap_unconnected` / `_parse_unconnected_reply`,
+欧姆龙 NJ/NX CIP(:mod:`omniplc.plc.omron.cip`)即据此覆写三处走线差异。
 """
 from __future__ import annotations
 
@@ -140,7 +143,7 @@ class AllenBradleyEthIpClient(BaseClient):
                 to_connection_id,
                 AB_EIP_ORIGINATOR_VENDOR_ID,
                 self._originator_serial,
-                self._slot,
+                self._route_path(),
             )
             service = (
                 codec_cip.CIP_SERVICE_LARGE_FORWARD_OPEN
@@ -181,7 +184,7 @@ class AllenBradleyEthIpClient(BaseClient):
                         self._connection_serial,
                         AB_EIP_ORIGINATOR_VENDOR_ID,
                         self._originator_serial,
-                        self._slot,
+                        self._route_path(),
                     ),
                 )
             )
@@ -214,10 +217,26 @@ class AllenBradleyEthIpClient(BaseClient):
         self._sequence = (self._sequence + 1) & 0xFFFF
         return self._sequence
 
+    def _route_path(self) -> bytes:
+        """Forward Open/Close 连接路径的路由段(内部方法,继承定制点)。
+
+        AB 目标 CPU 在背板上:背板端口(0x01)+ 槽号。
+        """
+        return bytes((0x01, self._slot))
+
+    def _wrap_unconnected(self, cip_request: bytes) -> bytes:
+        """unconnected 请求封装:UC Send 包裹 + 背板路由(内部方法,继承定制点)。"""
+        return codec_cip.build_uc_send(cip_request, self._slot)
+
+    def _parse_unconnected_reply(self, reply: bytes, request_service: int) -> bytes:
+        """unconnected 应答解析:剥 UC Send 应答两层头(内部方法,继承定制点)。"""
+        return codec_cip.parse_service_reply(reply, request_service)
+
     def _transact(self, cip_request: bytes, request_service: int) -> bytes:
         """CIP 事务:按消息通道封装发送并解析应答数据域(内部方法)。
 
-        unconnected:UC Send 包裹 → RRData;connected:SendUnitData。
+        unconnected:子类封装(AB 为 UC Send 包裹)→ RRData;
+        connected:SendUnitData。
 
         :raises DeviceError: CIP 状态非 0(不断线)
         :raises ProtocolFrameError: 坏帧(标记断开惰性重连)
@@ -225,11 +244,10 @@ class AllenBradleyEthIpClient(BaseClient):
         transport = self._require_transport()
         if self._ot_connection_id is None:
             frame = codec_cip.build_rr_data(
-                self._session_handle,
-                codec_cip.build_uc_send(cip_request, self._slot),
+                self._session_handle, self._wrap_unconnected(cip_request)
             )
             transport.send(frame)
-            return codec_cip.parse_service_reply(self._recv_frame(), request_service)
+            return self._parse_unconnected_reply(self._recv_frame(), request_service)
         sequence = self._next_sequence()
         frame = codec_cip.build_send_unit_data(
             self._session_handle, self._ot_connection_id, sequence, cip_request

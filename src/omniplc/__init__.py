@@ -1,11 +1,12 @@
 """omniplc —— 多品牌多协议 PLC 统一通信库。
 
-一次编写,通过一致的 API 对接三菱(MC 协议)、欧姆龙(FINS)、
+一次编写,通过一致的 API 对接三菱(MC 协议)、欧姆龙(FINS、NJ/NX CIP)、
 基恩士(KV Host Link、MC 协议兼容、SR 扫码枪)、汇川(H3U/H5U)、
 松下(FP 系列:MC 协议兼容、MEWTOCOL)、丰田(TOYOPUC 计算机链接)、
 罗克韦尔(Allen-Bradley,EtherNet/IP)等设备,
 支持 Modbus TCP/RTU、MC 3E/4E/1E、MC 串口 3C/4C 帧、MC over MX Component、
-FINS over TCP/UDP、KV Host Link over TCP/UDP、KV MC 协议兼容(SLMP 3E)、
+FINS over TCP/UDP、NJ/NX CIP(EtherNet/IP 变量读写)、
+KV Host Link over TCP/UDP、KV MC 协议兼容(SLMP 3E)、
 汇川 Modbus TCP/RTU 与 MC 协议兼容(3E)、
 松下 MC 协议兼容(3E)与 MEWTOCOL(TCP/UDP)、
 SR 扫码枪、TOYOPUC 计算机链接 over TCP/UDP、EtherNet/IP(Logix 标签读写)、
@@ -38,7 +39,7 @@ from .plc.melsec import (
     MelsecMcUdpClient,
     MelsecMxClient,
 )
-from .plc.omron import OmronFinsTcpClient, OmronFinsUdpClient
+from .plc.omron import OmronCipClient, OmronFinsTcpClient, OmronFinsUdpClient
 from .plc.ab import AllenBradleyEthIpClient
 from .plc.panasonic import (
     PanasonicMcTcpClient,
@@ -81,9 +82,10 @@ __all__ = [
     "KeyenceMcUdpClient",
     # ---- 基恩士 SR 扫码枪 ----
     "KeyenceSrClient",
-    # ---- 欧姆龙 FINS 客户端 ----
+    # ---- 欧姆龙 FINS / CIP 客户端 ----
     "OmronFinsTcpClient",
     "OmronFinsUdpClient",
+    "OmronCipClient",
     # ---- 汇川 H3U/H5U 客户端 ----
     "InovanceTcpClient",
     "InovanceRtuClient",

@@ -185,6 +185,35 @@ def test_parse_service_reply_errors() -> None:
         codec_cip.parse_service_reply(reply, codec_cip.CIP_SERVICE_READ_TAG)
 
 
+def test_parse_direct_service_reply() -> None:
+    """直发应答(NJ/NX,无 0xD2 外层):一层服务头 + 数据;错误路径同契约。"""
+    payload = bytes.fromhex("c400" "05000000")
+    cip = bytes((codec_cip.CIP_SERVICE_READ_TAG | 0x80, 0, 0, 0)) + payload
+    header = struct.pack("<HHIIQI", 0x6F, 16 + len(cip), _SESSION, 0, 0, 0)
+    prefix = struct.pack("<IHHHHHH", 0, 0, 2, 0, 0, 0xB2, len(cip))
+    reply = header + prefix + cip
+    assert codec_cip.parse_direct_service_reply(
+        reply, codec_cip.CIP_SERVICE_READ_TAG
+    ) == payload
+    bad_cip = (
+        bytes((codec_cip.CIP_SERVICE_READ_TAG | 0x80, 0, 0x16, 0)) + payload
+    )
+    bad_reply = (
+        struct.pack("<HHIIQI", 0x6F, 16 + len(bad_cip), _SESSION, 0, 0, 0)
+        + struct.pack("<IHHHHHH", 0, 0, 2, 0, 0, 0xB2, len(bad_cip))
+        + bad_cip
+    )
+    with pytest.raises(DeviceError) as exc_info:
+        codec_cip.parse_direct_service_reply(
+            bad_reply, codec_cip.CIP_SERVICE_READ_TAG
+        )
+    assert exc_info.value.code == 0x16
+    with pytest.raises(ProtocolFrameError):
+        codec_cip.parse_direct_service_reply(
+            reply, codec_cip.CIP_SERVICE_WRITE_TAG
+        )
+
+
 def test_parse_tag_read_payload_struct() -> None:
     """结构体应答:类型域 4 字节(0xA0 + 模板号),值域从 STRING 长度起。"""
     payload = bytes.fromhex("a000ce0f") + struct.pack("<I", 2) + b"AB"
@@ -239,9 +268,9 @@ def _rr_data_reply(cip: bytes) -> bytes:
 
 
 def test_forward_open_golden() -> None:
-    """普通 Forward Open 字面字节(0x54,参数域 16 位,槽 0 路径)。"""
+    """普通 Forward Open 字面字节(0x54,参数域 16 位,背板槽 0 路径)。"""
     request = codec_cip.build_forward_open(
-        False, 504, 0x1234, 0x5678, 0x1337, 42, 0
+        False, 504, 0x1234, 0x5678, 0x1337, 42, b"\x01\x00"
     )
     assert request == bytes.fromhex(
         "5402200624010a0e"  # 服务 + CM 路径 + 优先级/超时
@@ -254,10 +283,20 @@ def test_forward_open_golden() -> None:
     )
 
 
+def test_forward_open_empty_route() -> None:
+    """空路由段(NJ/NX 内置口):路径只剩消息路由对象,字数 2。"""
+    request = codec_cip.build_forward_open(
+        False, 504, 0x1234, 0x5678, 0x1337, 42, b""
+    )
+    assert request.endswith(bytes.fromhex("02" "20022401"))
+    with pytest.raises(ValueError):
+        codec_cip.build_forward_open(False, 504, 0, 0, 0, 0, b"\x01")
+
+
 def test_forward_open_large_format() -> None:
     """Large Forward Open:服务 0x5B、参数域 32 位(0x4200<<16 + 尺寸)。"""
     request = codec_cip.build_forward_open(
-        True, 4002, 0x1234, 0x5678, 0x1337, 42, 0
+        True, 4002, 0x1234, 0x5678, 0x1337, 42, b"\x01\x00"
     )
     assert request[0] == 0x5B
     large_params = struct.pack("<I", (0x4200 << 16) + 4002)
@@ -281,7 +320,7 @@ def test_forward_open_reply() -> None:
 
 def test_forward_close_golden_and_reply() -> None:
     """Forward Close 字面字节与应答状态解析。"""
-    request = codec_cip.build_forward_close(0x1234, 0x1337, 42, 0)
+    request = codec_cip.build_forward_close(0x1234, 0x1337, 42, b"\x01\x00")
     assert request == bytes.fromhex(
         "4e0220062401" "0a0e"
         "3412" "3713" "2a000000"
@@ -292,6 +331,8 @@ def test_forward_close_golden_and_reply() -> None:
     reply = _rr_data_reply(bytes((0xCC, 0, 0, 0)))
     with pytest.raises(ProtocolFrameError):
         codec_cip.parse_forward_close_reply(reply)
+    with pytest.raises(ValueError):
+        codec_cip.build_forward_close(0, 0, 0, b"\x01")
 
 
 def test_send_unit_data_golden() -> None:

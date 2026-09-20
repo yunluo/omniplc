@@ -420,7 +420,7 @@ def test_connected_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
             _TO_ID,
             AB_EIP_ORIGINATOR_VENDOR_ID,
             42,
-            0,
+            b"\x01\x00",
         ),
     )
     tag_read = codec_cip.build_tag_read(
@@ -463,7 +463,7 @@ def test_connected_fallback_to_normal(monkeypatch: pytest.MonkeyPatch) -> None:
             _TO_ID,
             AB_EIP_ORIGINATOR_VENDOR_ID,
             42,
-            0,
+            b"\x01\x00",
         ),
     )
     normal_open = codec_cip.build_rr_data(
@@ -475,7 +475,7 @@ def test_connected_fallback_to_normal(monkeypatch: pytest.MonkeyPatch) -> None:
             _TO_ID,
             AB_EIP_ORIGINATOR_VENDOR_ID,
             42,
-            0,
+            b"\x01\x00",
         ),
     )
     unit_data = codec_cip.build_send_unit_data(_SESSION, _OT_ID, 1, tag_read)
@@ -600,7 +600,7 @@ def test_connected_disconnect_sends_forward_close(monkeypatch: pytest.MonkeyPatc
             client._connection_serial,
             AB_EIP_ORIGINATOR_VENDOR_ID,
             42,
-            0,
+            b"\x01\x00",
         ),
     )
     assert sent.endswith(forward_close + codec_cip.build_unregister_session(_SESSION))

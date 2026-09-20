@@ -1,6 +1,6 @@
 # omniplc 架构设计
 
-> 版本:v0.17 · 更新日期:2026-09-20 · 状态:Modbus / 三菱 MC(以太网 + 串口帧)/ FINS / KV / SR / TOYOPUC / AB EtherNet/IP / OPC-UA 驱动已全部落地
+> 版本:v0.18 · 更新日期:2026-09-20 · 状态:Modbus / 三菱 MC(以太网 + 串口帧)/ FINS / NJ/NX CIP / KV / SR / TOYOPUC / AB EtherNet/IP / OPC-UA 驱动已全部落地
 
 omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7+,uv 开发)。
 本文档描述 v1.0 的完整架构:分层、类设计、继承树、线程安全模型、类型标注纪律、
@@ -89,6 +89,8 @@ flowchart TB
     %% ═══ 罗克韦尔 AB EtherNet/IP ═══
     AllenBradleyEthIpClient["AllenBradleyEthIpClient — plc/ab/ab.py<br/>Logix 标签读写(Tag Read/Write 0x4C/0x4D、RMW 0x4E)<br/>RegisterSession(_after_connect 钩子)+ Unconnected Send<br/>标签自描述:首访类型发现按基名缓存,STRING 走 0xA0 结构体"]
 
+    OmronCipClient["OmronCipClient — plc/omron/cip.py<br/>NJ/NX 内置 EtherNet/IP 变量读写(继承 AB 客户端)<br/>覆写三钩子:_route_path=空 / _wrap_unconnected=直发<br/>/_parse_unconnected_reply=一层服务头;STRING 待真机核证拒绝"]
+
     %% ═══ 基恩士 Host Link / SR ═══
     KeyenceHlBase["_KeyenceHostLinkBase(ABC,私有)— plc/keyence/hostlink.py<br/>ASCII 行式协议(RD/RDS/WR/WRS + CR 结束)"]
     KeyenceHostLinkTcpClient["KeyenceHostLinkTcpClient<br/>按行逐字节收包"]
@@ -127,6 +129,7 @@ flowchart TB
     OmronFinsBase --> OmronFinsTcpClient
     OmronFinsBase --> OmronFinsUdpClient
     BaseClient --> AllenBradleyEthIpClient
+    AllenBradleyEthIpClient -->|"三钩子覆写:NJ/NX 直发 + 空路由"| OmronCipClient
     BaseClient --> KeyenceHlBase
     KeyenceHlBase --> KeyenceHostLinkTcpClient
     KeyenceHlBase --> KeyenceHostLinkUdpClient
@@ -163,6 +166,7 @@ flowchart TB
     OmronFinsTcpClient -.->|"9600"| TcpTransport
     OmronFinsUdpClient -.->|"9600"| UdpTransport
     AllenBradleyEthIpClient -.->|"44818"| TcpTransport
+    OmronCipClient -.->|"44818"| TcpTransport
     KeyenceHostLinkTcpClient -.->|"8000"| TcpTransport
     KeyenceHostLinkUdpClient -.->|"8000"| UdpTransport
     KeyenceSrClient -.->|"9004"| TcpTransport
@@ -176,7 +180,7 @@ flowchart TB
     BaseClient -.->|"bind_tags"| TagNode
 
     subgraph AsyncMirror["异步镜像(omniplc.aio):ABaseClient 组合同步实例 + 单线程 ThreadPoolExecutor,签名同名同型"]
-        AsyncList["AModbusBaseClient → AModbusTcpClient / AModbusRtuClient<br/>AInovanceTcpClient / AInovanceRtuClient(configure_serial 对称暴露)/ AInovanceMcTcpClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient<br/>AOmronFinsTcpClient / AOmronFinsUdpClient / AAllenBradleyEthIpClient<br/>AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient<br/>APanasonicMcTcpClient / APanasonicMewtocolTcpClient / APanasonicMewtocolUdpClient<br/>AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient / AKeyenceSrClient"]
+        AsyncList["AModbusBaseClient → AModbusTcpClient / AModbusRtuClient<br/>AInovanceTcpClient / AInovanceRtuClient(configure_serial 对称暴露)/ AInovanceMcTcpClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient<br/>AOmronFinsTcpClient / AOmronFinsUdpClient / AOmronCipClient / AAllenBradleyEthIpClient<br/>AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient<br/>APanasonicMcTcpClient / APanasonicMewtocolTcpClient / APanasonicMewtocolUdpClient<br/>AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient / AKeyenceSrClient"]
     end
     BaseClient -.->|"组合 + 镜像"| AsyncList
 
@@ -184,10 +188,11 @@ flowchart TB
     class BaseClient,ModbusBaseClient,MelsecMcBase,KeyenceMcCodeMixin,OmronFinsBase,KeyenceHlBase,ToyopucBase,MewtocolBase,BaseTransportABC abstract;
 ```
 
-v1 共 **23 个同步具体类 + 23 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
+v1 共 **24 个同步具体类 + 24 个异步镜像类**,三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
 加串口帧(3C/4C,同一 `_MelsecMcBase` 基类),基恩士 KV MC 兼容 TCP/UDP 两走线
 (共用 `_KeyenceMcCodeMixin` 码表覆写),罗克韦尔 AB EtherNet/IP(TCP 44818,
-unconnected 消息),另加 MX Component(Windows/COM,
+unconnected 消息),欧姆龙 NJ/NX CIP(继承 AB 客户端,三钩子覆写),
+另加 MX Component(Windows/COM,
 单线程 executor 天然满足 ActUtlType 的 STA 模型)。
 
 ### 2.1 继承设计要点(模板方法模式)
@@ -398,6 +403,7 @@ class BaseClient(ABC):
 | 松下 MEWTOCOL | `R000F` / `R1.15` / `X0.3` / `Y0003` / `L001F`(接点)+ `D100` / `L10` / `F5` / `S0` / `K0` / `D100.3`(数据) | 已实现(`plc/panasonic/mewtocol.py`,TCP/UDP 1024);接点区 X/Y/R/T/C/L = 字号(十进制)+位号(十六进制一位),点号形式同效;数据区 D=DT、L=LT、F=FL、S=SV 设定值、K=EV 经过值(定时器/计数器当前值用 S/K,T/C 为接点);L 按语境解析(位=链接继电器,字=LT) |
 | OPC-UA | `ns=2;s=Device.Tag` / `ns=4;i=100` / `i=2258` / `b=AAECAw==` / `g=…` | 已实现(`opcua/`);标准 NodeId 字符串,ns 省略默认 0;前缀大小写规范化,标识符值保留原文(`opcua/address.py`) |
 | 罗克韦尔 AB(EtherNet/IP) | `MyDint` / `MyArray[5]` / `MyMatrix[1,2]` / `MyUdt.Member` / `Program:prog.Tag` / `MyDint.3` | 已实现(`plc/ab/`);地址即 Logix 标签名,多级成员/数组下标/程序作用域透传;`.N` 为整型位访问(设备侧 0x4E 原子读-改-写);标签自描述,实际类型由 PLC 应答返回(`ab/address.py`) |
+| 欧姆龙 NJ/NX(CIP) | `TestVar` / `MyArray[5]` / `Motor[2].Speed`(同 AB 语法) | 已实现(`plc/omron/cip.py`,继承 AB);地址即 Sysmac 变量名,标签自描述同款;NJ 标量 BOOL 直读直写、BOOL 数组按元素访问(不做 Logix 32 位打包);解析复用 `ab/address.py` |
 
 解析失败统一抛 `ValueError`(参数错误约定)。
 
@@ -410,6 +416,7 @@ class BaseClient(ABC):
 | 三菱 MC 1E(A 兼容,A 系列) | ✅ `frame="1E"` | ✅ | v1.x | ✅ |
 | 欧姆龙 FINS | ✅ `OmronFinsTcpClient`(含握手) | ✅ `OmronFinsUdpClient` | v1.x(Host Link) | — |
 | 罗克韦尔 AB EtherNet/IP(Logix) | ✅ `AllenBradleyEthIpClient`(44818) | — | — | — |
+| 欧姆龙 CIP / 连接型 CIP(NJ/NX) | ✅ `OmronCipClient`(44818,继承 AB) | — | — | — |
 | 基恩士 KV Host Link | ✅ `KeyenceHostLinkTcpClient` | ✅ `KeyenceHostLinkUdpClient` | — | — |
 | 基恩士 KV MC 协议兼容(SLMP 3E) | ✅ `KeyenceMcTcpClient`(5000,继承 MC) | ✅ `KeyenceMcUdpClient`(5000,继承 MC) | — | — |
 | 汇川 H3U/H5U(Modbus + 汇川映射) | ✅ `InovanceTcpClient`(502) | — | ✅ `InovanceRtuClient`(串口) | — |
@@ -470,6 +477,24 @@ unconnected。连接路径为背板端口 + 槽号 + 消息路由对象(20 02 24
 O->T 连接 ID 由目标分配(请求传 0),T->O 连接 ID 由发起方指定。
 应答布局(O->T ID 紧跟状态域)经 cm_ethernetip 服务端组成与 pylogix
 客户端解析双向印证。
+
+欧姆龙 NJ/NX CIP 说明(2026-09):NJ/NX(Sysmac)系列没有 FINS/TCP-UDP,
+变量经标准 CIP 显式报文访问——与 AB 同属 ODVA EtherNet/IP,故
+``OmronCipClient`` **继承 ``AllenBradleyEthIpClient``**,仅覆写三个钩子:
+`_route_path()` 返回空(NJ/NX 内置口 CPU 即目标,无背板路由段,连接路径
+只剩消息路由对象 20 02 24 01)、`_wrap_unconnected()` 直发不包 UC Send
+(目标即消息路由器本体,0xB2 项直接承载服务请求——pycomm3 对 Micro800
+同款处理)、`_parse_unconnected_reply()` 剥一层服务头
+(``codec_cip.parse_direct_service_reply``)。类型发现/位访问/RMW、
+connected 消息全套(Forward Open 大/普通回落、SendUnitData 序列号回显、
+Forward Close)与错误契约(状态非 0 → DeviceError 不断线)全部复用 AB 实现。
+NJ 标量 BOOL 直读直写(C1);BOOL 数组按元素访问(NJ 不做 Logix 的 DWORD
+32 位打包,D3 分支在 NJ 上不会触发);整型 ``.位号`` 写走 0x4E,设备侧
+支持与否随固件,不支持时报 DeviceError 不断线。NJ STRING 结构布局与 AB
+不同(长度域宽度待真机核证),v1 显式拒绝字符串读写(经 ``read_string``
+返回 ``(False, None)``,与 BaseClient 缺省字符串契约一致)。
+发起方厂商号沿用 0x1337(仅标识发起端,目标不校验)。走线差异经
+pycomm3 1.2.16 交叉核证(见 §8.1);真机联测待做。
 
 KV Host Link 说明:``KeyenceHostLinkTcpClient/UdpClient`` 使用 ASCII 行式命令
 (RD/RDS/WR/WRS,CR 结束;响应行以 CR/LF 结束,出错应答 ``E0``~``E9`` 记入
@@ -636,6 +661,7 @@ HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
 | OPC-UA(已实现) | `asyncua==1.1.5` 安装源码(`.venv\...\asyncua\`,sync.Client 会话/`ua.VariantType` 类型表/`ua.uaerrors` 异常层次);python-opcua 已弃用仅作背景,不作为依赖 |
 | 欧姆龙 FINS(TCP/UDP,已实现) | `Profinet/Omron/OmronFinsNet.cs`、`OmronFinsUdp.cs`、`OmronFinsNetHelper.cs`(帧组装/解析)、`OmronFinsDataType.cs`(存储区码)、`Core/IMessage/FinsMessage.cs`(TCP 握手/帧长);2026-09 复审另对照 `fins-driver 0.3.1`(PyPI,indrarudianto/fins-driver,见 §8 对照结论) |
 | 罗克韦尔 AB EtherNet/IP(已实现) | 本地 Python 参考库三份交叉核证(**只学习协议本身,不移植 API**):`D:\DOWNLOAD\pylogix-1.1.6-py2.py3-none-any\pylogix\`(ENIP 封装/RegisterSession/0x4C·0x4D·0x4E 服务/IOI 路径段 0x91·0x28·0x29·0x2A/位字与 BOOL 数组词操作/STRING 0xA0 布局;1.1.6 默认 connected 消息,本库采用其 unconnected 通道并恒包 UC Send)、`D:\DOWNLOAD\cm_ethernetip-0.1.0.tar\...\src\ethernetip\`(规范向实现:CPF 项类型 RRData=0x00B2、UC Send 请求/应答布局、CIP 状态语义)、`D:\DOWNLOAD\aphyt-0.1.30.tar\...\src\aphyt\`(unconnected 显式报文客户端佐证、符号段编码);协议帧层为本库原生纯函数实现(`plc/ab/codec_cip.py`) |
+| 欧姆龙 NJ/NX CIP(已实现) | pycomm3 1.2.16(pip 安装源码,**只学习协议本身,不移植 API**):`logix_driver.py` / `cip_driver.py`(Forward Open 连接路径 = cip_path + MSG_ROUTER_PATH,空路由时只剩消息路由对象 20 02 24 01;Micro800 为"IP 直连无背板路由"先例;`parse_cip_route` 空 path 语义)、`packets/util.py` `wrap_unconnected_send`(UC Send 布局,本库直发不包)、`const.py`(PRIORITY 0x0A/TRANSPORT_CLASS 0xA3/参数域基底 0x4200 与本库一致;tick/乘数为建议值,沿用 AB 已验证值);协议帧层零新增,复用 `plc/ab/codec_cip.py` + 三钩子覆写;NJ STRING 布局与真机行为待真机联测 |
 
 三菱帧实现另对照本地 Python SLMP 参考库
 `D:\DOWNLOAD\plc-comm-slmp-python-main\slmp\`(SH-080956 口径,pcap 验证):
@@ -726,6 +752,7 @@ FINS 与 fins-driver 0.3.1 对照(2026-09 复审):FINS 帧头 10 字节布局
 | v0.15 | 基恩士 KV MC 协议兼容 UDP 走线(继承 MelsecMcUdpClient,与 TCP 版共用码表混入,端口 5000)| ✅ 完成 |
 | v0.16 | 罗克韦尔 AB EtherNet/IP(CIP;TCP 44818,RegisterSession + Unconnected Send 槽号路由,Logix 标签自描述类型发现,位/BOOL 数组 0x4E 原子写,STRING 结构体,三参考库交叉核证)| ✅ 完成 |
 | v0.17 | AB connected CIP 消息(Forward Open 大/普通回落 + SendUnitData 序列号回显校验 + Forward Close,connected_messaging 参数)| ✅ 完成 |
+| v0.18 | 欧姆龙 CIP / 连接型 CIP(NJ/NX 内置 EtherNet/IP 44818;继承 AB 客户端,unconnected 直发无背板路由 + connected 连接路径只剩消息路由对象,NJ 变量读写;pycomm3 1.2.16 交叉核证)| ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 西门子 S7(drivers 插槽已预留,沿用 BaseClient 原语模式) | 规划 |

@@ -72,7 +72,7 @@ from ..plc.melsec import (
 )
 from ..plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
 from ..scanner import KeyenceSrClient
-from ..plc.omron import OmronFinsTcpClient, OmronFinsUdpClient
+from ..plc.omron import OmronCipClient, OmronFinsTcpClient, OmronFinsUdpClient
 from ..tag import Tag, TagTable
 from ..types import DataType, McFrame, PrimitiveValue, SerialParity
 
@@ -844,6 +844,35 @@ class AOmronFinsUdpClient(ABaseClient):
     def __init__(self, ip_address: str = "192.168.250.1", port: int = FINS_DEFAULT_PORT) -> None:
         """参数同 :class:`omniplc.plc.omron.OmronFinsUdpClient`。"""
         super().__init__(OmronFinsUdpClient(ip_address, port))
+
+
+class AOmronCipClient(ABaseClient):
+    """欧姆龙 NJ/NX CIP 异步客户端(内置 EtherNet/IP,44818)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        port: int = AB_EIP_DEFAULT_PORT,
+        connected_messaging: bool = False,
+    ) -> None:
+        """参数同 :class:`omniplc.plc.omron.OmronCipClient`。"""
+        super().__init__(OmronCipClient(ip_address, port, connected_messaging))
+
+    @property
+    def connected_messaging(self) -> bool:
+        """是否走 connected 消息(转发同步实例)。"""
+        sync = self._sync
+        if not isinstance(sync, OmronCipClient):
+            raise TypeError("内部错误:sync 实例不是 OmronCipClient")
+        return sync.connected_messaging
+
+    @property
+    def connection_size(self) -> Optional[int]:
+        """生效连接尺寸(connected 模式 Forward Open 后可用,转发同步实例)。"""
+        sync = self._sync
+        if not isinstance(sync, OmronCipClient):
+            raise TypeError("内部错误:sync 实例不是 OmronCipClient")
+        return sync.connection_size
 
 
 class AAllenBradleyEthIpClient(ABaseClient):
