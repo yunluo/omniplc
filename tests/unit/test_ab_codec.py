@@ -219,6 +219,23 @@ def test_parse_service_reply_tolerates_0x66_reply() -> None:
         codec_cip.parse_service_reply(wrong, codec_cip.CIP_SERVICE_READ_TAG)
 
 
+def test_parse_service_reply_bare_body_without_d2() -> None:
+    """偏差模拟器(HSL/pylogix 服务端)剥掉 0xD2 路由信封:应答体即内嵌服务应答。"""
+    payload = bytes.fromhex("c400" "39050000")
+    cip = bytes((codec_cip.CIP_SERVICE_READ_TAG | 0x80, 0, 0, 0)) + payload
+    header = struct.pack("<HHIIQI", 0x66, 22 + len(cip), _SESSION, 0, 0, 0)
+    prefix = (
+        struct.pack("<I", 0)
+        + struct.pack("<H", 0)
+        + struct.pack("<H", 2)
+        + struct.pack("<HHI", 0xA1, 4, 0x11223344)
+        + struct.pack("<HH", 0xB1, len(cip) + 2)
+        + struct.pack("<H", 7)
+    )
+    frame = header + prefix + cip
+    assert codec_cip.parse_service_reply(frame, codec_cip.CIP_SERVICE_READ_TAG) == payload
+
+
 def test_parse_direct_service_reply() -> None:
     """直发应答(NJ/NX,无 0xD2 外层):一层服务头 + 数据;错误路径同契约。"""
     payload = bytes.fromhex("c400" "05000000")

@@ -635,19 +635,19 @@ def _parse_rr_data_cip(reply: bytes) -> bytes:
 def parse_service_reply(reply: bytes, request_service: int) -> bytes:
     """解析 SendRRData 应答(Unconnected Send 包裹),返回内嵌标签服务的数据域。
 
-    Unconnected Send 成功应答 = 服务回显(0xD2)+ 保留 + 路由状态 + 附加
-    状态长 + 内嵌服务应答(服务回显 | 0x80 + 保留 + 通用状态 + 附加长 + 数据)。
+    规范应答 = 0xD2(UC-Send 回显)+ 保留 + 路由状态 + 附加状态长 + 内嵌
+    服务应答(服务回显 | 0x80 + 保留 + 通用状态 + 附加长 + 数据)。个别
+    模拟器(HSL/pylogix 服务端)剥掉 0xD2 路由信封、直接回内嵌服务应答,
+    同样接受——应答首字节不是 0xD2 时按裸服务应答解析。
 
     :raises ProtocolFrameError: 封装/CPF/服务回显不符
     :raises DeviceError: 路由状态或 CIP 通用状态非 0(不断线)
     """
     cip = _parse_rr_data_cip(reply)
 
-    reply_service = cip[0]
-    if reply_service != (CIP_SERVICE_UNCONNECTED_SEND | 0x80):
-        raise ProtocolFrameError(
-            "CIP 应答服务码不符:期望 0xD2,实际 0x{:02X}".format(reply_service)
-        )
+    if cip[0] != (CIP_SERVICE_UNCONNECTED_SEND | 0x80):
+        # 偏差对端:无 0xD2 路由信封,应答体即内嵌服务应答
+        return _parse_service_payload(cip, request_service)
     route_status = cip[2]
     if route_status != 0:
         raise DeviceError(_status_text(route_status), route_status)
