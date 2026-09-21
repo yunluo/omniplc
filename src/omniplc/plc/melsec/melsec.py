@@ -216,12 +216,12 @@ class _MelsecMcBase(BaseClient):
     def _write_bits(self, parsed: McAddress, values: List[int]) -> None:
         """位软元件成批写(位单位核心命令)。"""
         request = self._build_frame(parsed, len(values), is_bit=True, is_write=True, data=values)
-        self._parse_write(self._transact(request))
+        self._parse_write(self._transact(request), True)
 
     def _write_words(self, parsed: McAddress, words: List[int]) -> None:
         """字软元件成批写(字单位核心命令)。"""
         request = self._build_frame(parsed, len(words), is_bit=False, is_write=True, data=words)
-        self._parse_write(self._transact(request))
+        self._parse_write(self._transact(request), False)
 
     # ------------------------------------------------------------------
     # 帧组装/解析分发与收包(3E/4E 与 1E 两套)
@@ -267,10 +267,14 @@ class _MelsecMcBase(BaseClient):
             response, self._frame.value, points, is_bit, True, expected_serial=self._serial
         )
 
-    def _parse_write(self, response: bytes) -> None:
-        """按当前帧型校验写响应(结束码非 0 抛 DeviceError,内部方法)。"""
+    def _parse_write(self, response: bytes, is_bit: bool) -> None:
+        """按当前帧型校验写响应(结束码非 0 抛 DeviceError,内部方法)。
+
+        1E 写响应副头部 = 请求副头部 + 0x80(位写 0x82 / 字写 0x83),
+        须随操作传入是否位单位;3E/4E 读写响应副头部同为 D0 00,不区分。
+        """
         if self._frame is McFrame.FRAME_1E:
-            codec_a.parse_response(response, 0, False, False)
+            codec_a.parse_response(response, 0, is_bit, False)
         else:
             codec_qna.parse_response(
                 response, self._frame.value, 0, False, False, expected_serial=self._serial
@@ -488,9 +492,9 @@ class MelsecMcSerialClient(_MelsecMcBase):
         """按当前串口帧型解析读响应(内部方法)。"""
         return self._parse_serial(response, points, is_bit, is_read=True)
 
-    def _parse_write(self, response: bytes) -> None:
+    def _parse_write(self, response: bytes, is_bit: bool) -> None:
         """按当前串口帧型校验写响应(错误代码非 0 抛 DeviceError,内部方法)。"""
-        self._parse_serial(response, 0, False, is_read=False)
+        self._parse_serial(response, 0, is_bit, is_read=False)
 
     def _parse_serial(
         self, response: bytes, points: int, is_bit: bool, is_read: bool

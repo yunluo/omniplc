@@ -42,6 +42,11 @@ def _one_e_write_response() -> bytes:
     return bytes([0x83, 0x00])
 
 
+def _one_e_bit_write_response() -> bytes:
+    """构造 1E 位写响应(测试脚手架;副头部 = 位写 0x02 + 0x80)。"""
+    return bytes([0x82, 0x00])
+
+
 def _mount(monkeypatch: pytest.MonkeyPatch, client: object, scripted: ScriptedTransport) -> None:
     """挂载脚本传输(走正常 connect 流程)。"""
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
@@ -120,6 +125,31 @@ def test_tcp_1e_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.write_short("D100", 300) is True
     assert bytes(scripted.sent) == codec_a.build_request(
         0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"), 1, False, True, [300]
+    )
+
+
+def test_tcp_1e_bit_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TCP 1E:位写响应副头部为 0x82(回归:不得按字写的 0x83 校验)。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000, frame="1E")
+    scripted = ScriptedTransport([_one_e_bit_write_response()])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.write_bool("M0", True) is True
+    assert bytes(scripted.sent) == codec_a.build_request(
+        0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("M0"), 1, True, True, [1]
+    )
+
+
+def test_tcp_1e_bit_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TCP 1E:位读响应副头部 0x80 + 半字节位数据(1 点收 1 字节)。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000, frame="1E")
+    frame = bytes([0x80, 0x00, 0x10])  # M0 = ON(高半字节)
+    scripted = ScriptedTransport([frame[:2], frame[2:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_bool("M0") == (True, True)
+    assert bytes(scripted.sent) == codec_a.build_request(
+        0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("M0"), 1, True, False
     )
 
 
