@@ -33,7 +33,7 @@ v1 范围:单点读写(位读改写)+ S7 String;多变量组包(read_multi)、
 from __future__ import annotations
 
 import struct
-from typing import Any, Optional, Tuple
+from typing import Any, NoReturn, Optional, Tuple
 
 from ... import convert
 from ...core.base_client import BaseClient, validate_endpoint
@@ -238,8 +238,8 @@ class _S7Session(BaseTransport):
             len(data),
         )
 
-    def _raise_link_aware(self, exc: BaseException) -> None:
-        """按 snap7 连接态翻译错误(内部方法)。
+    def _raise_link_aware(self, exc: BaseException) -> NoReturn:
+        """按 snap7 连接态翻译错误(内部方法,恒抛出)。
 
         在线 → :class:`DeviceError`(PLC 侧拒绝,不断线);
         断连 → :class:`OSError`(惰性重连)。
