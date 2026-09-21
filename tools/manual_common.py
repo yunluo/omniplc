@@ -549,8 +549,14 @@ def gen_random(dtype, point, rng):
     if dtype == "double":
         return round(rng.uniform(-1000000, 1000000), 6)
     if dtype == "string":
-        length = int(point.get("length", 32))
-        n = rng.randint(1, max(1, min(length, 32)))
+        length = min(int(point.get("length", 32)), 64)
+        # 定宽字段语义:写只补齐到偶数字节(偶数长不带 \x00 终止符),读按首个
+        # \x00 截断——短写后窗口残留上轮字节是字段语义而非协议错。因此随机
+        # 串只在两种确定性形态里取:整窗写入,或奇数长度(写路径自动带终止符)。
+        if rng.random() < 0.5 or length <= 1:
+            n = length
+        else:
+            n = rng.randint(0, (length - 1) // 2) * 2 + 1
         return "".join(rng.choice(string.ascii_letters + string.digits) for _ in range(n))
     raise ValueError("未知类型:{!r}".format(dtype))
 
