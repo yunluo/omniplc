@@ -635,3 +635,195 @@ def test_async_mirror_connected_roundtrip(monkeypatch: pytest.MonkeyPatch) -> No
         await client.close()
 
     asyncio.run(scenario())
+
+
+# ----------------------------------------------------------------------
+# 通用 CIP 服务入口:ListIdentity / GetAttributesAll / GetAttributeList
+# ----------------------------------------------------------------------
+
+def _identity_object_payload(vendor: int = 0x0001, product_code: int = 0x1234,
+                             rev_major: int = 24, rev_minor: int = 6,
+                             serial: int = 0x00C0FFEE,
+                             name: bytes = b"1769-L23") -> bytes:
+    """Identity Object 7 字段裸数据(供 GetAttributesAll 应答解码测试)。"""
+    return struct.pack(
+        "<HHHBBH",
+        vendor, 0x000E, product_code, rev_major, rev_minor, 0x0001
+    ) + struct.pack("<I", serial) + bytes((len(name),)) + name
+
+
+def _identity_list_reply(vendor: int = 0x0001, product_code: int = 0x1234,
+                         rev_major: int = 24, rev_minor: int = 6,
+                         serial: int = 0x00C0FFEE,
+                         name: bytes = b"1769-L23",
+                         state: int = 0xFF) -> bytes:
+    """构造 ENIP ListIdentity 完整应答帧(供客户端测试 list_identity 用)。"""
+    body = struct.pack(
+        "<HHHBBH",
+        vendor, 0x000E, product_code, rev_major, rev_minor, 0x0001
+    ) + struct.pack("<I", serial) + bytes((len(name),)) + name + bytes((state,))
+    payload = b"\x00\x00" + body  # 2 字节兼容前缀
+    header = struct.pack(
+        "<HHIIQI", codec_cip.EIP_COMMAND_LIST_IDENTITY, len(payload), _SESSION, 0, 0, 0
+    )
+    return header + payload
+
+
+def test_get_plc_info_returns_identity_dict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_plc_info 走 GetAttributesAll on Identity Object,返回 7 字段 dict。"""
+    identity = _identity_object_payload()
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818)
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _reply_chunks(identity, service=codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL)
+    )
+    _mount(monkeypatch, client, scripted)
+    ok, info = client.get_plc_info()
+    assert ok is True
+    assert info is not None
+    assert info["vendor"] == 0x0001
+    assert info["product_code"] == 0x1234
+    assert info["revision"] == (24, 6)
+    assert info["serial"] == 0x00C0FFEE
+    assert info["product_name"] == "1769-L23"
+
+
+def test_get_attribute_all_raw_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_attribute_all(class, instance) 返回裸属性数据字节。"""
+    identity = _identity_object_payload(name=b"PLC-A")
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818)
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _reply_chunks(identity, service=codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL)
+    )
+    _mount(monkeypatch, client, scripted)
+    ok, payload = client.get_attribute_all(0x01, 0x01)
+    assert ok is True
+    assert payload == identity
+    sent = bytes(scripted.sent)
+    expected_req = codec_cip.build_rr_data(
+        _SESSION,
+        codec_cip.build_uc_send(
+            codec_cip.build_get_attributes_all(0x01, 0x01), 0
+        ),
+    )
+    assert expected_req in sent
+
+
+def test_get_attribute_list_decodes_identity_attributes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_attribute_list(class, instance, attrs) 对 Identity Object 7 字段解码。
+
+    payload = 属性计数(2 字节)+ 属性长度(2 字节)+ 属性值;每属性 2 字节前缀。
+    """
+    rev = bytes((24, 6))
+    name = b"PLC-A"
+    attrs_bytes = [
+        struct.pack("<H", 0x0001),
+        struct.pack("<H", 0x000E),
+        struct.pack("<H", 0x1234),
+        rev,
+        struct.pack("<H", 0x0001),
+        struct.pack("<I", 0x00C0FFEE),
+        bytes((len(name),)) + name,
+    ]
+    body = struct.pack("<H", 7)
+    for ab in attrs_bytes:
+        body += struct.pack("<H", len(ab)) + ab
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818)
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _reply_chunks(body, service=codec_cip.CIP_SERVICE_GET_ATTRIBUTE_LIST)
+    )
+    _mount(monkeypatch, client, scripted)
+    ok, decoded = client.get_attribute_list(0x01, 0x01, (1, 2, 3, 4, 5, 6, 7))
+    if not ok:
+        raise AssertionError("last_error={!r}".format(client.last_error))
+    assert ok is True
+    assert decoded is not None
+    assert [(a, v) for a, v in decoded] == [
+        (1, 0x0001), (2, 0x000E), (3, 0x1234),
+        (4, (24, 6)), (5, 0x0001), (6, 0x00C0FFEE),
+        (7, "PLC-A"),
+    ]
+
+
+def test_generic_message_low_level_entry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """generic_message(service, class, instance, body) 走 UC-Send,返回裸数据。"""
+    identity = _identity_object_payload()
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818)
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _reply_chunks(identity, service=codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL)
+    )
+    _mount(monkeypatch, client, scripted)
+    ok, payload = client.generic_message(
+        codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL, 0x01, 0x01
+    )
+    assert ok is True
+    assert payload == identity
+    expected_req = codec_cip.build_rr_data(
+        _SESSION,
+        codec_cip.build_uc_send(
+            codec_cip.build_get_attributes_all(0x01, 0x01), 0
+        ),
+    )
+    assert expected_req in bytes(scripted.sent)
+
+
+def test_list_identity_returns_identity_dict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """list_identity() 单播:同会话内发 ListIdentity ENIP 帧并解析 Identity 字段。"""
+    reply = _identity_list_reply()
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818)
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + [reply[:24], reply[24:]]
+    )
+    _mount(monkeypatch, client, scripted)
+    ok, info = client.list_identity()
+    assert ok is True
+    assert info is not None
+    assert info["vendor"] == 0x0001
+    assert info["product_code"] == 0x1234
+    assert info["serial"] == 0x00C0FFEE
+    assert info["state"] == 0xFF
+
+
+def test_cip_extended_status_surfaces_in_last_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """cip_status=0x04 + 扩展 0x0001 → last_error 含 "实例不足" 扩展文本。"""
+    embedded_ext = (
+        bytes((codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL | 0x80, 0x00, 0x04, 0x02))
+        + struct.pack("<H", 0x0001)
+        + b"\x00\x00"
+    )
+    uc_send = bytes((0xD2, 0x00, 0x00, 0x00))
+    cip_payload = uc_send + embedded_ext
+    cpf_prefix = struct.pack(
+        "<IHHHHHH", 0, 0, 2, codec_cip._CPF_ITEM_NULL_ADDRESS, 0,
+        codec_cip._CPF_ITEM_UNCONNECTED_DATA, len(cip_payload)
+    )
+    body = cpf_prefix + cip_payload
+    header = struct.pack(
+        "<HHIIQI", 0x6F, len(body), _SESSION, 0, 0, 0
+    )
+    extended_reply = header + body
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818)
+    scripted = ScriptedTransport(
+        _session_chunks() + [extended_reply[:24], extended_reply[24:]]
+    )
+    _mount(monkeypatch, client, scripted)
+    ok, _payload = client.generic_message(
+        codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL, 0x01, 0x01
+    )
+    assert ok is False
+    assert "实例不足" in (client.last_error or "")
+    assert "路径段错误" in (client.last_error or "")

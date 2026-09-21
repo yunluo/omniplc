@@ -335,3 +335,40 @@ def test_async_mirror_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
         await client.close()
 
     asyncio.run(scenario())
+
+
+# ----------------------------------------------------------------------
+# 通用 CIP 服务入口:NJ/NX 通过继承复用
+# ----------------------------------------------------------------------
+
+def test_get_plc_info_works_on_nj_direct_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """NJ/NX 直发模式下 get_plc_info 走裸 RRData(不经 UC-Send),解析 7 字段。
+
+    验证 :class:`OmronCipClient` 继承自 :class:`AllenBradleyEthIpClient` 的
+    通用 CIP 服务入口,无需 override 即可在 NJ 直发路径上工作。
+    """
+    identity = struct.pack(
+        "<HHHBBH",
+        0x0001, 0x000E, 0x1234, 30, 11, 0x0001
+    ) + struct.pack("<I", 0x00C0FFEE) + bytes((5,)) + b"NJ-NX"
+    client = OmronCipClient("127.0.0.1", 44818)
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _direct_reply_chunks(identity, service=codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL)
+    )
+    _mount(monkeypatch, client, scripted)
+    ok, info = client.get_plc_info()
+    assert ok is True
+    assert info is not None
+    assert info["vendor"] == 0x0001
+    assert info["revision"] == (30, 11)
+    assert info["serial"] == 0x00C0FFEE
+    assert info["product_name"] == "NJ-NX"
+    # 验证请求帧:裸 RRData(无 UC-Send 包裹)+ GetAttributesAll 请求体
+    sent = bytes(scripted.sent)
+    expected_req = codec_cip.build_rr_data(
+        _SESSION, codec_cip.build_get_attributes_all(0x01, 0x01)
+    )
+    assert expected_req in sent

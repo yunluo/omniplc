@@ -27,9 +27,11 @@ UDT 整体读取、批量多服务(0x0A)、分片读写在 v1.x 规划。
 from __future__ import annotations
 
 import random
-from typing import Optional, Tuple
+import struct
+from typing import List, Optional, Sequence, Tuple
 
 from . import codec_cip
+from .codec_cip import CIP_CLASS_IDENTITY, CIP_INSTANCE_IDENTITY
 from .address import AbTag, parse_ab_tag
 from ...core.base_client import BaseClient, validate_endpoint
 from ...core.constants import (
@@ -259,6 +261,133 @@ class AllenBradleyEthIpClient(BaseClient):
 
     def _create_transport(self) -> BaseTransport:
         return TcpTransport(self._ip_address, self._port)
+
+    # ------------------------------------------------------------------
+    # 通用 CIP 服务入口:ListIdentity / GetAttributesAll / GetAttributeList
+    # ------------------------------------------------------------------
+
+    def generic_message(
+        self,
+        service: int,
+        class_id: int,
+        instance: int,
+        body: bytes = b"",
+    ) -> Tuple[bool, Optional[bytes]]:
+        """通用 CIP 服务:拼装请求 + 走 :meth:`_transact` 收发,返回服务数据域裸字节。
+
+        适用于非标签语义但同属 CIP 服务族的探测/通用对象访问(如 Identity
+        Object、Message Router、Connection Manager 其它服务)。返回的 bytes
+        是已剥掉 service 回显与 status 的纯数据域——调用方按各服务的应答
+        布局自行解码;便捷方法 :meth:`get_attribute_all` / :meth:`get_attribute_list`
+        / :meth:`get_plc_info` 已覆盖 Identity Object 常见用法。
+
+        :returns: ``(True, 数据域)`` 或 ``(False, None)``(失败时 ``last_error`` 有消息)
+        """
+        request = codec_cip._service_request(
+            service,
+            codec_cip.build_class_instance_path(class_id, instance),
+            body,
+        )
+        return self._execute(
+            lambda: self._transact(request, service), is_write=False
+        )
+
+    def list_identity(self) -> Tuple[bool, Optional[dict]]:
+        """ListIdentity(ENIP 0x63)单播:无 CIP 会话也能调用。
+
+        设备侧无需连接也能应答(同于 ENIP ListIdentity 协议),但本客户端需
+        处于已连接态以走 :meth:`_recv_frame` 收应答。
+        """
+        return self._execute(
+            lambda: codec_cip.parse_list_identity_reply(self._send_recv_raw_enip(
+                codec_cip.build_list_identity()
+            )),
+            is_write=False,
+        )
+
+    def get_plc_info(self) -> Tuple[bool, Optional[dict]]:
+        """GetAttributesAll on Identity Object(class=0x01 instance=0x01)。
+
+        返回 vendor / product_type / product_code / revision(major, minor) /
+        status / serial(8 位十六进制字符串建议调用方 ``f"{serial:08X}"``) /
+        product_name。
+        """
+        ok, payload = self.generic_message(
+            codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL,
+            CIP_CLASS_IDENTITY,
+            CIP_INSTANCE_IDENTITY,
+        )
+        if not ok or payload is None:
+            return False, None
+        try:
+            return True, codec_cip.parse_module_identity_payload(payload)
+        except Exception as exc:
+            self._last_error = "GetAttributesAll 解码失败:{}".format(exc)
+            return False, None
+
+    def get_attribute_all(
+        self, class_id: int, instance: int
+    ) -> Tuple[bool, Optional[bytes]]:
+        """通用 GetAttributesAll:返回裸属性数据(N 字节,不带 2 字节 type code)。"""
+        return self.generic_message(
+            codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL, class_id, instance
+        )
+
+    def get_attribute_list(
+        self,
+        class_id: int,
+        instance: int,
+        attributes: Sequence[int],
+    ) -> Tuple[bool, Optional[List[Tuple[int, object]]]]:
+        """通用 GetAttributeList:按 ``attributes`` 顺序解对应属性值。
+
+        默认按 Identity Object 7 字段布局解(长度前缀 UINT + UINT/UINT/... +
+        SHORT_STRING);其它对象的属性解器需调用方自行展开(用
+        :meth:`generic_message` + 自定义 :func:`parse_get_attribute_list_payload`
+        解码)。
+
+        :returns: ``(True, [(属性号, 值), ...])`` 或 ``(False, None)``
+        """
+        attrs = tuple(attributes)
+        # 直接复用 build_get_attribute_list 已做长度校验;此处只为取 reply 解码
+        ok, payload = self._execute(
+            lambda: self._transact(
+                codec_cip.build_get_attribute_list(class_id, instance, attrs),
+                codec_cip.CIP_SERVICE_GET_ATTRIBUTE_LIST,
+            ),
+            is_write=False,
+        )
+        if not ok or payload is None:
+            return False, None
+        # Identity Object 7 字段默认布局(vendor..product_name);长度前缀 UINT
+        identity_decoders = (
+            (1, lambda d: struct.unpack_from("<H", d, 0)[0]),
+            (2, lambda d: struct.unpack_from("<H", d, 0)[0]),
+            (3, lambda d: struct.unpack_from("<H", d, 0)[0]),
+            (4, lambda d: (d[0], d[1])),
+            (5, lambda d: struct.unpack_from("<H", d, 0)[0]),
+            (6, lambda d: struct.unpack_from("<I", d, 0)[0]),
+            (7, codec_cip.decode_identity_string),
+        )
+        if class_id == CIP_CLASS_IDENTITY and instance == CIP_INSTANCE_IDENTITY \
+                and len(attrs) == 7:
+            decoder_map = dict(identity_decoders)
+            try:
+                decoders = tuple((a, decoder_map[a]) for a in attrs)
+                return True, codec_cip.parse_get_attribute_list_payload(
+                    payload, decoders
+                )
+            except Exception as exc:
+                self._last_error = "GetAttributeList 解码失败:{}".format(exc)
+                return False, None
+        # 非 Identity 对象:返回原始 payload,调用方自行解
+        return True, [(a, payload) for a in attrs]
+
+    def _send_recv_raw_enip(self, frame: bytes) -> bytes:
+        """发送裸 ENIP 帧并按长度域收完整应答(内部辅助,ListIdentity 用)。"""
+        transport = self._require_transport()
+        transport.send(frame)
+        return self._recv_frame()
 
     # ------------------------------------------------------------------
     # 类型发现(标签自描述,按基名缓存)

@@ -24,10 +24,11 @@
 from __future__ import annotations
 
 import struct
-from typing import Dict, List, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 from .address import AbTag
 from ...core.constants import (
+    AB_CIP_EXTENDED_STATUS_TEXT,
     AB_CIP_STATUS_TEXT,
     AB_EIP_STATUS_TEXT,
     AB_EIP_STRING_MAX_CHARS,
@@ -62,6 +63,10 @@ _CPF_ITEM_CONNECTED_DATA: int = 0x00B1
 """CPF 连接数据项:序列号 + CIP 报文(connected 报文)。"""
 
 # ---- CIP 服务码 ----
+CIP_SERVICE_GET_ATTRIBUTES_ALL: int = 0x01
+"""CIP Get_Attributes_All(对象全部属性读取,Identity Object 等通用)。"""
+CIP_SERVICE_GET_ATTRIBUTE_LIST: int = 0x03
+"""CIP Get_Attribute_List(指定属性号列表读取)。"""
 CIP_SERVICE_UNCONNECTED_SEND: int = 0x52
 CIP_SERVICE_READ_TAG: int = 0x4C
 CIP_SERVICE_WRITE_TAG: int = 0x4D
@@ -72,6 +77,16 @@ CIP_SERVICE_LARGE_FORWARD_OPEN: int = 0x5B
 """CIP Large Forward Open(参数域 32 位,连接尺寸 >505 时使用)。"""
 CIP_SERVICE_FORWARD_CLOSE: int = 0x4E
 """CIP Forward Close(Connection Manager;与标签 RMW 同码不同类,不冲突)。"""
+
+# ---- ENIP 封装命令扩展(发现/调试) ----
+EIP_COMMAND_LIST_IDENTITY: int = 0x0063
+"""ENIP ListIdentity(广播/单播发现,无 CIP 会话)。"""
+
+# Identity Object 类/实例号(CIP Vol 1 §5-1)
+CIP_CLASS_IDENTITY: int = 0x01
+"""Identity Object 类号(CIP 通用 Class ID 0x01)。"""
+CIP_INSTANCE_IDENTITY: int = 0x01
+"""Identity Object 实例号(GetAttributesAll/GetAttributeList 实例属性用 1)。"""
 
 # ---- Forward Open / SendUnitData 参数(报文常量,沿用参考库惯例值) ----
 FO_PRIORITY_TIME_TICK: int = 0x0A
@@ -336,6 +351,46 @@ def _service_request(service: int, path: bytes, body: bytes) -> bytes:
     if len(path) % 2:
         raise ValueError("CIP 路径长度必须为偶数:{}".format(len(path)))
     return struct.pack("<BB", service, len(path) // 2) + path + body
+
+
+def build_class_instance_path(class_id: int, instance: int) -> bytes:
+    """构造 class(8 位段)+ instance(8 位段)EPATH(内部函数)。
+
+    CIP Vol 1 §5-2:8 位段头 = ``0x20 | logical_type``,其中
+    ``class_id`` logical_type=0x00,``instance_id``=0x04。class 与
+    instance 各 1 字节,共 4 字节(偶长度满足 :func:`_service_request`)。
+    """
+    if not 0 <= class_id <= 0xFF:
+        raise ValueError("CIP class_id 超出 0~255:{}".format(class_id))
+    if not 0 <= instance <= 0xFF:
+        raise ValueError("CIP instance 超出 0~255:{}".format(instance))
+    return bytes((0x20, class_id, 0x24, instance))
+
+
+def build_get_attributes_all(class_id: int, instance: int) -> bytes:
+    """构造 Get_Attributes_All 请求(服务 0x01,无 body)。"""
+    return _service_request(
+        CIP_SERVICE_GET_ATTRIBUTES_ALL,
+        build_class_instance_path(class_id, instance),
+        b"",
+    )
+
+
+def build_get_attribute_list(
+    class_id: int, instance: int, attributes: Tuple[int, ...]
+) -> bytes:
+    """构造 Get_Attribute_List 请求(服务 0x03,body = 属性数 + 属性号列表)。"""
+    for attr in attributes:
+        if not 0 <= attr <= 0xFFFF:
+            raise ValueError("CIP 属性号超出 0~65535:{}".format(attr))
+    body = struct.pack("<H", len(attributes)) + b"".join(
+        struct.pack("<H", a) for a in attributes
+    )
+    return _service_request(
+        CIP_SERVICE_GET_ATTRIBUTE_LIST,
+        build_class_instance_path(class_id, instance),
+        body,
+    )
 
 
 def build_tag_read(path: bytes, elements: int = 1) -> bytes:
@@ -669,7 +724,11 @@ def parse_direct_service_reply(reply: bytes, request_service: int) -> bytes:
 
 
 def _parse_service_payload(cip: bytes, request_service: int) -> bytes:
-    """校验服务回显与通用状态,返回服务数据域(内部函数)。"""
+    """校验服务回显与通用状态,返回服务数据域(内部函数)。
+
+    status 非 0 时把 16 位扩展子状态(命中 :data:`AB_CIP_EXTENDED_STATUS_TEXT`)
+    拼到 :class:`DeviceError` 消息末尾;扩展码不进 ``code``(仍仅 8 位通用状态)。
+    """
     if len(cip) < 4:
         raise ProtocolFrameError("CIP 服务应答不完整")
     reply_service = cip[0]
@@ -681,7 +740,11 @@ def _parse_service_payload(cip: bytes, request_service: int) -> bytes:
         )
     status = cip[2]
     if status != 0:
-        raise DeviceError(_status_text(status), status)
+        ext = _extended_status_text(status, cip)
+        msg = _status_text(status) if ext is None else "{} — {}".format(
+            _status_text(status), ext
+        )
+        raise DeviceError(msg, status)
     return cip[4 + cip[3]:]
 
 
@@ -693,6 +756,42 @@ def status_text(status: int) -> str:
 def _status_text(status: int) -> str:
     """CIP 通用状态 → 可读文本(内部函数)。"""
     return "CIP 状态 0x{:02X}({})".format(status, status_text(status))
+
+
+def _extended_status_text(status: int, cip: bytes) -> Optional[str]:
+    """从 CIP 应答字节里读 16 位扩展子状态码并查表,返回人话(内部函数)。
+
+    布局:CIP 服务应答 = 服务回显 | 0x80(1) + 保留(1) + 通用状态(1) +
+    size_of_additional_status(1,单位 16 位字) + N×2 字节扩展码 + 数据。
+
+    :param status: 通用状态字节
+    :param cip: 完整服务应答字节(从服务回显字节起算)
+    :returns: ``"文本  (status=0xXX, extended=0xYYYY)"`` 或 ``None``
+        (size=0 / 未命中表项 / 数据长度不足)
+    """
+    if len(cip) < 4:
+        return None
+    word_count = cip[3]
+    if word_count == 0:
+        return None
+    ext_bytes = word_count * 2
+    if len(cip) < 4 + ext_bytes:
+        return None
+    if word_count == 1:
+        extended = cip[4]
+    elif word_count == 2:
+        extended = struct.unpack_from("<H", cip, 4)[0]
+    elif word_count == 4:
+        extended = struct.unpack_from("<I", cip, 4)[0]
+    else:
+        return None
+    table = AB_CIP_EXTENDED_STATUS_TEXT.get(status)
+    if not table:
+        return None
+    text = table.get(extended)
+    if text is None:
+        return None
+    return "{}  ({:0>2X}, {:0>4X})".format(text, status, extended)
 
 
 def parse_tag_read_payload(payload: bytes) -> Tuple[int, bytes]:
@@ -709,6 +808,143 @@ def parse_tag_read_payload(payload: bytes) -> Tuple[int, bytes]:
             raise ProtocolFrameError("结构体应答类型域不完整")
         return cip_type, payload[4:]
     return cip_type, payload[2:]
+
+
+# ----------------------------------------------------------------------
+# 通用 CIP 服务:ListIdentity / GetAttributesAll / GetAttributeList
+# ----------------------------------------------------------------------
+
+def build_list_identity() -> bytes:
+    """构造 ListIdentity ENIP 请求(命令 0x63,载荷 0 字节,无 CIP 会话)。"""
+    return struct.pack(
+        "<HHIIQI",
+        EIP_COMMAND_LIST_IDENTITY,
+        0,  # length:无 CIP 载荷
+        0,  # session handle:ListIdentity 不需要会话
+        0,  # status
+        0,  # sender context (低 8 字节)
+        0,  # options
+    )
+
+
+def parse_list_identity_reply(reply: bytes) -> Dict[str, object]:
+    """解析 ListIdentity ENIP 应答,返回 Identity Object 字段字典。
+
+    布局(ODVA CIP Vol 2 §2-4.4.2 + pycomm3 1.2.16 cross-check):ENIP 头
+    (24 字节)+ 2 字节兼容前缀(部分实现带 interface/version)+ Identity
+    Object 字段(vendor 2 + product_type 2 + product_code 2 + revision 2 +
+    status 2 + serial 4 + product_name_length 1 + product_name N + state 1)。
+
+    :raises ProtocolFrameError: 长度不足 / 命令不符 / 封装状态非 0
+    """
+    _check_enip_reply(reply, EIP_COMMAND_LIST_IDENTITY)
+    payload = reply[EIP_HEADER_SIZE:]
+    # 跳过 2 字节兼容前缀(部分实现带 interface handle / version)
+    if len(payload) < 2 + 14:
+        raise ProtocolFrameError(
+            "ListIdentity 应答载荷不足:{} 字节".format(len(payload))
+        )
+    body = payload[2:]
+    vendor = struct.unpack_from("<H", body, 0)[0]
+    product_type = struct.unpack_from("<H", body, 2)[0]
+    product_code = struct.unpack_from("<H", body, 4)[0]
+    rev_major, rev_minor = body[6], body[7]
+    status_word = struct.unpack_from("<H", body, 8)[0]
+    serial = struct.unpack_from("<I", body, 10)[0]
+    name_len = body[14]
+    if len(body) < 15 + name_len + 1:
+        raise ProtocolFrameError("ListIdentity product_name 截断")
+    product_name = bytes(body[15:15 + name_len]).decode("ascii", errors="replace")
+    state = body[15 + name_len]
+    return {
+        "vendor": vendor,
+        "product_type": product_type,
+        "product_code": product_code,
+        "revision": (rev_major, rev_minor),
+        "status": status_word,
+        "serial": serial,
+        "product_name": product_name,
+        "state": state,
+    }
+
+
+def parse_module_identity_payload(payload: bytes) -> Dict[str, object]:
+    """解析 GetAttributesAll 应答的数据域(Identity Object 7 字段),返回字典。
+
+    由 :func:`generic_message` 调用方传入从 ``_transact`` 取出的裸数据;
+    payload = vendor(2)+ product_type(2)+ product_code(2)+ revision(2)+
+    status(2)+ serial(4)+ product_name_length(1)+ product_name(N)。
+
+    :raises ProtocolFrameError: 长度不足
+    """
+    if len(payload) < 14:
+        raise ProtocolFrameError(
+            "Identity Object 应答载荷不足:{} 字节".format(len(payload))
+        )
+    vendor = struct.unpack_from("<H", payload, 0)[0]
+    product_type = struct.unpack_from("<H", payload, 2)[0]
+    product_code = struct.unpack_from("<H", payload, 4)[0]
+    rev_major, rev_minor = payload[6], payload[7]
+    status_word = struct.unpack_from("<H", payload, 8)[0]
+    serial = struct.unpack_from("<I", payload, 10)[0]
+    name_len = payload[14]
+    if len(payload) < 15 + name_len:
+        raise ProtocolFrameError("Identity Object product_name 截断")
+    product_name = bytes(payload[15:15 + name_len]).decode("ascii", errors="replace")
+    return {
+        "vendor": vendor,
+        "product_type": product_type,
+        "product_code": product_code,
+        "revision": (rev_major, rev_minor),
+        "status": status_word,
+        "serial": serial,
+        "product_name": product_name,
+    }
+
+
+def parse_get_attribute_list_payload(
+    payload: bytes, attribute_decoders: Tuple[Tuple[int, Callable[[bytes], object]], ...]
+) -> List[Tuple[int, object]]:
+    """解析 GetAttributeList 应答数据域,按 ``attribute_decoders`` 顺序消费。
+
+    payload 起点 = 属性数据(已被 :func:`_parse_service_payload` 剥掉 4 字节
+    服务回显头);首 2 字节为属性返回个数,随后按 ``attribute_decoders`` 顺序
+    每个解一段。解器失败抛 :class:`ValueError`,由调用方收口。
+
+    :param attribute_decoders: ``(属性号, 解码函数)`` 元组列表,顺序需与请求一致
+    :raises ProtocolFrameError: 长度不足 / 属性个数与解器不匹配
+    """
+    if len(payload) < 2:
+        raise ProtocolFrameError("GetAttributeList 应答数据域不完整")
+    count = struct.unpack_from("<H", payload, 0)[0]
+    if count != len(attribute_decoders):
+        raise ProtocolFrameError(
+            "GetAttributeList 属性数不符:声明 {},期望 {}".format(
+                count, len(attribute_decoders)
+            )
+        )
+    offset = 2
+    out: List[Tuple[int, object]] = []
+    for attr_id, decoder in attribute_decoders:
+        # 长度前缀:每个属性前置 2 字节 UINT 长度(ODVA CIP Vol 1 §5-4.4)
+        if len(payload) < offset + 2:
+            raise ProtocolFrameError("GetAttributeList 属性长度域截断")
+        attr_len = struct.unpack_from("<H", payload, offset)[0]
+        offset += 2
+        if len(payload) < offset + attr_len:
+            raise ProtocolFrameError("GetAttributeList 属性数据截断")
+        value = decoder(payload[offset:offset + attr_len])
+        out.append((attr_id, value))
+        offset += attr_len
+    return out
+
+
+def decode_identity_string(data: bytes) -> str:
+    """Identity Object SHORT_STRING(1 字节长度 + N 字节 ASCII)解码器(辅助函数)。"""
+    if not data:
+        return ""
+    n = min(data[0], len(data) - 1)
+    return bytes(data[1:1 + n]).decode("ascii", errors="replace")
 
 
 def decode_values(

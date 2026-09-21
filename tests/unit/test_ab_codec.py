@@ -426,3 +426,143 @@ def test_parse_send_unit_data_reply() -> None:
     with pytest.raises(DeviceError) as exc_info:
         codec_cip.parse_send_unit_data_reply(bad, 0x4C, 0x5678, 7)
     assert exc_info.value.code == 0x16
+
+
+# ----------------------------------------------------------------------
+# 通用 CIP 服务 + 扩展码诊断
+# ----------------------------------------------------------------------
+
+def test_build_get_attributes_all_identity_object() -> None:
+    """GetAttributesAll on Identity Object (class=0x01 instance=0x01) 字节布局。
+
+    期望:0x01 (服务) + 0x02 (路径字数) + 0x20 0x01 (class 8 位段) +
+    0x24 0x01 (instance 8 位段) = 6 字节。
+    """
+    frame = codec_cip.build_get_attributes_all(0x01, 0x01)
+    assert frame == bytes.fromhex("010220012401")
+
+
+def test_build_get_attribute_list_two_attributes() -> None:
+    """GetAttributeList 请求布局:属性数(2 字节)+ 属性号列表(每 2 字节)。
+
+    Identity Object 属性 1 (vendor) + 6 (serial) = 0100 0600,前面拼
+    class-instance 路径 ``01 02 20 01 24 01`` 与服务头 0x03 + 0x02 字数。
+    """
+    frame = codec_cip.build_get_attribute_list(0x01, 0x01, (1, 6))
+    assert frame == bytes.fromhex("030220012401020001000600")
+
+
+def test_parse_list_identity_reply_full_fields() -> None:
+    """ListIdentity ENIP 应答:校验 ENIP 头 + 22 字节 socket 前置 + 7 字段解码。
+
+    vendor=0x1234, product_type=0x000E(PLC), product_code=0x5678,
+    revision=(30, 11), status=0x0001, serial=0x89ABCDEF,
+    product_name="1769-L23E"(8 字节), state=0xFF。
+    """
+    socket_prefix = b"\x00\x00"  # 2 字节兼容前缀(部分实现带 interface handle / version)
+    identity_body = struct.pack(
+        "<HHHBBH",
+        0x1234,  # vendor
+        0x000E,  # product_type
+        0x5678,  # product_code
+        30, 11,  # revision major/minor
+        0x0001,  # status
+    ) + struct.pack("<I", 0x89ABCDEF) + bytes((8,)) + b"1769-L23" + bytes((0xFF,))
+    payload = socket_prefix + identity_body
+    header = struct.pack(
+        "<HHIIQI",
+        codec_cip.EIP_COMMAND_LIST_IDENTITY,
+        len(payload),
+        _SESSION,
+        0,
+        0,
+        0,
+    )
+    reply = header + payload
+    info = codec_cip.parse_list_identity_reply(reply)
+    assert info["vendor"] == 0x1234
+    assert info["product_type"] == 0x000E
+    assert info["product_code"] == 0x5678
+    assert info["revision"] == (30, 11)
+    assert info["status"] == 0x0001
+    assert info["serial"] == 0x89ABCDEF
+    assert info["product_name"] == "1769-L23"
+    assert info["state"] == 0xFF
+
+
+def test_parse_module_identity_payload() -> None:
+    """GetAttributesAll 裸数据(7 字段 Identity Object)解码。"""
+    payload = struct.pack(
+        "<HHHBBH",
+        0x0001,  # vendor = Rockwell
+        0x000E,  # product_type = PLC
+        0x1234,  # product_code
+        24, 6,  # revision major/minor
+        0x0001,  # status
+    ) + struct.pack("<I", 0xDEADBEEF) + bytes((5,)) + b"PLC-A"
+    info = codec_cip.parse_module_identity_payload(payload)
+    assert info["vendor"] == 0x0001
+    assert info["product_type"] == 0x000E
+    assert info["revision"] == (24, 6)
+    assert info["serial"] == 0xDEADBEEF
+    assert info["product_name"] == "PLC-A"
+
+
+def test_extended_status_attached_to_device_error() -> None:
+    """cip_status=0x04 + 扩展 0x0001:DeviceError 消息末尾拼扩展码文本。
+
+    布局:服务回显(0x01|0x80) + 保留(0) + 通用状态(0x04) +
+    size_of_additional=2(单位 16 位字) + 扩展码 LE u16 0x0001 +
+    数据域(空)。cip 总长 8 字节(4 头 + 4 扩展码),_parse_service_payload
+    抛 DeviceError 之前把扩展码文本拼到 message。
+    """
+    cip_with_ext = (
+        bytes((codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL | 0x80, 0x00, 0x04, 0x02))
+        + struct.pack("<H", 0x0001)
+        + b"\x00\x00"  # 数据域(空但需 padding,使总长 ≥ 4 + ext_bytes)
+    )
+    # 手动构造完整 ENIP 帧,确保 length 域匹配实际长度
+    uc_send = bytes((0xD2, 0x00, 0x00, 0x00))
+    cip_payload = uc_send + cip_with_ext
+    cpf_prefix = (
+        struct.pack("<IHHHHHH", 0, 0, 2, codec_cip._CPF_ITEM_NULL_ADDRESS, 0,
+                    codec_cip._CPF_ITEM_UNCONNECTED_DATA, len(cip_payload))
+    )
+    body = cpf_prefix + cip_payload
+    header = struct.pack(
+        "<HHIIQI", codec_cip.EIP_COMMAND_SEND_RR_DATA, len(body), _SESSION, 0, 0, 0
+    )
+    reply = header + body
+    with pytest.raises(DeviceError) as exc_info:
+        codec_cip.parse_service_reply(reply, codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL)
+    assert exc_info.value.code == 0x04
+    assert "路径段错误" in str(exc_info.value)
+    assert "实例不足" in str(exc_info.value)
+
+
+def test_extended_status_unknown_omitted() -> None:
+    """cip_status=0x04 + 扩展 0x9999:扩展码未命中,消息不含扩展文本。
+
+    DeviceError.message 只含通用状态文本;code 仍为 0x04。
+    """
+    cip = (
+        bytes((codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL | 0x80, 0x00, 0x04, 0x02))
+        + struct.pack("<H", 0x9999)
+    )
+    uc_send = bytes((0xD2, 0x00, 0x00, 0x00))
+    cip_payload = uc_send + cip
+    cpf_prefix = (
+        struct.pack("<IHHHHHH", 0, 0, 2, codec_cip._CPF_ITEM_NULL_ADDRESS, 0,
+                    codec_cip._CPF_ITEM_UNCONNECTED_DATA, len(cip_payload))
+    )
+    body = cpf_prefix + cip_payload
+    header = struct.pack(
+        "<HHIIQI", codec_cip.EIP_COMMAND_SEND_RR_DATA, len(body), _SESSION, 0, 0, 0
+    )
+    reply = header + body
+    with pytest.raises(DeviceError) as exc_info:
+        codec_cip.parse_service_reply(reply, codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL)
+    assert exc_info.value.code == 0x04
+    assert "路径段错误" in str(exc_info.value)
+    # 扩展码 0x9999 不在表中,不应出现 "—" 分隔的扩展文本
+    assert "—" not in str(exc_info.value)
