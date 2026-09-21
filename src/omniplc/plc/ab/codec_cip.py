@@ -289,7 +289,10 @@ def build_uc_send(request: bytes, slot: int) -> bytes:
     """把标签服务请求包裹进 CIP Unconnected Send(路由:背板端口 + 槽号)。
 
     布局:服务 0x52 + CM 路径(20 06 24 01)+ 优先级/超时 + 内嵌请求
-    字节数 + 内嵌请求(补齐偶对齐)+ 路由段(path_size + 保留 + 端口 + 槽号)。
+    字节数 + 内嵌请求(补齐偶对齐)+ 路由段(path_size + 保留 + 端口 +
+    槽号)。path_size 单位 **16 位字**:路由 ``01 slot`` 为 1 字 → 恒 1
+    (HSL 实帧 / IoTClient / pycomm3 三方一致;曾误填字节数 2,真机 Logix
+    按规范解析会报路由错误)。
     """
     if len(request) > 0xFFFF:
         raise ValueError("CIP 请求超过 65535 字节:{}".format(len(request)))
@@ -310,7 +313,7 @@ def build_uc_send(request: bytes, slot: int) -> bytes:
     frame += request
     if len(request) % 2:
         frame += b"\x00"
-    frame += bytes((2, 0x00, 0x01, slot))
+    frame += bytes((1, 0x00, 0x01, slot))
     return bytes(frame)
 
 

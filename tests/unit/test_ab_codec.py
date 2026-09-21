@@ -84,7 +84,7 @@ def test_uc_send_read_frame_golden() -> None:
         "000000000000020000000000b2001a00"  # CPF 前缀
         "5202200624010aff0c00"  # UC Send 头
         "4c0491064d7944696e740100"  # Tag Read 服务
-        "02000100"  # 路由段(背板 + 槽 0)
+        "01000100"  # 路由段(path_size=1 字 + 保留 + 背板 + 槽 0)
     )
 
 
@@ -94,7 +94,7 @@ def test_uc_send_padding_and_route() -> None:
     assert len(frame) == 10 + 3 + 1 + 4
     assert frame[10:13] == b"\x01\x02\x03"
     assert frame[13] == 0x00
-    assert frame[14:] == bytes.fromhex("02000102")
+    assert frame[14:] == bytes.fromhex("01000102")
 
 
 def test_symbol_path_segments() -> None:
