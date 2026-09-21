@@ -99,8 +99,17 @@ packages = ["src/omniplc"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+# ruff 门禁显式固定为历史口径(旧版 ruff 的默认规则集):新版 ruff 扩大
+# 默认规则后会误报 UP/I/B/RUF 等非本项目启用的规则(其中含要求
+# py3.9+/3.10+ 语法的改写建议,与 requires-python >=3.7 冲突),
+# 故显式圈定,使门禁与 ruff 版本漂移解耦。
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
 [tool.mypy]
-python_version = "3.7"
+# 新版 mypy 最低支持 3.9 目标(3.7 已弃用);py3.7 真兼容由 py3.7 运行时
+# 实跑测试验证(mypy 目标仅静态兜底,不能替代真机验证)。
+python_version = "3.9"
 files = ["src", "tests"]
 check_untyped_defs = true
 no_implicit_optional = true

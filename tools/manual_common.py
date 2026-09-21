@@ -285,7 +285,7 @@ DEFAULT_CONNECTIONS = {
         "points": [
             {"name": "D100 短整数", "address": "D100", "type": "short"},
             {"name": "D102 浮点", "address": "D102", "type": "float"},
-            {"name": "R0 接点位", "address": "R0", "type": "bool"},
+            {"name": "R0.0 接点位(点号形式)", "address": "R0.0", "type": "bool"},
             {"name": "R1.5 接点位(点号形式)", "address": "R1.5", "type": "bool"},
         ],
     },

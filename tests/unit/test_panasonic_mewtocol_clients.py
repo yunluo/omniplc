@@ -208,6 +208,21 @@ def test_station_echo_mismatch_marks_disconnected(monkeypatch: pytest.MonkeyPatc
     assert client.last_error is not None and "站号" in client.last_error
 
 
+def test_direct_station_reply_tolerated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """直连口径应答(自报 EE)放行:请求站 01、应答站 EE 正常解析。
+
+    现场存在不论请求站号一律以直连站号 EE 应答的设备/模拟器
+    (HSL PanasonicMewtocol 默认站号即 0xEE 且不校验应答站号)。
+    """
+    client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
+    frame = _resp("RD", "2710", station="EE")
+    scripted = ScriptedTransport([frame[:4], frame[4:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_ushort("D100") == (True, 10000)
+    assert client.connected is True
+
+
 def test_udp_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """UDP:一问一答一数据报,整包接收后解析。"""
     client = PanasonicMewtocolUdpClient("127.0.0.1", 1024, station=2)

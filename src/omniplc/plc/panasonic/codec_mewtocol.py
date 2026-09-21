@@ -10,6 +10,9 @@ Panasonic《MEWTOCOL Communication - User's Manual》口径,BCC 测试向量
   + 数据(十六进制文本)+ BCC(2)+ CR —— 数据固定从第 7 字节(下标 6)开始
 - 错误响应 = ``%`` + 站号(2)+ ``!`` + 错误码(2 字符)+ BCC(2)+ CR
 - BCC = 从 ``%`` 起至 BCC 前所有字符的异或
+- 应答站号按手册应为请求站号回显;但现场存在**直连口径**的应答方
+  (工具口直连单元、部分模拟器)不论请求站号一律自报 ``EE`` —— HSL
+  ``PanasonicMewtocol`` 默认站号即 0xEE 且不校验应答站号,故校验时放行 EE
 
 命令:RCS/WCS 单接点读/写(字号 3 位十进制 + 位号 1 位十六进制)、
 RD/WD 数据区读/写(起止编号各 5 位十进制,每字 4 位十六进制、高字节在前,
@@ -104,7 +107,7 @@ def parse_response(response: bytes, station: str, command: str) -> str:
     """解析响应帧,返回数据文本(无数据为空串)。
 
     :param response: 完整响应帧(TCP 拼接帧或 UDP 整包)
-    :param station: 请求使用的站号文本(校验回显)
+    :param station: 请求使用的站号文本(校验回显;应答自报直连站号 ``EE`` 时放行)
     :param command: 期望的命令名回显(2 字符:RC/RD/WC/WD)
     :raises omniplc.core.errors.DeviceError: PLC 错误响应(! 帧,链路正常)
     :raises omniplc.core.errors.ProtocolFrameError: 帧结构/站号/BCC/回显不符
@@ -120,7 +123,7 @@ def parse_response(response: bytes, station: str, command: str) -> str:
         raise ProtocolFrameError(
             "MEWTOCOL 响应帧头非法:{!r}(应为 %HH$ 或 %HH!)".format(text[:4])
         )
-    if text[1:3] != station:
+    if text[1:3] != station and text[1:3] != "EE":
         raise ProtocolFrameError(
             "MEWTOCOL 站号不匹配:期望 {},收到 {}".format(station, text[1:3])
         )
