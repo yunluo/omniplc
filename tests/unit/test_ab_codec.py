@@ -566,3 +566,28 @@ def test_extended_status_unknown_omitted() -> None:
     assert "路径段错误" in str(exc_info.value)
     # 扩展码 0x9999 不在表中,不应出现 "—" 分隔的扩展文本
     assert "—" not in str(exc_info.value)
+
+
+def test_parse_service_reply_tolerates_zero_echo_write_reply() -> None:
+    """HSL 服务端写应答回显省略(首字节 0x00):放行;非零错回显仍拒。
+
+    写应答 CIP 体 = 00 00 00 00(回显省略 + 保留 0 + 状态 0 + 附加长 0)。
+    """
+    def _reply_with_embedded(embedded: bytes) -> bytes:
+        uc_send = bytes((0xD2, 0x00, 0x00, 0x00))
+        cip_payload = uc_send + embedded
+        cpf_prefix = struct.pack(
+            "<IHHHHHH", 0, 0, 2, codec_cip._CPF_ITEM_NULL_ADDRESS, 0,
+            codec_cip._CPF_ITEM_UNCONNECTED_DATA, len(cip_payload)
+        )
+        body = cpf_prefix + cip_payload
+        header = struct.pack(
+            "<HHIIQI", codec_cip.EIP_COMMAND_SEND_RR_DATA, len(body), _SESSION, 0, 0, 0
+        )
+        return header + body
+
+    zero_echo = bytes((0x00, 0x00, 0x00, 0x00))
+    assert codec_cip.parse_service_reply(_reply_with_embedded(zero_echo), 0x4D) == b""
+    wrong_echo = bytes((0xCB, 0x00, 0x00, 0x00))  # 期望 0xCC,实际 0xCB
+    with pytest.raises(ProtocolFrameError):
+        codec_cip.parse_service_reply(_reply_with_embedded(wrong_echo), 0x4D)

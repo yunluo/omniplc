@@ -726,13 +726,18 @@ def parse_direct_service_reply(reply: bytes, request_service: int) -> bytes:
 def _parse_service_payload(cip: bytes, request_service: int) -> bytes:
     """校验服务回显与通用状态,返回服务数据域(内部函数)。
 
+    回显宽容:个别服务端(HSL AllenBradleyServer,用户联测实帧核证)写应答
+    (0x4D)首字节回 0x00 而非服务回显 | 0x80;pylogix 客户端从不校验服务
+    回显,本库事务为同步一问一答,回显对请求-应答关联是冗余,故对 0x00
+    (回显省略)放行;非零错回显仍按坏帧拒。
+
     status 非 0 时把 16 位扩展子状态(命中 :data:`AB_CIP_EXTENDED_STATUS_TEXT`)
     拼到 :class:`DeviceError` 消息末尾;扩展码不进 ``code``(仍仅 8 位通用状态)。
     """
     if len(cip) < 4:
         raise ProtocolFrameError("CIP 服务应答不完整")
     reply_service = cip[0]
-    if reply_service != (request_service | 0x80):
+    if reply_service != (request_service | 0x80) and reply_service != 0x00:
         raise ProtocolFrameError(
             "标签服务回显不符:期望 0x{:02X},实际 0x{:02X}".format(
                 request_service | 0x80, reply_service

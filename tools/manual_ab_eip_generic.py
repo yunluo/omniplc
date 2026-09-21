@@ -12,6 +12,12 @@
 无参数直接跑(每次只测这一个协议):目标 127.0.0.1:44818。
     uv run python tools/manual_ab_eip_generic.py [--ip IP] [--port 端口] [--debug]
 
+**模拟器须知**:HSL AllenBradleyServer 等简易服务端只实现标签读/写/位改写
+(0x4C/0x4D/0x4E),ListIdentity 被回 0x66 头、GetAttributesAll/GetAttributeList
+被回 ENIP 封装状态 0x01(非法命令)——这是模拟器未实现,不是库故障;
+真机 Logix(ControlLogix/CompactLogix)对 5 项均支持,本脚本主要为真机
+验证与现场设备探测准备。
+
 手动调试脚本(不进 ``manual_common.py`` 默认套件),用于:
 - 现场对端 CIP 设备发现 / 元信息读取
 - 非 Logix 对象(Connection Manager、Assembly、Parameter 等)的探测
@@ -106,6 +112,8 @@ def probe(ip: str, port: int, slot: int) -> int:
     _log("==== 总结 ====")
     if failed:
         _log("失败 {} / 5".format(failed))
+        _log("(若错误为「封装状态 0x00000001」或「期望 0x0063,实际 0x0066」,"
+             "属模拟器未实现该服务,见脚本头注;真机 Logix 应全部通过)")
         return 1
     _log("全部通过")
     return 0

@@ -827,3 +827,30 @@ def test_cip_extended_status_surfaces_in_last_error(
     assert ok is False
     assert "实例不足" in (client.last_error or "")
     assert "路径段错误" in (client.last_error or "")
+
+
+def test_write_roundtrip_with_zero_echo_reply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """写应答回显省略(HSL 服务端实帧形态):write_int 贯通。
+
+    帧形态:类型发现读应答(0xCC 回显)+ 写应答(CIP 体 00 00 00 00)。
+    """
+    zero_echo_embedded = bytes((0x00, 0x00, 0x00, 0x00))
+    uc_send = bytes((0xD2, 0x00, 0x00, 0x00))
+    cip_payload = uc_send + zero_echo_embedded
+    cpf_prefix = struct.pack(
+        "<IHHHHHH", 0, 0, 2, codec_cip._CPF_ITEM_NULL_ADDRESS, 0,
+        codec_cip._CPF_ITEM_UNCONNECTED_DATA, len(cip_payload)
+    )
+    body = cpf_prefix + cip_payload
+    header = struct.pack("<HHIIQI", 0x6F, len(body), _SESSION, 0, 0, 0)
+    zero_echo_reply = header + body
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818)
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _reply_chunks(_atomic_payload(0xC4, b"\x00\x00\x00\x00"))
+        + [zero_echo_reply[:24], zero_echo_reply[24:]]
+    )
+    _mount(monkeypatch, client, scripted)
+    assert client.write_int("MyDint", 5) is True
