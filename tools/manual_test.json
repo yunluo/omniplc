@@ -1,0 +1,381 @@
+{
+  "debug": false,
+  "connections": [
+    {
+      "name": "Modbus-TCP 模拟器",
+      "driver": "modbus_tcp",
+      "ip": "127.0.0.1",
+      "port": 502,
+      "params": {"station": 1, "word_order": "ABCD"},
+      "points": [
+        {"name": "线圈", "address": "c0", "type": "bool"},
+        {"name": "线圈1", "address": "c1", "type": "bool"},
+        {"name": "保持寄存器-短整数", "address": "hr0", "type": "short"},
+        {"name": "保持寄存器-无符号短", "address": "hr2", "type": "ushort"},
+        {"name": "保持寄存器-整数", "address": "hr4", "type": "int"},
+        {"name": "保持寄存器-无符号整", "address": "hr6", "type": "uint"},
+        {"name": "保持寄存器-长整数", "address": "hr8", "type": "long"},
+        {"name": "保持寄存器-浮点", "address": "hr12", "type": "float"},
+        {"name": "保持寄存器-双精度", "address": "hr16", "type": "double"},
+        {"name": "寄存器位", "address": "hr20.3", "type": "bool"},
+        {"name": "输入寄存器(只读)", "address": "ir0", "type": "ushort", "access": "r"},
+        {"name": "离散输入(只读)", "address": "di0", "type": "bool", "access": "r"}
+      ]
+    },
+    {
+      "name": "Modbus-RTU 串口",
+      "driver": "modbus_rtu",
+      "params": {"station": 1},
+      "serial": {"port": "COM3", "baud_rate": 9600, "data_bits": 8, "stop_bits": 1, "parity": "N"},
+      "points": [
+        {"name": "线圈", "address": "c0", "type": "bool"},
+        {"name": "保持寄存器-短整数", "address": "hr0", "type": "short"},
+        {"name": "保持寄存器-浮点", "address": "hr4", "type": "float"}
+      ]
+    },
+    {
+      "name": "三菱MC-3E",
+      "driver": "melsec_mc_tcp",
+      "ip": "127.0.0.1",
+      "port": 2000,
+      "params": {"frame": "3E", "network_number": 0, "pc_number": 255},
+      "points": [
+        {"name": "D100 短整数", "address": "D100", "type": "short"},
+        {"name": "D102 无符号短", "address": "D102", "type": "ushort"},
+        {"name": "D104 整数", "address": "D104", "type": "int"},
+        {"name": "D106 无符号整", "address": "D106", "type": "uint"},
+        {"name": "D108 浮点", "address": "D108", "type": "float"},
+        {"name": "D110 双精度", "address": "D110", "type": "double"},
+        {"name": "D120 长整数", "address": "D120", "type": "long"},
+        {"name": "M0 位", "address": "M0", "type": "bool"},
+        {"name": "M10 位", "address": "M10", "type": "bool"},
+        {"name": "Y40 输出位", "address": "Y40", "type": "bool"},
+        {"name": "D200.3 字位访问", "address": "D200.3", "type": "bool"},
+        {"name": "X1F 输入位(只读)", "address": "X1F", "type": "bool", "access": "r"}
+      ]
+    },
+    {
+      "name": "三菱MC-4E",
+      "driver": "melsec_mc_tcp",
+      "ip": "127.0.0.1",
+      "port": 2000,
+      "params": {"frame": "4E"},
+      "points": [
+        {"name": "D300 短整数", "address": "D300", "type": "short"},
+        {"name": "D302 浮点", "address": "D302", "type": "float"},
+        {"name": "M20 位", "address": "M20", "type": "bool"}
+      ]
+    },
+    {
+      "name": "三菱MC-1E(A兼容)",
+      "driver": "melsec_mc_tcp",
+      "ip": "127.0.0.1",
+      "port": 2000,
+      "params": {"frame": "1E"},
+      "points": [
+        {"name": "D100 短整数", "address": "D100", "type": "short"},
+        {"name": "D102 浮点", "address": "D102", "type": "float"},
+        {"name": "M0 位", "address": "M0", "type": "bool"}
+      ]
+    },
+    {
+      "name": "三菱MC-UDP",
+      "driver": "melsec_mc_udp",
+      "ip": "127.0.0.1",
+      "port": 2000,
+      "points": [
+        {"name": "D400 短整数", "address": "D400", "type": "short"},
+        {"name": "D402 浮点", "address": "D402", "type": "float"},
+        {"name": "M30 位", "address": "M30", "type": "bool"}
+      ]
+    },
+    {
+      "name": "三菱MC-串口(3C帧)",
+      "driver": "melsec_mc_serial",
+      "params": {"frame": "3C", "station_number": 0},
+      "serial": {"port": "COM4", "baud_rate": 9600, "data_bits": 8, "stop_bits": 1, "parity": "N"},
+      "points": [
+        {"name": "D100 短整数", "address": "D100", "type": "short"},
+        {"name": "M0 位", "address": "M0", "type": "bool"}
+      ]
+    },
+    {
+      "name": "三菱MX Component(COM)",
+      "driver": "melsec_mx",
+      "params": {"logical_station_number": 0},
+      "points": [
+        {"name": "D100 短整数", "address": "D100", "type": "short"},
+        {"name": "D102 浮点", "address": "D102", "type": "float"},
+        {"name": "M0 位", "address": "M0", "type": "bool"}
+      ]
+    },
+    {
+      "name": "欧姆龙FINS-TCP",
+      "driver": "omron_fins_tcp",
+      "ip": "127.0.0.1",
+      "port": 9600,
+      "points": [
+        {"name": "D100 短整数", "address": "D100", "type": "short"},
+        {"name": "D102 无符号短", "address": "D102", "type": "ushort"},
+        {"name": "D104 浮点", "address": "D104", "type": "float"},
+        {"name": "D110 双精度", "address": "D110", "type": "double"},
+        {"name": "CIO0.5 位", "address": "CIO0.5", "type": "bool"},
+        {"name": "W10.3 位", "address": "W10.3", "type": "bool"},
+        {"name": "D200.3 字位访问", "address": "D200.3", "type": "bool"},
+        {"name": "EM区 bank0(只读)", "address": "E0_100", "type": "ushort", "access": "r"},
+        {"name": "辅助区A(只读)", "address": "A0", "type": "short", "access": "r"}
+      ]
+    },
+    {
+      "name": "欧姆龙FINS-UDP",
+      "driver": "omron_fins_udp",
+      "ip": "127.0.0.1",
+      "port": 9600,
+      "points": [
+        {"name": "D300 短整数", "address": "D300", "type": "short"},
+        {"name": "D302 浮点", "address": "D302", "type": "float"},
+        {"name": "CIO10.0 位", "address": "CIO10.0", "type": "bool"}
+      ]
+    },
+    {
+      "name": "欧姆龙NJ/NX CIP",
+      "driver": "omron_cip",
+      "ip": "127.0.0.1",
+      "port": 44818,
+      "points": [
+        {"name": "BOOL 变量", "address": "TestBool", "type": "bool"},
+        {"name": "INT 变量", "address": "TestInt", "type": "short"},
+        {"name": "DINT 变量", "address": "TestDint", "type": "int"},
+        {"name": "REAL 变量", "address": "TestReal", "type": "float"}
+      ]
+    },
+    {
+      "name": "基恩士KV HostLink-TCP",
+      "driver": "keyence_hostlink_tcp",
+      "ip": "127.0.0.1",
+      "port": 8000,
+      "points": [
+        {"name": "DM100 短整数", "address": "DM100", "type": "short"},
+        {"name": "DM102 无符号短", "address": "DM102", "type": "ushort"},
+        {"name": "DM104 浮点", "address": "DM104", "type": "float"},
+        {"name": "DM110 双精度", "address": "DM110", "type": "double"},
+        {"name": "M100 扩展继电器", "address": "M100", "type": "bool"},
+        {"name": "B1F 工作位", "address": "B1F", "type": "bool"},
+        {"name": "DM100.5 字位访问", "address": "DM100.5", "type": "bool"},
+        {"name": "R000 中继电器", "address": "R000", "type": "bool"}
+      ]
+    },
+    {
+      "name": "基恩士KV HostLink-UDP",
+      "driver": "keyence_hostlink_udp",
+      "ip": "127.0.0.1",
+      "port": 8000,
+      "points": [
+        {"name": "DM200 短整数", "address": "DM200", "type": "short"},
+        {"name": "DM202 浮点", "address": "DM202", "type": "float"}
+      ]
+    },
+    {
+      "name": "基恩士KV MC兼容(SLMP)",
+      "driver": "keyence_mc_tcp",
+      "ip": "127.0.0.1",
+      "port": 5000,
+      "points": [
+        {"name": "DM100 短整数", "address": "DM100", "type": "short"},
+        {"name": "DM102 浮点", "address": "DM102", "type": "float"},
+        {"name": "R0 继电器位", "address": "R0", "type": "bool"},
+        {"name": "B0 工作位", "address": "B0", "type": "bool"}
+      ]
+    },
+    {
+      "name": "基恩士KV MC兼容-UDP",
+      "driver": "keyence_mc_udp",
+      "ip": "127.0.0.1",
+      "port": 5000,
+      "points": [
+        {"name": "DM300 短整数", "address": "DM300", "type": "short"},
+        {"name": "R10 继电器位", "address": "R10", "type": "bool"}
+      ]
+    },
+    {
+      "name": "基恩士SR 扫码枪",
+      "driver": "keyence_sr",
+      "ip": "127.0.0.1",
+      "port": 9004,
+      "params": {"scan_dwell": 1.0, "scan_timeout": 3.0}
+    },
+    {
+      "name": "汇川H3U/H5U Modbus-TCP",
+      "driver": "inovance_tcp",
+      "ip": "127.0.0.1",
+      "port": 502,
+      "points": [
+        {"name": "D0 短整数", "address": "D0", "type": "short"},
+        {"name": "D10 整数", "address": "D10", "type": "int"},
+        {"name": "D20 浮点", "address": "D20", "type": "float"},
+        {"name": "D30 双精度", "address": "D30", "type": "double"},
+        {"name": "M0 位", "address": "M0", "type": "bool"},
+        {"name": "M1 位", "address": "M1", "type": "bool"},
+        {"name": "Y0 输出位", "address": "Y0", "type": "bool"},
+        {"name": "X0 输入位(只读)", "address": "X0", "type": "bool", "access": "r"}
+      ]
+    },
+    {
+      "name": "汇川 Modbus-RTU 串口",
+      "driver": "inovance_rtu",
+      "params": {"station": 1},
+      "serial": {"port": "COM5", "baud_rate": 9600, "data_bits": 8, "stop_bits": 2, "parity": "N"},
+      "points": [
+        {"name": "D0 短整数", "address": "D0", "type": "short"},
+        {"name": "M0 位", "address": "M0", "type": "bool"}
+      ]
+    },
+    {
+      "name": "汇川MC兼容(3E)",
+      "driver": "inovance_mc_tcp",
+      "ip": "127.0.0.1",
+      "port": 2000,
+      "points": [
+        {"name": "D100 短整数", "address": "D100", "type": "short"},
+        {"name": "D102 浮点", "address": "D102", "type": "float"},
+        {"name": "M0 位", "address": "M0", "type": "bool"}
+      ]
+    },
+    {
+      "name": "松下FP MC兼容(3E)",
+      "driver": "panasonic_mc_tcp",
+      "ip": "127.0.0.1",
+      "port": 2000,
+      "points": [
+        {"name": "D100 短整数", "address": "D100", "type": "short"},
+        {"name": "D102 浮点", "address": "D102", "type": "float"},
+        {"name": "R0 继电器位", "address": "R0", "type": "bool"},
+        {"name": "Y0 输出位", "address": "Y0", "type": "bool"}
+      ]
+    },
+    {
+      "name": "松下MEWTOCOL-TCP",
+      "driver": "panasonic_mewtocol_tcp",
+      "ip": "127.0.0.1",
+      "port": 1024,
+      "points": [
+        {"name": "D100 短整数", "address": "D100", "type": "short"},
+        {"name": "D102 浮点", "address": "D102", "type": "float"},
+        {"name": "R0 接点位", "address": "R0", "type": "bool"},
+        {"name": "R1.5 接点位(点号形式)", "address": "R1.5", "type": "bool"}
+      ]
+    },
+    {
+      "name": "松下MEWTOCOL-UDP",
+      "driver": "panasonic_mewtocol_udp",
+      "ip": "127.0.0.1",
+      "port": 1024,
+      "points": [
+        {"name": "D200 短整数", "address": "D200", "type": "short"},
+        {"name": "R10 接点位", "address": "R10", "type": "bool"}
+      ]
+    },
+    {
+      "name": "丰田TOYOPUC-TCP",
+      "driver": "toyopuc_tcp",
+      "ip": "127.0.0.1",
+      "port": 1025,
+      "points": [
+        {"name": "D0100 短整数(十六进制编号)", "address": "D0100", "type": "short"},
+        {"name": "D0200 浮点", "address": "D0200", "type": "float"},
+        {"name": "M0100 位", "address": "M0100", "type": "bool"},
+        {"name": "X0100 位", "address": "X0100", "type": "bool"}
+      ]
+    },
+    {
+      "name": "丰田TOYOPUC-UDP",
+      "driver": "toyopuc_udp",
+      "ip": "127.0.0.1",
+      "port": 1025,
+      "points": [
+        {"name": "D0300 短整数", "address": "D0300", "type": "short"},
+        {"name": "M0200 位", "address": "M0200", "type": "bool"}
+      ]
+    },
+    {
+      "name": "罗克韦尔AB EtherNet/IP",
+      "driver": "ab_eip",
+      "ip": "127.0.0.1",
+      "port": 44818,
+      "params": {"slot": 0, "connected_messaging": false},
+      "points": [
+        {"name": "BOOL 标签", "address": "MyBool", "type": "bool"},
+        {"name": "INT 标签", "address": "MyInt", "type": "short"},
+        {"name": "DINT 标签", "address": "MyDint", "type": "int"},
+        {"name": "REAL 标签", "address": "MyReal", "type": "float"},
+        {"name": "LINT 标签", "address": "MyLong", "type": "long"},
+        {"name": "STRING 标签", "address": "MyString", "type": "string", "length": 40}
+      ]
+    },
+    {
+      "name": "倍福TwinCAT ADS",
+      "driver": "beckhoff_ads",
+      "ip": "127.0.0.1",
+      "port": 851,
+      "params": {"ads_port": 851, "net_id": ""},
+      "points": [
+        {"name": "MAIN 布尔", "address": "MAIN.bSwitch", "type": "bool"},
+        {"name": "MAIN 短整数", "address": "MAIN.nValue", "type": "short"},
+        {"name": "MAIN 浮点", "address": "MAIN.fValue", "type": "float"},
+        {"name": "GVL 整数", "address": "GVL.nCounter", "type": "int"}
+      ]
+    },
+    {
+      "name": "西门子S7",
+      "driver": "siemens_s7",
+      "ip": "127.0.0.1",
+      "port": 102,
+      "params": {"rack": 0, "slot": 1},
+      "points": [
+        {"name": "DB1.DBX0.3 位", "address": "DB1.DBX0.3", "type": "bool"},
+        {"name": "M10.2 位", "address": "M10.2", "type": "bool"},
+        {"name": "Q0.1 输出位", "address": "Q0.1", "type": "bool"},
+        {"name": "I0.0 输入位(只读)", "address": "I0.0", "type": "bool", "access": "r"},
+        {"name": "DB1.DBW2 短整数", "address": "DB1.DBW2", "type": "short"},
+        {"name": "MW20 无符号短", "address": "MW20", "type": "ushort"},
+        {"name": "DB1.DBD4 浮点", "address": "DB1.DBD4", "type": "float"},
+        {"name": "DB1.DBD10 双精度", "address": "DB1.DBD10", "type": "double"},
+        {"name": "DB1.DBS30 字符串", "address": "DB1.DBS30", "type": "string", "length": 32}
+      ]
+    },
+    {
+      "name": "OPC-UA",
+      "driver": "opcua",
+      "ip": "127.0.0.1",
+      "port": 4840,
+      "points": [
+        {"name": "布尔变量", "address": "ns=2;s=Demo.Bool", "type": "bool"},
+        {"name": "短整数变量", "address": "ns=2;s=Demo.Short", "type": "short"},
+        {"name": "整数变量", "address": "ns=2;s=Demo.Int", "type": "int"},
+        {"name": "浮点变量", "address": "ns=2;s=Demo.Float", "type": "float"},
+        {"name": "双精度变量", "address": "ns=2;s=Demo.Double", "type": "double"},
+        {"name": "字符串变量", "address": "ns=2;s=Demo.String", "type": "string", "length": 32}
+      ]
+    },
+    {
+      "name": "通用自定义TCP",
+      "driver": "opentcp",
+      "ip": "127.0.0.1",
+      "port": 9000,
+      "params": {"delimiter": "\r\n", "encoding": "utf-8"},
+      "raw": {"send_text": "PING", "expect_contains": "PONG"}
+    },
+    {
+      "name": "CNC MTConnect",
+      "driver": "mtconnect",
+      "ip": "127.0.0.1",
+      "port": 5000,
+      "snapshot": true,
+      "points": [
+        {"name": "X 轴实际位置", "address": "Xact", "type": "float", "access": "r"},
+        {"name": "主轴转速", "address": "Sov", "type": "float", "access": "r"},
+        {"name": "程序号", "address": "program", "type": "string", "length": 32, "access": "r"}
+      ]
+    }
+  ]
+}
