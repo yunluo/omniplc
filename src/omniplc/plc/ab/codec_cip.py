@@ -227,7 +227,10 @@ def build_unregister_session(session_handle: int) -> bytes:
 
 
 def build_rr_data(session_handle: int, cip_request: bytes) -> bytes:
-    """把 CIP 请求封装为 SendRRData 帧(CPF:NullAddress + UnconnectedData)。"""
+    """把 CIP 请求封装为 SendRRData 帧(CPF:NullAddress + UnconnectedData)。
+
+    CPF 超时域填 1 秒(HSL/IoTClient/pycomm3 惯例;个别服务端对 0 拒收)。
+    """
     header = struct.pack(
         "<HHIIQI",
         EIP_COMMAND_SEND_RR_DATA,
@@ -240,7 +243,7 @@ def build_rr_data(session_handle: int, cip_request: bytes) -> bytes:
     prefix = struct.pack(
         "<IHHHHHH",
         0,  # interface handle
-        0,  # timeout
+        1,  # timeout(秒)
         2,  # CPF 项数
         _CPF_ITEM_NULL_ADDRESS,
         0,
@@ -306,7 +309,7 @@ def build_uc_send(request: bytes, slot: int) -> bytes:
             0x24,
             0x01,
             0x0A,  # 优先级
-            0xFF,  # 超时 ticks
+            0xF0,  # 超时 ticks(HSL/IoTClient 惯例值)
             len(request),
         )
     )
@@ -588,7 +591,7 @@ def build_send_unit_data(
         0,
         0,
     )
-    prefix = struct.pack("<IHH", 0, 0, 2)
+    prefix = struct.pack("<IHH", 0, 1, 2)
     prefix += struct.pack("<HHI", _CPF_ITEM_CONNECTED_ADDRESS, 4, ot_connection_id)
     prefix += struct.pack(
         "<HHH", _CPF_ITEM_CONNECTED_DATA, len(cip_request) + 2, sequence

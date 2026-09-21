@@ -81,8 +81,8 @@ def test_uc_send_read_frame_golden() -> None:
     frame = codec_cip.build_rr_data(_SESSION, codec_cip.build_uc_send(request, 0))
     assert frame == bytes.fromhex(
         "6f002a0078563412" "00000000000000000000000000000000"  # ENIP 头
-        "000000000000020000000000b2001a00"  # CPF 前缀
-        "5202200624010aff0c00"  # UC Send 头
+        "000000000100020000000000b2001a00"  # CPF 前缀(超时 1 秒)
+        "5202200624010af00c00"  # UC Send 头
         "4c0491064d7944696e740100"  # Tag Read 服务
         "01000100"  # 路由段(path_size=1 字 + 保留 + 背板 + 槽 0)
     )
@@ -392,7 +392,7 @@ def test_send_unit_data_golden() -> None:
     frame = codec_cip.build_send_unit_data(_SESSION, 0xAABBCCDD, 1, request)
     assert frame == bytes.fromhex(
         "70002200" "78563412" "00000000000000000000000000000000"  # ENIP 头(len=22+12)
-        "0000000000000200"  # interface + timeout + 项数
+        "0000000001000200"  # interface + timeout(1 秒) + 项数
         "a1000400" "ddccbbaa"  # 连接地址项:O->T 连接 ID
         "b1000e000100"  # 连接数据项:len=12+2、序列号 1
         "4c0491064d7944696e740100"  # Tag Read
