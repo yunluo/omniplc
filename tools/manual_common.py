@@ -1,30 +1,22 @@
 # -*- coding: utf-8 -*-
-"""omniplc 手动联机测试脚本:JSON 配置驱动,全协议联通 + 随机值写读回验。
+"""omniplc 手动联机测试公共运行器(各协议脚本 tools/test_<driver>.py 共用)。
 
-用途:配合外部 PLC 模拟软件(或直接接真机)做人工验证——
-先启动模拟器,再运行本脚本;每个连接依次执行:
+配合外部 PLC 模拟软件(或直接接真机)人工验证:先启动模拟器,再运行对应
+协议脚本,例如::
 
-    连接 → 逐点位 写入随机值 → 读回比对(配置 access="r" 的点只读)
-    (扫码枪只触发扫码;MTConnect 只读;OpenTcp 按配置收发原始帧)
+    uv run python tools/test_modbus_tcp.py
+    uv run python tools/test_siemens_s7.py --debug
 
-结果逐条打印并汇总,任一失败退出码为 1,便于人工排查协议配置。
+每个脚本只跑配置里 driver 匹配的连接,流程::
 
-用法(uv 或本机任意 py3.7+):
-    uv run python tools/manual_test.py                     # 默认读 tools/manual_test.json
-    uv run python tools/manual_test.py 我的配置.json       # 自选配置文件
-    uv run python tools/manual_test.py --only 三菱,西门子   # 按名称/驱动筛选(子串,逗号分隔)
-    uv run python tools/manual_test.py --list              # 只列出连接与点位,不连设备
-    uv run python tools/manual_test.py --debug             # 打开报文级调试(等价配置 debug:true)
-    uv run python tools/manual_test.py --seed 42           # 固定随机种子(复现同一组随机值)
+    连接 → 逐点位 随机值写→读回比对 × 3 轮(只读点仅读) → 关闭连接
+    结果逐条打印,同时汇总追加到 logs/manual_test.log,任一失败退出码 1
 
-配置文件结构见 tools/manual_test.json(带全部协议的示例模板):
-顶层 {"debug": bool, "seed": int, "connections": [...]};
-每个连接:name / driver / ip / port / params(驱动特定参数) /
-serial(串口驱动:port,baud_rate,data_bits,stop_bits,parity)/
-connect_only(只测联通)/ points:[{name, address, type, access, length}]。
-
-type 取值:bool/short/ushort/int/uint/long/ulong/float/double/string;
-access 缺省 "rw"(写随机值读回比对),"r" 为只读点(如输入区、扫码内容)。
+配置文件(tools/manual_test.json)顶层 {"debug", "seed", "rounds", "connections"};
+每个连接:name / driver / ip / port / params / serial / connect_only /
+raw(opentcp)/ points:[{name, address, type, access, length, encoding}]。
+type:bool/short/ushort/int/uint/long/ulong/float/double/string;
+access 缺省 "rw","r" 为只读点(输入区/扫码内容/数采项)。
 """
 import argparse
 import json
@@ -32,11 +24,14 @@ import random
 import string
 import struct
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
+LOG_PATH = ROOT / "logs" / "manual_test.log"
+DEFAULT_CONFIG = ROOT / "tools" / "manual_test.json"
 
 from omniplc import (  # noqa: E402
     AllenBradleyEthIpClient,
@@ -81,6 +76,16 @@ INT_RANGES = {
 }
 STRING_TYPES = ("bool", "short", "ushort", "int", "uint", "long", "ulong",
                 "float", "double", "string")
+
+_log_fh = None
+
+
+def log(msg):
+    """输出一行:控制台 + 汇总日志文件(logs/manual_test.log 追加)。"""
+    print(msg)
+    if _log_fh is not None:
+        _log_fh.write(msg + "\n")
+        _log_fh.flush()
 
 
 def _p(conn, key, default):
@@ -182,7 +187,7 @@ def build_client(conn):
                              _p(conn, "max_frame", 4096))
     if d == "mtconnect":
         return MTConnectClient(ip, port or 5000)
-    raise ValueError("未知 driver:{!r}(见 tools/manual_test.json 的 driver 列表)".format(d))
+    raise ValueError("未知 driver:{!r}".format(d))
 
 
 def apply_serial(client, conn):
@@ -249,131 +254,163 @@ def show(value):
     return "None" if value is None else repr(value)
 
 
-def test_points(client, conn, rng):
-    """逐点位随机值写读回验,返回 (通过数, 总数)。"""
-    passed = 0
-    total = 0
-    for point in conn.get("points", []):
-        total += 1
-        name = point.get("name", "")
-        address = point["address"]
-        dtype = point["type"]
-        tag = "{!r:<18} {:<7}".format(address, dtype) + (" 只读" if point.get("access") == "r" else "")
+def test_point_rounds(client, point, rounds, rng):
+    """一个点位连测 rounds 轮(读写点每轮新随机值),返回 (通过轮数, 总轮数)。
+
+    全过打一行汇总(附各轮写入值);失败在当轮立即打出失败明细。
+    """
+    dtype = point["type"]
+    name = point.get("name", "")
+    tag = "{!r:<16} {:<7}".format(point["address"], dtype) + \
+        (" 只读" if point.get("access") == "r" else "")
+    if dtype not in STRING_TYPES:
+        log("  [跳过] {} {}:未知类型".format(tag, name))
+        return 0, rounds
+    written = []
+    for r in range(1, rounds + 1):
+        tail = "第{}/{}轮 ".format(r, rounds) if rounds > 1 else ""
         try:
-            if dtype not in STRING_TYPES:
-                print("  [跳过] {} {}:未知类型".format(tag, name))
-                continue
             if point.get("access") == "r":
                 ok, value = try_read(client, point)
-                if ok:
-                    passed += 1
-                    print("  [OK]   {} {} 读={}".format(tag, name, show(value)))
-                else:
-                    print("  [FAIL] {} {} 读失败:{}".format(tag, name, client.last_error))
+                if not ok:
+                    log("  [FAIL] {} {}读失败:{}".format(tag, tail, client.last_error))
+                    return r - 1, rounds
+                written.append(show(value))
                 continue
             expect = gen_random(dtype, point, rng)
             if not try_write(client, point, expect):
-                print("  [FAIL] {} {} 写失败:{}".format(tag, name, client.last_error))
-                continue
+                log("  [FAIL] {} {}写失败:{}".format(tag, tail, client.last_error))
+                return r - 1, rounds
             ok, actual = try_read(client, point)
-            if ok and values_equal(dtype, expect, actual):
-                passed += 1
-                print("  [OK]   {} {} 写={} 读={}".format(tag, name, show(expect), show(actual)))
-            else:
-                detail = "读失败:{}".format(client.last_error) if not ok else \
-                    "写={} 读={}".format(show(expect), show(actual))
-                print("  [FAIL] {} {} 读回不符:{}".format(tag, name, detail))
+            if not ok:
+                log("  [FAIL] {} {}读失败:{}".format(tag, tail, client.last_error))
+                return r - 1, rounds
+            if not values_equal(dtype, expect, actual):
+                log("  [FAIL] {} {}读回不符:写={} 读={}".format(
+                    tag, tail, show(expect), show(actual)))
+                return r - 1, rounds
+            written.append(show(expect))
         except ValueError as exc:
-            print("  [FAIL] {} {} 参数错误:{}".format(tag, name, exc))
+            log("  [FAIL] {} {}参数错误:{}".format(tag, tail, exc))
+            return r - 1, rounds
         except Exception as exc:  # 兜底:单点异常不中断整个连接的测试
-            print("  [FAIL] {} {} 异常:{}:{}".format(tag, name, type(exc).__name__, exc))
-    return passed, total
+            log("  [FAIL] {} {}异常:{}:{}".format(tag, tail, type(exc).__name__, exc))
+            return r - 1, rounds
+    detail = "(值: {})".format(", ".join(written)) if written else ""
+    log("  [OK]   {} {}/{} 轮通过{}".format(tag, rounds, rounds, detail))
+    return rounds, rounds
 
 
-def test_raw(client, conn):
-    """OpenTcp 原始收发(配置 raw:{send_text, expect_contains}),返回 (通过, 总数)。"""
+def test_raw_rounds(client, conn, rounds):
+    """OpenTcp 原始收发 × rounds 轮,返回 (通过轮数, 总轮数)。"""
     raw = conn.get("raw")
     if not raw:
         return 0, 0
     send = raw.get("send_text", "")
-    ok, reply = client.transact_text(send)
     expect = raw.get("expect_contains")
-    if not ok:
-        print("  [FAIL] 原始收发 {!r} 失败:{}".format(send, client.last_error))
-        return 0, 1
-    if expect is not None and expect not in (reply or ""):
-        print("  [FAIL] 原始收发 {!r} 应答 {!r} 不含 {!r}".format(send, reply, expect))
-        return 0, 1
-    print("  [OK]   原始收发 {!r} → {!r}".format(send, reply))
-    return 1, 1
+    for r in range(1, rounds + 1):
+        tail = "第{}/{}轮 ".format(r, rounds) if rounds > 1 else ""
+        ok, reply = client.transact_text(send)
+        if not ok:
+            log("  [FAIL] 原始收发{}{!r} 失败:{}".format(tail, send, client.last_error))
+            return r - 1, rounds
+        if expect is not None and expect not in (reply or ""):
+            log("  [FAIL] 原始收发{}{!r} 应答 {!r} 不含 {!r}".format(
+                tail, send, reply, expect))
+            return r - 1, rounds
+    log("  [OK]   原始收发 {!r} → {!r}({}/{} 轮)".format(send, reply, rounds, rounds))
+    return rounds, rounds
 
 
-def run_connection(index, count, conn, rng):
-    """测一个连接,返回 (通过点数, 总点数, 连接是否建立)。"""
+def run_connection(conn, rounds, rng):
+    """连接 → 测点位/特例 × rounds 轮 → 关闭连接,返回 (通过, 总数, 是否连上)。"""
     name = conn.get("name", conn["driver"])
     target = conn.get("serial", {}).get("port") or "{}:{}".format(
         conn.get("ip", "127.0.0.1"), conn.get("port", "默认"))
-    print("")
-    print("==== [{}/{}] {}({},{})".format(index, count, name, conn["driver"], target))
+    log("")
+    log("==== {}({},{})".format(name, conn["driver"], target))
     try:
         client = build_client(conn)
         apply_serial(client, conn)
     except Exception as exc:
-        print("  [FAIL] 构造客户端失败:{}:{}".format(type(exc).__name__, exc))
+        log("  [FAIL] 构造客户端失败:{}:{}".format(type(exc).__name__, exc))
         return 0, 0, False
     for key in ("connect_timeout", "receive_timeout", "retries", "write_retries"):
         if key in conn:
             setattr(client, key, conn[key])
-    if not client.connect():
-        print("  [FAIL] 连接失败:{}".format(client.last_error))
-        return 0, 0, False
-    print("  连接:OK")
-    passed, total = 0, 0
     try:
+        if not client.connect():
+            log("  [FAIL] 连接失败:{}".format(client.last_error))
+            return 0, 0, False
+        log("  连接:OK")
+        passed = total = 0
         if conn.get("connect_only"):
-            print("  (connect_only:仅测联通)")
+            log("  (connect_only:仅测联通)")
         elif conn["driver"] == "keyence_sr":
-            total = 1
-            ok, code = client.scan(_p(conn, "bank"), _p(conn, "scan_timeout"))
-            if ok:
-                passed = 1
-                print("  [OK]   扫码结果:{!r}".format(code))
-            else:
-                print("  [FAIL] 扫码失败(模拟器未回码也常见,人工确认):{}".format(client.last_error))
+            total = rounds
+            ok_count = 0
+            for r in range(1, rounds + 1):
+                ok, code = client.scan(_p(conn, "bank"), _p(conn, "scan_timeout"))
+                if ok:
+                    ok_count += 1
+                    log("  [OK]   第{}/{}轮 扫码:{!r}".format(r, rounds, code))
+                else:
+                    log("  [FAIL] 第{}/{}轮 扫码失败(模拟器未回码也常见,人工确认):{}".format(
+                        r, rounds, client.last_error))
+            passed = ok_count
         elif conn["driver"] == "mtconnect":
             if conn.get("snapshot"):
-                total += 1
-                ok, items = client.snapshot()
-                if ok:
-                    passed += 1
-                    print("  [OK]   snapshot:{} 个数据项".format(len(items or {})))
-                else:
-                    print("  [FAIL] snapshot 失败:{}".format(client.last_error))
-            p2, t2 = test_points(client, conn, rng)
-            passed, total = passed + p2, total + t2
+                total += rounds
+                ok_count = 0
+                for r in range(1, rounds + 1):
+                    ok, items = client.snapshot()
+                    if ok:
+                        ok_count += 1
+                    else:
+                        log("  [FAIL] 第{}/{}轮 snapshot 失败:{}".format(
+                            r, rounds, client.last_error))
+                if ok_count == rounds:
+                    log("  [OK]   snapshot {} 个数据项({}/{} 轮)".format(
+                        len(items or {}), rounds, rounds))
+                passed += ok_count
+            p, t = test_points_rounds(client, conn, rounds, rng)
+            passed, total = passed + p, total + t
         else:
-            rp, rt = test_raw(client, conn)
+            rp, rt = test_raw_rounds(client, conn, rounds)
             if rp < rt:
-                print("  (原始收发失败,跳过点位)")
+                log("  (原始收发失败,跳过点位)")
             else:
-                pp, pt = test_points(client, conn, rng)
-                passed, total = rp + pp, rt + pt
+                p, t = test_points_rounds(client, conn, rounds, rng)
+                passed, total = rp + p, rt + t
+        log("  小计:{}/{} 通过".format(passed, total))
+        return passed, total, True
     finally:
         client.disconnect()
-    print("  小计:{}/{} 通过".format(passed, total))
-    return passed, total, True
+        log("  连接已关闭")
 
 
-def main():
+def test_points_rounds(client, conn, rounds, rng):
+    """逐点位 × rounds 轮,返回 (通过轮数合计, 总轮数)。"""
+    passed = total = 0
+    for point in conn.get("points", []):
+        p, t = test_point_rounds(client, point, rounds, rng)
+        passed += p
+        total += t
+    return passed, total
+
+
+def run(driver):
+    """协议脚本入口:只跑配置里 driver 匹配的连接。"""
+    global _log_fh
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    parser = argparse.ArgumentParser(description="omniplc 手动联机测试(联通 + 随机值写读回验)")
-    parser.add_argument("config", nargs="?", default=str(Path(__file__).parent / "manual_test.json"),
+    parser = argparse.ArgumentParser(
+        description="omniplc 手动联机测试:driver={}(联通 + 随机值写读 3 轮 + 日志汇总)".format(driver))
+    parser.add_argument("config", nargs="?", default=str(DEFAULT_CONFIG),
                         help="JSON 配置文件(默认 tools/manual_test.json)")
-    parser.add_argument("--only", default="", help="只测名称/驱动含关键字的连接(逗号分隔子串)")
-    parser.add_argument("--list", action="store_true", help="只列出连接与点位,不连设备")
     parser.add_argument("--debug", action="store_true", help="强制打开报文调试")
     parser.add_argument("--seed", type=int, default=None, help="固定随机种子")
+    parser.add_argument("--rounds", type=int, default=None, help="每点位读写轮数(默认 3)")
     args = parser.parse_args()
 
     cfg_path = Path(args.config)
@@ -381,41 +418,34 @@ def main():
         raise SystemExit("配置文件不存在:{},可从 tools/manual_test.json 复制修改".format(cfg_path))
     with open(str(cfg_path), "r", encoding="utf-8") as fh:
         cfg = json.load(fh)
+    conns = [c for c in cfg.get("connections", []) if c.get("driver") == driver]
+    if not conns:
+        raise SystemExit("配置里没有 driver={!r} 的连接".format(driver))
 
+    rounds = args.rounds or int(cfg.get("rounds", 3))
     if args.debug or cfg.get("debug"):
         set_debug(True)
     rng = random.Random(args.seed if args.seed is not None else cfg.get("seed"))
 
-    conns = cfg.get("connections", [])
-    if args.only:
-        keys = [k.strip().lower() for k in args.only.split(",") if k.strip()]
-        conns = [c for c in conns
-                 if any(k in c.get("name", "").lower() or k in c["driver"].lower()
-                        for k in keys)]
-    if args.list:
-        for c in conns:
-            target = c.get("serial", {}).get("port") or "{}:{}".format(
-                c.get("ip", "-"), c.get("port", "默认"))
-            print("{:<22} {:<22} {:<16} 点位 {}".format(
-                c.get("name", "-"), c["driver"], target, len(c.get("points", []))))
-        raise SystemExit(0)
-    if not conns:
-        raise SystemExit("没有可测的连接(检查 --only 关键字)")
-
-    sum_passed = sum_total = 0
-    failed_conns = []
-    for i, conn in enumerate(conns, 1):
-        p, t, linked = run_connection(i, len(conns), conn, rng)
-        sum_passed += p
-        sum_total += t
-        if p < t or not linked:
-            failed_conns.append(conn.get("name", conn["driver"]))
-
-    print("")
-    print("==== 总计:{}/{} 点通过{}".format(sum_passed, sum_total,
-          "" if not failed_conns else ";失败连接:{}".format("、".join(failed_conns))))
-    raise SystemExit(0 if not failed_conns else 1)
-
-
-if __name__ == "__main__":
-    main()
+    LOG_PATH.parent.mkdir(exist_ok=True)
+    _log_fh = open(str(LOG_PATH), "a", encoding="utf-8")
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    log("======== {} driver={} 配置={} 轮数={} ".format(stamp, driver, cfg_path.name, rounds))
+    try:
+        sum_passed = sum_total = 0
+        failed = []
+        for conn in conns:
+            p, t, linked = run_connection(conn, rounds, rng)
+            sum_passed += p
+            sum_total += t
+            if p < t or not linked:
+                failed.append(conn.get("name", conn["driver"]))
+    finally:
+        _log_fh.close()
+        _log_fh = None
+    log("")
+    log("==== 汇总:{}/{} 轮通过{}".format(
+        sum_passed, sum_total,
+        "" if not failed else ";失败连接:{}".format("、".join(failed))))
+    log("日志文件:{}".format(LOG_PATH))
+    raise SystemExit(0 if not failed else 1)
