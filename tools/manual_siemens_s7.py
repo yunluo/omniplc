@@ -15,3 +15,4 @@ from manual_common import run  # noqa: E402
 
 if __name__ == "__main__":
     run("siemens_s7")
+
