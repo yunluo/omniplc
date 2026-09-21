@@ -235,14 +235,25 @@ def build_rr_data(session_handle: int, cip_request: bytes) -> bytes:
     return header + prefix + cip_request
 
 
-def _check_enip_reply(reply: bytes, expected_command: int) -> None:
-    """校验 ENIP 封装头(命令/长度/封装状态),内部函数。"""
+def _check_enip_reply(
+    reply: bytes, expected_command: Union[int, Tuple[int, ...]]
+) -> None:
+    """校验 ENIP 封装头(命令/长度/封装状态),内部函数。
+
+    ``expected_command`` 传元组即多命令宽容:非连接请求规范上以 SendRRData
+    (0x6F)应答,但个别模拟器以 0x66(UnregisterSession 的命令号,疑为把
+    SendUnitData 记成 0x66)回帧——pylogix 客户端对响应命令号不做校验,
+    此处对齐该宽容,应答体由调用方按 CPF 布局分流解析。
+    """
     if len(reply) < EIP_HEADER_SIZE:
         raise ProtocolFrameError("ENIP 应答头不完整:{} 字节".format(len(reply)))
     command, length, _, status = struct.unpack_from("<HHII", reply, 0)
-    if command != expected_command:
+    allowed = (expected_command,) if isinstance(expected_command, int) \
+        else tuple(expected_command)
+    if command not in allowed:
+        canonical = allowed[0]
         raise ProtocolFrameError(
-            "ENIP 命令不符:期望 0x{:04X},实际 0x{:04X}".format(expected_command, command)
+            "ENIP 命令不符:期望 0x{:04X},实际 0x{:04X}".format(canonical, command)
         )
     if len(reply) - EIP_HEADER_SIZE != length:
         raise ProtocolFrameError(
@@ -572,22 +583,49 @@ def parse_send_unit_data_reply(
 # ----------------------------------------------------------------------
 
 def _parse_rr_data_cip(reply: bytes) -> bytes:
-    """校验 SendRRData 封装与 CPF,返回 CIP 数据(内部函数)。"""
-    _check_enip_reply(reply, EIP_COMMAND_SEND_RR_DATA)
+    """校验 SendRRData 封装与 CPF,返回 CIP 数据(内部函数)。
+
+    应答命令规范为 SendRRData(0x6F);个别模拟器以 0x66 回帧非连接请求
+    (对齐 pylogix 不校验响应命令号的宽容,见 :func:`_check_enip_reply`)。
+    应答体按 CPF 地址项类型分流:NullAddress(0x0000)+ UnconnectedData
+    (0xB2)为规范布局;个别对端以连接式项(0xA1 地址 + 0xB1 数据 + 序列号)
+    回帧,同样取其数据项载荷(T->O ID 与序列号无连接态可校验,跳过)。
+    """
+    _check_enip_reply(
+        reply, (EIP_COMMAND_SEND_RR_DATA, EIP_COMMAND_UNREGISTER_SESSION)
+    )
     prefix = reply[EIP_HEADER_SIZE:]
     if len(prefix) < EIP_RRDATA_PREFIX_SIZE:
         raise ProtocolFrameError("SendRRData 前缀不完整:{} 字节".format(len(prefix)))
     item_count, address_type, address_length, data_type, data_length = struct.unpack_from(
         "<HHHHH", prefix, 6
     )
-    if item_count != 2 or address_type != _CPF_ITEM_NULL_ADDRESS or address_length != 0:
-        raise ProtocolFrameError("SendRRData CPF 地址项非法")
-    if data_type != _CPF_ITEM_UNCONNECTED_DATA:
-        raise ProtocolFrameError("CPF 数据项类型非法:0x{:04X}".format(data_type))
-    cip = prefix[EIP_RRDATA_PREFIX_SIZE:]
-    if len(cip) != data_length:
+    if item_count != 2:
+        raise ProtocolFrameError("SendRRData CPF 项数非法:{}".format(item_count))
+    if address_type == _CPF_ITEM_NULL_ADDRESS:
+        if address_length != 0:
+            raise ProtocolFrameError("SendRRData CPF 地址项非法")
+        if data_type != _CPF_ITEM_UNCONNECTED_DATA:
+            raise ProtocolFrameError("CPF 数据项类型非法:0x{:04X}".format(data_type))
+        cip = prefix[EIP_RRDATA_PREFIX_SIZE:]
+        if len(cip) != data_length:
+            raise ProtocolFrameError(
+                "CPF 数据项长度不符:声明 {},实际 {}".format(data_length, len(cip))
+            )
+    elif address_type == _CPF_ITEM_CONNECTED_ADDRESS:
+        if address_length != 4:
+            raise ProtocolFrameError("SendRRData 连接式 CPF 地址项非法")
+        data_type, data_length = struct.unpack_from("<HH", prefix, 16)
+        if data_type != _CPF_ITEM_CONNECTED_DATA:
+            raise ProtocolFrameError("CPF 数据项类型非法:0x{:04X}".format(data_type))
+        cip = prefix[22:]  # 跳过 2 字节序列号(无连接态可校验,丢弃)
+        if len(cip) != data_length - 2:
+            raise ProtocolFrameError(
+                "CPF 数据项长度不符:声明 {},实际 {}".format(data_length - 2, len(cip))
+            )
+    else:
         raise ProtocolFrameError(
-            "CPF 数据项长度不符:声明 {},实际 {}".format(data_length, len(cip))
+            "SendRRData CPF 地址项类型非法:0x{:04X}".format(address_type)
         )
     if len(cip) < 4:
         raise ProtocolFrameError("CIP 应答不完整")
