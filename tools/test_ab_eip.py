@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """罗克韦尔 AB EtherNet/IP手动联机测试:连接后每点位随机值写读 3 轮,关闭连接,日志汇总。
 
-配置:tools/manual_test.json 中 driver="ab_eip" 的连接(可传位置参数换配置文件)。
-用法:uv run python tools/test_ab_eip.py [配置路径] [--debug] [--seed N] [--rounds N]
+无参数直接跑(每次只测这一个协议):目标 127.0.0.1:44818,内置本协议点位。
+    uv run python tools/test_ab_eip.py [--ip IP] [--port 端口] [--debug] [--seed N] [--rounds N]
+传 JSON 配置则按配置运行(自定义 IP/端口/点位;仅取 driver="ab_eip" 的连接):
+    uv run python tools/test_ab_eip.py 我的配置.json [--debug]
 """
 import sys
 from pathlib import Path

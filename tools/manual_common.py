@@ -1,20 +1,26 @@
 # -*- coding: utf-8 -*-
 """omniplc 手动联机测试公共运行器(各协议脚本 tools/test_<driver>.py 共用)。
 
-配合外部 PLC 模拟软件(或直接接真机)人工验证:先启动模拟器,再运行对应
-协议脚本,例如::
+配合外部 PLC 模拟软件(或直接接真机)人工验证。**无参数直接运行**:
+目标 127.0.0.1 + 协议默认端口 + 内置精细点位,一次只测一个协议::
 
     uv run python tools/test_modbus_tcp.py
-    uv run python tools/test_siemens_s7.py --debug
+    uv run python tools/test_siemens_s7.py --ip 192.168.0.1 --debug
 
-每个脚本只跑配置里 driver 匹配的连接,流程::
+可选 JSON 配置文件覆盖(自定义 IP/端口/点位;--ip/--port 亦可覆盖配置)::
+
+    uv run python tools/test_modbus_tcp.py 我的配置.json
+
+每个脚本只跑 driver(及 frame,若给定)匹配的连接,流程::
 
     连接 → 逐点位 随机值写→读回比对 × 3 轮(只读点仅读) → 关闭连接
     结果逐条打印,同时汇总追加到 logs/manual_test.log,任一失败退出码 1
 
-配置文件(tools/manual_test.json)顶层 {"debug", "seed", "rounds", "connections"};
-每个连接:name / driver / ip / port / params / serial / connect_only /
-raw(opentcp)/ points:[{name, address, type, access, length, encoding}]。
+配置文件结构(tools/manual_test.json 为全协议示例):
+顶层 {"debug", "seed", "rounds", "connections"};每个连接:
+name / driver / ip / port / params(驱动特定参数)/ serial(串口驱动)/
+connect_only(只测联通)/ raw(opentcp)/ snapshot(mtconnect)/
+points:[{name, address, type, access, length, encoding}]。
 type:bool/short/ushort/int/uint/long/ulong/float/double/string;
 access 缺省 "rw","r" 为只读点(输入区/扫码内容/数采项)。
 """
@@ -25,6 +31,7 @@ import string
 import struct
 import sys
 import time
+from copy import deepcopy
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +41,331 @@ LOG_PATH = ROOT / "logs" / "manual_test.log"
 DEFAULT_CONFIG = ROOT / "tools" / "manual_test.json"
 FRAME_DEFAULTS = {"melsec_mc_tcp": "3E", "melsec_mc_udp": "3E", "melsec_mc_serial": "3C"}
 """MC 各走线的缺省帧型(连接 params.frame 缺省时按此参与帧筛选)。"""
+DEFAULT_IP = "127.0.0.1"
+
+DEFAULT_CONNECTIONS = {
+    # (driver, frame 或 None) → 内置默认连接(params/serial/points);
+    # 不带 port 键即用协议默认端口(build_client 兜底),串口用 serial.port。
+    ("modbus_tcp", None): {
+        "params": {"station": 1, "word_order": "ABCD"},
+        "points": [
+            {"name": "线圈", "address": "c0", "type": "bool"},
+            {"name": "线圈1", "address": "c1", "type": "bool"},
+            {"name": "保持寄存器-短整数", "address": "hr0", "type": "short"},
+            {"name": "保持寄存器-无符号短", "address": "hr2", "type": "ushort"},
+            {"name": "保持寄存器-整数", "address": "hr4", "type": "int"},
+            {"name": "保持寄存器-无符号整", "address": "hr6", "type": "uint"},
+            {"name": "保持寄存器-长整数", "address": "hr8", "type": "long"},
+            {"name": "保持寄存器-浮点", "address": "hr12", "type": "float"},
+            {"name": "保持寄存器-双精度", "address": "hr16", "type": "double"},
+            {"name": "寄存器位", "address": "hr20.3", "type": "bool"},
+            {"name": "输入寄存器(只读)", "address": "ir0", "type": "ushort", "access": "r"},
+            {"name": "离散输入(只读)", "address": "di0", "type": "bool", "access": "r"},
+        ],
+    },
+    ("modbus_rtu", None): {
+        "params": {"station": 1},
+        "serial": {"port": "COM3", "baud_rate": 9600, "data_bits": 8,
+                   "stop_bits": 1, "parity": "N"},
+        "points": [
+            {"name": "线圈", "address": "c0", "type": "bool"},
+            {"name": "保持寄存器-短整数", "address": "hr0", "type": "short"},
+            {"name": "保持寄存器-浮点", "address": "hr4", "type": "float"},
+        ],
+    },
+    ("melsec_mc_tcp", "3E"): {
+        "params": {"frame": "3E", "network_number": 0, "pc_number": 255},
+        "points": [
+            {"name": "D100 短整数", "address": "D100", "type": "short"},
+            {"name": "D102 无符号短", "address": "D102", "type": "ushort"},
+            {"name": "D104 整数", "address": "D104", "type": "int"},
+            {"name": "D106 无符号整", "address": "D106", "type": "uint"},
+            {"name": "D108 浮点", "address": "D108", "type": "float"},
+            {"name": "D110 双精度", "address": "D110", "type": "double"},
+            {"name": "D120 长整数", "address": "D120", "type": "long"},
+            {"name": "D130.3 字软元件位访问", "address": "D130.3", "type": "bool"},
+            {"name": "M0 位", "address": "M0", "type": "bool"},
+            {"name": "M10 位", "address": "M10", "type": "bool"},
+            {"name": "Y40 输出位", "address": "Y40", "type": "bool"},
+            {"name": "B0 工作位(十六进制编号)", "address": "B0", "type": "bool"},
+            {"name": "W100 链接寄存器(十六进制编号)", "address": "W100", "type": "ushort"},
+            {"name": "X1F 输入位(只读)", "address": "X1F", "type": "bool", "access": "r"},
+            {"name": "D300 字符串", "address": "D300", "type": "string", "length": 16},
+        ],
+    },
+    ("melsec_mc_tcp", "4E"): {
+        "params": {"frame": "4E"},
+        "points": [
+            {"name": "D400 短整数", "address": "D400", "type": "short"},
+            {"name": "D402 浮点", "address": "D402", "type": "float"},
+            {"name": "D404 整数", "address": "D404", "type": "int"},
+            {"name": "D406 双精度", "address": "D406", "type": "double"},
+            {"name": "M20 位", "address": "M20", "type": "bool"},
+            {"name": "M30 位", "address": "M30", "type": "bool"},
+            {"name": "Y50 输出位", "address": "Y50", "type": "bool"},
+            {"name": "D420.5 字软元件位访问", "address": "D420.5", "type": "bool"},
+        ],
+    },
+    ("melsec_mc_tcp", "1E"): {
+        "params": {"frame": "1E"},
+        "points": [
+            {"name": "D100 短整数", "address": "D100", "type": "short"},
+            {"name": "D102 无符号短", "address": "D102", "type": "ushort"},
+            {"name": "D104 整数", "address": "D104", "type": "int"},
+            {"name": "D106 浮点", "address": "D106", "type": "float"},
+            {"name": "D108 双精度", "address": "D108", "type": "double"},
+            {"name": "M0 位", "address": "M0", "type": "bool"},
+            {"name": "M1 位", "address": "M1", "type": "bool"},
+            {"name": "S0 步进位", "address": "S0", "type": "bool"},
+            {"name": "X20 输入位(八进制编号,只读)", "address": "X20",
+             "type": "bool", "access": "r"},
+        ],
+    },
+    ("melsec_mc_udp", "3E"): {
+        "params": {"frame": "3E"},
+        "points": [
+            {"name": "D500 短整数", "address": "D500", "type": "short"},
+            {"name": "D502 浮点", "address": "D502", "type": "float"},
+            {"name": "D504 整数", "address": "D504", "type": "int"},
+            {"name": "M40 位", "address": "M40", "type": "bool"},
+            {"name": "M50 位", "address": "M50", "type": "bool"},
+            {"name": "Y60 输出位", "address": "Y60", "type": "bool"},
+        ],
+    },
+    ("melsec_mc_udp", "4E"): {
+        "params": {"frame": "4E"},
+        "points": [
+            {"name": "D600 短整数", "address": "D600", "type": "short"},
+            {"name": "D602 浮点", "address": "D602", "type": "float"},
+            {"name": "M60 位", "address": "M60", "type": "bool"},
+            {"name": "M70 位", "address": "M70", "type": "bool"},
+        ],
+    },
+    ("melsec_mc_udp", "1E"): {
+        "params": {"frame": "1E"},
+        "points": [
+            {"name": "D700 短整数", "address": "D700", "type": "short"},
+            {"name": "D702 浮点", "address": "D702", "type": "float"},
+            {"name": "M2 位", "address": "M2", "type": "bool"},
+            {"name": "M3 位", "address": "M3", "type": "bool"},
+        ],
+    },
+    ("melsec_mc_serial", "3C"): {
+        "params": {"frame": "3C", "station_number": 0},
+        "serial": {"port": "COM4", "baud_rate": 9600, "data_bits": 8,
+                   "stop_bits": 1, "parity": "N"},
+        "points": [
+            {"name": "D100 短整数", "address": "D100", "type": "short"},
+            {"name": "D102 浮点", "address": "D102", "type": "float"},
+            {"name": "M0 位", "address": "M0", "type": "bool"},
+            {"name": "M10 位", "address": "M10", "type": "bool"},
+        ],
+    },
+    ("melsec_mc_serial", "4C"): {
+        "params": {"frame": "4C", "station_number": 0},
+        "serial": {"port": "COM4", "baud_rate": 9600, "data_bits": 8,
+                   "stop_bits": 1, "parity": "N"},
+        "points": [
+            {"name": "D200 短整数", "address": "D200", "type": "short"},
+            {"name": "D202 浮点", "address": "D202", "type": "float"},
+            {"name": "D204 整数", "address": "D204", "type": "int"},
+            {"name": "M20 位", "address": "M20", "type": "bool"},
+            {"name": "M30 位", "address": "M30", "type": "bool"},
+            {"name": "Y0 输出位", "address": "Y0", "type": "bool"},
+        ],
+    },
+    ("melsec_mx", None): {
+        "params": {"logical_station_number": 0},
+        "points": [
+            {"name": "D100 短整数", "address": "D100", "type": "short"},
+            {"name": "D102 浮点", "address": "D102", "type": "float"},
+            {"name": "M0 位", "address": "M0", "type": "bool"},
+        ],
+    },
+    ("omron_fins_tcp", None): {
+        "points": [
+            {"name": "D100 短整数", "address": "D100", "type": "short"},
+            {"name": "D102 无符号短", "address": "D102", "type": "ushort"},
+            {"name": "D104 浮点", "address": "D104", "type": "float"},
+            {"name": "D110 双精度", "address": "D110", "type": "double"},
+            {"name": "CIO0.5 位", "address": "CIO0.5", "type": "bool"},
+            {"name": "W10.3 位", "address": "W10.3", "type": "bool"},
+            {"name": "D200.3 字位访问", "address": "D200.3", "type": "bool"},
+            {"name": "EM区 bank0(只读)", "address": "E0_100", "type": "ushort", "access": "r"},
+            {"name": "辅助区A(只读)", "address": "A0", "type": "short", "access": "r"},
+        ],
+    },
+    ("omron_fins_udp", None): {
+        "points": [
+            {"name": "D300 短整数", "address": "D300", "type": "short"},
+            {"name": "D302 浮点", "address": "D302", "type": "float"},
+            {"name": "CIO10.0 位", "address": "CIO10.0", "type": "bool"},
+        ],
+    },
+    ("omron_cip", None): {
+        "points": [
+            {"name": "BOOL 变量", "address": "TestBool", "type": "bool"},
+            {"name": "INT 变量", "address": "TestInt", "type": "short"},
+            {"name": "DINT 变量", "address": "TestDint", "type": "int"},
+            {"name": "REAL 变量", "address": "TestReal", "type": "float"},
+        ],
+    },
+    ("keyence_hostlink_tcp", None): {
+        "points": [
+            {"name": "DM100 短整数", "address": "DM100", "type": "short"},
+            {"name": "DM102 无符号短", "address": "DM102", "type": "ushort"},
+            {"name": "DM104 浮点", "address": "DM104", "type": "float"},
+            {"name": "DM110 双精度", "address": "DM110", "type": "double"},
+            {"name": "M100 扩展继电器", "address": "M100", "type": "bool"},
+            {"name": "B1F 工作位", "address": "B1F", "type": "bool"},
+            {"name": "DM100.5 字位访问", "address": "DM100.5", "type": "bool"},
+            {"name": "R000 中继电器", "address": "R000", "type": "bool"},
+        ],
+    },
+    ("keyence_hostlink_udp", None): {
+        "points": [
+            {"name": "DM200 短整数", "address": "DM200", "type": "short"},
+            {"name": "DM202 浮点", "address": "DM202", "type": "float"},
+        ],
+    },
+    ("keyence_mc_tcp", None): {
+        "points": [
+            {"name": "DM100 短整数", "address": "DM100", "type": "short"},
+            {"name": "DM102 浮点", "address": "DM102", "type": "float"},
+            {"name": "R0 继电器位", "address": "R0", "type": "bool"},
+            {"name": "B0 工作位", "address": "B0", "type": "bool"},
+        ],
+    },
+    ("keyence_mc_udp", None): {
+        "points": [
+            {"name": "DM300 短整数", "address": "DM300", "type": "short"},
+            {"name": "R10 继电器位", "address": "R10", "type": "bool"},
+        ],
+    },
+    ("keyence_sr", None): {
+        "params": {"scan_dwell": 1.0, "scan_timeout": 3.0},
+    },
+    ("inovance_tcp", None): {
+        "points": [
+            {"name": "D0 短整数", "address": "D0", "type": "short"},
+            {"name": "D10 整数", "address": "D10", "type": "int"},
+            {"name": "D20 浮点", "address": "D20", "type": "float"},
+            {"name": "D30 双精度", "address": "D30", "type": "double"},
+            {"name": "M0 位", "address": "M0", "type": "bool"},
+            {"name": "M1 位", "address": "M1", "type": "bool"},
+            {"name": "Y0 输出位", "address": "Y0", "type": "bool"},
+            {"name": "X0 输入位(只读)", "address": "X0", "type": "bool", "access": "r"},
+        ],
+    },
+    ("inovance_rtu", None): {
+        "params": {"station": 1},
+        "serial": {"port": "COM5", "baud_rate": 9600, "data_bits": 8,
+                   "stop_bits": 2, "parity": "N"},
+        "points": [
+            {"name": "D0 短整数", "address": "D0", "type": "short"},
+            {"name": "M0 位", "address": "M0", "type": "bool"},
+        ],
+    },
+    ("inovance_mc_tcp", None): {
+        "points": [
+            {"name": "D100 短整数", "address": "D100", "type": "short"},
+            {"name": "D102 浮点", "address": "D102", "type": "float"},
+            {"name": "M0 位", "address": "M0", "type": "bool"},
+        ],
+    },
+    ("panasonic_mc_tcp", None): {
+        "points": [
+            {"name": "D100 短整数", "address": "D100", "type": "short"},
+            {"name": "D102 浮点", "address": "D102", "type": "float"},
+            {"name": "R0 继电器位", "address": "R0", "type": "bool"},
+            {"name": "Y0 输出位", "address": "Y0", "type": "bool"},
+        ],
+    },
+    ("panasonic_mewtocol_tcp", None): {
+        "points": [
+            {"name": "D100 短整数", "address": "D100", "type": "short"},
+            {"name": "D102 浮点", "address": "D102", "type": "float"},
+            {"name": "R0 接点位", "address": "R0", "type": "bool"},
+            {"name": "R1.5 接点位(点号形式)", "address": "R1.5", "type": "bool"},
+        ],
+    },
+    ("panasonic_mewtocol_udp", None): {
+        "points": [
+            {"name": "D200 短整数", "address": "D200", "type": "short"},
+            {"name": "R10 接点位", "address": "R10", "type": "bool"},
+        ],
+    },
+    ("toyopuc_tcp", None): {
+        "points": [
+            {"name": "D0100 短整数(十六进制编号)", "address": "D0100", "type": "short"},
+            {"name": "D0200 浮点", "address": "D0200", "type": "float"},
+            {"name": "M0100 位", "address": "M0100", "type": "bool"},
+            {"name": "X0100 位", "address": "X0100", "type": "bool"},
+        ],
+    },
+    ("toyopuc_udp", None): {
+        "points": [
+            {"name": "D0300 短整数", "address": "D0300", "type": "short"},
+            {"name": "M0200 位", "address": "M0200", "type": "bool"},
+        ],
+    },
+    ("ab_eip", None): {
+        "params": {"slot": 0, "connected_messaging": False},
+        "points": [
+            {"name": "BOOL 标签", "address": "MyBool", "type": "bool"},
+            {"name": "INT 标签", "address": "MyInt", "type": "short"},
+            {"name": "DINT 标签", "address": "MyDint", "type": "int"},
+            {"name": "REAL 标签", "address": "MyReal", "type": "float"},
+            {"name": "LINT 标签", "address": "MyLong", "type": "long"},
+            {"name": "STRING 标签", "address": "MyString", "type": "string", "length": 40},
+        ],
+    },
+    ("beckhoff_ads", None): {
+        "params": {"ads_port": 851, "net_id": ""},
+        "points": [
+            {"name": "MAIN 布尔", "address": "MAIN.bSwitch", "type": "bool"},
+            {"name": "MAIN 短整数", "address": "MAIN.nValue", "type": "short"},
+            {"name": "MAIN 浮点", "address": "MAIN.fValue", "type": "float"},
+            {"name": "GVL 整数", "address": "GVL.nCounter", "type": "int"},
+        ],
+    },
+    ("siemens_s7", None): {
+        "params": {"rack": 0, "slot": 1},
+        "points": [
+            {"name": "DB1.DBX0.3 位", "address": "DB1.DBX0.3", "type": "bool"},
+            {"name": "M10.2 位", "address": "M10.2", "type": "bool"},
+            {"name": "Q0.1 输出位", "address": "Q0.1", "type": "bool"},
+            {"name": "I0.0 输入位(只读)", "address": "I0.0", "type": "bool", "access": "r"},
+            {"name": "DB1.DBW2 短整数", "address": "DB1.DBW2", "type": "short"},
+            {"name": "MW20 无符号短", "address": "MW20", "type": "ushort"},
+            {"name": "DB1.DBD4 浮点", "address": "DB1.DBD4", "type": "float"},
+            {"name": "DB1.DBD10 双精度", "address": "DB1.DBD10", "type": "double"},
+            {"name": "DB1.DBS30 字符串", "address": "DB1.DBS30", "type": "string", "length": 32},
+        ],
+    },
+    ("opcua", None): {
+        "points": [
+            {"name": "布尔变量", "address": "ns=2;s=Demo.Bool", "type": "bool"},
+            {"name": "短整数变量", "address": "ns=2;s=Demo.Short", "type": "short"},
+            {"name": "整数变量", "address": "ns=2;s=Demo.Int", "type": "int"},
+            {"name": "浮点变量", "address": "ns=2;s=Demo.Float", "type": "float"},
+            {"name": "双精度变量", "address": "ns=2;s=Demo.Double", "type": "double"},
+            {"name": "字符串变量", "address": "ns=2;s=Demo.String", "type": "string", "length": 32},
+        ],
+    },
+    ("opentcp", None): {
+        "params": {"delimiter": "\r\n", "encoding": "utf-8"},
+        "raw": {"send_text": "PING", "expect_contains": "PONG"},
+    },
+    ("mtconnect", None): {
+        "snapshot": True,
+        "points": [
+            {"name": "X 轴实际位置", "address": "Xact", "type": "float", "access": "r"},
+            {"name": "主轴转速", "address": "Sov", "type": "float", "access": "r"},
+            {"name": "程序号", "address": "program", "type": "string", "length": 32, "access": "r"},
+        ],
+    },
+}
 
 from omniplc import (  # noqa: E402
     AllenBradleyEthIpClient,
@@ -407,40 +739,70 @@ def _effective_frame(conn):
 
 
 def run(driver, frame=None):
-    """协议脚本入口:只跑配置里 driver(及 frame,若给定)匹配的连接。"""
+    """协议脚本入口:一次只测一个协议。
+
+    无配置文件 → 内置默认连接(127.0.0.1 + 协议默认端口 + 内置点位);
+    传配置文件 → 按配置筛选(driver,及 frame 若给定),--ip/--port 覆盖配置值。
+    """
     global _log_fh
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     label = driver if frame is None else "{}({} 帧)".format(driver, frame)
     parser = argparse.ArgumentParser(
         description="omniplc 手动联机测试:driver={}(联通 + 随机值写读 3 轮 + 日志汇总)".format(label))
-    parser.add_argument("config", nargs="?", default=str(DEFAULT_CONFIG),
-                        help="JSON 配置文件(默认 tools/manual_test.json)")
+    parser.add_argument("config", nargs="?", default=None,
+                        help="JSON 配置文件(缺省用内置默认:127.0.0.1 + 协议默认端口 + 内置点位)")
+    parser.add_argument("--ip", default=None,
+                        help="目标 IP(缺省 127.0.0.1;配置模式下覆盖配置的 IP)")
+    parser.add_argument("--port", type=int, default=None,
+                        help="目标端口(缺省用协议默认端口;串口连接忽略)")
     parser.add_argument("--debug", action="store_true", help="强制打开报文调试")
     parser.add_argument("--seed", type=int, default=None, help="固定随机种子")
     parser.add_argument("--rounds", type=int, default=None, help="每点位读写轮数(默认 3)")
     args = parser.parse_args()
 
-    cfg_path = Path(args.config)
-    if not cfg_path.is_file():
-        raise SystemExit("配置文件不存在:{},可从 tools/manual_test.json 复制修改".format(cfg_path))
-    with open(str(cfg_path), "r", encoding="utf-8") as fh:
-        cfg = json.load(fh)
-    conns = [c for c in cfg.get("connections", [])
-             if c.get("driver") == driver and (frame is None or _effective_frame(c) == frame)]
-    if not conns:
-        hint = "(driver={}, frame={})".format(driver, frame) if frame else "(driver={})".format(driver)
-        raise SystemExit("配置里没有匹配的连接{}".format(hint))
+    if args.config:
+        cfg_path = Path(args.config)
+        if not cfg_path.is_file():
+            raise SystemExit("配置文件不存在:{},可从 tools/manual_test.json 复制修改".format(cfg_path))
+        with open(str(cfg_path), "r", encoding="utf-8") as fh:
+            cfg = json.load(fh)
+        conns = [c for c in cfg.get("connections", [])
+                 if c.get("driver") == driver and (frame is None or _effective_frame(c) == frame)]
+        if not conns:
+            hint = "(driver={}, frame={})".format(driver, frame) if frame else "(driver={})".format(driver)
+            raise SystemExit("配置里没有匹配的连接{}".format(hint))
+        for conn in conns:
+            if args.ip:
+                conn["ip"] = args.ip
+            if args.port:
+                conn["port"] = args.port
+    else:
+        default = DEFAULT_CONNECTIONS.get((driver, frame))
+        if default is None:
+            raise SystemExit("没有 driver={!r} frame={!r} 的内置默认连接".format(driver, frame))
+        conn = deepcopy(default)
+        conn["name"] = label
+        conn["driver"] = driver
+        conn["ip"] = args.ip or DEFAULT_IP
+        if args.port and "serial" not in conn:
+            conn["port"] = args.port
+        conns = [conn]
 
-    rounds = args.rounds or int(cfg.get("rounds", 3))
-    if args.debug or cfg.get("debug"):
+    rounds = args.rounds
+    if rounds is None:
+        rounds = int(cfg.get("rounds", 3)) if args.config else 3
+    if args.debug or (args.config and cfg.get("debug")):
         set_debug(True)
-    rng = random.Random(args.seed if args.seed is not None else cfg.get("seed"))
+    seed = cfg.get("seed") if args.config else None
+    rng = random.Random(args.seed if args.seed is not None else seed)
 
     LOG_PATH.parent.mkdir(exist_ok=True)
     _log_fh = open(str(LOG_PATH), "a", encoding="utf-8")
     stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    log("======== {} driver={} 配置={} 轮数={} ".format(stamp, driver, cfg_path.name, rounds))
+    source = Path(args.config).name if args.config else "内置默认({}:{})".format(
+        conns[0].get("ip", DEFAULT_IP), conns[0].get("port", "协议默认端口"))
+    log("======== {} driver={} 配置={} 轮数={} ".format(stamp, driver, source, rounds))
     try:
         sum_passed = sum_total = 0
         failed = []

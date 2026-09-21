@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """三菱 MX Component(COM)手动联机测试:连接后每点位随机值写读 3 轮,关闭连接,日志汇总。
 
-配置:tools/manual_test.json 中 driver="melsec_mx" 的连接(可传位置参数换配置文件)。
-用法:uv run python tools/test_melsec_mx.py [配置路径] [--debug] [--seed N] [--rounds N]
+无参数直接跑(每次只测这一个协议):目标 逻辑站号 0(ActUtlType),内置本协议点位。
+    uv run python tools/test_melsec_mx.py [--ip IP] [--port 端口] [--debug] [--seed N] [--rounds N]
+传 JSON 配置则按配置运行(自定义 IP/端口/点位;仅取 driver="melsec_mx" 的连接):
+    uv run python tools/test_melsec_mx.py 我的配置.json [--debug]
 """
 import sys
 from pathlib import Path
