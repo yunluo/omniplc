@@ -32,6 +32,8 @@ if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 LOG_PATH = ROOT / "logs" / "manual_test.log"
 DEFAULT_CONFIG = ROOT / "tools" / "manual_test.json"
+FRAME_DEFAULTS = {"melsec_mc_tcp": "3E", "melsec_mc_udp": "3E", "melsec_mc_serial": "3C"}
+"""MC 各走线的缺省帧型(连接 params.frame 缺省时按此参与帧筛选)。"""
 
 from omniplc import (  # noqa: E402
     AllenBradleyEthIpClient,
@@ -399,13 +401,19 @@ def test_points_rounds(client, conn, rounds, rng):
     return passed, total
 
 
-def run(driver):
-    """协议脚本入口:只跑配置里 driver 匹配的连接。"""
+def _effective_frame(conn):
+    """连接的生效帧型(缺省按走线默认;仅 MC 有帧概念)。"""
+    return conn.get("params", {}).get("frame", FRAME_DEFAULTS.get(conn["driver"]))
+
+
+def run(driver, frame=None):
+    """协议脚本入口:只跑配置里 driver(及 frame,若给定)匹配的连接。"""
     global _log_fh
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    label = driver if frame is None else "{}({} 帧)".format(driver, frame)
     parser = argparse.ArgumentParser(
-        description="omniplc 手动联机测试:driver={}(联通 + 随机值写读 3 轮 + 日志汇总)".format(driver))
+        description="omniplc 手动联机测试:driver={}(联通 + 随机值写读 3 轮 + 日志汇总)".format(label))
     parser.add_argument("config", nargs="?", default=str(DEFAULT_CONFIG),
                         help="JSON 配置文件(默认 tools/manual_test.json)")
     parser.add_argument("--debug", action="store_true", help="强制打开报文调试")
@@ -418,9 +426,11 @@ def run(driver):
         raise SystemExit("配置文件不存在:{},可从 tools/manual_test.json 复制修改".format(cfg_path))
     with open(str(cfg_path), "r", encoding="utf-8") as fh:
         cfg = json.load(fh)
-    conns = [c for c in cfg.get("connections", []) if c.get("driver") == driver]
+    conns = [c for c in cfg.get("connections", [])
+             if c.get("driver") == driver and (frame is None or _effective_frame(c) == frame)]
     if not conns:
-        raise SystemExit("配置里没有 driver={!r} 的连接".format(driver))
+        hint = "(driver={}, frame={})".format(driver, frame) if frame else "(driver={})".format(driver)
+        raise SystemExit("配置里没有匹配的连接{}".format(hint))
 
     rounds = args.rounds or int(cfg.get("rounds", 3))
     if args.debug or cfg.get("debug"):

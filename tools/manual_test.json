@@ -47,11 +47,14 @@
         {"name": "D108 浮点", "address": "D108", "type": "float"},
         {"name": "D110 双精度", "address": "D110", "type": "double"},
         {"name": "D120 长整数", "address": "D120", "type": "long"},
+        {"name": "D130.3 字软元件位访问", "address": "D130.3", "type": "bool"},
         {"name": "M0 位", "address": "M0", "type": "bool"},
         {"name": "M10 位", "address": "M10", "type": "bool"},
         {"name": "Y40 输出位", "address": "Y40", "type": "bool"},
-        {"name": "D200.3 字位访问", "address": "D200.3", "type": "bool"},
-        {"name": "X1F 输入位(只读)", "address": "X1F", "type": "bool", "access": "r"}
+        {"name": "B0 工作位(十六进制编号)", "address": "B0", "type": "bool"},
+        {"name": "W100 链接寄存器(十六进制编号)", "address": "W100", "type": "ushort"},
+        {"name": "X1F 输入位(只读)", "address": "X1F", "type": "bool", "access": "r"},
+        {"name": "D300 字符串", "address": "D300", "type": "string", "length": 16}
       ]
     },
     {
@@ -61,9 +64,14 @@
       "port": 2000,
       "params": {"frame": "4E"},
       "points": [
-        {"name": "D300 短整数", "address": "D300", "type": "short"},
-        {"name": "D302 浮点", "address": "D302", "type": "float"},
-        {"name": "M20 位", "address": "M20", "type": "bool"}
+        {"name": "D400 短整数", "address": "D400", "type": "short"},
+        {"name": "D402 浮点", "address": "D402", "type": "float"},
+        {"name": "D404 整数", "address": "D404", "type": "int"},
+        {"name": "D406 双精度", "address": "D406", "type": "double"},
+        {"name": "M20 位", "address": "M20", "type": "bool"},
+        {"name": "M30 位", "address": "M30", "type": "bool"},
+        {"name": "Y50 输出位", "address": "Y50", "type": "bool"},
+        {"name": "D420.5 字软元件位访问", "address": "D420.5", "type": "bool"}
       ]
     },
     {
@@ -74,29 +82,81 @@
       "params": {"frame": "1E"},
       "points": [
         {"name": "D100 短整数", "address": "D100", "type": "short"},
-        {"name": "D102 浮点", "address": "D102", "type": "float"},
-        {"name": "M0 位", "address": "M0", "type": "bool"}
+        {"name": "D102 无符号短", "address": "D102", "type": "ushort"},
+        {"name": "D104 整数", "address": "D104", "type": "int"},
+        {"name": "D106 浮点", "address": "D106", "type": "float"},
+        {"name": "D108 双精度", "address": "D108", "type": "double"},
+        {"name": "M0 位", "address": "M0", "type": "bool"},
+        {"name": "M1 位", "address": "M1", "type": "bool"},
+        {"name": "S0 步进位", "address": "S0", "type": "bool"},
+        {"name": "X20 输入位(八进制编号,只读)", "address": "X20", "type": "bool", "access": "r"}
       ]
     },
     {
-      "name": "三菱MC-UDP",
+      "name": "三菱MC-UDP 3E",
       "driver": "melsec_mc_udp",
       "ip": "127.0.0.1",
       "port": 2000,
+      "params": {"frame": "3E"},
       "points": [
-        {"name": "D400 短整数", "address": "D400", "type": "short"},
-        {"name": "D402 浮点", "address": "D402", "type": "float"},
-        {"name": "M30 位", "address": "M30", "type": "bool"}
+        {"name": "D500 短整数", "address": "D500", "type": "short"},
+        {"name": "D502 浮点", "address": "D502", "type": "float"},
+        {"name": "D504 整数", "address": "D504", "type": "int"},
+        {"name": "M40 位", "address": "M40", "type": "bool"},
+        {"name": "M50 位", "address": "M50", "type": "bool"},
+        {"name": "Y60 输出位", "address": "Y60", "type": "bool"}
       ]
     },
     {
-      "name": "三菱MC-串口(3C帧)",
+      "name": "三菱MC-UDP 4E",
+      "driver": "melsec_mc_udp",
+      "ip": "127.0.0.1",
+      "port": 2000,
+      "params": {"frame": "4E"},
+      "points": [
+        {"name": "D600 短整数", "address": "D600", "type": "short"},
+        {"name": "D602 浮点", "address": "D602", "type": "float"},
+        {"name": "M60 位", "address": "M60", "type": "bool"},
+        {"name": "M70 位", "address": "M70", "type": "bool"}
+      ]
+    },
+    {
+      "name": "三菱MC-UDP 1E",
+      "driver": "melsec_mc_udp",
+      "ip": "127.0.0.1",
+      "port": 2000,
+      "params": {"frame": "1E"},
+      "points": [
+        {"name": "D700 短整数", "address": "D700", "type": "short"},
+        {"name": "D702 浮点", "address": "D702", "type": "float"},
+        {"name": "M2 位", "address": "M2", "type": "bool"},
+        {"name": "M3 位", "address": "M3", "type": "bool"}
+      ]
+    },
+    {
+      "name": "三菱MC-串口 3C(ASCII)",
       "driver": "melsec_mc_serial",
       "params": {"frame": "3C", "station_number": 0},
       "serial": {"port": "COM4", "baud_rate": 9600, "data_bits": 8, "stop_bits": 1, "parity": "N"},
       "points": [
         {"name": "D100 短整数", "address": "D100", "type": "short"},
-        {"name": "M0 位", "address": "M0", "type": "bool"}
+        {"name": "D102 浮点", "address": "D102", "type": "float"},
+        {"name": "M0 位", "address": "M0", "type": "bool"},
+        {"name": "M10 位", "address": "M10", "type": "bool"}
+      ]
+    },
+    {
+      "name": "三菱MC-串口 4C(二进制)",
+      "driver": "melsec_mc_serial",
+      "params": {"frame": "4C", "station_number": 0},
+      "serial": {"port": "COM4", "baud_rate": 9600, "data_bits": 8, "stop_bits": 1, "parity": "N"},
+      "points": [
+        {"name": "D200 短整数", "address": "D200", "type": "short"},
+        {"name": "D202 浮点", "address": "D202", "type": "float"},
+        {"name": "D204 整数", "address": "D204", "type": "int"},
+        {"name": "M20 位", "address": "M20", "type": "bool"},
+        {"name": "M30 位", "address": "M30", "type": "bool"},
+        {"name": "Y0 输出位", "address": "Y0", "type": "bool"}
       ]
     },
     {
