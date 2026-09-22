@@ -742,6 +742,15 @@ class AMelsecMxClient(ABaseClient):
             raise TypeError("内部错误:sync 实例不是 MelsecMxClient")
         return sync.logical_station_number
 
+    async def read_batch(
+        self, items: Sequence[Tuple[str, Union[DataType, str]]]
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """随机批量读取(ReadDeviceRandom 单事务;语义同同步版)。"""
+        sync = self._sync
+        if not isinstance(sync, MelsecMxClient):
+            raise TypeError("内部错误:sync 实例不是 MelsecMxClient")
+        return await self._run(lambda: sync.read_batch(items))
+
 
 class AKeyenceHostLinkTcpClient(ABaseClient):
     """基恩士 KV Host Link 异步客户端(TCP)。"""

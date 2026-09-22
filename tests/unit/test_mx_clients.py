@@ -58,6 +58,9 @@ class FakeActUtlType:
         prefix = match.group(1)
         return [self.get("{}{}".format(prefix, base + i)) for i in range(count)]
 
+    def random_read(self, texts: list) -> list:
+        return [self.get(text) & 0xFFFF for text in texts]
+
 
 @pytest.fixture
 def fake(monkeypatch: pytest.MonkeyPatch) -> FakeActUtlType:
@@ -91,12 +94,20 @@ def fake(monkeypatch: pytest.MonkeyPatch) -> FakeActUtlType:
             assert match is not None
             com.put("{}{}".format(match.group(1), int(match.group(2)) + i), word)
 
+    def fake_random(com: FakeActUtlType, text: str, count: int) -> list:
+        com.calls.append(("ReadDeviceRandom", text, count))
+        mx_module._check_rc(com._code("ReadDeviceRandom", text), "ReadDeviceRandom")
+        texts = text.split("\n")
+        assert len(texts) == count, "随机读条数与换行分隔的软元件列表不符"
+        return com.random_read(texts)
+
     monkeypatch.setattr(mx_module, "_com_initialize", lambda: None)
     monkeypatch.setattr(mx_module, "_new_com_object", capture_new)
     monkeypatch.setattr(mx_module, "_com_get_device", fake_get)
     monkeypatch.setattr(mx_module, "_com_set_device", fake_set)
     monkeypatch.setattr(mx_module, "_com_read_words", fake_read)
     monkeypatch.setattr(mx_module, "_com_write_words", fake_write)
+    monkeypatch.setattr(mx_module, "_com_read_random", fake_random)
     return act
 
 
@@ -301,3 +312,46 @@ def test_async_mirror_roundtrip(fake: FakeActUtlType) -> None:
 def test_device_error_type() -> None:
     with pytest.raises(OmniPLCInternalError):
         mx_module._check_rc(0xC0500100, "GetDevice")
+
+
+# ----------------------------------------------------------------------
+# 批量读取(ReadDeviceRandom 随机读)
+# ----------------------------------------------------------------------
+
+def test_read_batch_mixed(fake: FakeActUtlType) -> None:
+    """随机批量读:位软元件/字软元件位/16 位类型混读,单事务。"""
+    client = _client()
+    fake.put("M10", 1)
+    fake.put("D100", 0xFFFE)  # short -2
+    fake.put("D102", 7)
+    fake.put("D200", 0x0008)
+    assert client.read_batch([
+        ("M10", "bool"),
+        ("D100", "short"),
+        ("D102", "ushort"),
+        ("D200.3", "bool"),
+    ]) == (True, [True, -2, 7, True])
+    kinds = [call[0] for call in fake.calls if call[0] == "ReadDeviceRandom"]
+    assert kinds == ["ReadDeviceRandom"]  # 单事务
+    random_calls = [call for call in fake.calls if call[0] == "ReadDeviceRandom"]
+    assert random_calls[0][1] == "M10\nD100\nD102\nD200"
+
+
+def test_read_many_random_single_transaction(fake: FakeActUtlType) -> None:
+    """read_many:覆写为 ReadDeviceRandom 单事务(整批容错)。"""
+    client = _client()
+    fake.put("D0", 5)
+    fake.put("D2", 300)
+    assert client.read_many(["D0", "D2"], "ushort") == [(True, 5), (True, 300)]
+    assert [call[0] for call in fake.calls].count("ReadDeviceRandom") == 1
+
+
+def test_read_batch_rejects(fake: FakeActUtlType) -> None:
+    """read_batch 拒绝路径:空列表、32 位类型(无法安全拆字)、条数超限。"""
+    client = _client()
+    with pytest.raises(ValueError):
+        client.read_batch([])
+    with pytest.raises(ValueError):
+        client.read_batch([("D100", "int")])
+    with pytest.raises(ValueError):
+        client.read_batch([("D{}".format(index), "short") for index in range(961)])

@@ -19,7 +19,7 @@ MX Component Version 4 运行时。
 """
 from __future__ import annotations
 import ctypes
-from typing import Any, List, Sequence
+from typing import Any, List, Optional, Sequence, Tuple, Union
 
 from ... import convert
 from ...core.base_client import BaseClient
@@ -94,6 +94,13 @@ def _com_write_words(com: Any, device_text: str, words: Sequence[int]) -> None:
     """批量写字软元件(WriteDeviceBlock)。"""
     buffer = (ctypes.c_long * len(words))(*[int(word) for word in words])
     _check_rc(int(com.WriteDeviceBlock(device_text, len(words), buffer)), "WriteDeviceBlock")
+
+
+def _com_read_random(com: Any, device_list: str, count: int) -> List[int]:
+    """随机读(ReadDeviceRandom):软元件列表以换行符分隔,返回原始字列表。"""
+    buffer = (ctypes.c_long * count)()
+    _check_rc(int(com.ReadDeviceRandom(device_list, count, buffer)), "ReadDeviceRandom")
+    return [int(word) & 0xFFFF for word in buffer]
 
 
 class _MxComLink(BaseTransport):
@@ -239,6 +246,16 @@ class MelsecMxClient(BaseClient):
         _com_set_device(self._com(), device_text, value)
         log_op(self._debug_label, "SetDevice %s ← %d", device_text, value)
 
+    def _read_random(self, device_texts: List[str]) -> List[int]:
+        """随机读(ReadDeviceRandom),软元件列表换行分隔,返回原始字列表。"""
+        if len(device_texts) > MX_MAX_BLOCK_WORDS:
+            raise ValueError(
+                "随机读取点数超过上限 {}:{}".format(MX_MAX_BLOCK_WORDS, len(device_texts))
+            )
+        words = _com_read_random(self._com(), "\n".join(device_texts), len(device_texts))
+        log_op(self._debug_label, "ReadDeviceRandom %d 点 → %s", len(device_texts), words)
+        return words
+
     # ------------------------------------------------------------------
     # 协议原语
     # ------------------------------------------------------------------
@@ -295,6 +312,85 @@ class MelsecMxClient(BaseClient):
         words = [int.from_bytes(raw[i:i + 2], "little") for i in range(0, len(raw), 2)]
         self._write_words(_device_text(parsed), words)
         return value
+
+    # ------------------------------------------------------------------
+    # 批量读取(ReadDeviceRandom 随机读,单事务)
+    # ------------------------------------------------------------------
+
+    def read_many(
+        self, addresses: Sequence[str], data_type: Union[DataType, str]
+    ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
+        """批量读取:覆写为 ReadDeviceRandom 随机读(单事务)。
+
+        与基类逐点独立容错不同:任一地址非法或控件返回出错代码则
+        **整批失败**(原因见 :attr:`last_error`);需要逐点容错请逐点
+        调用 :meth:`read`。
+        """
+        data_type_enum = DataType.coerce(data_type)
+        ok, values = self.read_batch([(address, data_type_enum) for address in addresses])
+        if not ok or values is None:
+            return [(False, None) for _ in addresses]
+        return [(True, value) for value in values]
+
+    def read_batch(
+        self, items: Sequence[Tuple[str, Union[DataType, str]]]
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """随机批量读取(ReadDeviceRandom,单事务混读多个软元件)。
+
+        ActUtlType 原生随机读(MX Component 手册 5.2.5):软元件列表以
+        换行符分隔,每条读 1 点(字)。仅支持 16 位类型——BOOL(位软元件
+        取最低位;字软元件读字提位)、SHORT/USHORT;**32/64 位类型不
+        支持**:本驱动地址编号原文透传(进制由通信设置实用程序中的 CPU
+        配置决定),无法安全把 32 位值拆分为相邻两条字读取,请逐点读取。
+        条数上限与块读同口径(:data:`MX_MAX_BLOCK_WORDS`)。
+
+        :raises ValueError: 列表为空/类型不支持/条数超限
+        """
+        if not items:
+            raise ValueError("read_batch 至少需要一个 (地址, 数据类型) 项")
+        if len(items) > MX_MAX_BLOCK_WORDS:
+            raise ValueError(
+                "read_batch 条目数超出上限 {}:{}".format(MX_MAX_BLOCK_WORDS, len(items))
+            )
+        texts: List[str] = []
+        # 解码计划:(类别, 地址, 位号, 数据类型)
+        plan: List[Tuple[str, str, int, DataType]] = []
+        for address, data_type in items:
+            data_type_enum = DataType.coerce(data_type)
+            parsed = _check_address(address)
+            if data_type_enum is DataType.BOOL:
+                if _is_bit_device(parsed.device):
+                    texts.append(_device_text(parsed))
+                    plan.append(("bitdev", address, 0, data_type_enum))
+                else:
+                    texts.append(_base_text(parsed))
+                    plan.append(("wordbit", address, parsed.bit or 0, data_type_enum))
+                continue
+            if data_type_enum in (DataType.SHORT, DataType.USHORT):
+                texts.append(_device_text(parsed))
+                plan.append(("word", address, 0, data_type_enum))
+                continue
+            raise ValueError(
+                "MX 随机批量读仅支持 16 位类型(BOOL/SHORT/USHORT),"
+                "{} 请逐点读取:随机读每条 1 字,地址编号原文透传无法"
+                "安全拆分相邻字".format(data_type_enum)
+            )
+
+        def operation() -> List[PrimitiveValue]:
+            raws = self._read_random(texts)
+            values: List[PrimitiveValue] = []
+            for (kind, _address, bit, data_type_enum), raw in zip(plan, raws):
+                if kind == "bitdev":
+                    values.append(bool(raw & 1))
+                elif kind == "wordbit":
+                    values.append(bool((raw >> bit) & 1))
+                elif data_type_enum is DataType.SHORT:
+                    values.append(convert.to_signed(raw, 16))
+                else:
+                    values.append(raw)
+            return values
+
+        return self._execute(operation)
 
     def _read_bool_impl(self, parsed: McAddress) -> bool:
         """读取一个布尔量:位软元件单点读;字软元件读字后提位。"""

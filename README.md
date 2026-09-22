@@ -375,7 +375,8 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 - **v0.25**:OpenTcpClient 补定长成帧(`frame_length`,二进制固定帧设备;与 `delimiter` 互斥、构造期二选一校验,`frame_length` ≤ `max_frame`,`append_delimiter` 强制关;跨分片/多帧/残字节语义与分隔符模式一致,异步镜像同步)
 - **v0.26**:MC 3E/4E 批量读取,利用协议原生 0406 多块批量读(`read_many` 覆写为单事务、`read_batch` 混类型混软元件;SH-080008 §8.4 逐字节核证,总块数 ≤120;汇川/基恩士 MC 兼容子类经地址换算钩子继承;1E/3C/4C 回退逐点/拒绝)
 - **v0.27**:欧姆龙 FINS 批量读取,利用协议原生 0104 多存储区读(`read_many` 覆写为单事务、`read_batch` 混类型混软元件;W342 §5-3-5 核证:每条读 1 字、响应逐条区码回显、仅字码,以太网上限 167 条;BOOL 走包含字提位,T/C 完成标志不支持)
-- **v0.28(当前)**:CIP 与 OPC-UA 批量读取——AB 0x0A 多服务包(`read_batch` 混标签混类型单事务,BOOL 首次类型发现后入包,NJ/NX CIP 零改动继承;pylogix/cm_ethernetip 双参考核证,内嵌服务 32 条上限;HSL 模拟器不支持 0x0A,真机核证待做)+ OPC-UA UA Read 服务原生多节点(asyncua `read_values` 单请求,`read_many` 覆写)
+- **v0.28**:CIP 与 OPC-UA 批量读取——AB 0x0A 多服务包(`read_batch` 混标签混类型单事务,BOOL 首次类型发现后入包,NJ/NX CIP 零改动继承;pylogix/cm_ethernetip 双参考核证,内嵌服务 32 条上限;HSL 模拟器不支持 0x0A,真机核证待做)+ OPC-UA UA Read 服务原生多节点(asyncua `read_values` 单请求,`read_many` 覆写)
+- **v0.29(当前)**:MX Component 批量读取——ActUtlType 原生 `ReadDeviceRandom`(`read_batch` 混软元件单事务、`read_many` 覆写;软元件列表换行分隔每条 1 字;仅 16 位类型 BOOL/SHORT/USHORT,32/64 位因地址编号原文透传无法安全拆字,逐点读取;手册 5.2.5 核证)
 - **v1.0**:点位表完善 + 示例 + 文档,正式发布
 - **v1.x**:MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、MTConnect /sample 历史流与写入、FANUC FOCAS / 三菱 CNC EZSocket(Windows DLL 封装)、通用 TCP 长度域成帧/空闲切块成帧、心跳保活、轮询器、连接池
 - **v2**:更多品牌/协议按需扩展(驱动插槽沿用 BaseClient 原语模式)
