@@ -456,8 +456,12 @@ class AModbusRtuClient(AModbusBaseClient):
         sync.configure_serial(port_name, baud_rate, data_bits, stop_bits, parity)
 
 
-class AInovanceTcpClient(ABaseClient):
-    """汇川 H3U/H5U Modbus TCP 异步客户端。"""
+class AInovanceTcpClient(AModbusBaseClient):
+    """汇川 H3U/H5U Modbus TCP 异步客户端。
+
+    继承 AModbusBaseClient:station/word_order 属性与
+    write_mask_register 原子掩码写与同步侧继承结构对称。
+    """
 
     def __init__(
         self,
@@ -469,7 +473,7 @@ class AInovanceTcpClient(ABaseClient):
         super().__init__(InovanceTcpClient(ip_address, port, station))
 
 
-class AInovanceRtuClient(ABaseClient):
+class AInovanceRtuClient(AModbusBaseClient):
     """汇川 H3U/H5U Modbus RTU 异步客户端(串口)。"""
 
     def __init__(self, station: int = MODBUS_DEFAULT_STATION) -> None:
@@ -489,50 +493,6 @@ class AInovanceRtuClient(ABaseClient):
         if not isinstance(sync, InovanceRtuClient):
             raise TypeError("内部错误:sync 实例不是 InovanceRtuClient")
         sync.configure_serial(port_name, baud_rate, data_bits, stop_bits, parity)
-
-
-class AInovanceMcTcpClient(ABaseClient):
-    """汇川 MC 协议兼容异步客户端(TCP,3E 帧)。"""
-
-    def __init__(
-        self,
-        ip_address: str = "192.168.1.88",
-        port: int = INOVANCE_MC_DEFAULT_PORT,
-        network_number: int = MC_DEFAULT_NETWORK_NUMBER,
-        pc_number: int = MC_DEFAULT_PC_NUMBER,
-    ) -> None:
-        """参数同 :class:`omniplc.plc.inovance.InovanceMcTcpClient`。"""
-        super().__init__(InovanceMcTcpClient(ip_address, port, network_number, pc_number))
-
-    @property
-    def frame(self) -> McFrame:
-        """当前帧型,恒为 :attr:`McFrame.FRAME_3E`。"""
-        sync = self._sync
-        if isinstance(sync, InovanceMcTcpClient):
-            return sync.frame
-        raise TypeError("内部错误")
-
-
-class APanasonicMcTcpClient(ABaseClient):
-    """松下 MC 协议兼容异步客户端(TCP,3E 帧)。"""
-
-    def __init__(
-        self,
-        ip_address: str = "192.168.0.10",
-        port: int = PANASONIC_MC_DEFAULT_PORT,
-        network_number: int = MC_DEFAULT_NETWORK_NUMBER,
-        pc_number: int = MC_DEFAULT_PC_NUMBER,
-    ) -> None:
-        """参数同 :class:`omniplc.plc.panasonic.PanasonicMcTcpClient`。"""
-        super().__init__(PanasonicMcTcpClient(ip_address, port, network_number, pc_number))
-
-    @property
-    def frame(self) -> McFrame:
-        """当前帧型,恒为 :attr:`McFrame.FRAME_3E`。"""
-        sync = self._sync
-        if isinstance(sync, PanasonicMcTcpClient):
-            return sync.frame
-        raise TypeError("内部错误")
 
 
 class APanasonicMewtocolTcpClient(ABaseClient):
@@ -641,6 +601,43 @@ class AMelsecMcUdpClient(ABaseClient):
         return await self._run(lambda: sync.read_batch(items))
 
 
+class AInovanceMcTcpClient(AMelsecMcTcpClient):
+    """汇川 MC 协议兼容异步客户端(TCP,3E 帧)。
+
+    继承 AMelsecMcTcpClient:frame 属性与 read_batch(0406 多块批量读)
+    与同步侧继承结构对称,frame 按 MelsecMcTcpClient 收窄对汇川实例同样
+    成立(InovanceMcTcpClient 是其子类)。
+    """
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.1.88",
+        port: int = INOVANCE_MC_DEFAULT_PORT,
+        network_number: int = MC_DEFAULT_NETWORK_NUMBER,
+        pc_number: int = MC_DEFAULT_PC_NUMBER,
+    ) -> None:
+        """参数同 :class:`omniplc.plc.inovance.InovanceMcTcpClient`。"""
+        ABaseClient.__init__(self, InovanceMcTcpClient(ip_address, port, network_number, pc_number))
+
+
+class APanasonicMcTcpClient(AMelsecMcTcpClient):
+    """松下 MC 协议兼容异步客户端(TCP,3E 帧)。
+
+    继承 AMelsecMcTcpClient:frame 属性与 read_batch(0406 多块批量读)
+    与同步侧继承结构对称。
+    """
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        port: int = PANASONIC_MC_DEFAULT_PORT,
+        network_number: int = MC_DEFAULT_NETWORK_NUMBER,
+        pc_number: int = MC_DEFAULT_PC_NUMBER,
+    ) -> None:
+        """参数同 :class:`omniplc.plc.panasonic.PanasonicMcTcpClient`。"""
+        ABaseClient.__init__(self, PanasonicMcTcpClient(ip_address, port, network_number, pc_number))
+
+
 class AMelsecMcSerialClient(ABaseClient):
     """三菱 MC 异步客户端(串口,3C/4C 帧,需 pyserial)。
 
@@ -730,8 +727,12 @@ class AMelsecMcSerialClient(ABaseClient):
         return await self._run(lambda: sync.read_batch(items))
 
 
-class AKeyenceMcTcpClient(ABaseClient):
-    """基恩士 KV MC 协议兼容(SLMP)异步客户端(TCP,3E 帧)。"""
+class AKeyenceMcTcpClient(AMelsecMcTcpClient):
+    """基恩士 KV MC 协议兼容(SLMP)异步客户端(TCP,3E 帧)。
+
+    继承 AMelsecMcTcpClient:read_batch(0406 多块批量读)与同步侧
+    继承结构对称(frame 按基类收窄对基恩士实例同样成立)。
+    """
 
     def __init__(
         self,
@@ -741,7 +742,7 @@ class AKeyenceMcTcpClient(ABaseClient):
         pc_number: int = MC_DEFAULT_PC_NUMBER,
     ) -> None:
         """参数同 :class:`omniplc.plc.keyence.KeyenceMcTcpClient`。"""
-        super().__init__(KeyenceMcTcpClient(ip_address, port, network_number, pc_number))
+        ABaseClient.__init__(self, KeyenceMcTcpClient(ip_address, port, network_number, pc_number))
 
     @property
     def frame(self) -> McFrame:
@@ -752,8 +753,12 @@ class AKeyenceMcTcpClient(ABaseClient):
         raise TypeError("内部错误")
 
 
-class AKeyenceMcUdpClient(ABaseClient):
-    """基恩士 KV MC 协议兼容(SLMP)异步客户端(UDP,3E 帧)。"""
+class AKeyenceMcUdpClient(AMelsecMcUdpClient):
+    """基恩士 KV MC 协议兼容(SLMP)异步客户端(UDP,3E 帧)。
+
+    继承 AMelsecMcUdpClient:read_batch(0406 多块批量读)与同步侧
+    继承结构对称(frame 按 MelsecMcUdpClient 收窄对基恩士实例同样成立)。
+    """
 
     def __init__(
         self,
@@ -763,7 +768,7 @@ class AKeyenceMcUdpClient(ABaseClient):
         pc_number: int = MC_DEFAULT_PC_NUMBER,
     ) -> None:
         """参数同 :class:`omniplc.plc.keyence.KeyenceMcUdpClient`。"""
-        super().__init__(KeyenceMcUdpClient(ip_address, port, network_number, pc_number))
+        ABaseClient.__init__(self, KeyenceMcUdpClient(ip_address, port, network_number, pc_number))
 
     @property
     def frame(self) -> McFrame:
@@ -1002,6 +1007,57 @@ class AOmronCipClient(ABaseClient):
         return await self._run(lambda: sync.read_batch(items))
 
     @property
+    def slot(self) -> int:
+        """CPU 槽号(转发同步实例;NJ 直发路径默认 0)。"""
+        sync = self._sync
+        if not isinstance(sync, OmronCipClient):
+            raise TypeError("内部错误:sync 实例不是 OmronCipClient")
+        return sync.slot
+
+    async def generic_message(
+        self, service: int, class_id: int, instance: int, body: bytes = b""
+    ) -> Tuple[bool, Optional[bytes]]:
+        """通用 CIP 服务(语义同同步版 :meth:`OmronCipClient.generic_message`)。"""
+        sync = self._sync
+        if not isinstance(sync, OmronCipClient):
+            raise TypeError("内部错误:sync 实例不是 OmronCipClient")
+        return await self._run(lambda: sync.generic_message(service, class_id, instance, body))
+
+    async def list_identity(self) -> Tuple[bool, Optional[dict]]:
+        """ENIP ListIdentity 单播(语义同同步版)。"""
+        sync = self._sync
+        if not isinstance(sync, OmronCipClient):
+            raise TypeError("内部错误:sync 实例不是 OmronCipClient")
+        return await self._run(sync.list_identity)
+
+    async def get_plc_info(self) -> Tuple[bool, Optional[dict]]:
+        """Identity Object GetAttributesAll(语义同同步版)。"""
+        sync = self._sync
+        if not isinstance(sync, OmronCipClient):
+            raise TypeError("内部错误:sync 实例不是 OmronCipClient")
+        return await self._run(sync.get_plc_info)
+
+    async def get_attribute_all(
+        self, class_id: int, instance: int
+    ) -> Tuple[bool, Optional[bytes]]:
+        """通用 GetAttributesAll(语义同同步版)。"""
+        sync = self._sync
+        if not isinstance(sync, OmronCipClient):
+            raise TypeError("内部错误:sync 实例不是 OmronCipClient")
+        return await self._run(lambda: sync.get_attribute_all(class_id, instance))
+
+    async def get_attribute_list(
+        self, class_id: int, instance: int, attributes: Sequence[int]
+    ) -> Tuple[bool, Optional[List[Tuple[int, object]]]]:
+        """通用 GetAttributeList(语义同同步版)。"""
+        sync = self._sync
+        if not isinstance(sync, OmronCipClient):
+            raise TypeError("内部错误:sync 实例不是 OmronCipClient")
+        return await self._run(
+            lambda: sync.get_attribute_list(class_id, instance, attributes)
+        )
+
+    @property
     def connection_size(self) -> Optional[int]:
         """生效连接尺寸(connected 模式 Forward Open 后可用,转发同步实例)。"""
         sync = self._sync
@@ -1170,6 +1226,49 @@ class AAllenBradleyEthIpClient(ABaseClient):
         if not isinstance(sync, AllenBradleyEthIpClient):
             raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
         return await self._run(lambda: sync.read_batch(items))
+
+    async def generic_message(
+        self, service: int, class_id: int, instance: int, body: bytes = b""
+    ) -> Tuple[bool, Optional[bytes]]:
+        """通用 CIP 服务(语义同同步版 :meth:`AllenBradleyEthIpClient.generic_message`)。"""
+        sync = self._sync
+        if not isinstance(sync, AllenBradleyEthIpClient):
+            raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
+        return await self._run(lambda: sync.generic_message(service, class_id, instance, body))
+
+    async def list_identity(self) -> Tuple[bool, Optional[dict]]:
+        """ENIP ListIdentity 单播(语义同同步版)。"""
+        sync = self._sync
+        if not isinstance(sync, AllenBradleyEthIpClient):
+            raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
+        return await self._run(sync.list_identity)
+
+    async def get_plc_info(self) -> Tuple[bool, Optional[dict]]:
+        """Identity Object GetAttributesAll(语义同同步版)。"""
+        sync = self._sync
+        if not isinstance(sync, AllenBradleyEthIpClient):
+            raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
+        return await self._run(sync.get_plc_info)
+
+    async def get_attribute_all(
+        self, class_id: int, instance: int
+    ) -> Tuple[bool, Optional[bytes]]:
+        """通用 GetAttributesAll(语义同同步版)。"""
+        sync = self._sync
+        if not isinstance(sync, AllenBradleyEthIpClient):
+            raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
+        return await self._run(lambda: sync.get_attribute_all(class_id, instance))
+
+    async def get_attribute_list(
+        self, class_id: int, instance: int, attributes: Sequence[int]
+    ) -> Tuple[bool, Optional[List[Tuple[int, object]]]]:
+        """通用 GetAttributeList(语义同同步版)。"""
+        sync = self._sync
+        if not isinstance(sync, AllenBradleyEthIpClient):
+            raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
+        return await self._run(
+            lambda: sync.get_attribute_list(class_id, instance, attributes)
+        )
 
     @property
     def connected_messaging(self) -> bool:
