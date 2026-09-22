@@ -1,6 +1,6 @@
 # omniplc 架构设计
 
-> 版本:v0.29 · 更新日期:2026-09-22 · 状态:Modbus / 三菱 MC(以太网 + 串口帧)/ FINS / NJ/NX CIP / KV / SR / TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / 西门子 S7 / OPC-UA / 通用自定义 TCP / CNC MTConnect 已全部落地,全局报文调试开关已上线
+> 版本:v0.29.1 · 更新日期:2026-09-22 · 状态:Modbus / 三菱 MC(以太网 + 串口帧)/ FINS / NJ/NX CIP / KV / SR / TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / 西门子 S7 / OPC-UA / 通用自定义 TCP / CNC MTConnect 已全部落地,全局报文调试开关已上线
 
 omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7+,uv 开发)。
 本文档描述 v1.0 的完整架构:分层、类设计、继承树、线程安全模型、类型标注纪律、
@@ -900,6 +900,7 @@ FINS 与 fins-driver 0.3.1 对照(2026-09 复审):FINS 帧头 10 字节布局
 | v0.27 | 欧姆龙 FINS 批量读取:协议原生 0104 多存储区读(`read_many` 覆写单事务 + `read_batch` 混类型;W342 §5-3-5 核证:每条 = 区码 1B + 字地址 2B 大端 + 位 0,读 1 字,响应逐条区码回显,仅字码,以太网 167 条/SYSMAC LINK 89;BOOL 走包含字提位,T/C 完成标志拒绝;W342 PDF 由 Lakewood Automation 镜像获取)| ✅ 完成 |
 | v0.28 | CIP/OPC-UA 批量读取:AB 0x0A 多服务包(`read_batch` 混标签单事务,偏移自条数域起算、内嵌请求字对齐补齐,内嵌应答标准 CIP 帧逐条校验;pylogix/cm_ethernetip 双参考核证;BOOL 首次类型发现,上限 32 条;NJ 继承)+ OPC-UA UA Read 多节点(asyncua read_values 单请求)| ✅ 完成 |
 | v0.29 | MX Component 批量读取:ActUtlType 原生 ReadDeviceRandom(`read_batch` 混软元件单事务 + `read_many` 覆写;软元件列表换行分隔、每条 1 字;仅 16 位类型 BOOL/SHORT/USHORT——地址编号原文透传无法安全拆 32 位相邻字;手册 5.2.5 核证)| ✅ 完成 |
+| v0.29.1 | 异步镜像完整性收口:全量内省审计补齐 9 处缺口(Keyence/Inovance/Panasonic MC 的 read_batch 经对称继承获得,AB/NJ 补 5 个通用 CIP 服务 + NJ slot,Inovance TCP/RTU 补 station/word_order/write_mask_register);aio 家族镜像改对称继承结构;新增内省守卫测试防再漂移;性能实测:单设备异步零收益(线程切换 +67µs/笔),10 台并发 10.0 倍| ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、通用 TCP 长度域成帧/空闲切块成帧、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 更多品牌/协议按需扩展(drivers 插槽沿用 BaseClient 原语模式) | 规划 |
