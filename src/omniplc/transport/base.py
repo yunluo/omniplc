@@ -89,6 +89,21 @@ class BaseTransport(ABC):
         """
         raise NotImplementedError
 
+    def recv_some(self, max_bytes: int) -> bytes:
+        """接收一批当前到达的数据(1~``max_bytes`` 字节,有数据即返回)。
+
+        流式成帧(:mod:`omniplc.opentcp` 分隔符/定长切分)使用:只要超时
+        期内有**任何**数据就整批返回,不满 ``max_bytes`` 不等待;超时内
+        无任何数据才抛超时。默认退化为 :meth:`recv`(按各实现语义),
+        TCP 实现已覆写为真实流式读。
+
+        :param max_bytes: 单批字节数上限
+        :return: 收到的字节(非空)
+        :raises TransportClosedError: 未连接或对端关闭
+        :raises OSError: 接收超时或其他错误
+        """
+        return self.recv(max_bytes)
+
     def __enter__(self: _T) -> _T:
         self.connect()
         return self

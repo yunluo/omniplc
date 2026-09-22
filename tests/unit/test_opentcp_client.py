@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import socket
-from typing import List
+from typing import List, Optional, Tuple
 
 import pytest
 
@@ -354,3 +354,58 @@ def test_async_mirror_fixed_length() -> None:
         await client.close()
 
     asyncio.run(scenario())
+
+
+# ----------------------------------------------------------------------
+# 真 TcpTransport 流式成帧(recv_some 语义;ScriptedTransport 掩盖的回归)
+# ----------------------------------------------------------------------
+
+
+class _ChunkSocket:
+    """按脚本逐段返回数据的假 socket(挂在真 TcpTransport 上)。"""
+
+    def __init__(self, chunks: List[bytes]) -> None:
+        self._chunks = list(chunks)
+        self.timeout: Optional[float] = None
+
+    def settimeout(self, value: Optional[float]) -> None:
+        self.timeout = value
+
+    def recv(self, size: int) -> bytes:
+        if self._chunks:
+            return self._chunks.pop(0)
+        raise socket.timeout("timed out")
+
+    def sendall(self, data: bytes) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+def _tcp_client(chunks: List[bytes]) -> Tuple[OpenTcpClient, TcpTransport]:
+    """真 TcpTransport + 分片假 socket 的已连接客户端(绕过真建链)。"""
+    client = OpenTcpClient("127.0.0.1", 9000)
+    transport = TcpTransport("127.0.0.1", 9000)
+    transport._socket = _ChunkSocket(chunks)  # type: ignore[assignment]
+    transport.receive_timeout = 5.0
+    client._transport = transport
+    client._connected = True
+    return client, transport
+
+
+def test_stream_short_frame_completes() -> None:
+    """回归:短帧分片到达必须成帧——原 recv(256) 读满语义下永远超时。"""
+    client, _ = _tcp_client([b"hel", b"lo\r\n"])
+    assert client.receive_text() == (True, "hello")
+
+
+def test_stream_partial_frame_buffers_across_calls() -> None:
+    """无换行的文本进缓冲不成帧;后续补齐后跨调用拼出完整帧。"""
+    client, transport = _tcp_client([b"no-eol"])
+    ok, text = client.receive_text(timeout=0.3)
+    assert ok is False and text is None
+    assert client.connected is True  # 超时不断线
+    assert "已收 6 字节" in (client.last_error or "")
+    transport._socket = _ChunkSocket([b"!\r\n"])  # type: ignore[assignment]
+    assert client.receive_text() == (True, "no-eol!")

@@ -111,6 +111,23 @@ class TcpTransport(BaseTransport):
         log_frame(self._debug_label, RECV_MARK, frame)
         return frame
 
+    def recv_some(self, max_bytes: int) -> bytes:
+        """读一批当前到达的数据(单次 ``socket.recv``,1~``max_bytes`` 字节)。
+
+        与 :meth:`recv` 的"读满恰好 size 字节"不同:流式成帧只要求
+        "有数据尽快返回"。阻塞上限为 socket 当前超时(与
+        :attr:`receive_timeout` 保持同步,成帧循环经属性 setter 下发)。
+
+        :raises TransportClosedError: 未连接或对端关闭连接
+        :raises OSError: 超时内无任何数据到达
+        """
+        sock = self._require_socket()
+        chunk = sock.recv(max_bytes)
+        if not chunk:
+            raise TransportClosedError("TCP 连接已被对端关闭")
+        log_frame(self._debug_label, RECV_MARK, chunk)
+        return chunk
+
     def _require_socket(self) -> socket.socket:
         """取当前 socket,未连接则抛出。"""
         if self._socket is None:

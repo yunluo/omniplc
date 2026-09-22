@@ -326,7 +326,7 @@ class OpenTcpClient(BaseClient):
                             self._max_frame
                         )
                     )
-                chunk = transport.recv(OPEN_TCP_RECV_CHUNK)
+                chunk = transport.recv_some(OPEN_TCP_RECV_CHUNK)
                 if not chunk:
                     raise OSError("连接被对端关闭")
                 self._buffer.extend(chunk)
