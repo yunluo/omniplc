@@ -548,6 +548,15 @@ class AMelsecMcTcpClient(ABaseClient):
             return sync.frame
         raise TypeError("内部错误")
 
+    async def read_batch(
+        self, items: Sequence[Tuple[str, Union[DataType, str]]]
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """多块批量读取(0406,单事务;语义同同步版)。"""
+        sync = self._sync
+        if not isinstance(sync, MelsecMcTcpClient):
+            raise TypeError("内部错误")
+        return await self._run(lambda: sync.read_batch(items))
+
 
 class AMelsecMcUdpClient(ABaseClient):
     """三菱 MC 异步客户端(UDP)。"""
@@ -570,6 +579,15 @@ class AMelsecMcUdpClient(ABaseClient):
         if isinstance(sync, MelsecMcUdpClient):
             return sync.frame
         raise TypeError("内部错误")
+
+    async def read_batch(
+        self, items: Sequence[Tuple[str, Union[DataType, str]]]
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """多块批量读取(0406,单事务;语义同同步版)。"""
+        sync = self._sync
+        if not isinstance(sync, MelsecMcUdpClient):
+            raise TypeError("内部错误")
+        return await self._run(lambda: sync.read_batch(items))
 
 
 class AMelsecMcSerialClient(ABaseClient):
@@ -650,6 +668,15 @@ class AMelsecMcSerialClient(ABaseClient):
         if not isinstance(sync, MelsecMcSerialClient):
             raise TypeError("内部错误:sync 实例不是 MelsecMcSerialClient")
         return sync.module_io
+
+    async def read_batch(
+        self, items: Sequence[Tuple[str, Union[DataType, str]]]
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """多块批量读取(3C/4C 帧不支持,抛 ValueError;镜像契约一致性)。"""
+        sync = self._sync
+        if not isinstance(sync, MelsecMcSerialClient):
+            raise TypeError("内部错误:sync 实例不是 MelsecMcSerialClient")
+        return await self._run(lambda: sync.read_batch(items))
 
 
 class AKeyenceMcTcpClient(ABaseClient):

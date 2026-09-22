@@ -1,13 +1,16 @@
 """MC 客户端帧收发测试:脚本化传输验证 TCP/UDP × 3E/4E/1E 全链路。
 
 覆盖:组帧逐字节断言、按长收包、序列号校验、结束码 DeviceError 不断线、
-坏帧断线重连、寄存器位"读-改-写"。
+坏帧断线重连、寄存器位"读-改-写"、多块批量读(read_batch/read_many 覆写)。
 """
 from __future__ import annotations
+
+import asyncio
 
 import pytest
 
 from omniplc import MelsecMcTcpClient, MelsecMcUdpClient
+from omniplc.aio import AMelsecMcTcpClient
 from omniplc.core.constants import MC_DEFAULT_MONITOR_TIMER
 from omniplc.plc.melsec import codec_a, codec_qna
 from omniplc.plc.melsec.address import parse_mc_address
@@ -215,3 +218,98 @@ def test_async_mirror_frame_property_tcp_udp() -> None:
 
     assert AMelsecMcTcpClient().frame == McFrame.FRAME_3E
     assert AMelsecMcUdpClient(frame=McFrame.FRAME_1E).frame == McFrame.FRAME_1E
+
+
+def _qna_random_read_response(words: list, bits: list) -> bytes:
+    """构造多块批量读响应(测试脚手架):字块逐字小端 + 位块逐点 16 位字。"""
+    data = b"".join(value.to_bytes(2, "little") for value in words)
+    data += b"".join(value.to_bytes(2, "little") for value in bits)
+    head = b"\xd0\x00" + b"\x00\xff\xff\x03\x00"
+    return head + (2 + len(data)).to_bytes(2, "little") + b"\x00\x00" + data
+
+
+def test_tcp_3e_read_batch_mixed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TCP 3E read_batch:混类型单事务,字块/位块分节,值与 items 顺序对应。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    frame = _qna_random_read_response([0xFFFE, 0x0000, 0x3F80, 0x0008], [0x8000, 0x0000])
+    scripted = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, values = client.read_batch(
+        [
+            ("D100", DataType.SHORT),
+            ("D102", DataType.FLOAT),
+            ("D110.3", DataType.BOOL),
+            ("M10", DataType.BOOL),
+            ("X20", DataType.BOOL),
+        ]
+    )
+    assert ok is True and values == [-2, 1.0, True, True, False]
+    assert bytes(scripted.sent) == codec_qna.build_random_read(
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        [(0xA8, 100, 1), (0xA8, 102, 2), (0xA8, 110, 1)],
+        [(0x90, 10, 1), (0x9C, 0x20, 1)],
+    )
+
+
+def test_tcp_3e_read_many_single_transaction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TCP 3E read_many:覆写为 0406 单事务(协议原生批量合并)。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    frame = _qna_random_read_response([7, 9], [])
+    scripted = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_many(["D0", "D2"], "short") == [(True, 7), (True, 9)]
+    assert bytes(scripted.sent) == codec_qna.build_random_read(
+        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, [(0xA8, 0, 1), (0xA8, 2, 1)], []
+    )
+
+
+def test_read_batch_frame_gates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1E 帧:read_batch 拒绝;read_many 回退基类逐点独立事务。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000, frame="1E")
+    _mount(monkeypatch, client, ScriptedTransport([]))
+    client.connect()
+    with pytest.raises(ValueError):
+        client.read_batch([("D0", "short")])
+    frame_a = _one_e_read_response([5])
+    frame_b = _one_e_read_response([6])
+    fallback = MelsecMcTcpClient("127.0.0.1", 2000, frame="1E")
+    _mount(
+        monkeypatch,
+        fallback,
+        ScriptedTransport(
+            [frame_a[:2], frame_a[2:], frame_b[:2], frame_b[2:]]
+        ),
+    )
+    fallback.connect()
+    assert fallback.read_many(["D0", "D1"], "short") == [(True, 5), (True, 6)]
+
+
+def test_read_batch_empty_rejected() -> None:
+    """read_batch 空列表:参数错误直接抛出。"""
+    with pytest.raises(ValueError):
+        MelsecMcTcpClient("127.0.0.1", 2000).read_batch([])
+
+
+def test_async_mirror_read_batch() -> None:
+    """异步镜像 read_batch:混类型批量读往返。"""
+
+    async def scenario() -> None:
+        client = AMelsecMcTcpClient("127.0.0.1", 2000)
+        frame = _qna_random_read_response([7], [0x8000])
+        scripted = ScriptedTransport([frame[:9], frame[9:]])
+        scripted.receive_timeout = 5.0
+        client._sync._transport = scripted
+        client._sync._connected = True
+        assert await client.read_batch([("D0", "short"), ("M0", "bool")]) == (
+            True,
+            [7, True],
+        )
+        await client.close()
+
+    asyncio.run(scenario())

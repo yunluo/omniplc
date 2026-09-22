@@ -372,7 +372,8 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 - **v0.23**:CNC 机床数采 MTConnect(标准库 HTTP/XML 只读,Agent 默认 5000;数据项 id 即地址,类型化读 + 全量快照 + 报警条件项 + 设备信息;FANUC/三菱等控制器均可经 Agent 采集,零第三方依赖)
 - **v0.24**:西门子 S7(封装 python-snap7,rack/slot 路由 102;DB/I/Q/M 绝对寻址,尺寸由 DataType 决定大端序,位读改写,S7 String;64 位 Python 用捆绑 snap7 库,32 位经 dll_path 自备)
 - **v0.24.1**:S7 依赖按 Python 版本自动二选一(3.7~3.9 → python-snap7 1.3,extra 带 setuptools 修 pkg_resources;3.10+ → 3.x 纯 Python 无需 DLL),并修复区码需转 snap7 `Areas` 枚举的兼容问题(1.x 裸 int 读抛 ValueError/写抛 AttributeError);错误边界适配 3.x `S7Error` 谱系
-- **v0.25(当前)**:OpenTcpClient 补定长成帧(`frame_length`,二进制固定帧设备;与 `delimiter` 互斥、构造期二选一校验,`frame_length` ≤ `max_frame`,`append_delimiter` 强制关;跨分片/多帧/残字节语义与分隔符模式一致,异步镜像同步)
+- **v0.25**:OpenTcpClient 补定长成帧(`frame_length`,二进制固定帧设备;与 `delimiter` 互斥、构造期二选一校验,`frame_length` ≤ `max_frame`,`append_delimiter` 强制关;跨分片/多帧/残字节语义与分隔符模式一致,异步镜像同步)
+- **v0.26(当前)**:MC 3E/4E 批量读取,利用协议原生 0406 多块批量读(`read_many` 覆写为单事务、`read_batch` 混类型混软元件;SH-080008 §8.4 逐字节核证,总块数 ≤120;汇川/基恩士 MC 兼容子类经地址换算钩子继承;1E/3C/4C 回退逐点/拒绝)
 - **v1.0**:点位表完善 + 示例 + 文档,正式发布
 - **v1.x**:MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、MTConnect /sample 历史流与写入、FANUC FOCAS / 三菱 CNC EZSocket(Windows DLL 封装)、通用 TCP 长度域成帧/空闲切块成帧、心跳保活、轮询器、连接池
 - **v2**:更多品牌/协议按需扩展(驱动插槽沿用 BaseClient 原语模式)

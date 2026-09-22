@@ -107,6 +107,10 @@ class InovanceMcTcpClient(MelsecMcTcpClient):
             "D" if device == "R" else device, INOVANCE_MC_DEVICE_CODES
         )
 
+    def _translate_address(self, parsed: McAddress) -> McAddress:
+        """汇川记号换算为三菱帧记号(批量读路径与 _build_frame 同源,内部方法)。"""
+        return _to_melsec_address(parsed)
+
     def _build_frame(
         self,
         parsed: McAddress,

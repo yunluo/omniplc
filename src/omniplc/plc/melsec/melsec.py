@@ -184,6 +184,129 @@ class _MelsecMcBase(BaseClient):
         return value
 
     # ------------------------------------------------------------------
+    # 批量读取(3E/4E 走 0406 多块批量读,单事务)
+    # ------------------------------------------------------------------
+
+    def read_many(
+        self, addresses: Sequence[str], data_type: Union[DataType, str]
+    ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
+        """批量读取:3E/4E 帧覆写为 0406 多块批量读(单事务)。
+
+        与基类逐点独立容错不同:任一地址非法或 PLC 拒绝则**整批失败**
+        (原因见 :attr:`last_error`);需要逐点容错请逐点调用 :meth:`read`。
+        其余帧型(1E/3C/4C)沿用基类逐点独立事务。
+
+        :param addresses: 地址列表(软元件可各不相同)
+        :param data_type: 统一数据类型
+        :return: 与地址顺序对应的 ``[(是否成功, 值)]`` 列表
+        """
+        if self._frame not in (McFrame.FRAME_3E, McFrame.FRAME_4E):
+            return super().read_many(addresses, data_type)
+        data_type_enum = DataType.coerce(data_type)
+        ok, values = self.read_batch([(address, data_type_enum) for address in addresses])
+        if not ok or values is None:
+            return [(False, None) for _ in addresses]
+        return [(True, value) for value in values]
+
+    def read_batch(
+        self, items: Sequence[Tuple[str, Union[DataType, str]]]
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """多块批量读取:0406 单事务混读多个字/位软元件(仅 3E/4E 帧)。
+
+        利用 MC 协议原生"多块批量读"能力,一帧内软元件/类型可各不相同
+        (SH-080008 §8.4):32/64 位类型各占 2/4 字,BOOL 位软元件占
+        1 个位块(1 点 = 16 位),BOOL 字软元件占 1 个字块后本地提位;
+        字块 + 位块总数上限 120(子命令 0000)。字符串请用
+        :meth:`read_string`(变长不适合混读)。
+
+        :param items: ``(地址, 数据类型)`` 序列
+        :return: ``(是否成功, 与 items 顺序对应的值列表)``
+        :raises ValueError: 列表为空/帧型不支持/地址或类型非法
+        """
+        if not items:
+            raise ValueError("read_batch 至少需要一个 (地址, 数据类型) 项")
+        if self._frame not in (McFrame.FRAME_3E, McFrame.FRAME_4E):
+            raise ValueError(
+                "多块批量读仅支持 3E/4E 帧,当前帧型:{}".format(self._frame.value)
+            )
+        word_blocks: List[Tuple[int, int, int]] = []
+        bit_blocks: List[Tuple[int, int, int]] = []
+        # 解码计划:(类别, 字/位索引, 位号或字数, 数据类型)
+        plan: List[Tuple[str, int, int, DataType]] = []
+        word_index = 0
+        bit_index = 0
+        for address, data_type in items:
+            data_type_enum = DataType.coerce(data_type)
+            parsed = self._translate_address(parse_mc_address(address))
+            code, is_bit_device, base = self._device_info(parsed.device)
+            number = codec_qna.device_number(parsed.device, parsed.number, base)
+            if data_type_enum is DataType.BOOL:
+                if is_bit_device:
+                    bit_blocks.append((code, number, 1))
+                    plan.append(("bit", bit_index, 0, data_type_enum))
+                    bit_index += 1
+                else:
+                    word_blocks.append((code, number, 1))
+                    plan.append(("wordbit", word_index, parsed.bit or 0, data_type_enum))
+                    word_index += 1
+                continue
+            if data_type_enum in (DataType.SHORT, DataType.USHORT):
+                word_blocks.append((code, number, 1))
+                plan.append(("word", word_index, 1, data_type_enum))
+                word_index += 1
+            elif data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
+                word_blocks.append((code, number, 2))
+                plan.append(("word", word_index, 2, data_type_enum))
+                word_index += 2
+            elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
+                word_blocks.append((code, number, 4))
+                plan.append(("word", word_index, 4, data_type_enum))
+                word_index += 4
+            else:
+                raise ValueError(
+                    "MC 批量读取不支持的数据类型:{}".format(data_type_enum)
+                )
+        word_points = word_index
+        bit_points = bit_index
+
+        def operation() -> List[PrimitiveValue]:
+            request = codec_qna.build_random_read(
+                self._frame.value,
+                self._next_serial(),
+                self._network_number,
+                self._pc_number,
+                MC_DEFAULT_MONITOR_TIMER,
+                word_blocks,
+                bit_blocks,
+            )
+            words, bits = codec_qna.parse_random_read_response(
+                self._transact(request),
+                self._frame.value,
+                word_points,
+                bit_points,
+                expected_serial=self._serial,
+            )
+            values: List[PrimitiveValue] = []
+            for kind, index, extra, item_type in plan:
+                if kind == "bit":
+                    values.append(bool(bits[index] >> 15 & 1))
+                elif kind == "wordbit":
+                    values.append(bool(convert.get_bit(words[index], extra)))
+                elif item_type in (DataType.SHORT, DataType.USHORT):
+                    values.append(
+                        words[index]
+                        if item_type is DataType.USHORT
+                        else convert.to_signed(words[index], 16)
+                    )
+                elif item_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
+                    values.append(_decode_32(words[index:index + 2], item_type))
+                else:
+                    values.append(_decode_64(words[index:index + 4], item_type))
+            return values
+
+        return self._execute(operation)
+
+    # ------------------------------------------------------------------
     # 位/字原语(核心命令 + 帧封装)
     # ------------------------------------------------------------------
 
@@ -232,6 +355,14 @@ class _MelsecMcBase(BaseClient):
         if self._frame is McFrame.FRAME_1E:
             return codec_a.device_info(device)
         return codec_qna.device_info(device)
+
+    def _translate_address(self, parsed: McAddress) -> McAddress:
+        """帧级地址换算钩子,默认透传(内部方法)。
+
+        品牌兼容子类覆写(如汇川 R/X/Y 记号换算),批量读取路径与
+        :meth:`_build_frame` 必须经同一钩子,保证两路地址语义一致。
+        """
+        return parsed
 
     def _build_frame(
         self,

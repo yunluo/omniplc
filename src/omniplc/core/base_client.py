@@ -244,8 +244,9 @@ class BaseClient(ABC):
     ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
         """批量读取,逐点独立容错:单点失败不影响其他点。
 
-        当前实现为逐点独立事务;协议级批量合并(相邻地址组包)由驱动
-        在后续版本覆写优化,接口保持不变。
+        基类实现为逐点独立事务;驱动可覆写为协议级批量合并(接口不变):
+        MC 3E/4E 已覆写为 0406 多块批量读单事务(整批容错,
+        见 :meth:`omniplc.plc.melsec.MelsecMcTcpClient.read_many`)。
 
         :param addresses: 地址列表
         :param data_type: 数据类型,推荐用 :class:`omniplc.types.DataType` 枚举

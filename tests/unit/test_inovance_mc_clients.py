@@ -264,3 +264,24 @@ def test_async_mirror_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
         await client.close()
 
     asyncio.run(scenario())
+
+
+def test_read_batch_translates_addresses(monkeypatch: pytest.MonkeyPatch) -> None:
+    """批量读经地址换算钩子:R n → D(8000+n)、X 八进制命名 → 帧内十六进制。"""
+    client = InovanceMcTcpClient("127.0.0.1", 2000)
+    data = (5).to_bytes(2, "little") + (0x8000).to_bytes(2, "little")
+    frame = _frame_tail(data)
+    scripted = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_batch([("R0", "short"), ("X17", "bool")]) == (True, [5, True])
+    x_code = INOVANCE_MC_DEVICE_CODES["X"][0]
+    assert bytes(scripted.sent) == codec_qna.build_random_read(
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        [(0xA8, INOVANCE_MC_R_BASE, 1)],
+        [(x_code, 0x0F, 1)],
+    )

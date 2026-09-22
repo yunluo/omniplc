@@ -98,6 +98,11 @@ MC_COMMAND_BATCH_READ: int = 0x0104
 """成批读核心命令(报文中大端两字节 01 04)。"""
 MC_COMMAND_BATCH_WRITE: int = 0x0114
 """成批写核心命令(报文中大端两字节 01 14)。"""
+MC_COMMAND_BATCH_READ_BLOCKS: int = 0x0604
+"""多块批量读核心命令(手册记法 0406,SH-080008 §8.4;线上两字节 06 04,
+与 :data:`MC_COMMAND_BATCH_READ` 同为"线上字节序的 int",勿按文档记法写 0x0406)。"""
+MC_MAX_RANDOM_BLOCKS: int = 120
+"""多块批量读总块数上限(字块+位块,子命令 0000 口径;iQ-R/L 扩展子命令为 60)。"""
 MC_SUBCOMMAND_WORD_UNITS: int = 0x0000
 """子命令:以字为单位(小端两字节 00 00)。"""
 MC_SUBCOMMAND_BIT_UNITS: int = 0x0001

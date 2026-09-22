@@ -9,6 +9,10 @@ SLMP 参考库 ``core.encode_3e_request``/``encode_4e_request``,SH-080956):
 - 核心读 = ``01 04`` + 子命令(2,小端:0=字单位/1=位单位)
   + 起始软元件编号(3,小端) + 软元件码(1) + 点数(2,小端)
 - 核心写 = ``01 14`` + 同上 + 数据
+- 多块批量读 = ``06 04`` + 子命令 ``00 00`` + 字块数(2) + 字块×m
+  + 位块数(2) + 位块×n;每块 = 软元件码(1) + 起始编号(3,小端)
+  + 点数(2,小端);**位块 1 点 = 16 位软元件,响应点内首软元件在 bit15**
+  (SH-080008 §8.4,总块数上限 120)
 - 数据:字单位逐字小端;位单位每字节 2 位,**高位在前**(点 0 在高半字节)
 - 3E 响应 = 副头部 ``D0 00`` + 网络(1) + PC(1) + 模块I/O(2) + 局号(1)
   + 应答数据长(2,小端) + 结束代码(2,小端,0=成功) + 数据
@@ -21,16 +25,18 @@ SLMP 参考库 ``core.encode_3e_request``/``encode_4e_request``,SH-080956):
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from .address import McAddress
 from ...core.constants import (
     MC_4E_RESPONSE_HEAD_SIZE,
     MC_COMMAND_BATCH_READ,
+    MC_COMMAND_BATCH_READ_BLOCKS,
     MC_COMMAND_BATCH_WRITE,
     MC_DEVICE_CODES,
     MC_DEST_MODULE_IO,
     MC_DEST_MODULE_STATION,
+    MC_MAX_RANDOM_BLOCKS,
     MC_MAX_TRANSFER_POINTS,
     MC_RESPONSE_HEAD_SIZE,
     MC_RESPONSE_SUBHEADER_3E,
@@ -169,23 +175,49 @@ def build_request(
     """
     frame_name = _check_frame(frame)
     core = build_core(address, points, is_bit, is_write, data, codes)
-
-    routing = bytearray()
-    routing.append(network_number & 0xFF)
-    routing.append(pc_number & 0xFF)
-    routing += MC_DEST_MODULE_IO.to_bytes(2, "little")
-    routing.append(MC_DEST_MODULE_STATION & 0xFF)
-    _check_timer(monitoring_timer)
-    body = (
-        bytes(routing)
-        + (2 + len(core)).to_bytes(2, "little")
-        + monitoring_timer.to_bytes(2, "little")
-        + bytes(core)
+    return _wrap_request(
+        frame_name, serial, network_number, pc_number, monitoring_timer, core
     )
 
-    if frame_name == "4E":
-        return MC_SUBHEADER_4E + serial.to_bytes(2, "little") + b"\x00\x00" + body
-    return MC_SUBHEADER_3E + body
+
+def build_random_read(
+    frame: str,
+    serial: int,
+    network_number: int,
+    pc_number: int,
+    monitoring_timer: int,
+    word_blocks: Sequence[Tuple[int, int, int]],
+    bit_blocks: Sequence[Tuple[int, int, int]],
+) -> bytes:
+    """构造 3E/4E 多块批量读请求(命令 0406,SH-080008 §8.4)。
+
+    单事务混读多个字/位软元件块:每块为一段连续软元件,以
+    ``(软元件码, 起始编号, 点数)`` 给定(编号为帧内数值,调用方先按
+    码表进制换算);**位块 1 点 = 16 位软元件**。字块总数 + 位块总数
+    ≤ :data:`~omniplc.core.constants.MC_MAX_RANDOM_BLOCKS`(子命令
+    0000 口径,不支持链接直接/模块访问等扩展软元件指定)。
+
+    :raises ValueError: 帧型非法、无块、总块数超限或块参数非法
+    """
+    frame_name = _check_frame(frame)
+    total_blocks = len(word_blocks) + len(bit_blocks)
+    if total_blocks == 0:
+        raise ValueError("多块批量读至少需要一个字块或位块")
+    if total_blocks > MC_MAX_RANDOM_BLOCKS:
+        raise ValueError(
+            "多块批量读总块数超出上限 {}:{}".format(MC_MAX_RANDOM_BLOCKS, total_blocks)
+        )
+    core = bytearray(MC_COMMAND_BATCH_READ_BLOCKS.to_bytes(2, "big"))
+    core += MC_SUBCOMMAND_WORD_UNITS.to_bytes(2, "little")
+    core += len(word_blocks).to_bytes(2, "little")
+    for code, number, points in word_blocks:
+        core += _random_block(code, number, points)
+    core += len(bit_blocks).to_bytes(2, "little")
+    for code, number, points in bit_blocks:
+        core += _random_block(code, number, points)
+    return _wrap_request(
+        frame_name, serial, network_number, pc_number, monitoring_timer, bytes(core)
+    )
 
 
 def parse_response_head(head: bytes, frame: str) -> int:
@@ -236,30 +268,7 @@ def parse_response(
     :raises omniplc.core.errors.ProtocolFrameError: 帧结构/序列号不符
     """
     frame_name = _check_frame(frame_type)
-    content_length = parse_response_head(frame, frame_name)
-    is_4e = frame_name == "4E"
-    head_size = MC_4E_RESPONSE_HEAD_SIZE if is_4e else MC_RESPONSE_HEAD_SIZE
-    if len(frame) < head_size + content_length:
-        raise ProtocolFrameError(
-            "MC 响应帧不完整:期望 {} 字节,实际 {}".format(
-                head_size + content_length, len(frame)
-            )
-        )
-    if is_4e:
-        if expected_serial is not None:
-            serial = int.from_bytes(frame[2:4], "little")
-            if serial != expected_serial:
-                raise ProtocolFrameError(
-                    "MC 序列号不匹配:期望 {},收到 {}".format(expected_serial, serial)
-                )
-        end_offset = 13
-        data_offset = 15
-    else:
-        end_offset = 9
-        data_offset = 11
-    end_code = int.from_bytes(frame[end_offset:end_offset + 2], "little")
-    if end_code != 0:
-        raise DeviceError("MC 结束代码 0x{:04X},详见 MELSEC 手册".format(end_code), end_code)
+    data_offset = _locate_data(frame, frame_name, expected_serial)
     if not is_read:
         return []
     expected = (points + 1) // 2 if is_bit else points * 2
@@ -271,12 +280,112 @@ def parse_response(
     return parse_data(data, points, is_bit)
 
 
+def parse_random_read_response(
+    frame: bytes,
+    frame_type: str,
+    word_points: int,
+    bit_points: int,
+    expected_serial: Optional[int] = None,
+) -> Tuple[List[int], List[int]]:
+    """解析 3E/4E 多块批量读响应,返回 ``(字块数据, 位块数据)``。
+
+    字块数据按请求块顺序连成扁平逐字列表;位块数据为逐点 16 位字
+    (点内首软元件在 bit15)——注意与成批读位单位(0403)的半字节
+    打包不同,本命令 1 点固定 16 位(SH-080008 §8.4)。
+
+    :param word_points: 字块总点数
+    :param bit_points: 位块总点数(1 点 = 16 位 = 2 字节)
+    :raises omniplc.core.errors.DeviceError: 结束代码非 0
+    :raises omniplc.core.errors.ProtocolFrameError: 帧结构/序列号/长度不符
+    """
+    frame_name = _check_frame(frame_type)
+    data_offset = _locate_data(frame, frame_name, expected_serial)
+    word_bytes = word_points * 2
+    bit_bytes = bit_points * 2
+    expected = word_bytes + bit_bytes
+    data = frame[data_offset:data_offset + expected]
+    if len(data) != expected:
+        raise ProtocolFrameError(
+            "MC 多块批量读响应数据不足:期望 {} 字节,实际 {}".format(expected, len(data))
+        )
+    words = [int.from_bytes(data[i:i + 2], "little") for i in range(0, word_bytes, 2)]
+    bits = [
+        int.from_bytes(data[word_bytes + i:word_bytes + i + 2], "little")
+        for i in range(0, bit_bytes, 2)
+    ]
+    return words, bits
+
+
+def _locate_data(
+    frame: bytes, frame_name: str, expected_serial: Optional[int]
+) -> int:
+    """校验响应头/长度/序列号/结束代码,返回数据段起始偏移(内部函数)。
+
+    :raises omniplc.core.errors.DeviceError: 结束代码非 0
+    :raises omniplc.core.errors.ProtocolFrameError: 帧结构/序列号不符
+    """
+    content_length = parse_response_head(frame, frame_name)
+    is_4e = frame_name == "4E"
+    head_size = MC_4E_RESPONSE_HEAD_SIZE if is_4e else MC_RESPONSE_HEAD_SIZE
+    if len(frame) < head_size + content_length:
+        raise ProtocolFrameError(
+            "MC 响应帧不完整:期望 {} 字节,实际 {}".format(
+                head_size + content_length, len(frame)
+            )
+        )
+    if is_4e and expected_serial is not None:
+        serial = int.from_bytes(frame[2:4], "little")
+        if serial != expected_serial:
+            raise ProtocolFrameError(
+                "MC 序列号不匹配:期望 {},收到 {}".format(expected_serial, serial)
+            )
+    end_offset = 13 if is_4e else 9
+    end_code = int.from_bytes(frame[end_offset:end_offset + 2], "little")
+    if end_code != 0:
+        raise DeviceError("MC 结束代码 0x{:04X},详见 MELSEC 手册".format(end_code), end_code)
+    return end_offset + 2
+
+
 def _check_frame(frame: str) -> str:
     """帧型归一化与校验(内部函数)。"""
     frame_name = str(frame).strip().upper()
     if frame_name not in _FRAME_NAMES:
         raise ValueError("QnA 兼容帧型必须是 3E/4E,收到:{!r}".format(frame))
     return frame_name
+
+
+def _wrap_request(
+    frame_name: str,
+    serial: int,
+    network_number: int,
+    pc_number: int,
+    monitoring_timer: int,
+    core: bytes,
+) -> bytes:
+    """核心命令 → 完整 3E/4E 请求帧(路由 + 定时器 + 副头部,内部函数)。"""
+    routing = bytearray()
+    routing.append(network_number & 0xFF)
+    routing.append(pc_number & 0xFF)
+    routing += MC_DEST_MODULE_IO.to_bytes(2, "little")
+    routing.append(MC_DEST_MODULE_STATION & 0xFF)
+    _check_timer(monitoring_timer)
+    body = (
+        bytes(routing)
+        + (2 + len(core)).to_bytes(2, "little")
+        + monitoring_timer.to_bytes(2, "little")
+        + core
+    )
+    if frame_name == "4E":
+        return MC_SUBHEADER_4E + serial.to_bytes(2, "little") + b"\x00\x00" + body
+    return MC_SUBHEADER_3E + body
+
+
+def _random_block(code: int, number: int, points: int) -> bytes:
+    """多块批量读块条目:码 1 字节 + 编号 3 字节小端 + 点数 2 字节小端(内部函数)。"""
+    _check_points(points, MC_MAX_TRANSFER_POINTS)
+    if not 0 <= number <= 0xFFFFFF:
+        raise ValueError("MC 软元件编号超出 3 字节范围:{}".format(number))
+    return bytes((code,)) + number.to_bytes(3, "little") + points.to_bytes(2, "little")
 
 
 def _check_points(points: int, limit: int) -> None:

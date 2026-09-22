@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Tuple
 import pytest
 
 from omniplc.core.constants import MC_DEFAULT_MONITOR_TIMER
-from omniplc.core.errors import DeviceError
+from omniplc.core.errors import DeviceError, ProtocolFrameError
 from omniplc.plc.melsec import codec_a, codec_qna
 from omniplc.plc.melsec.address import parse_mc_address
 
@@ -150,3 +150,65 @@ def test_device_number_radix() -> None:
         codec_qna.device_number("D", "1F", 10)
     with pytest.raises(ValueError):
         codec_qna.device_info("XR")
+
+
+def test_build_random_read_golden() -> None:
+    """多块批量读请求字面字节(SH-080008 §8.4 二进制通信例:2 字块 + 3 位块)。"""
+    request = codec_qna.build_random_read(
+        "3E",
+        0,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        [(0x03, 0x000000, 4), (0xA8, 0x000100, 8)],
+        [(0x90, 0x000080, 2), (0x90, 0x000100, 2), (0xA0, 0x000100, 3)],
+    )
+    core = (
+        "06040000" "0200"
+        "030000000400" "a80001000800"
+        "0300"
+        "908000000200" "900001000200" "a00001000300"
+    )
+    expected = "5000" "00" "ff" "ff03" "00" "2800" "0a00" + core
+    assert request == bytes.fromhex(expected)
+
+
+def test_build_random_read_validation() -> None:
+    """多块批量读构造校验:空块/总块数超限/点数非法。"""
+    with pytest.raises(ValueError):
+        codec_qna.build_random_read("3E", 0, 0, 0xFF, 10, [], [])
+    with pytest.raises(ValueError):
+        codec_qna.build_random_read(
+            "3E", 0, 0, 0xFF, 10, [(0xA8, index * 100, 1) for index in range(121)], []
+        )
+    with pytest.raises(ValueError):
+        codec_qna.build_random_read("3E", 0, 0, 0xFF, 10, [(0xA8, 0, 0)], [])
+
+
+def test_parse_random_read_response() -> None:
+    """多块批量读响应:字块扁平列表;位块逐点 16 位字(点内首软元件 bit15)。"""
+    data = bytes.fromhex("0100" "ffff" "3412" "0080" "0100")
+    frame = (
+        b"\xd0\x00"
+        + b"\x00\xff\xff\x03\x00"
+        + (2 + len(data)).to_bytes(2, "little")
+        + b"\x00\x00"
+        + data
+    )
+    assert codec_qna.parse_random_read_response(frame, "3E", 3, 2) == (
+        [1, 0xFFFF, 0x1234],
+        [0x8000, 0x0001],
+    )
+
+
+def test_parse_random_read_response_short_data() -> None:
+    """多块批量读响应数据不足:按坏帧拒绝。"""
+    frame = (
+        b"\xd0\x00"
+        + b"\x00\xff\xff\x03\x00"
+        + (2 + 2).to_bytes(2, "little")
+        + b"\x00\x00"
+        + b"\x00\x00"
+    )
+    with pytest.raises(ProtocolFrameError):
+        codec_qna.parse_random_read_response(frame, "3E", 3, 2)
