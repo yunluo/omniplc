@@ -129,7 +129,7 @@ flowchart TB
     SiemensS7Client["SiemensS7Client — plc/siemens/client.py<br/>S7-300/400/1200/1500(封装 python-snap7:3.7~3.9→1.3,3.10+→3.x 纯 Python)<br/>rack/slot 102;DB/I/Q/M 绝对寻址,尺寸由 DataType 决定大端序;位读改写;S7 String"]
 
     %% ═══ 通用自定义 TCP ═══
-    OpenTcpClient["OpenTcpClient — opentcp/client.py<br/>任意分隔符成帧设备的收发壳(delimiter/encoding/append·strip/max_frame 可配)<br/>内部缓冲:跨分片拼接、多帧逐次返回;重连清空缓冲<br/>send/send_text/receive/receive_text/transact/transact_text;无点位语义"]
+    OpenTcpClient["OpenTcpClient — opentcp/client.py<br/>任意设备收发壳(分隔符 delimiter 或定长 frame_length 成帧;<br/>encoding/append·strip/max_frame 可配)<br/>内部缓冲:跨分片拼接、多帧逐次返回;重连清空缓冲<br/>send/send_text/receive/receive_text/transact/transact_text;无点位语义"]
 
     %% ═══ 继承关系 ═══
     BaseClient --> ModbusBaseClient
@@ -439,7 +439,7 @@ class BaseClient(ABC):
 | OPC-UA | `ns=2;s=Device.Tag` / `ns=4;i=100` / `i=2258` / `b=AAECAw==` / `g=…` | 已实现(`opcua/`);标准 NodeId 字符串,ns 省略默认 0;前缀大小写规范化,标识符值保留原文(`opcua/address.py`) |
 | 罗克韦尔 AB(EtherNet/IP) | `MyDint` / `MyArray[5]` / `MyMatrix[1,2]` / `MyUdt.Member` / `Program:prog.Tag` / `MyDint.3` | 已实现(`plc/ab/`);地址即 Logix 标签名,多级成员/数组下标/程序作用域透传;`.N` 为整型位访问(设备侧 0x4E 原子读-改-写);标签自描述,实际类型由 PLC 应答返回(`ab/address.py`) |
 | 欧姆龙 NJ/NX(CIP) | `TestVar` / `MyArray[5]` / `Motor[2].Speed`(同 AB 语法) | 已实现(`plc/omron/cip.py`,继承 AB);地址即 Sysmac 变量名,标签自描述同款;NJ 标量 BOOL 直读直写、BOOL 数组按元素访问(不做 Logix 32 位打包);解析复用 `ab/address.py` |
-| 通用自定义 TCP | —(无地址概念) | 已实现(`opentcp/`);报文内容由调用方解释,`send/send_text` 发送、`receive/receive_text` 按分隔符收帧、`transact/transact_text` 一锁内发+收;`delimiter`/`encoding`/`append_delimiter`/`strip_delimiter`/`max_frame` 构造期可配 |
+| 通用自定义 TCP | —(无地址概念) | 已实现(`opentcp/`);报文内容由调用方解释,`send/send_text` 发送、`receive/receive_text` 收帧(分隔符或定长)、`transact/transact_text` 一锁内发+收;`delimiter`(或 `frame_length`,二者互斥必填其一)/`encoding`/`append_delimiter`/`strip_delimiter`/`max_frame` 构造期可配 |
 | 倍福 TwinCAT(ADS) | `MAIN.nCounter` / `.gGlobal` / `GVL.MyVar` | 已实现(`plc/beckhoff/`,封装 pyads);变量名原样透传 ADS 符号服务,数据类型显式指定(IEC INT=16 位口径映射 PLCTYPE);NetId 默认 IP+.1.1、可显式覆盖 |
 | CNC MTConnect | `Sspeed` / `Xact` / `execution` / `program`(数据项 id 或 name) | 已实现(`cnc/`);地址即 Agent 数据项 id(兼容 name 属性),值为文本按显式 DataType 收窄;`UNAVAILABLE` → DeviceError 不断线;`snapshot()`/`read_conditions()`/`probe()` 为只读扩展操作 |
 | 西门子 S7 | `DB1.DBX0.3` / `DB1.DBD6` / `M10.2` / `MW10` / `IW64` / `Q0.1` / `DB1.DBS20` | 已实现(`plc/siemens/`);地址只定区域+字节起点,尺寸由 DataType 决定(2/4/8 字节大端),位访问 0~7;`B/W/D` 习惯记号保留;String 头 2 字节(声明/实际长)(`siemens/address.py`) |
@@ -456,7 +456,7 @@ class BaseClient(ABC):
 | 欧姆龙 FINS | ✅ `OmronFinsTcpClient`(含握手) | ✅ `OmronFinsUdpClient` | v1.x(Host Link) | — |
 | 罗克韦尔 AB EtherNet/IP(Logix) | ✅ `AllenBradleyEthIpClient`(44818) | — | — | — |
 | 欧姆龙 CIP / 连接型 CIP(NJ/NX) | ✅ `OmronCipClient`(44818,继承 AB) | — | — | — |
-| 通用自定义 TCP(分隔符成帧) | ✅ `OpenTcpClient`(端口按设备) | — | — | — |
+| 通用自定义 TCP(分隔符/定长成帧) | ✅ `OpenTcpClient`(端口按设备) | — | — | — |
 | 倍福 TwinCAT(ADS) | ✅ `BeckhoffAdsClient`(封装 pyads,AMS 851) | — | — | — |
 | 基恩士 KV Host Link | ✅ `KeyenceHostLinkTcpClient` | ✅ `KeyenceHostLinkUdpClient` | — | — |
 | 基恩士 KV MC 协议兼容(SLMP 3E) | ✅ `KeyenceMcTcpClient`(5000,继承 MC) | ✅ `KeyenceMcUdpClient`(5000,继承 MC) | — | — |
@@ -540,11 +540,13 @@ NJ 标量 BOOL 直读直写(C1);BOOL 数组按元素访问(NJ 不做 Logix 的 D
 pycomm3 1.2.16 交叉核证(见 §8.1);真机联测待做。
 
 通用自定义 TCP 说明(2026-09):``OpenTcpClient`` 面向无标准协议的现场
-设备,只做"连接 + 成帧 + 错误契约",报文内容由调用方解释。成帧:接收
-按 ``delimiter`` 分隔符切分(默认 CR LF),带内部缓冲——一次到达多帧
-逐次返回、跨分片到达自动拼接;超过 ``max_frame`` 未见分隔符判定流内
-失步,按坏帧断线惰性重连。发送:``send`` 原样字节;``send_text`` 编码
-后可自动补分隔符(``append_delimiter``;空文本 + append = 发裸分隔符
+设备,只做"连接 + 成帧 + 错误契约",报文内容由调用方解释。成帧两种
+模式**二选一**(构造期互斥校验):接收按 ``delimiter`` 分隔符切分
+(默认 CR LF),或按 ``frame_length`` 每帧定长硬切(二进制固定帧设备,
+``append_delimiter`` 必须为 False);带内部缓冲——一次到达多帧逐次
+返回、跨分片到达自动拼接;超过 ``max_frame`` 未成帧判定流内失步,按
+坏帧断线惰性重连。发送:``send`` 原样字节;``send_text`` 编码后可自动
+补分隔符(``append_delimiter``;空文本 + append = 发裸分隔符
 空行,合法)。**重连/超时不新增参数**,沿用 BaseClient 属性机制:
 ``connect_timeout``/``receive_timeout``/``retries``/``write_retries``;
 ``receive``/``receive_text``/``transact*`` 另支持 per-call ``timeout``。
@@ -552,7 +554,9 @@ pycomm3 1.2.16 交叉核证(见 §8.1);真机联测待做。
 连接错误/对端关闭 → 标记断开待重连;解码失败/帧超限 → ProtocolFrameError
 断线重同步。**重连时清空接收缓冲**(``_after_connect`` 钩子),旧连接的
 残字节不得串入新会话。无点位语义,``read``/``write`` 系列返回失败并
-提示使用 ``receive``/``transact``(DeviceError,不断线)。
+提示使用 ``receive``/``transact``(DeviceError,不断线)。长度域成帧
+(头 + 长度字段:偏移/字节数/字节序/是否含头)与空闲切块成帧留 v1.x,
+待具体设备核证后再定配置面。
 
 倍福 TwinCAT ADS 说明(2026-09):**选封装不自研**(用户确认)——ADS 帧
 本身不复杂(AMS 头 + 0xF005 符号句柄三次事务),难点在部署面:AMS
@@ -891,6 +895,7 @@ FINS 与 fins-driver 0.3.1 对照(2026-09 复审):FINS 帧头 10 字节布局
 | v0.23 | CNC 机床数采 MTConnect(cnc/ 包;HTTP/XML 只读,Agent 默认 5000,标准库零依赖跨平台;地址=数据项 id/name,类型化读 + snapshot + read_conditions + probe;不存在/UNAVAILABLE 不断线,坏 XML 断线,MTConnectError→DeviceError;FANUC/三菱控制器经 Agent 喂数均可采)| ✅ 完成 |
 | v0.24 | 西门子 S7(封装 python-snap7,rack/slot 102;DB/I/Q/M 绝对寻址,尺寸由 DataType 决定大端序,位读改写,S7 String;错误按 GetConnected 连接态翻译;s7 extra 带 setuptools 修 pkg_resources;64 位捆绑库/32 位 dll_path 自备)| ✅ 完成 |
 | v0.24.1 | S7 依赖按解释器版本二选一(3.7~3.9 → python-snap7 1.3,3.10+ → 3.x 纯 Python 无需 DLL,环境标记自动生效);修复区码兼容(裸 int → snap7 Areas 枚举成员,1.x 裸 int 读 ValueError/写 AttributeError);错误边界适配 3.x S7Error 谱系(均真库实测:1.3 于本机 venv,3.1.2 于 uv 临时 py3.12)| ✅ 完成 |
+| v0.25 | OpenTcpClient 补定长成帧(`frame_length`,二进制固定帧设备;与 `delimiter` 互斥、构造期二选一校验,`frame_length` ≤ `max_frame`,`append_delimiter` 强制关;跨分片/多帧/残字节语义与分隔符模式一致,异步镜像同步;长度域/空闲切块成帧留 v1.x)| ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
-| v1.x | MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、心跳保活、轮询器、连接池 | 规划 |
+| v1.x | MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、通用 TCP 长度域成帧/空闲切块成帧、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 更多品牌/协议按需扩展(drivers 插槽沿用 BaseClient 原语模式) | 规划 |

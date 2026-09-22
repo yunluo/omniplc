@@ -1,8 +1,8 @@
-"""通用自定义 TCP 客户端测试:分隔符成帧、缓冲、超时/重连契约、异步镜像。
+"""通用自定义 TCP 客户端测试:分隔符/定长成帧、缓冲、超时/重连契约、异步镜像。
 
 覆盖:跨分片拼帧与多帧缓冲、strip/append 行为、超时不断线、连接错误
 惰性重连且缓冲清空、帧超限断线、解码失败断线、空数据拒绝、点位方法
-不可用提示、自定义分隔符、异步镜像。
+不可用提示、自定义分隔符、定长成帧(切分/跨分片/构造规则/收发)、异步镜像。
 """
 from __future__ import annotations
 
@@ -237,6 +237,85 @@ def test_custom_delimiter() -> None:
     assert cr_client.delimiter == b"\r"
 
 
+def test_fixed_length_framing() -> None:
+    """定长成帧:每帧 N 字节硬切,多帧逐次返回,残字节留缓冲。"""
+    client = OpenTcpClient(
+        "127.0.0.1", 9000, delimiter=None, frame_length=4, append_delimiter=False
+    )
+    assert client.delimiter is None
+    assert client.frame_length == 4
+    scripted = ScriptedTransport([b"AAAABBBBCC", b"DDDD"])
+    _attach(client, scripted)
+    assert client.receive() == (True, b"AAAA")
+    assert client.receive() == (True, b"BBBB")
+    assert client.receive() == (True, b"CCDD")
+    assert client._buffer == bytearray(b"DD")
+
+
+def test_fixed_length_across_chunks() -> None:
+    """定长成帧跨分片:帧内自动拼接,凑满才成帧。"""
+    client = OpenTcpClient(
+        "127.0.0.1", 9000, delimiter=None, frame_length=4, append_delimiter=False
+    )
+    scripted = ScriptedTransport([b"AA", b"AABBCC"])
+    _attach(client, scripted)
+    assert client.receive() == (True, b"AAAA")
+    assert client.receive() == (True, b"BBCC")
+
+
+def test_fixed_mode_constructor_rules() -> None:
+    """定长模式构造校验:与 delimiter 互斥、二选一、范围、append 强制关。"""
+    with pytest.raises(ValueError):
+        OpenTcpClient(delimiter=None, frame_length=None)
+    with pytest.raises(ValueError):
+        OpenTcpClient(delimiter="\n", frame_length=4)
+    with pytest.raises(ValueError):
+        OpenTcpClient(delimiter=None, frame_length=0)
+    with pytest.raises(ValueError):
+        OpenTcpClient(delimiter=None, frame_length=8, max_frame=4)
+    with pytest.raises(ValueError):
+        OpenTcpClient(delimiter=None, frame_length=8)
+    client = OpenTcpClient(
+        "127.0.0.1", 9000, delimiter=None, frame_length=8, append_delimiter=False
+    )
+    assert client.frame_length == 8
+    assert client.max_frame == 4096
+
+
+def test_fixed_mode_send_and_transact() -> None:
+    """定长模式:发送不带分隔符;transact 收定长帧。"""
+    client = OpenTcpClient(
+        "127.0.0.1", 9000, delimiter=None, frame_length=8, append_delimiter=False
+    )
+    scripted = ScriptedTransport([b"RESPONSE"])
+    _attach(client, scripted)
+    assert client.send_text("CMD") is True
+    assert client.transact(b"PING") == (True, b"RESPONSE")
+    assert bytes(scripted.sent) == b"CMD" + b"PING"
+    with pytest.raises(ValueError):
+        client.send_text("")
+
+
+def test_fixed_mode_receive_text() -> None:
+    """定长模式收帧解码。"""
+    client = OpenTcpClient(
+        "127.0.0.1", 9000, delimiter=None, frame_length=6, append_delimiter=False
+    )
+    _attach(client, ScriptedTransport([b"OK-001OK-002"]))
+    assert client.receive_text() == (True, "OK-001")
+    assert client.receive_text() == (True, "OK-002")
+
+
+def test_fixed_mode_frame_length_at_max_frame() -> None:
+    """frame_length == max_frame 边界合法,恰好整帧不被误判失步。"""
+    client = OpenTcpClient(
+        "127.0.0.1", 9000, delimiter=None, frame_length=16, max_frame=16,
+        append_delimiter=False,
+    )
+    _attach(client, ScriptedTransport([b"A" * 16]))
+    assert client.receive() == (True, b"A" * 16)
+
+
 def test_async_mirror_roundtrip() -> None:
     """异步镜像:send_text + transact_text 往返,属性转发。"""
 
@@ -252,6 +331,26 @@ def test_async_mirror_roundtrip() -> None:
         assert bytes(scripted.sent) == b"READ\r\n"
         assert await client.receive() == (True, b"PONG")
         assert await client.transact_text("VER") == (True, "1.0.3")
+        await client.close()
+
+    asyncio.run(scenario())
+
+
+def test_async_mirror_fixed_length() -> None:
+    """异步镜像定长模式:构造参数转发 + 定长收帧。"""
+
+    async def scenario() -> None:
+        client = AOpenTcpClient(
+            "127.0.0.1", 9000, delimiter=None, frame_length=4, append_delimiter=False
+        )
+        assert client.delimiter is None
+        assert client.frame_length == 4
+        scripted = ScriptedTransport([b"AAAABBBB"])
+        scripted.receive_timeout = 5.0
+        client._sync._transport = scripted
+        client._sync._connected = True
+        assert await client.receive() == (True, b"AAAA")
+        assert await client.receive() == (True, b"BBBB")
         await client.close()
 
     asyncio.run(scenario())

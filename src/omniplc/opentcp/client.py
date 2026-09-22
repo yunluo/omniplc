@@ -1,13 +1,14 @@
-"""通用自定义 TCP/IP 客户端——分隔符成帧的任意设备收发壳。
+"""通用自定义 TCP/IP 客户端——分隔符/定长成帧的任意设备收发壳。
 
 面向没有标准协议(或协议过简)的现场设备:称重仪表、传感器、自定义
 上位机程序等。只做"连接 + 成帧 + 错误契约",报文内容由调用方解释:
 
-- **成帧**:接收按 ``delimiter`` 分隔符切分(默认 CR LF),带内部缓冲
-  ——一次到达多帧逐次返回,跨分片到达自动拼接;超过 ``max_frame``
-  未见分隔符按坏帧断线惰性重连(流内失步的兜底恢复)
+- **成帧**(两种模式二选一):接收按 ``delimiter`` 分隔符切分(默认
+  CR LF),或按 ``frame_length`` 每帧定长切分(二进制固定帧设备);
+  带内部缓冲——一次到达多帧逐次返回,跨分片到达自动拼接;超过
+  ``max_frame`` 未见完整帧按坏帧断线惰性重连(流内失步的兜底恢复)
 - **发送**:``send`` 原样字节;``send_text`` 编码后可自动补分隔符
-  (``append_delimiter``)
+  (``append_delimiter``;定长成帧强制不补)
 - **重连/超时**:沿用 :class:`~omniplc.core.base_client.BaseClient`
   机制——断线在下一次收发时惰性重建(缓冲同步清空,旧连接的残字节
   不会串入新会话);``connect_timeout``/``receive_timeout``/``retries``
@@ -35,7 +36,7 @@ from ..types import DataType, PrimitiveValue
 
 
 class OpenTcpClient(BaseClient):
-    """通用自定义 TCP/IP 客户端(分隔符成帧,收发行为可配)。
+    """通用自定义 TCP/IP 客户端(分隔符/定长成帧,收发行为可配)。
 
     :example::
 
@@ -45,39 +46,76 @@ class OpenTcpClient(BaseClient):
         ok = client.send_text("READ")            # 自动补分隔符
         ok, raw = client.receive()               # 收一帧(bytes)
         ok, text = client.transact_text("VER")   # 发送并收一帧(str)
+
+    二进制定长帧设备::
+
+        client = OpenTcpClient("192.168.0.10", 9000,
+                               delimiter=None, frame_length=8,
+                               append_delimiter=False)
     """
 
     def __init__(
         self,
         ip_address: str = "192.168.0.10",
         port: int = OPEN_TCP_DEFAULT_PORT,
-        delimiter: Union[str, bytes] = OPEN_TCP_DEFAULT_DELIMITER,
+        delimiter: Optional[Union[str, bytes]] = OPEN_TCP_DEFAULT_DELIMITER,
         encoding: str = "utf-8",
         append_delimiter: bool = True,
         strip_delimiter: bool = True,
         max_frame: int = OPEN_TCP_MAX_FRAME,
+        frame_length: Optional[int] = None,
     ) -> None:
         """初始化通用 TCP 客户端。
 
         :param ip_address: 设备 IP 或主机名
         :param port: TCP 端口(自定义设备无统一标准,按现场配置)
-        :param delimiter: 帧分隔符(bytes 或 str;str 按 UTF-8 编码)
+        :param delimiter: 帧分隔符(bytes 或 str;str 按 UTF-8 编码);
+            定长成帧时传 ``None``
         :param encoding: ``send_text``/``receive_text``/``transact_text``
             的字符编码,默认 UTF-8
         :param append_delimiter: ``send_text``/``transact_text`` 发送时
-            自动补分隔符
+            自动补分隔符(定长成帧必须为 False)
         :param strip_delimiter: ``receive``/``transact*`` 返回帧时是否
-            去掉末尾分隔符
+            去掉末尾分隔符(仅分隔符成帧生效)
         :param max_frame: 帧内容字节上限(不含分隔符),超限判流内失步
+        :param frame_length: 定长成帧的每帧字节数(≥1,不超过
+            ``max_frame``);与 ``delimiter`` 互斥,二者必须提供其一
         :raises ValueError: 参数非法
         """
         validate_endpoint(ip_address, port)
         super().__init__(ip_address, port)
-        self._delimiter = self._coerce_delimiter(delimiter)
         self._encoding = self._coerce_encoding(encoding)
         if int(max_frame) < 1:
             raise ValueError("max_frame 必须大于 0,收到:{}".format(max_frame))
         self._max_frame = int(max_frame)
+        self._delimiter: Optional[bytes]
+        self._frame_length: Optional[int]
+        if frame_length is None:
+            if delimiter is None:
+                raise ValueError(
+                    "必须提供 delimiter(分隔符成帧)或 frame_length(定长成帧)之一"
+                )
+            self._delimiter = self._coerce_delimiter(delimiter)
+            self._frame_length = None
+        else:
+            if delimiter is not None:
+                raise ValueError(
+                    "delimiter 与 frame_length 互斥:定长成帧请传 delimiter=None"
+                )
+            if int(frame_length) < 1:
+                raise ValueError(
+                    "frame_length 必须大于 0,收到:{}".format(frame_length)
+                )
+            if int(frame_length) > self._max_frame:
+                raise ValueError(
+                    "frame_length({})不得超过 max_frame({})".format(
+                        frame_length, self._max_frame
+                    )
+                )
+            if append_delimiter:
+                raise ValueError("定长成帧没有分隔符:append_delimiter 必须为 False")
+            self._delimiter = None
+            self._frame_length = int(frame_length)
         self._append_delimiter = bool(append_delimiter)
         self._strip_delimiter = bool(strip_delimiter)
         self._buffer = bytearray()
@@ -106,9 +144,14 @@ class OpenTcpClient(BaseClient):
         return encoding
 
     @property
-    def delimiter(self) -> bytes:
-        """帧分隔符(bytes)。"""
+    def delimiter(self) -> Optional[bytes]:
+        """帧分隔符(bytes);定长成帧为 ``None``。"""
         return self._delimiter
+
+    @property
+    def frame_length(self) -> Optional[int]:
+        """定长成帧的每帧字节数;分隔符成帧为 ``None``。"""
+        return self._frame_length
 
     @property
     def encoding(self) -> str:
@@ -163,7 +206,9 @@ class OpenTcpClient(BaseClient):
         """文本 → 发送字节(编码 + 可选分隔符,内部方法)。"""
         payload = text.encode(self._encoding)
         if self._append_delimiter:
-            payload += self._delimiter
+            delimiter = self._delimiter
+            assert delimiter is not None  # append_delimiter 仅分隔符成帧可用(构造期保证)
+            payload += delimiter
         return payload
 
     def _send_payload(self, payload: bytes) -> bool:
@@ -181,7 +226,7 @@ class OpenTcpClient(BaseClient):
     # ------------------------------------------------------------------
 
     def receive(self, timeout: Optional[float] = None) -> Tuple[bool, Optional[bytes]]:
-        """按分隔符收一帧(bytes;跨分片自动拼接,多帧逐次返回)。
+        """收一帧(bytes;分隔符或定长切分,跨分片自动拼接,多帧逐次返回)。
 
         :param timeout: 本次接收超时(秒);``None`` 用 :attr:`receive_timeout`
         :return: ``(是否成功, 帧字节)``;超时不断线,连接错误标记断开
@@ -262,28 +307,22 @@ class OpenTcpClient(BaseClient):
         return read_timeout
 
     def _receive_frame(self, transport: BaseTransport, timeout: float) -> bytes:
-        """从缓冲/流中取一帧(分隔符切分;超时不断线,内部方法)。
+        """从缓冲/流中取一帧(分隔符或定长切分;超时不断线,内部方法)。
 
         :raises DeviceError: 接收超时(链路完好,不断线)
-        :raises ProtocolFrameError: 超过 max_frame 未见分隔符(失步断线)
+        :raises ProtocolFrameError: 超过 max_frame 未见完整帧(失步断线)
         :raises OSError: 连接错误(标记断开惰性重连)
         """
         previous_timeout = transport.receive_timeout
         transport.receive_timeout = timeout
         try:
             while True:
-                index = self._buffer.find(self._delimiter)
-                if index >= 0:
-                    end = index + len(self._delimiter)
-                    if self._strip_delimiter:
-                        frame = bytes(self._buffer[:index])
-                    else:
-                        frame = bytes(self._buffer[:end])
-                    del self._buffer[:end]
+                frame = self._cut_frame()
+                if frame is not None:
                     return frame
                 if len(self._buffer) > self._max_frame:
                     raise ProtocolFrameError(
-                        "接收超过 {} 字节未见到分隔符,判定流内失步".format(
+                        "接收超过 {} 字节未成帧,判定流内失步".format(
                             self._max_frame
                         )
                     )
@@ -298,6 +337,31 @@ class OpenTcpClient(BaseClient):
             )
         finally:
             transport.receive_timeout = previous_timeout
+
+    def _cut_frame(self) -> Optional[bytes]:
+        """从缓冲头部切出一帧;不足一帧返回 ``None``(内部方法)。
+
+        定长模式按 ``frame_length`` 硬切;分隔符模式找到分隔符后按
+        ``strip_delimiter`` 决定是否连同分隔符一并取走。
+        """
+        if self._frame_length is not None:
+            if len(self._buffer) < self._frame_length:
+                return None
+            frame = bytes(self._buffer[:self._frame_length])
+            del self._buffer[:self._frame_length]
+            return frame
+        delimiter = self._delimiter
+        assert delimiter is not None  # 构造期保证 delimiter/frame_length 二选一
+        index = self._buffer.find(delimiter)
+        if index < 0:
+            return None
+        end = index + len(delimiter)
+        if self._strip_delimiter:
+            frame = bytes(self._buffer[:index])
+        else:
+            frame = bytes(self._buffer[:end])
+        del self._buffer[:end]
+        return frame
 
     # ------------------------------------------------------------------
     # 连接与基类契约

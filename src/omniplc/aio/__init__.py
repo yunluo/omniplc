@@ -888,17 +888,18 @@ class AOmronCipClient(ABaseClient):
 
 
 class AOpenTcpClient(ABaseClient):
-    """通用自定义 TCP/IP 异步客户端(分隔符成帧,收发行为可配)。"""
+    """通用自定义 TCP/IP 异步客户端(分隔符/定长成帧,收发行为可配)。"""
 
     def __init__(
         self,
         ip_address: str = "192.168.0.10",
         port: int = OPEN_TCP_DEFAULT_PORT,
-        delimiter: Union[str, bytes] = OPEN_TCP_DEFAULT_DELIMITER,
+        delimiter: Optional[Union[str, bytes]] = OPEN_TCP_DEFAULT_DELIMITER,
         encoding: str = "utf-8",
         append_delimiter: bool = True,
         strip_delimiter: bool = True,
         max_frame: int = OPEN_TCP_MAX_FRAME,
+        frame_length: Optional[int] = None,
     ) -> None:
         """参数同 :class:`omniplc.opentcp.OpenTcpClient`。"""
         super().__init__(
@@ -910,6 +911,7 @@ class AOpenTcpClient(ABaseClient):
                 append_delimiter,
                 strip_delimiter,
                 max_frame,
+                frame_length,
             )
         )
 
@@ -953,9 +955,14 @@ class AOpenTcpClient(ABaseClient):
         return await self._run(lambda: self._client().transact_text(text, timeout))
 
     @property
-    def delimiter(self) -> bytes:
-        """帧分隔符(转发同步实例)。"""
+    def delimiter(self) -> Optional[bytes]:
+        """帧分隔符(bytes);定长成帧为 None(转发同步实例)。"""
         return self._client().delimiter
+
+    @property
+    def frame_length(self) -> Optional[int]:
+        """定长成帧的每帧字节数;分隔符成帧为 None(转发同步实例)。"""
+        return self._client().frame_length
 
     @property
     def encoding(self) -> str:
