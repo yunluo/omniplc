@@ -15,7 +15,7 @@ import pytest
 from omniplc import ModbusRtuClient, ModbusTcpClient
 from omniplc.core.errors import DeviceError
 from omniplc.modbus import codec
-from scripted import ScriptedTransport as _ScriptedTransport
+from scripted import ScriptedTransport as _ScriptedTransport, mount_real_tcp
 
 # FC03 读 1 个寄存器、字节计数 2、值 20 的标准响应 PDU
 _RESPONSE_ONE_REGISTER = bytes([3, 2, 0x00, 0x14])
@@ -250,3 +250,11 @@ def test_device_error_instance_carries_code() -> None:
     with pytest.raises(DeviceError) as exc_info:
         codec.check_response_exception(bytes([0x84, 0x03]), 4)
     assert exc_info.value.code == 3
+
+
+def test_tcp_read_real_transport_semantics() -> None:
+    """真 TcpTransport 凑满循环:响应小片到达仍能完整收包。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    frame = codec.build_mbap(1, 1, _RESPONSE_ONE_REGISTER)
+    mount_real_tcp(client, [frame[:2], frame[2:5], frame[5:]])
+    assert client.read_ushort("hr0") == (True, 20)

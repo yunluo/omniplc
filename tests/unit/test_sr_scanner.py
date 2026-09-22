@@ -186,3 +186,43 @@ def test_async_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _chunks_of(line: bytes) -> list:
     return [line[i:i + 1] for i in range(len(line))]
+
+
+class _HalfLineThenClean(ScriptedTransport):
+    """阶段化假传输:半行超时 → drain 吐出残留 → 第二次扫码干净应答。"""
+
+    def __init__(self) -> None:
+        super().__init__([])
+        self._phase = 0
+        self._lines = [[b"B", b"C", b"\r"], _chunks_of(b"XYZ\r")]
+
+    def recv(self, size: int) -> bytes:
+        if self._phase == 0:
+            self._phase = 1
+            return b"A"
+        if self._phase == 1:  # 半行后超时
+            self._phase = 2
+            raise socket.timeout("接收超时")
+        if self._phase == 2:  # drain 期:吐出残留后半行
+            if len(self._lines[0]) == 1:
+                self._phase = 3
+            return self._lines[0].pop(0)
+        if self._phase == 3:  # 第二次扫码:干净应答
+            if self._lines[1]:
+                return self._lines[1].pop(0)
+            raise socket.timeout("接收超时")
+        raise socket.timeout("接收超时")
+
+
+def test_scan_timeout_drains_half_line(
+    monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient
+) -> None:
+    """超时后残留半行被尽力清掉,下一次扫码不读到旧残留拼接。"""
+    transport = _HalfLineThenClean()
+    _mount(monkeypatch, client, transport)
+    client.connect()
+    ok, code = client.scan(timeout=0.2)
+    assert ok is False and code is None
+    assert "超时" in (client.last_error or "")
+    assert client.connected is True
+    assert client.scan(timeout=0.2) == (True, "XYZ")

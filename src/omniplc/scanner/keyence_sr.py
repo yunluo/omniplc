@@ -28,6 +28,7 @@ from ..core.constants import (
     SR_CMD_RESET,
     SR_DEFAULT_PORT,
     SR_DEFAULT_SCAN_DWELL,
+    SR_DRAIN_TIMEOUT,
     SR_RECV_MAX,
     SR_RESP_ERROR,
     SR_RESP_OK,
@@ -116,6 +117,7 @@ class KeyenceSrClient(BaseClient):
                     transport.receive_timeout = previous_timeout
             except socket.timeout:
                 # 读码窗口内无应答:链路仍然完好,不断线
+                self._drain_line(transport)
                 self._last_error = f"扫码读超时({read_timeout}s),未收到应答"
                 return False, None
             except (OSError, OmniPLCInternalError) as exc:
@@ -163,6 +165,26 @@ class KeyenceSrClient(BaseClient):
             if len(chunks) > SR_RECV_MAX:
                 raise OmniPLCInternalError(f"SR 应答超过 {SR_RECV_MAX} 字节上限")
         return b"".join(chunks).decode("utf-8", errors="replace")
+
+    def _drain_line(self, transport: BaseTransport) -> None:
+        """尽力读掉已到达的半行残留,防下一事务从流中间续读(内部方法)。
+
+        超时此刻 LOFF 已发且无新应答,链路上只可能是旧残留;读到行尾
+        即止,读不完(对端仍在挤字节)交给下一次调用。
+        """
+        previous_timeout = transport.receive_timeout
+        transport.receive_timeout = SR_DRAIN_TIMEOUT
+        received = 0
+        try:
+            while received <= SR_RECV_MAX:
+                byte = transport.recv(1)
+                received += 1
+                if byte in (b"\r", b"\n"):
+                    break
+        except socket.timeout:
+            pass
+        finally:
+            transport.receive_timeout = previous_timeout
 
     def _command_expect_ok(self, transport: BaseTransport, command: bytes) -> None:
         """发送命令并校验 OK 应答(内部方法)。"""

@@ -16,7 +16,7 @@ from omniplc.plc.melsec import codec_a, codec_qna
 from omniplc.plc.melsec.address import parse_mc_address
 from omniplc.plc.melsec.melsec import _encode_32
 from omniplc.types import DataType
-from scripted import ScriptedTransport
+from scripted import ScriptedTransport, mount_real_tcp
 
 
 def _qna_read_response(values: list, frame: str = "3E", serial: int = 0, end_code: int = 0) -> bytes:
@@ -313,3 +313,29 @@ def test_async_mirror_read_batch() -> None:
         await client.close()
 
     asyncio.run(scenario())
+
+
+# ----------------------------------------------------------------------
+# 真 TcpTransport 读满语义回归(ScriptedTransport 忽略 size,会掩盖该语义)
+# ----------------------------------------------------------------------
+
+
+def test_tcp_1e_read_error_keeps_connection() -> None:
+    """1E 读错误响应只有 2 字节头:按结束码分流,DeviceError 不断线。
+
+    旧实现按成功响应长度继续收数据段,真帧更短 → 阻塞到超时误判断线。
+    """
+    client = MelsecMcTcpClient("127.0.0.1", 2000, frame="1E")
+    mount_real_tcp(client, [bytes([0x81, 0xC0])])  # 副头部 81 + 结束码 C0(软元件异常)
+    ok, value = client.read_ushort("D100")
+    assert ok is False and value is None
+    assert client.connected is True
+    assert client.last_error is not None and "0xC0" in client.last_error
+
+
+def test_tcp_3e_read_real_transport_semantics() -> None:
+    """真 TcpTransport 凑满循环:响应小片到达仍能完整收包。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    frame = _qna_read_response([20])
+    mount_real_tcp(client, [frame[:3], frame[3:7], frame[7:]])
+    assert client.read_ushort("D100") == (True, 20)

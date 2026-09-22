@@ -20,7 +20,7 @@ from omniplc.core.constants import (
 from omniplc.plc.ab import codec_cip
 from omniplc.transport import TcpTransport
 from omniplc.types import McFrame  # noqa: F401  (保持与其他测试一致的导入面)
-from scripted import ScriptedTransport
+from scripted import ScriptedTransport, mount_real_tcp
 
 _SESSION = 0x12345678
 
@@ -947,3 +947,12 @@ def test_async_mirror_read_batch(monkeypatch: pytest.MonkeyPatch) -> None:
         await client.close()
 
     asyncio.run(scenario())
+
+
+def test_tcp_read_real_transport_semantics() -> None:
+    """真 TcpTransport 凑满循环:应答小片到达仍能完整收包(读满语义)。"""
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818)
+    client._session_handle = _SESSION  # 视同已完成会话注册
+    frame = b"".join(_reply_chunks(_atomic_payload(0xC4, b"\x39\x05\x00\x00")))
+    mount_real_tcp(client, [frame[:5], frame[5:11], frame[11:]])
+    assert client.read_int("MyDint") == (True, 1337)

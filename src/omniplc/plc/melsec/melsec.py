@@ -425,6 +425,8 @@ class _MelsecMcBase(BaseClient):
             return transport.recv(MC_MAX_DATAGRAM)
         if self._frame is McFrame.FRAME_1E:
             head = transport.recv(MC_1E_RESPONSE_HEAD_SIZE)
+            if head[1] != 0 and head[1] != MC_1E_ERROR_EXTRA:
+                return head  # 错误响应只有 2 字节头,无数据段(1E 帧无长度域)
             if head[1] == MC_1E_ERROR_EXTRA:
                 return head + transport.recv(MC_1E_ERROR_EXTRA_SIZE)
             if tail_size:

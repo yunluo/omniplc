@@ -532,8 +532,8 @@ KV_DEFAULT_PORT: int = 8000
 """KV Host Link TCP/UDP 默认端口(KEYENCE 惯例值,可在 PLC 侧修改)。"""
 KV_MAX_LINE: int = 4096
 """ASCII 响应行长度上限(驱动单次最多读 8 个字,远小于该上限)。"""
-KV_MAX_DATAGRAM: int = 2048
-"""UDP 整包接收缓冲上限。"""
+KV_MAX_DATAGRAM: int = 4096
+"""UDP 整包接收缓冲上限(与 :data:`KV_MAX_LINE` 对齐,防超长行被截断)。"""
 KV_ERROR_TEXT: Dict[str, str] = {
     "E0": "软元件编号异常",
     "E1": "命令异常",
@@ -561,6 +561,8 @@ SR_BANK_MAX: int = 15
 """预设 bank 号上限(LON,{bank:02d},0~15)。"""
 SR_RECV_MAX: int = 1024
 """单次响应读取字节上限。"""
+SR_DRAIN_TIMEOUT: float = 0.5
+"""扫码超时后清理残留行的尽力读取超时(秒)。"""
 SR_CMD_LON: bytes = b"LON\r"
 """打开扫码窗口(默认 bank)。"""
 SR_CMD_LOFF: bytes = b"LOFF\r"
