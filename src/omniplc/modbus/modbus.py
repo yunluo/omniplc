@@ -417,13 +417,9 @@ def _decode_32bit(registers: List[int], data_type: DataType, word_order: WordOrd
 def _decode_64bit(registers: List[int], data_type: DataType, word_order: WordOrder) -> PrimitiveValue:
     """按类型解码 4 寄存器值。"""
     if data_type is DataType.LONG:
-        return int.from_bytes(
-            convert.registers_to_canonical(registers, word_order), "big", signed=True
-        )
+        return convert.registers_to_int64(registers, word_order)
     if data_type is DataType.ULONG:
-        return int.from_bytes(
-            convert.registers_to_canonical(registers, word_order), "big", signed=False
-        )
+        return convert.registers_to_uint64(registers, word_order)
     return convert.registers_to_float64(registers, word_order)
 
 

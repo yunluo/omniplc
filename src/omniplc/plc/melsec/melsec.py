@@ -14,7 +14,6 @@
 """
 from __future__ import annotations
 
-import struct
 from abc import abstractmethod
 from typing import List, Optional, Sequence, Tuple, Union
 
@@ -51,11 +50,9 @@ from ...core.validation import (
     check_int16,
     check_uint16,
     require_bool,
-    require_float,
-    require_int,
 )
 from ...transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport, UdpTransport
-from ...types import DataType, McFrame, PrimitiveValue, SerialParity
+from ...types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity
 
 
 class _MelsecMcBase(BaseClient):
@@ -725,53 +722,19 @@ def _coerce_frame(value: Union[McFrame, str]) -> McFrame:
 
 def _decode_32(data: Sequence[int], data_type: DataType) -> PrimitiveValue:
     """两字数据按类型解码(MC 为小端字序:低字在前,内部函数)。"""
-    raw = convert.words_to_bytes(data)
-    if data_type is DataType.INT:
-        return int.from_bytes(raw, "little", signed=True)
-    if data_type is DataType.UINT:
-        return int.from_bytes(raw, "little", signed=False)
-    return struct.unpack("<f", raw)[0]
+    return convert.words_to_value(data, data_type, ByteOrder.LITTLE)
 
 
 def _decode_64(data: Sequence[int], data_type: DataType) -> PrimitiveValue:
     """四字数据按类型解码(小端字序,内部函数)。"""
-    raw = convert.words_to_bytes(data)
-    if data_type is DataType.LONG:
-        return int.from_bytes(raw, "little", signed=True)
-    if data_type is DataType.ULONG:
-        return int.from_bytes(raw, "little", signed=False)
-    return struct.unpack("<d", raw)[0]
+    return convert.words_to_value(data, data_type, ByteOrder.LITTLE)
 
 
 def _encode_32(value: PrimitiveValue, data_type: DataType) -> List[int]:
     """按类型把 32 位值编码为 2 个字(小端字节序,内部函数)。"""
-    if data_type is DataType.FLOAT:
-        raw = struct.pack("<f", require_float(value))
-    else:
-        number = require_int(value)
-        if data_type is DataType.INT:
-            if not -2147483648 <= number <= 2147483647:
-                raise ValueError(f"int 超出 32 位范围:{number}")
-            raw = number.to_bytes(4, "little", signed=True)
-        else:
-            if not 0 <= number <= 4294967295:
-                raise ValueError(f"uint 超出 32 位范围:{number}")
-            raw = number.to_bytes(4, "little", signed=False)
-    return convert.bytes_to_words(raw)
+    return convert.value_to_words(value, data_type, ByteOrder.LITTLE)
 
 
 def _encode_64(value: PrimitiveValue, data_type: DataType) -> List[int]:
     """按类型把 64 位值编码为 4 个字(小端字节序,内部函数)。"""
-    if data_type is DataType.DOUBLE:
-        raw = struct.pack("<d", require_float(value))
-    else:
-        number = require_int(value)
-        if data_type is DataType.LONG:
-            if not -9223372036854775808 <= number <= 9223372036854775807:
-                raise ValueError(f"long 超出 64 位范围:{number}")
-            raw = number.to_bytes(8, "little", signed=True)
-        else:
-            if not 0 <= number <= 18446744073709551615:
-                raise ValueError(f"ulong 超出 64 位范围:{number}")
-            raw = number.to_bytes(8, "little", signed=False)
-    return convert.bytes_to_words(raw)
+    return convert.value_to_words(value, data_type, ByteOrder.LITTLE)

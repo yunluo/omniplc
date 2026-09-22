@@ -17,7 +17,6 @@ TCP 按响应头(4 字节)判断正常/错误后精确收齐;UDP 一次收整包
 """
 from __future__ import annotations
 
-import struct
 from abc import abstractmethod
 from typing import List, Sequence
 
@@ -32,9 +31,9 @@ from ...core.constants import (
     MEWTOCOL_MAX_DATAGRAM,
 )
 from ...core.errors import ProtocolFrameError
-from ...core.validation import check_int16, check_uint16, require_bool, require_float, require_int
+from ...core.validation import check_int16, check_uint16, require_bool
 from ...transport import BaseTransport, TcpTransport, UdpTransport
-from ...types import DataType, PrimitiveValue
+from ...types import ByteOrder, DataType, PrimitiveValue
 
 
 class _MewtocolBase(BaseClient):
@@ -259,53 +258,19 @@ class PanasonicMewtocolUdpClient(_MewtocolBase):
 
 def _decode_32(data: Sequence[int], data_type: DataType) -> PrimitiveValue:
     """两字数据按类型解码:低字在前、字内高字节在前(内部函数)。"""
-    raw = data[1].to_bytes(2, "big") + data[0].to_bytes(2, "big")
-    if data_type is DataType.INT:
-        return int.from_bytes(raw, "big", signed=True)
-    if data_type is DataType.UINT:
-        return int.from_bytes(raw, "big", signed=False)
-    return struct.unpack(">f", raw)[0]
+    return convert.words_to_value(data, data_type, ByteOrder.BIG, reverse_words=True)
 
 
 def _decode_64(data: Sequence[int], data_type: DataType) -> PrimitiveValue:
     """四字数据按类型解码:低字在前、字内高字节在前(内部函数)。"""
-    raw = b"".join(word.to_bytes(2, "big") for word in reversed(data))
-    if data_type is DataType.LONG:
-        return int.from_bytes(raw, "big", signed=True)
-    if data_type is DataType.ULONG:
-        return int.from_bytes(raw, "big", signed=False)
-    return struct.unpack(">d", raw)[0]
+    return convert.words_to_value(data, data_type, ByteOrder.BIG, reverse_words=True)
 
 
 def _encode_32(value: PrimitiveValue, data_type: DataType) -> List[int]:
     """按类型把 32 位值编码为 2 个字:低字在前、字内高字节在前(内部函数)。"""
-    if data_type is DataType.FLOAT:
-        raw = struct.pack(">f", require_float(value))
-    else:
-        number = require_int(value)
-        if data_type is DataType.INT:
-            if not -2147483648 <= number <= 2147483647:
-                raise ValueError(f"int 超出 32 位范围:{number}")
-            raw = number.to_bytes(4, "big", signed=True)
-        else:
-            if not 0 <= number <= 4294967295:
-                raise ValueError(f"uint 超出 32 位范围:{number}")
-            raw = number.to_bytes(4, "big", signed=False)
-    return [int.from_bytes(raw[2:4], "big"), int.from_bytes(raw[0:2], "big")]
+    return convert.value_to_words(value, data_type, ByteOrder.BIG, reverse_words=True)
 
 
 def _encode_64(value: PrimitiveValue, data_type: DataType) -> List[int]:
     """按类型把 64 位值编码为 4 个字:低字在前、字内高字节在前(内部函数)。"""
-    if data_type is DataType.DOUBLE:
-        raw = struct.pack(">d", require_float(value))
-    else:
-        number = require_int(value)
-        if data_type is DataType.LONG:
-            if not -9223372036854775808 <= number <= 9223372036854775807:
-                raise ValueError(f"long 超出 64 位范围:{number}")
-            raw = number.to_bytes(8, "big", signed=True)
-        else:
-            if not 0 <= number <= 18446744073709551615:
-                raise ValueError(f"ulong 超出 64 位范围:{number}")
-            raw = number.to_bytes(8, "big", signed=False)
-    return [int.from_bytes(raw[i:i + 2], "big") for i in (6, 4, 2, 0)]
+    return convert.value_to_words(value, data_type, ByteOrder.BIG, reverse_words=True)

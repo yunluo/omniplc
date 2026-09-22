@@ -12,7 +12,6 @@ FINS 多字数据为大端字序。
 """
 from __future__ import annotations
 
-import struct
 from abc import abstractmethod
 from typing import List, Optional, Sequence, Tuple, Union
 
@@ -30,14 +29,7 @@ from ...core.constants import (
     FINS_TCP_HEADER_SIZE,
     FINS_TIMER_COUNTER_AREAS,
 )
-from ...core.validation import (
-    check_int16,
-    check_range,
-    check_uint16,
-    require_bool,
-    require_float,
-    require_int,
-)
+from ...core.validation import check_int16, check_uint16, require_bool
 from ...transport import BaseTransport, TcpTransport, UdpTransport
 from ...types import ByteOrder, DataType, PrimitiveValue
 
@@ -439,37 +431,9 @@ class OmronFinsUdpClient(_OmronFinsBase):
 
 def _words_to_value(words: List[int], data_type: DataType) -> PrimitiveValue:
     """大端字序列 → 按类型解码(FINS 为大端字序,内部函数)。"""
-    raw = convert.words_to_bytes(words, ByteOrder.BIG)
-    if data_type is DataType.FLOAT:
-        return struct.unpack(">f", raw)[0]
-    if data_type is DataType.DOUBLE:
-        return struct.unpack(">d", raw)[0]
-    signed = data_type in (DataType.SHORT, DataType.INT, DataType.LONG)
-    return int.from_bytes(raw, "big", signed=signed)
+    return convert.words_to_value(words, data_type, ByteOrder.BIG)
 
 
 def _value_to_words(value: PrimitiveValue, data_type: DataType) -> List[int]:
     """按类型把值编码为大端字序列(内部函数)。"""
-    if data_type is DataType.SHORT:
-        return [check_int16(value)]
-    if data_type is DataType.USHORT:
-        return [check_uint16(value)]
-    if data_type is DataType.FLOAT:
-        raw = struct.pack(">f", require_float(value))
-    elif data_type is DataType.DOUBLE:
-        raw = struct.pack(">d", require_float(value))
-    else:
-        number = require_int(value)
-        if data_type is DataType.INT:
-            check_range(number, -2147483648, 2147483647, "int")
-            raw = number.to_bytes(4, "big", signed=True)
-        elif data_type is DataType.UINT:
-            check_range(number, 0, 4294967295, "uint")
-            raw = number.to_bytes(4, "big", signed=False)
-        elif data_type is DataType.LONG:
-            check_range(number, -9223372036854775808, 9223372036854775807, "long")
-            raw = number.to_bytes(8, "big", signed=True)
-        else:
-            check_range(number, 0, 18446744073709551615, "ulong")
-            raw = number.to_bytes(8, "big", signed=False)
-    return convert.bytes_to_words(raw, ByteOrder.BIG)
+    return convert.value_to_words(value, data_type, ByteOrder.BIG)

@@ -7,12 +7,49 @@
 from __future__ import annotations
 
 import struct
-from typing import Any, List, Sequence, Tuple, Union, cast
+from typing import Any, Dict, List, Sequence, Tuple, Union, cast
 
-from .core.constants import BIT_INDEX_MAX, CRC16_INIT, CRC16_POLY
-from .types import ByteOrder, WordOrder
+from .core.constants import (
+    BIT_INDEX_MAX,
+    CRC16_INIT,
+    CRC16_POLY,
+    INT32_MAX,
+    INT32_MIN,
+    INT64_MAX,
+    INT64_MIN,
+    UINT32_MAX,
+    UINT64_MAX,
+)
+from .core.validation import (
+    check_int16,
+    check_range,
+    check_uint16,
+    require_float,
+    require_int,
+)
+from .types import ByteOrder, DataType, PrimitiveValue, WordOrder
 
 BytesLike = Union[bytes, bytearray, Sequence[int]]
+
+# 数值类型的字节尺寸(不含 BOOL/STRING)
+_TYPE_BYTE_SIZES: Dict[DataType, int] = {
+    DataType.SHORT: 2,
+    DataType.USHORT: 2,
+    DataType.INT: 4,
+    DataType.UINT: 4,
+    DataType.LONG: 8,
+    DataType.ULONG: 8,
+    DataType.FLOAT: 4,
+    DataType.DOUBLE: 8,
+}
+
+# 32/64 位整数的范围与校验名(16 位走 check_int16/check_uint16 带换算语义)
+_INT_RANGES: Dict[DataType, Tuple[int, int, str]] = {
+    DataType.INT: (INT32_MIN, INT32_MAX, "int"),
+    DataType.UINT: (0, UINT32_MAX, "uint"),
+    DataType.LONG: (INT64_MIN, INT64_MAX, "long"),
+    DataType.ULONG: (0, UINT64_MAX, "ulong"),
+}
 
 
 def crc16(data: BytesLike) -> int:
@@ -153,6 +190,16 @@ def registers_to_uint32(registers: Sequence[int], word_order: WordOrder = WordOr
     return int.from_bytes(registers_to_canonical(registers, word_order), "big", signed=False)
 
 
+def registers_to_int64(registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD) -> int:
+    """把 4 个寄存器按指定字序解码为 64 位有符号整数(字序映射同 float64)。"""
+    return int.from_bytes(registers_to_canonical(registers, word_order), "big", signed=True)
+
+
+def registers_to_uint64(registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD) -> int:
+    """把 4 个寄存器按指定字序解码为 64 位无符号整数(字序映射同 float64)。"""
+    return int.from_bytes(registers_to_canonical(registers, word_order), "big", signed=False)
+
+
 def int32_to_registers(value: int, word_order: WordOrder = WordOrder.ABCD) -> Tuple[int, int]:
     """把 32 位整数按指定字序编码为 2 个寄存器。"""
     return cast(
@@ -270,6 +317,80 @@ def registers_to_canonical(
     """
     raw = b"".join((int(reg) & 0xFFFF).to_bytes(2, "big") for reg in registers)
     return _reorder_bytes(raw, word_order)
+
+
+def words_to_value(
+    words: Sequence[int],
+    data_type: DataType,
+    byteorder: Union[ByteOrder, str] = ByteOrder.LITTLE,
+    reverse_words: bool = False,
+) -> PrimitiveValue:
+    """把 1/2/4 个原始字按数据类型解码为 Python 值。
+
+    各字协议 16/32/64 位解码的统一实现:先按 ``reverse_words`` 决定是否
+    反转子序(MEWTOCOL 等低字在前协议传 True),再按 ``byteorder`` 拼字节
+    并解释。Modbus 的 ABCD/CDAB 字序请用 :func:`registers_to_int32` 等字序族。
+
+    :param words: 0~65535 原始字序列,字数必须与类型尺寸匹配(1/2/4)
+    :param data_type: 数值类型(SHORT/USHORT/INT/UINT/LONG/ULONG/FLOAT/DOUBLE)
+    :param byteorder: 字内字节序
+    :param reverse_words: True = 先反转子序(低字在前、字内大端协议用)
+    :raises ValueError: 字数与类型尺寸不符
+    """
+    seq = list(reversed(words)) if reverse_words else list(words)
+    size = _TYPE_BYTE_SIZES[data_type]
+    if len(seq) * 2 != size:
+        raise ValueError(f"{data_type.name} 需要 {size // 2} 个字,收到 {len(seq)} 个")
+    raw = words_to_bytes(seq, byteorder)
+    order = _byteorder(byteorder)
+    if data_type is DataType.FLOAT:
+        return struct.unpack(("<f" if order == "little" else ">f"), raw)[0]
+    if data_type is DataType.DOUBLE:
+        return struct.unpack(("<d" if order == "little" else ">d"), raw)[0]
+    signed = data_type in (DataType.SHORT, DataType.INT, DataType.LONG)
+    return int.from_bytes(raw, order, signed=signed)
+
+
+def value_to_words(
+    value: PrimitiveValue,
+    data_type: DataType,
+    byteorder: Union[ByteOrder, str] = ByteOrder.LITTLE,
+    reverse_words: bool = False,
+) -> List[int]:
+    """按数据类型把值编码为原始字序列(:func:`words_to_value` 的逆变换)。
+
+    :param value: 待编码值
+    :param data_type: 数值类型(同 :func:`words_to_value`)
+    :param byteorder: 字内字节序
+    :param reverse_words: True = 输出反转为低字在前(低字在前协议用)
+    :raises ValueError: 值超出该类型范围
+    """
+    order = _byteorder(byteorder)
+    if data_type is DataType.SHORT:
+        return [check_int16(value)]
+    if data_type is DataType.USHORT:
+        return [check_uint16(value)]
+    if data_type in _INT_RANGES:
+        number = require_int(value)
+        low, high, name = _INT_RANGES[data_type]
+        check_range(number, low, high, name)
+        raw = number.to_bytes(
+            _TYPE_BYTE_SIZES[data_type],
+            order,
+            signed=data_type in (DataType.INT, DataType.LONG),
+        )
+    elif data_type is DataType.FLOAT:
+        number_f = require_float(value)
+        try:
+            raw = struct.pack(("<f" if order == "little" else ">f"), number_f)
+        except OverflowError as exc:
+            raise ValueError(f"float 超出 float32 范围:{value}") from exc
+    elif data_type is DataType.DOUBLE:
+        raw = struct.pack(("<d" if order == "little" else ">d"), require_float(value))
+    else:
+        raise ValueError(f"不支持的数值类型:{data_type}")
+    words = bytes_to_words(raw, byteorder)
+    return list(reversed(words)) if reverse_words else words
 
 
 def _canonical_to_registers(data: bytes, word_order: WordOrder) -> Tuple[int, ...]:
