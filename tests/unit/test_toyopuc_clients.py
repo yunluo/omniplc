@@ -37,6 +37,18 @@ def _response(cmd: int, data: bytes = b"", rc: int = 0x00) -> bytes:
     return bytes((0x80, rc, length & 0xFF, length >> 8, cmd)) + data
 
 
+def test_tcp_frame_length_over_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TCP:帧长域超限(0xFFFF)在 recv 前快失败,按坏帧断线。"""
+    client = ToyopucTcpClient("127.0.0.1", 1025)
+    evil = bytes((0x80, 0x00, 0xFF, 0xFF))  # 帧长 0xFFFF
+    scripted = ScriptedTransport([evil])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("S100") == (False, None)
+    assert client.connected is False
+    assert client.last_error is not None and "超限" in client.last_error
+
+
 # ----------------------------------------------------------------------
 # 地址解析
 # ----------------------------------------------------------------------

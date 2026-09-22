@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
+import time
 from typing import List, Optional, Sequence, Tuple, Union
 
 from . import codec_a, codec_qna, codec_serial
@@ -39,12 +40,13 @@ from ...core.constants import (
     MC_SERIAL_DEFAULT_SELF_STATION,
     MC_SERIAL_DEFAULT_STATION,
     MC_SERIAL_FRAME_ID_4C,
+    MC_SERIAL_MAX_FRAME,
     SERIAL_DEFAULT_BAUD_RATE,
     SERIAL_DEFAULT_DATA_BITS,
     SERIAL_DEFAULT_PARITY,
     SERIAL_DEFAULT_STOP_BITS,
 )
-from ...core.errors import ProtocolFrameError
+from ...core.errors import ProtocolFrameError, TransportTimeoutError
 from ...core.validation import (
     check_byte_field,
     check_int16,
@@ -669,42 +671,64 @@ class MelsecMcSerialClient(_MelsecMcBase):
 
     @staticmethod
     def _transact_4c(transport: BaseTransport) -> bytes:
-        """4C 收包:长度域 + 附加码还原,重组逻辑帧(内部方法)。"""
-        head = transport.recv(2)
-        if head != bytes([codec_serial.DLE, codec_serial.STX]):
-            raise ProtocolFrameError(
-                "4C 响应必须以 DLE STX 开头:0x{:02X} 0x{:02X}".format(head[0], head[1])
-            )
-        first = transport.recv(1)[0]
-        if first == codec_serial.DLE:
-            first = transport.recv(1)[0]
-        second = transport.recv(1)[0]
-        if second == codec_serial.DLE:
-            second = transport.recv(1)[0]
-        length = first | second << 8
-        if length < 12:
-            raise ProtocolFrameError(
-                "4C 应答数据长非法(至少含帧识别码+路由+应答识别码+结束代码):{}".format(
-                    length
+        """4C 收包:长度域 + 附加码还原,重组逻辑帧(内部方法)。
+
+        整帧受一次 ``receive_timeout`` 预算约束——逐字节收包不逐字节
+        重置超时,防慢速对端长占事务锁。
+        """
+        previous_timeout = transport.receive_timeout
+        deadline = time.monotonic() + previous_timeout
+        try:
+            head = transport.recv(2)
+            if head != bytes([codec_serial.DLE, codec_serial.STX]):
+                raise ProtocolFrameError(
+                    "4C 响应必须以 DLE STX 开头:0x{:02X} 0x{:02X}".format(head[0], head[1])
                 )
-            )
-        frame_id = transport.recv(1)
-        if frame_id[0] != MC_SERIAL_FRAME_ID_4C:
-            raise ProtocolFrameError(
-                "4C 帧识别码不符:期望 F8H,收到 0x{:02X}".format(frame_id[0])
-            )
-        body = bytearray()
-        while len(body) < length - 1:
-            raw = transport.recv(1)[0]
-            if raw == codec_serial.DLE:
-                following = transport.recv(1)[0]
-                if following != codec_serial.DLE:
-                    raise ProtocolFrameError(
-                        f"4C 附加码之后必须是 10H,收到 0x{following:02X}"
+            first = transport.recv(1)[0]
+            if first == codec_serial.DLE:
+                first = transport.recv(1)[0]
+            second = transport.recv(1)[0]
+            if second == codec_serial.DLE:
+                second = transport.recv(1)[0]
+            length = first | second << 8
+            if length < 12:
+                raise ProtocolFrameError(
+                    "4C 应答数据长非法(至少含帧识别码+路由+应答识别码+结束代码):{}".format(
+                        length
                     )
-            body.append(raw)
-        trailer = transport.recv(4)
-        return length.to_bytes(2, "little") + frame_id + bytes(body) + trailer
+                )
+            if length > MC_SERIAL_MAX_FRAME:
+                raise ProtocolFrameError(
+                    f"4C 应答数据长超限:{length} > {MC_SERIAL_MAX_FRAME}"
+                )
+            frame_id = transport.recv(1)
+            if frame_id[0] != MC_SERIAL_FRAME_ID_4C:
+                raise ProtocolFrameError(
+                    "4C 帧识别码不符:期望 F8H,收到 0x{:02X}".format(frame_id[0])
+                )
+            body = bytearray()
+            while len(body) < length - 1:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TransportTimeoutError(
+                        "4C 收包超时({}s),已收 {} 字节".format(
+                            previous_timeout, len(body)
+                        ),
+                        0,
+                    )
+                transport.receive_timeout = remaining
+                raw = transport.recv(1)[0]
+                if raw == codec_serial.DLE:
+                    following = transport.recv(1)[0]
+                    if following != codec_serial.DLE:
+                        raise ProtocolFrameError(
+                            f"4C 附加码之后必须是 10H,收到 0x{following:02X}"
+                        )
+                body.append(raw)
+            trailer = transport.recv(4)
+            return length.to_bytes(2, "little") + frame_id + bytes(body) + trailer
+        finally:
+            transport.receive_timeout = previous_timeout
 
 
 # ----------------------------------------------------------------------

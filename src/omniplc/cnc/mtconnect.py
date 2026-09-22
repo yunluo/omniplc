@@ -29,7 +29,11 @@ import xml.etree.ElementTree as ElementTree
 from typing import Dict, List, Optional, Tuple
 
 from ..core.base_client import BaseClient, validate_endpoint
-from ..core.constants import MTCONNECT_DEFAULT_PORT
+from ..core.constants import (
+    MTCONNECT_DEFAULT_PORT,
+    MTCONNECT_MAX_BODY,
+    MTCONNECT_READ_CHUNK,
+)
 from ..core.debug import log_op
 from ..core.errors import DeviceError, ProtocolFrameError, TransportClosedError
 from ..types import DataType, PrimitiveValue
@@ -50,6 +54,9 @@ _STALE_CONNECTION_ERRORS = (ConnectionResetError, BrokenPipeError)
 
 _BOOL_TRUE = ("true", "1")
 _BOOL_FALSE = ("false", "0")
+
+_MAX_NUMERIC_TEXT = 64
+"""数值文本长度上限(py3.11 前 int/float 对超长数字串超线性,先按长度快拒)。"""
 
 _SUPPORTED_TYPES = (
     DataType.BOOL,
@@ -174,7 +181,7 @@ class _MtConnectSession(BaseTransport):
         try:
             conn.request("GET", path, headers={"Accept": "application/xml"})
             response = conn.getresponse()
-            body = response.read()
+            body = self._read_body(response)
             status = int(response.status)
         except _STALE_CONNECTION_ERRORS:
             raise  # 连接层失效,由 request() 原位重建后重试
@@ -193,6 +200,23 @@ class _MtConnectSession(BaseTransport):
         if info is None:
             raise OSError(f"MTConnect HTTP 状态 {status} 响应非错误文档")
         raise DeviceError(f"MTConnect HTTP {status} {info[0]}:{info[1]}", 0)
+
+    def _read_body(self, response: http.client.HTTPResponse) -> bytes:
+        """分块读取响应体,总量超上限按坏帧断线(防恶意 Agent 无限灌数据)。
+
+        :raises ProtocolFrameError: 响应体超过 :data:`MTCONNECT_MAX_BODY`
+        """
+        body = bytearray()
+        while True:
+            chunk = response.read(MTCONNECT_READ_CHUNK)
+            if not chunk:
+                break
+            body.extend(chunk)
+            if len(body) > MTCONNECT_MAX_BODY:
+                raise ProtocolFrameError(
+                    f"MTConnect 响应体超过 {MTCONNECT_MAX_BODY} 字节上限"
+                )
+        return bytes(body)
 
     def _recreate(self) -> None:
         """关闭当前 HTTP 连接并原位重建(keep-alive 失效重试用,内部方法)。"""
@@ -399,6 +423,11 @@ def _coerce(value: str, data_type: DataType, address: str) -> PrimitiveValue:
         raise ValueError(f"MTConnect 数据项不是布尔量:{address} ← {value!r}")
     if data_type is DataType.STRING:
         return value
+    if len(value) > _MAX_NUMERIC_TEXT:
+        # 3.11 之前的 int/float 对超长数字串是超线性开销,先按长度快拒
+        raise ValueError(
+            f"MTConnect 数据项数值文本过长:{address} ← {len(value)} 字符"
+        )
     if data_type in (DataType.FLOAT, DataType.DOUBLE):
         try:
             return float(value)

@@ -68,14 +68,19 @@ _PROBE_XML = """<?xml version="1.0" encoding="UTF-8"?>
 
 
 class FakeResponse:
-    """假 HTTP 响应:状态码 + 预置响应体。"""
+    """假 HTTP 响应:状态码 + 预置响应体(模拟 read(amt) 流式读取与 EOF)。"""
 
     def __init__(self, status: int, body: bytes) -> None:
         self.status = status
         self._body = body
+        self._offset = 0
 
-    def read(self) -> bytes:
-        return self._body
+    def read(self, amt: Optional[int] = None) -> bytes:
+        if amt is None:
+            amt = len(self._body) - self._offset
+        chunk = self._body[self._offset:self._offset + amt]
+        self._offset += len(chunk)
+        return chunk
 
 
 class FakeHTTPConnection:
@@ -389,3 +394,60 @@ def test_session_without_connect() -> None:
     session = _MtConnectSession("127.0.0.1", 5000)
     with pytest.raises(mtc_module.TransportClosedError):
         session.request("/current")
+
+
+# ----------------------------------------------------------------------
+# 安全面:响应体上限 / 超长数值文本
+# ----------------------------------------------------------------------
+
+
+class _StreamingResponse(FakeResponse):
+    """永不 EOF 的流式响应体(每次 read 给 100 字节)。"""
+
+    def __init__(self) -> None:
+        super().__init__(200, b"")
+        self._offset = 0
+
+    def read(self, amt: Optional[int] = None) -> bytes:
+        return b"x" * 100
+
+
+class _StreamingConnection(FakeHTTPConnection):
+    """/current 返回永不结束的流式响应。"""
+
+    def getresponse(self) -> FakeResponse:
+        if self.requests[-1] == "/current":
+            return _StreamingResponse()
+        return super().getresponse()
+
+
+def test_response_body_over_limit_disconnects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """恶意 Agent 无限灌响应体 → 超上限按坏帧断线,不无限接收。"""
+    monkeypatch.setattr(mtc_module, "MTCONNECT_MAX_BODY", 500)
+    conn = _StreamingConnection("127.0.0.1", 5000)
+    monkeypatch.setattr(mtc_module, "_new_connection", lambda ip, port, timeout: conn)
+    client = MTConnectClient("127.0.0.1", 5000)
+    assert client.connect() is True
+    ok, value = client.snapshot()
+    assert ok is False and value is None
+    assert client.connected is False
+    assert "上限" in (client.last_error or "")
+
+
+def test_overlong_numeric_text_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """超长数字文本按长度快拒(防 py3.11 前 int/float 超线性开销)。"""
+    conn = FakeHTTPConnection("127.0.0.1", 5000)
+    body = (
+        "<MTConnectStreams xmlns='urn:mtconnect.org:MTConnectStreams:1.3'>"
+        "<Streams><DeviceStream name='M' uuid='u'>"
+        "<ComponentStream component='Controller' id='c1'><Samples>"
+        "<Position dataItemId='Xact'>" + "9" * 200 +
+        "</Position></Samples></ComponentStream></DeviceStream>"
+        "</Streams></MTConnectStreams>"
+    ).encode("utf-8")
+    conn.responses = {"/current": (200, body)}
+    monkeypatch.setattr(mtc_module, "_new_connection", lambda ip, port, timeout: conn)
+    client = MTConnectClient("127.0.0.1", 5000)
+    assert client.connect() is True
+    with pytest.raises(ValueError):
+        client.read_float("Xact")

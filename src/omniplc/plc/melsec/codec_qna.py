@@ -37,6 +37,7 @@ from ...core.constants import (
     MC_DEST_MODULE_IO,
     MC_DEST_MODULE_STATION,
     MC_MAX_RANDOM_BLOCKS,
+    MC_MAX_RESPONSE_CONTENT,
     MC_MAX_TRANSFER_POINTS,
     MC_RESPONSE_HEAD_SIZE,
     MC_RESPONSE_SUBHEADER_3E,
@@ -243,6 +244,10 @@ def parse_response_head(head: bytes, frame: str) -> int:
     if length < 2:
         raise ProtocolFrameError(
             f"MC 应答数据长非法(至少含结束码 2 字节):{length}"
+        )
+    if length > MC_MAX_RESPONSE_CONTENT:
+        raise ProtocolFrameError(
+            f"MC 应答数据长超限:{length} > {MC_MAX_RESPONSE_CONTENT}"
         )
     return length
 

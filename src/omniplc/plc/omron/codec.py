@@ -35,6 +35,7 @@ from ...core.constants import (
     FINS_HEADER_SIZE,
     FINS_ICF,
     FINS_MAX_MULTIPLE_ELEMENTS,
+    FINS_MAX_TCP_FRAME,
     FINS_MEMORY_CODES,
     FINS_RSV,
     FINS_TCP_COMMAND_DATA,
@@ -289,11 +290,16 @@ def build_handshake(local_node: int) -> bytes:
 def parse_tcp_head(head: bytes) -> int:
     """校验 FINS/TCP 帧头(8 字节)并返回长度域(后续字节数)。
 
-    :raises ProtocolFrameError: 魔数不符或帧头过短
+    :raises ProtocolFrameError: 魔数不符、帧头过短或长度域超限
     """
     if len(head) < FINS_TCP_HEADER_SIZE or head[:4] != FINS_TCP_MAGIC:
         raise ProtocolFrameError("FINS/TCP 帧头非法:{}".format(head.hex()))
-    return int.from_bytes(head[4:8], "big")
+    length = int.from_bytes(head[4:8], "big")
+    if length > FINS_MAX_TCP_FRAME:
+        raise ProtocolFrameError(
+            f"FINS/TCP 长度域超限:{length} > {FINS_MAX_TCP_FRAME}"
+        )
+    return length
 
 
 def parse_handshake_response(frame: bytes) -> Tuple[int, int]:

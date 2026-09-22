@@ -38,6 +38,7 @@ from ...core.base_client import BaseClient, validate_endpoint
 from ...core.constants import (
     AB_EIP_DEFAULT_PORT,
     AB_EIP_DEFAULT_SLOT,
+    AB_EIP_MAX_FRAME,
     AB_EIP_ORIGINATOR_VENDOR_ID,
     AB_EIP_SLOT_MAX,
     AB_MAX_BATCH_SERVICES,
@@ -210,10 +211,15 @@ class AllenBradleyEthIpClient(BaseClient):
             pass
 
     def _recv_frame(self) -> bytes:
-        """按 ENIP 长度域收完整帧:24 字节头 + 声明长度(内部方法)。"""
+        """按 ENIP 长度域收完整帧:24 字节头 + 声明长度(内部方法)。
+
+        :raises ProtocolFrameError: 长度域超限(坏帧快失败,防按声明长收包)
+        """
         transport = self._require_transport()
         head = transport.recv(codec_cip.EIP_HEADER_SIZE)
         length = int.from_bytes(head[2:4], "little")
+        if length > AB_EIP_MAX_FRAME:
+            raise ProtocolFrameError(f"ENIP 长度域超限:{length} > {AB_EIP_MAX_FRAME}")
         return head + transport.recv(length)
 
     def _next_sequence(self) -> int:

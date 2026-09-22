@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import struct
+import time
 
 import pytest
 
@@ -73,6 +74,29 @@ def test_tcp_read_ushort_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     client.connect()
     assert client.read_ushort("DM100") == (True, 20)
     assert bytes(scripted.sent) == b"RD DM100.U\r"
+
+
+class _TrickleTransport(ScriptedTransport):
+    """每 20ms 滴 1 字节、永不换行(验证收行受整事务 deadline 约束)。"""
+
+    def __init__(self) -> None:
+        super().__init__([])
+
+    def recv(self, size: int) -> bytes:
+        time.sleep(0.02)
+        return b"x"
+
+
+def test_tcp_line_deadline_bounds_dribble(monkeypatch: pytest.MonkeyPatch) -> None:
+    """滴流对端不能逐字节重置超时:收行在预算内超时断线,不拖满 KV_MAX_LINE。"""
+    client = KeyenceHostLinkTcpClient("127.0.0.1", 8000)
+    client.receive_timeout = 0.05
+    scripted = _TrickleTransport()
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    started = time.monotonic()
+    assert client.read_ushort("DM100") == (False, None)
+    assert time.monotonic() - started < 1.5  # 修复前:4096 × 0.05s ≈ 205s
 
 
 def test_tcp_read_short_negative(monkeypatch: pytest.MonkeyPatch) -> None:

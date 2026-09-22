@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import socket
+import time
 
 import pytest
 
@@ -226,3 +227,28 @@ def test_scan_timeout_drains_half_line(
     assert "超时" in (client.last_error or "")
     assert client.connected is True
     assert client.scan(timeout=0.2) == (True, "XYZ")
+
+
+class _TrickleTransport(ScriptedTransport):
+    """每 20ms 滴 1 字节、永不换行(验证收行受整事务 deadline 约束)。"""
+
+    def __init__(self) -> None:
+        super().__init__([])
+
+    def recv(self, size: int) -> bytes:
+        time.sleep(0.02)
+        return b"x"
+
+
+def test_scan_line_deadline_bounds_dribble(
+    monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient
+) -> None:
+    """滴流对端不能逐字节重置超时:scan 在 read_timeout 预算内超时返回。"""
+    transport = _TrickleTransport()
+    _mount(monkeypatch, client, transport)
+    client.connect()
+    started = time.monotonic()
+    ok, code = client.scan(timeout=0.05)
+    assert ok is False and code is None
+    assert time.monotonic() - started < 1.5
+    assert client.connected is True  # 读超时不断线语义保留

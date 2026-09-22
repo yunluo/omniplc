@@ -339,3 +339,15 @@ def test_tcp_3e_read_real_transport_semantics() -> None:
     frame = _qna_read_response([20])
     mount_real_tcp(client, [frame[:3], frame[3:7], frame[7:]])
     assert client.read_ushort("D100") == (True, 20)
+
+
+def test_tcp_3e_response_content_over_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """3E:应答数据长超限在 recv 前快失败,按坏帧断线不阻塞。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    evil_head = b"\xd0\x00\x00\x00\xff\xff\x03\x00" + b"\xff\xff"  # 数据长 0xFFFF
+    scripted = ScriptedTransport([evil_head])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_ushort("D100") == (False, None)
+    assert client.connected is False
+    assert client.last_error is not None and "超限" in client.last_error

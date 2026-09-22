@@ -956,3 +956,17 @@ def test_tcp_read_real_transport_semantics() -> None:
     frame = b"".join(_reply_chunks(_atomic_payload(0xC4, b"\x39\x05\x00\x00")))
     mount_real_tcp(client, [frame[:5], frame[5:11], frame[11:]])
     assert client.read_int("MyDint") == (True, 1337)
+
+
+def test_enip_length_field_over_limit() -> None:
+    """ENIP 长度域超限在 recv 前快失败,按坏帧断线(不按声明长收包)。"""
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818)
+    client._session_handle = _SESSION  # type: ignore[attr-defined]
+    scripted = ScriptedTransport(
+        [struct.pack("<HHIIQI", 0x6F, 0xFFFF, _SESSION, 0, 0, 0)]
+    )
+    client._transport = scripted
+    client._connected = True
+    assert client.read_int("MyDint") == (False, None)
+    assert client.connected is False
+    assert client.last_error is not None and "超限" in client.last_error

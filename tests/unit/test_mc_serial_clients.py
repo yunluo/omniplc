@@ -375,6 +375,19 @@ def test_3c_bad_control_code_marks_disconnected(monkeypatch: pytest.MonkeyPatch)
 # ----------------------------------------------------------------------
 
 
+def test_4c_length_field_over_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """4C:长度域超限(0xFFFF)在收包前快失败,按坏帧断线。"""
+    client = MelsecMcSerialClient(frame=McFrame.FRAME_4C)
+    evil = bytes([codec_serial.DLE, codec_serial.STX, 0xFF, 0xFF])
+    scripted = ScriptedTransport([evil[:2], evil[2:3], evil[3:]])
+    _mount(monkeypatch, client, scripted)
+    client.configure_serial("COM3")
+    client.connect()
+    assert client.read_ushort("D100") == (False, None)
+    assert client.connected is False
+    assert client.last_error is not None and "超限" in client.last_error
+
+
 def test_4c_read_ushort_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """4C:读请求组帧正确,响应按长度域分段收包并解析。"""
     client = MelsecMcSerialClient(frame=McFrame.FRAME_4C)

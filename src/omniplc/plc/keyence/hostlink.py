@@ -18,7 +18,9 @@ DOUBLE        ``RDS DM100.U 4`` 四字小端拼 float64
 """
 from __future__ import annotations
 
+import socket
 import struct
+import time
 from typing import List
 
 from ... import convert
@@ -67,19 +69,30 @@ class _KeyenceHostLinkBase(BaseClient):
             chunks: List[bytes] = []
             received = 0
             started = False
-            while True:
-                byte = transport.recv(1)
-                if byte == b"\r" or byte == b"\n":
-                    if not started:
-                        continue  # 丢弃行首多余分隔符
-                    break
-                started = True
-                chunks.append(byte)
-                received += 1
-                if received > KV_MAX_LINE:
-                    raise OmniPLCInternalError(
-                        f"KV Host Link 响应行超过 {KV_MAX_LINE} 字节上限"
-                    )
+            previous_timeout = transport.receive_timeout
+            deadline = time.monotonic() + previous_timeout
+            try:
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise socket.timeout(
+                            f"KV Host Link 收行超时({previous_timeout}s)"
+                        )
+                    transport.receive_timeout = remaining
+                    byte = transport.recv(1)
+                    if byte == b"\r" or byte == b"\n":
+                        if not started:
+                            continue  # 丢弃行首多余分隔符
+                        break
+                    started = True
+                    chunks.append(byte)
+                    received += 1
+                    if received > KV_MAX_LINE:
+                        raise OmniPLCInternalError(
+                            f"KV Host Link 响应行超过 {KV_MAX_LINE} 字节上限"
+                        )
+            finally:
+                transport.receive_timeout = previous_timeout
             text = codec.parse_response(b"".join(chunks))
         codec.check_error_code(text)
         return text

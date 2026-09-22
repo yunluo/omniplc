@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import socket
+import time
 from typing import Optional, Tuple, Union
 
 from ..core.base_client import BaseClient, validate_endpoint
@@ -307,7 +308,7 @@ class OpenTcpClient(BaseClient):
         return read_timeout
 
     def _receive_frame(self, transport: BaseTransport, timeout: float) -> bytes:
-        """从缓冲/流中取一帧(分隔符或定长切分;超时不断线,内部方法)。
+        """从缓冲/流中取一帧(分隔符或定长切分;整帧受 timeout 总预算,内部方法)。
 
         :raises DeviceError: 接收超时(链路完好,不断线)
         :raises ProtocolFrameError: 超过 max_frame 未见完整帧(失步断线)
@@ -315,6 +316,7 @@ class OpenTcpClient(BaseClient):
         """
         previous_timeout = transport.receive_timeout
         transport.receive_timeout = timeout
+        deadline = time.monotonic() + timeout
         try:
             while True:
                 frame = self._cut_frame()
@@ -322,17 +324,22 @@ class OpenTcpClient(BaseClient):
                     return frame
                 if len(self._buffer) > self._max_frame:
                     raise ProtocolFrameError(
-                        "接收超过 {} 字节未成帧,判定流内失步".format(
-                            self._max_frame
-                        )
+                        f"接收超过 {self._max_frame} 字节未成帧,判定流内失步"
                     )
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise DeviceError(
+                        f"接收超时({timeout}s),已收 {len(self._buffer)} 字节未成帧",
+                        0,
+                    )
+                transport.receive_timeout = remaining
                 chunk = transport.recv_some(OPEN_TCP_RECV_CHUNK)
                 if not chunk:
                     raise OSError("连接被对端关闭")
                 self._buffer.extend(chunk)
         except socket.timeout:
             raise DeviceError(
-                "接收超时({}s),已收 {} 字节未成帧".format(timeout, len(self._buffer)),
+                f"接收超时({timeout}s),已收 {len(self._buffer)} 字节未成帧",
                 0,
             )
         finally:

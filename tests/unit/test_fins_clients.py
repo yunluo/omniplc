@@ -61,6 +61,19 @@ def test_udp_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bytes(scripted.sent) == expected
 
 
+def test_tcp_length_field_over_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TCP:长度域超限(0xFFFFFFFF)在 recv 前快失败,按坏帧断线不阻塞。"""
+    client = OmronFinsTcpClient("127.0.0.1")
+    hs = _handshake_response()
+    evil = b"FINS" + (0xFFFFFFFF).to_bytes(4, "big")
+    scripted = ScriptedTransport([hs[:8], hs[8:], evil])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    assert client.connect() is True
+    assert client.read_ushort("D100") == (False, None)
+    assert client.connected is False
+    assert client.last_error is not None and "长度域超限" in client.last_error
+
+
 def test_tcp_handshake_and_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP:握手 → 节点自动补齐(SA1/DA1)→ 读事务。"""
     client = OmronFinsTcpClient("127.0.0.1")

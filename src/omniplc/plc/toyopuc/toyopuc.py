@@ -87,6 +87,10 @@ class _ToyopucBase(BaseClient):
             length = header[2] | (header[3] << 8)
             if length < 1:
                 raise ProtocolFrameError(f"TOYOPUC 响应帧长非法:{length}")
+            if length > TOYOPUC_MAX_DATAGRAM:
+                raise ProtocolFrameError(
+                    f"TOYOPUC 响应帧长超限:{length} > {TOYOPUC_MAX_DATAGRAM}"
+                )
             raw = header + transport.recv(length)
         resp_cmd, rc, resp_data = codec.parse_response(raw)
         return codec.check_response(resp_cmd, rc, resp_data, frame[4], expected_size)

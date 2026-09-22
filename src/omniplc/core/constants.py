@@ -150,6 +150,10 @@ MC_SUBCOMMAND_BIT_UNITS: int = 0x0001
 """子命令:以位为单位(小端两字节 01 00)。"""
 MC_MAX_DATAGRAM: int = 8192
 """UDP 整包接收缓冲上限(8192 覆盖长字符串/大批量响应;UDP 单包上限 65507)。"""
+MC_MAX_RESPONSE_CONTENT: int = 8192
+"""3E/4E 应答数据长上限(长度域之后字节数;合法最大约 2.5KB,富余防恶意声明)。"""
+MC_SERIAL_MAX_FRAME: int = 4096
+"""4C 串口帧长度域上限(未填充字节数;合法最大约 2KB,防恶意声明拖长收包)。"""
 MC_SUBHEADER_3E: bytes = b"\x50\x00"
 """3E 请求副头部(读/写相同,由命令字段区分;响应为 D0 00)。"""
 MC_SUBHEADER_4E: bytes = b"\x54\x00"
@@ -473,6 +477,8 @@ FINS_END_CODE_TEXT: Dict[int, str] = {
 参考实现一致;2026-09 对照补全);未收录的提示查阅手册。"""
 FINS_MAX_DATAGRAM: int = 8192
 """UDP 整包接收缓冲上限(8192 覆盖长字符串/大批量响应;UDP 单包上限 65507)。"""
+FINS_MAX_TCP_FRAME: int = 8192
+"""FINS/TCP 长度域上限(8 字节头之后的字节数;合法最大约 500B,防恶意声明拖长收包)。"""
 FINS_TCP_MAGIC: bytes = b"FINS"
 """FINS/TCP 帧头魔数。"""
 FINS_TCP_HEADER_SIZE: int = 8
@@ -651,6 +657,8 @@ AB_EIP_DEFAULT_PORT: int = 44818
 """EtherNet/IP TCP 默认端口(Logix CPU 内置以太网口)。"""
 AB_EIP_DEFAULT_SLOT: int = 0
 """默认 CPU 槽号(Unconnected Send 背板路由;0 = CPU 与以太网口同模块)。"""
+AB_EIP_MAX_FRAME: int = 8192
+"""ENIP 长度域上限(24 字节头之后的字节数;合法最大约 2KB,防恶意声明拖长收包)。"""
 AB_EIP_SLOT_MAX: int = 31
 """槽号上限(CIP 端口段 link 为 1 字节)。"""
 AB_EIP_ORIGINATOR_VENDOR_ID: int = 0x1337
@@ -816,6 +824,10 @@ ADS_NET_ID_SUFFIX: str = ".1.1"
 # ---------------------------------------------------------------- CNC 机床数采(MTConnect)
 MTCONNECT_DEFAULT_PORT: int = 5000
 """MTConnect Agent 的默认 HTTP 端口(实际以机床侧 Agent 配置为准)。"""
+MTCONNECT_MAX_BODY: int = 16 * 1024 * 1024
+"""MTConnect 响应体字节上限(防恶意 Agent 无限灌数据耗尽内存)。"""
+MTCONNECT_READ_CHUNK: int = 65536
+"""MTConnect 响应体分块读取的每批字节数。"""
 
 # ---------------------------------------------------------------- 西门子 S7
 S7_DEFAULT_PORT: int = 102
