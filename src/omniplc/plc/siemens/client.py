@@ -119,7 +119,7 @@ def _new_client(dll_path: str) -> Any:
         import snap7.client
     except Exception as exc:
         raise OSError(
-            "python-snap7 加载失败(pip install omniplc[s7]):{}".format(exc)
+            f"python-snap7 加载失败(pip install omniplc[s7]):{exc}"
         ) from exc
     error_base = getattr(snap7.client, "S7Error", None)
     if error_base is not None:
@@ -245,8 +245,8 @@ class _S7Session(BaseTransport):
         断连 → :class:`OSError`(惰性重连)。
         """
         if self._is_connected():
-            raise DeviceError("S7 错误:{}".format(exc), 0)
-        raise OSError("S7 连接已断:{}".format(exc))
+            raise DeviceError(f"S7 错误:{exc}", 0)
+        raise OSError(f"S7 连接已断:{exc}")
 
     def _is_connected(self) -> bool:
         """取 snap7 本地连接态标志(不产生网络流量;异常视为断连)。"""
@@ -296,9 +296,9 @@ class SiemensS7Client(BaseClient):
         validate_endpoint(ip_address, port)
         super().__init__(ip_address, int(port))
         if not 0 <= int(rack) <= 7:
-            raise ValueError("机架号必须在 0~7 之间,收到:{}".format(rack))
+            raise ValueError(f"机架号必须在 0~7 之间,收到:{rack}")
         if not 0 <= int(slot) <= 31:
-            raise ValueError("槽位号必须在 0~31 之间,收到:{}".format(slot))
+            raise ValueError(f"槽位号必须在 0~31 之间,收到:{slot}")
         self._rack = int(rack)
         self._slot = int(slot)
         self._dll_path = dll_path.strip()
@@ -336,16 +336,16 @@ class SiemensS7Client(BaseClient):
     def _read(self, address: str, data_type: DataType) -> PrimitiveValue:
         """读数据项并按 DataType 尺寸收窄(大端序)。"""
         if data_type not in _SIZES:
-            raise ValueError("S7 不支持的数据类型:{}".format(data_type))
+            raise ValueError(f"S7 不支持的数据类型:{data_type}")
         parsed = parse_s7_address(address)
         if data_type is DataType.BOOL:
             if parsed.bit is None:
                 raise ValueError(
-                    "S7 按位读取需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)".format(address)
+                    f"S7 按位读取需要位地址:{address!r}(示例:M10.2 / DB1.DBX0.3)"
                 )
         elif parsed.bit is not None:
             raise ValueError(
-                "S7 位地址只能按 BOOL 读写:{!r}(数值请用字节起点地址)".format(address)
+                f"S7 位地址只能按 BOOL 读写:{address!r}(数值请用字节起点地址)"
             )
         data = self._session().read_area(
             area_code(parsed.area), parsed.db_number, parsed.byte_index, _SIZES[data_type]
@@ -366,7 +366,7 @@ class SiemensS7Client(BaseClient):
         if data_type is DataType.BOOL:
             if parsed.bit is None:
                 raise ValueError(
-                    "S7 按位写入需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)".format(address)
+                    f"S7 按位写入需要位地址:{address!r}(示例:M10.2 / DB1.DBX0.3)"
                 )
             flag = require_bool(value)
             raw = session.read_area(
@@ -388,7 +388,7 @@ class SiemensS7Client(BaseClient):
             data = self._pack(_INT_FORMATS[data_type], number)
         if parsed.bit is not None:
             raise ValueError(
-                "S7 位地址只能按 BOOL 读写:{!r}(数值请用字节起点地址)".format(address)
+                f"S7 位地址只能按 BOOL 读写:{address!r}(数值请用字节起点地址)"
             )
         session.write_area(area_code(parsed.area), parsed.db_number, parsed.byte_index, data)
 
@@ -396,7 +396,7 @@ class SiemensS7Client(BaseClient):
         """读 S7 String(头 2 字节 = 声明长/实际长,正文按声明长)。"""
         parsed = parse_s7_address(address)
         if parsed.bit is not None:
-            raise ValueError("S7 字符串地址不带位号:{!r}".format(address))
+            raise ValueError(f"S7 字符串地址不带位号:{address!r}")
         size = length + 2
         data = self._session().read_area(
             area_code(parsed.area), parsed.db_number, parsed.byte_index, size
@@ -412,7 +412,7 @@ class SiemensS7Client(BaseClient):
         """写 S7 String(声明长/实际长均按本次编码长度,建议 ≤ PLC 侧声明长)。"""
         parsed = parse_s7_address(address)
         if parsed.bit is not None:
-            raise ValueError("S7 字符串地址不带位号:{!r}".format(address))
+            raise ValueError(f"S7 字符串地址不带位号:{address!r}")
         encoded = convert.encode_string(value, len(value.encode(encoding)), encoding)
         header = bytes([len(encoded), len(encoded)])
         self._session().write_area(
@@ -426,4 +426,4 @@ class SiemensS7Client(BaseClient):
         try:
             return struct.pack(fmt, value)
         except (struct.error, OverflowError) as exc:
-            raise ValueError("S7 写入值超出类型范围:{}".format(value)) from exc
+            raise ValueError(f"S7 写入值超出类型范围:{value}") from exc

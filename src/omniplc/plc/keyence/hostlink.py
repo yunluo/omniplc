@@ -78,7 +78,7 @@ class _KeyenceHostLinkBase(BaseClient):
                 received += 1
                 if received > KV_MAX_LINE:
                     raise OmniPLCInternalError(
-                        "KV Host Link 响应行超过 {} 字节上限".format(KV_MAX_LINE)
+                        f"KV Host Link 响应行超过 {KV_MAX_LINE} 字节上限"
                     )
             text = codec.parse_response(b"".join(chunks))
         codec.check_error_code(text)
@@ -94,7 +94,7 @@ class _KeyenceHostLinkBase(BaseClient):
         if data_type is DataType.BOOL:
             return self._read_bool_impl(parsed)
         if parsed.bit is not None:
-            raise ValueError("仅布尔类型支持字软元件位访问:{!r}".format(address))
+            raise ValueError(f"仅布尔类型支持字软元件位访问:{address!r}")
         if not is_bit_device(parsed.device) and data_type in (
             DataType.SHORT,
             DataType.USHORT,
@@ -106,7 +106,7 @@ class _KeyenceHostLinkBase(BaseClient):
             DataType.DOUBLE,
         ):
             return self._read_word(parsed, data_type)
-        raise ValueError("KV Host Link 不支持的数据类型或软元件:{!r}({})".format(address, data_type))
+        raise ValueError(f"KV Host Link 不支持的数据类型或软元件:{address!r}({data_type})")
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """按数据类型分发到位/字写入原语。"""
@@ -115,7 +115,7 @@ class _KeyenceHostLinkBase(BaseClient):
             self._write_bool_impl(parsed, require_bool(value))
             return
         if parsed.bit is not None:
-            raise ValueError("仅布尔类型支持字软元件位访问:{!r}".format(address))
+            raise ValueError(f"仅布尔类型支持字软元件位访问:{address!r}")
         if not is_bit_device(parsed.device) and data_type in (
             DataType.SHORT,
             DataType.USHORT,
@@ -128,7 +128,7 @@ class _KeyenceHostLinkBase(BaseClient):
         ):
             self._write_word(parsed, data_type, value)
             return
-        raise ValueError("KV Host Link 不支持的数据类型或软元件:{!r}({})".format(address, data_type))
+        raise ValueError(f"KV Host Link 不支持的数据类型或软元件:{address!r}({data_type})")
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """读字符串:连续 .U 字 → 小端拼字节 → 解码。"""
@@ -220,7 +220,7 @@ class _KeyenceHostLinkBase(BaseClient):
             try:
                 raw = struct.pack("<f", number_f)
             except (OverflowError, ValueError) as exc:
-                raise ValueError("float 超出 float32 范围:{}".format(value)) from exc
+                raise ValueError(f"float 超出 float32 范围:{value}") from exc
             self._write_consecutive_words(parsed, convert.bytes_to_words(raw))
             return
         if data_type in (DataType.LONG, DataType.ULONG):
@@ -329,7 +329,7 @@ def _require_word(address: str) -> KvAddress:
     """字符串存取只允许无位号的字软元件(内部函数)。"""
     parsed = parse_kv_address(address)
     if parsed.bit is not None or is_bit_device(parsed.device):
-        raise ValueError("字符串只能从字软元件存取,收到:{!r}".format(address))
+        raise ValueError(f"字符串只能从字软元件存取,收到:{address!r}")
     return parsed
 
 
@@ -337,5 +337,5 @@ def _expect_ok(response: str) -> None:
     """校验写命令应答为 OK(内部函数)。"""
     if response.strip().upper() != "OK":
         raise OmniPLCInternalError(
-            "写命令应答异常:期望 OK,收到 {!r}".format(response)
+            f"写命令应答异常:期望 OK,收到 {response!r}"
         )

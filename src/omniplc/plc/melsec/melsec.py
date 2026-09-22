@@ -126,7 +126,7 @@ class _MelsecMcBase(BaseClient):
         """MC 读原语:软元件地址 → 成批读请求 → 按类型解码(MC 字序小端)。"""
         parsed = parse_mc_address(address)
         if data_type is not DataType.BOOL and parsed.bit is not None:
-            raise ValueError("仅布尔类型支持位访问:{!r}".format(address))
+            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
         if data_type is DataType.BOOL:
             return self._read_bool_impl(parsed)
         if data_type in (DataType.SHORT, DataType.USHORT):
@@ -138,13 +138,13 @@ class _MelsecMcBase(BaseClient):
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             data = self._read_words(parsed, 4)
             return _decode_64(data, data_type)
-        raise ValueError("MC 不支持的数据类型:{}".format(data_type))
+        raise ValueError(f"MC 不支持的数据类型:{data_type}")
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """MC 写原语:成批写请求。位软元件按位写;字软元件按位写用读-改-写。"""
         parsed = parse_mc_address(address)
         if data_type is not DataType.BOOL and parsed.bit is not None:
-            raise ValueError("仅布尔类型支持位访问:{!r}".format(address))
+            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
         if data_type is DataType.BOOL:
             flag = require_bool(value)
             _, is_bit_device, _ = self._device_info(parsed.device)
@@ -166,7 +166,7 @@ class _MelsecMcBase(BaseClient):
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             self._write_words(parsed, _encode_64(value, data_type))
             return
-        raise ValueError("MC 不支持的数据类型:{}".format(data_type))
+        raise ValueError(f"MC 不支持的数据类型:{data_type}")
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """从字软元件读字符串:逐字小端拼字节后解码(MC 字序约定)。"""
@@ -227,7 +227,7 @@ class _MelsecMcBase(BaseClient):
             raise ValueError("read_batch 至少需要一个 (地址, 数据类型) 项")
         if self._frame not in (McFrame.FRAME_3E, McFrame.FRAME_4E):
             raise ValueError(
-                "多块批量读仅支持 3E/4E 帧,当前帧型:{}".format(self._frame.value)
+                f"多块批量读仅支持 3E/4E 帧,当前帧型:{self._frame.value}"
             )
         word_blocks: List[Tuple[int, int, int]] = []
         bit_blocks: List[Tuple[int, int, int]] = []
@@ -264,7 +264,7 @@ class _MelsecMcBase(BaseClient):
                 word_index += 4
             else:
                 raise ValueError(
-                    "MC 批量读取不支持的数据类型:{}".format(data_type_enum)
+                    f"MC 批量读取不支持的数据类型:{data_type_enum}"
                 )
         word_points = word_index
         bit_points = bit_index
@@ -667,7 +667,7 @@ class MelsecMcSerialClient(_MelsecMcBase):
             return head + transport.recv(12)
         if code == codec_serial.NAK:
             return head + transport.recv(16)
-        raise ProtocolFrameError("3C 响应控制码非法:0x{:02X}".format(code))
+        raise ProtocolFrameError(f"3C 响应控制码非法:0x{code:02X}")
 
     @staticmethod
     def _transact_4c(transport: BaseTransport) -> bytes:
@@ -702,7 +702,7 @@ class MelsecMcSerialClient(_MelsecMcBase):
                 following = transport.recv(1)[0]
                 if following != codec_serial.DLE:
                     raise ProtocolFrameError(
-                        "4C 附加码之后必须是 10H,收到 0x{:02X}".format(following)
+                        f"4C 附加码之后必须是 10H,收到 0x{following:02X}"
                     )
             body.append(raw)
         trailer = transport.recv(4)
@@ -721,7 +721,7 @@ def _coerce_frame(value: Union[McFrame, str]) -> McFrame:
         return McFrame(str(value).strip().upper())
     except ValueError:
         supported = "/".join(member.value for member in McFrame)
-        raise ValueError("不支持的 MC 帧型:{!r},支持:{}".format(value, supported))
+        raise ValueError(f"不支持的 MC 帧型:{value!r},支持:{supported}")
 
 
 def _decode_32(data: Sequence[int], data_type: DataType) -> PrimitiveValue:
@@ -752,11 +752,11 @@ def _encode_32(value: PrimitiveValue, data_type: DataType) -> List[int]:
         number = require_int(value)
         if data_type is DataType.INT:
             if not -2147483648 <= number <= 2147483647:
-                raise ValueError("int 超出 32 位范围:{}".format(number))
+                raise ValueError(f"int 超出 32 位范围:{number}")
             raw = number.to_bytes(4, "little", signed=True)
         else:
             if not 0 <= number <= 4294967295:
-                raise ValueError("uint 超出 32 位范围:{}".format(number))
+                raise ValueError(f"uint 超出 32 位范围:{number}")
             raw = number.to_bytes(4, "little", signed=False)
     return convert.bytes_to_words(raw)
 
@@ -769,10 +769,10 @@ def _encode_64(value: PrimitiveValue, data_type: DataType) -> List[int]:
         number = require_int(value)
         if data_type is DataType.LONG:
             if not -9223372036854775808 <= number <= 9223372036854775807:
-                raise ValueError("long 超出 64 位范围:{}".format(number))
+                raise ValueError(f"long 超出 64 位范围:{number}")
             raw = number.to_bytes(8, "little", signed=True)
         else:
             if not 0 <= number <= 18446744073709551615:
-                raise ValueError("ulong 超出 64 位范围:{}".format(number))
+                raise ValueError(f"ulong 超出 64 位范围:{number}")
             raw = number.to_bytes(8, "little", signed=False)
     return convert.bytes_to_words(raw)

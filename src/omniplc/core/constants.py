@@ -16,6 +16,35 @@ from ..types import SerialParity
 DEFAULT_CONNECT_TIMEOUT: float = 5.0
 DEFAULT_RECEIVE_TIMEOUT: float = 3.0
 
+# ---------------------------------------------------------------- 数据类型边界
+UINT8_MAX: int = 0xFF
+"""单字节无符号上限。"""
+UINT32_MAX: int = 0xFFFFFFFF
+"""32 位无符号整数上限(4294967295),用于 Modbus/MC/KEYENCE 等 32 位无符号写校验。"""
+UINT64_MAX: int = 0xFFFFFFFFFFFFFFFF
+"""64 位无符号整数上限,用于 LONG 类型写校验。"""
+INT32_MIN: int = -0x80000000
+"""32 位有符号整数下限(-2147483648)。"""
+INT32_MAX: int = 0x7FFFFFFF
+"""32 位有符号整数上限(2147483647)。"""
+
+
+def bits_to_bytes(n: int) -> int:
+    """位软元件数 → 字节数(向上取整):``(n + 7) // 8``。
+
+    :param n: 位数(非负)
+    :return: 容纳 n 位的最小字节数
+    """
+    return (n + 7) // 8
+
+
+def pad_even_bytes(n: int) -> int:
+    """字节数对齐到偶数(向上):``(n + 1) // 2 * 2``。
+
+    Modbus 字符串按"寄存器数"= ``(length + 1) // 2`` 折算的等价工具。
+    """
+    return (n + 1) // 2 * 2
+
 # ---------------------------------------------------------------- TCP keepalive
 TCP_KEEPALIVE_IDLE: int = 30
 """TCP keepalive 空闲秒数(平台支持时尽力启用,检测 PLC 断电/断网的空闲半开连接)。"""

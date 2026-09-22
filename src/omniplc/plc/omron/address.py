@@ -56,12 +56,12 @@ def parse_fins_address(address: str) -> FinsAddress:
     if match is not None:
         bank = int(match.group(1))
         if not 0 <= bank <= 15:
-            raise ValueError("EM 区 bank 号必须在 0~15 之间,收到:{}".format(bank))
+            raise ValueError(f"EM 区 bank 号必须在 0~15 之间,收到:{bank}")
         return FinsAddress(area="E", offset=int(match.group(2)), bit=_parse_bit(match.group(3)), bank=bank)
     match = _FINS_ADDRESS_RE.match(text)
     if match is None:
         raise ValueError(
-            "无法解析 FINS 地址:{!r}(示例:D100 / CIO0.5 / E0_100)".format(address)
+            f"无法解析 FINS 地址:{address!r}(示例:D100 / CIO0.5 / E0_100)"
         )
     area = match.group(1).upper()
     if area == "E":
@@ -75,5 +75,5 @@ def _parse_bit(text: Optional[str]) -> Optional[int]:
         return None
     bit = int(text)
     if not 0 <= bit <= 15:
-        raise ValueError("位号必须在 0~15 之间,收到:{}".format(bit))
+        raise ValueError(f"位号必须在 0~15 之间,收到:{bit}")
     return bit

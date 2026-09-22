@@ -71,7 +71,7 @@ class _MewtocolBase(BaseClient):
         """MEWTOCOL 读原语:接点走 RCS,数据区走 RD。"""
         parsed = parse_mewtocol_address(address, data_type is DataType.BOOL)
         if data_type is not DataType.BOOL and parsed.bit is not None:
-            raise ValueError("仅布尔类型支持位访问:{!r}".format(address))
+            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
         if data_type is DataType.BOOL:
             return self._read_bool_impl(parsed)
         if data_type in (DataType.SHORT, DataType.USHORT):
@@ -83,13 +83,13 @@ class _MewtocolBase(BaseClient):
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             data = self._read_words(parsed, 4)
             return _decode_64(data, data_type)
-        raise ValueError("MEWTOCOL 不支持的数据类型:{}".format(data_type))
+        raise ValueError(f"MEWTOCOL 不支持的数据类型:{data_type}")
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """MEWTOCOL 写原语:接点走 WCS,数据区走 WD(位写用读-改-写)。"""
         parsed = parse_mewtocol_address(address, data_type is DataType.BOOL)
         if data_type is not DataType.BOOL and parsed.bit is not None:
-            raise ValueError("仅布尔类型支持位访问:{!r}".format(address))
+            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
         if data_type is DataType.BOOL:
             flag = require_bool(value)
             if parsed.area in MEWTOCOL_CONTACT_AREAS:
@@ -118,13 +118,13 @@ class _MewtocolBase(BaseClient):
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             self._write_words(parsed, _encode_64(value, data_type))
             return
-        raise ValueError("MEWTOCOL 不支持的数据类型:{}".format(data_type))
+        raise ValueError(f"MEWTOCOL 不支持的数据类型:{data_type}")
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """从数据区读字符串:逐字高字节在前拼字节后解码(MEWTOCOL 字内字节序)。"""
         parsed = parse_mewtocol_address(address, False)
         if parsed.bit is not None:
-            raise ValueError("仅布尔类型支持位访问:{!r}".format(address))
+            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
         words = self._read_words(parsed, (length + 1) // 2)
         data = b"".join(word.to_bytes(2, "big") for word in words)[:length]
         return convert.decode_string(data, encoding)
@@ -133,7 +133,7 @@ class _MewtocolBase(BaseClient):
         """向数据区写字符串:编码 → 补齐偶数字节 → 逐字高字节在前。"""
         parsed = parse_mewtocol_address(address, False)
         if parsed.bit is not None:
-            raise ValueError("仅布尔类型支持位访问:{!r}".format(address))
+            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
         raw = convert.encode_string(
             value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
         )
@@ -157,7 +157,7 @@ class _MewtocolBase(BaseClient):
             )
             if data_text not in ("0", "1"):
                 raise ProtocolFrameError(
-                    "MEWTOCOL 接点读响应非法:{!r}".format(data_text)
+                    f"MEWTOCOL 接点读响应非法:{data_text!r}"
                 )
             return data_text == "1"
         words = self._read_words(parsed, 1)
@@ -180,7 +180,7 @@ class _MewtocolBase(BaseClient):
             return [int(data_text[i:i + 4], 16) for i in range(0, len(data_text), 4)]
         except ValueError as exc:
             raise ProtocolFrameError(
-                "MEWTOCOL 读响应含非十六进制数据:{!r}".format(data_text)
+                f"MEWTOCOL 读响应含非十六进制数据:{data_text!r}"
             ) from exc
 
     def _write_words(self, parsed: MewtocolAddress, words: List[int]) -> None:
@@ -285,11 +285,11 @@ def _encode_32(value: PrimitiveValue, data_type: DataType) -> List[int]:
         number = require_int(value)
         if data_type is DataType.INT:
             if not -2147483648 <= number <= 2147483647:
-                raise ValueError("int 超出 32 位范围:{}".format(number))
+                raise ValueError(f"int 超出 32 位范围:{number}")
             raw = number.to_bytes(4, "big", signed=True)
         else:
             if not 0 <= number <= 4294967295:
-                raise ValueError("uint 超出 32 位范围:{}".format(number))
+                raise ValueError(f"uint 超出 32 位范围:{number}")
             raw = number.to_bytes(4, "big", signed=False)
     return [int.from_bytes(raw[2:4], "big"), int.from_bytes(raw[0:2], "big")]
 
@@ -302,10 +302,10 @@ def _encode_64(value: PrimitiveValue, data_type: DataType) -> List[int]:
         number = require_int(value)
         if data_type is DataType.LONG:
             if not -9223372036854775808 <= number <= 9223372036854775807:
-                raise ValueError("long 超出 64 位范围:{}".format(number))
+                raise ValueError(f"long 超出 64 位范围:{number}")
             raw = number.to_bytes(8, "big", signed=True)
         else:
             if not 0 <= number <= 18446744073709551615:
-                raise ValueError("ulong 超出 64 位范围:{}".format(number))
+                raise ValueError(f"ulong 超出 64 位范围:{number}")
             raw = number.to_bytes(8, "big", signed=False)
     return [int.from_bytes(raw[i:i + 2], "big") for i in (6, 4, 2, 0)]

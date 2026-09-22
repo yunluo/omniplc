@@ -111,7 +111,7 @@ def parse_toyopuc_address(address: str) -> ToyopucAddress:
     match = _TOYOPUC_ADDRESS_RE.match(address.strip().upper())
     if match is None:
         raise ValueError(
-            "无法解析 TOYOPUC 地址:{!r}(示例:D0100 / M0201 / X0010H / M0201W)".format(address)
+            f"无法解析 TOYOPUC 地址:{address!r}(示例:D0100 / M0201 / X0010H / M0201W)"
         )
     area = match.group(1)
     if area not in _WORD_BASE:
@@ -123,10 +123,10 @@ def parse_toyopuc_address(address: str) -> ToyopucAddress:
     number_text = match.group(2)
     number = int(number_text, 16)
     if number > 0xFFFF:
-        raise ValueError("TOYOPUC 软元件编号超出 16 位范围:{!r}".format(address))
+        raise ValueError(f"TOYOPUC 软元件编号超出 16 位范围:{address!r}")
     suffix = match.group(3) or ""
     if suffix == "W" and area not in TOYOPUC_BIT_DEVICES:
-        raise ValueError("W 后缀仅支持位软元件打包字访问:{!r}".format(address))
+        raise ValueError(f"W 后缀仅支持位软元件打包字访问:{address!r}")
     if suffix == "" and area in TOYOPUC_BIT_DEVICES:
         _require_in_segments(address, number, _BIT_SEGMENTS[area])
     if suffix in ("L", "H", "W") and area in TOYOPUC_BIT_DEVICES:
@@ -137,25 +137,25 @@ def parse_toyopuc_address(address: str) -> ToyopucAddress:
 def encode_word_address(parsed: ToyopucAddress) -> int:
     """把字访问地址编码为协议地址(CMD=1C/1D,内部函数)。"""
     if parsed.unit != "word":
-        raise ValueError("期望字访问地址,收到:{!r}".format(parsed))
+        raise ValueError(f"期望字访问地址,收到:{parsed!r}")
     return _WORD_BASE[parsed.area] + parsed.number
 
 
 def encode_byte_address(parsed: ToyopucAddress) -> int:
     """把字节访问地址编码为协议地址(CMD=1E/1F,内部函数)。"""
     if parsed.unit != "byte":
-        raise ValueError("期望字节访问地址,收到:{!r}".format(parsed))
+        raise ValueError(f"期望字节访问地址,收到:{parsed!r}")
     return _BYTE_BASE[parsed.area] + parsed.number * 2 + (1 if parsed.high else 0)
 
 
 def encode_bit_address(parsed: ToyopucAddress) -> int:
     """把位访问地址编码为协议地址(CMD=20/21,内部函数)。"""
     if parsed.unit != "bit":
-        raise ValueError("期望位访问地址,收到:{!r}".format(parsed))
+        raise ValueError(f"期望位访问地址,收到:{parsed!r}")
     return _BIT_BASE[parsed.area] + parsed.number
 
 
 def _require_in_segments(address: str, index: int, segments: Tuple[Tuple[int, int], ...]) -> None:
     """校验编号落在任一合法段内(内部函数)。"""
     if not any(start <= index <= end for start, end in segments):
-        raise ValueError("TOYOPUC 软元件编号越界:{!r}".format(address))
+        raise ValueError(f"TOYOPUC 软元件编号越界:{address!r}")

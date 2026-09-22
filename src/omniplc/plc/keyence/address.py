@@ -34,7 +34,7 @@ from ...core.constants import (
 _TYPE_PATTERN = "|".join(
     sorted(list(KV_BIT_DEVICES) + list(KV_WORD_DEVICES), key=len, reverse=True)
 )
-_KV_ADDRESS_RE = re.compile(r"^({})([0-9A-F]+)(?:\.(\d+))?$".format(_TYPE_PATTERN))
+_KV_ADDRESS_RE = re.compile(rf"^({_TYPE_PATTERN})([0-9A-F]+)(?:\.(\d+))?$")
 
 
 class KvAddress(NamedTuple):
@@ -68,7 +68,7 @@ def parse_kv_address(address: str) -> KvAddress:
     match = _KV_ADDRESS_RE.match(address.strip().upper())
     if match is None:
         raise ValueError(
-            "无法解析 KV 地址:{!r}(示例:DM100 / R515 / B1F / X0F / DM100.5)".format(address)
+            f"无法解析 KV 地址:{address!r}(示例:DM100 / R515 / B1F / X0F / DM100.5)"
         )
     device = match.group(1)
     number_text = match.group(2)
@@ -76,18 +76,18 @@ def parse_kv_address(address: str) -> KvAddress:
     if device in KV_BIT_BANK_DEVICES:
         number = int(number_text, 10)
         if number % 100 > 15:
-            raise ValueError("位组软元件编号低两位必须在 00~15,收到:{!r}".format(address))
+            raise ValueError(f"位组软元件编号低两位必须在 00~15,收到:{address!r}")
     elif device in KV_HEX_NUMBER_DEVICES:
         number = int(number_text, 16)
     elif device in ("X", "Y"):
         bank_text = "0" if len(number_text) == 1 else number_text[:-1]
         if not bank_text.isdigit():
-            raise ValueError("X/Y 组号必须为十进制数字,收到:{!r}".format(address))
+            raise ValueError(f"X/Y 组号必须为十进制数字,收到:{address!r}")
         number = int(bank_text, 10) * 16 + int(number_text[-1], 16)
     else:
         number = int(number_text, 10)
     if bit is not None and device in KV_BIT_DEVICES:
-        raise ValueError("位软元件不支持位号后缀:{!r}(示例:R515 或 DM100.5)".format(address))
+        raise ValueError(f"位软元件不支持位号后缀:{address!r}(示例:R515 或 DM100.5)")
     return KvAddress(device=device, number=number, bit=bit)
 
 
@@ -99,7 +99,7 @@ def format_kv_device(device: str, number: int) -> str:
         return "{}{}{:X}".format(device, number // 16, number % 16)
     if device in KV_HEX_NUMBER_DEVICES:
         return device + format(number, "X")
-    return "{}{}".format(device, number)
+    return f"{device}{number}"
 
 
 def offset_device(address: KvAddress, offset: int) -> KvAddress:
@@ -125,5 +125,5 @@ def _parse_bit(text: Optional[str]) -> Optional[int]:
         return None
     bit = int(text)
     if not 0 <= bit <= 15:
-        raise ValueError("字软元件位号必须在 0~15 之间,收到:{}".format(bit))
+        raise ValueError(f"字软元件位号必须在 0~15 之间,收到:{bit}")
     return bit

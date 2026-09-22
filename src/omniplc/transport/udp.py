@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import socket
-from types import TracebackType
 from typing import Optional
 
 from .base import BaseTransport
@@ -35,7 +34,7 @@ class UdpTransport(BaseTransport):
         self._ip_address = ip_address
         self._port = port
         self._socket: Optional[socket.socket] = None
-        self._debug_label = "udp://{}:{}".format(ip_address, port)
+        self._debug_label = f"udp://{ip_address}:{port}"
 
     @BaseTransport.receive_timeout.setter  # type: ignore[attr-defined]
     def receive_timeout(self, seconds: float) -> None:
@@ -88,7 +87,7 @@ class UdpTransport(BaseTransport):
             frame = sock.recv(size)
         except socket.timeout as exc:
             raise TransportTimeoutError(
-                "UDP 接收超时({}s)".format(self._receive_timeout), 0
+                f"UDP 接收超时({self._receive_timeout}s)", 0
             ) from exc
         log_frame(self._debug_label, RECV_MARK, frame)
         return frame
@@ -98,15 +97,3 @@ class UdpTransport(BaseTransport):
         if self._socket is None:
             raise TransportClosedError("UDP 未初始化,请先调用 connect()")
         return self._socket
-
-    def __enter__(self) -> "UdpTransport":
-        self.connect()
-        return self
-
-    def __exit__(
-        self,
-        exc_type: Optional[type] = None,
-        exc_val: Optional[BaseException] = None,
-        exc_tb: Optional[TracebackType] = None,
-    ) -> None:
-        self.close()

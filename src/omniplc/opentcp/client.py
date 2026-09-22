@@ -86,7 +86,7 @@ class OpenTcpClient(BaseClient):
         super().__init__(ip_address, port)
         self._encoding = self._coerce_encoding(encoding)
         if int(max_frame) < 1:
-            raise ValueError("max_frame 必须大于 0,收到:{}".format(max_frame))
+            raise ValueError(f"max_frame 必须大于 0,收到:{max_frame}")
         self._max_frame = int(max_frame)
         self._delimiter: Optional[bytes]
         self._frame_length: Optional[int]
@@ -104,7 +104,7 @@ class OpenTcpClient(BaseClient):
                 )
             if int(frame_length) < 1:
                 raise ValueError(
-                    "frame_length 必须大于 0,收到:{}".format(frame_length)
+                    f"frame_length 必须大于 0,收到:{frame_length}"
                 )
             if int(frame_length) > self._max_frame:
                 raise ValueError(
@@ -140,7 +140,7 @@ class OpenTcpClient(BaseClient):
         try:
             "x".encode(encoding)
         except LookupError:
-            raise ValueError("encoding 非法:{!r}".format(encoding))
+            raise ValueError(f"encoding 非法:{encoding!r}")
         return encoding
 
     @property
@@ -253,7 +253,7 @@ class OpenTcpClient(BaseClient):
                 return frame.decode(self._encoding)
             except UnicodeDecodeError as exc:
                 raise ProtocolFrameError(
-                    "应答不是合法 {}:{!r}".format(self._encoding, frame)
+                    f"应答不是合法 {self._encoding}:{frame!r}"
                 ) from exc
         return self._execute(operation)
 
@@ -295,7 +295,7 @@ class OpenTcpClient(BaseClient):
                 return frame.decode(self._encoding)
             except UnicodeDecodeError as exc:
                 raise ProtocolFrameError(
-                    "应答不是合法 {}:{!r}".format(self._encoding, frame)
+                    f"应答不是合法 {self._encoding}:{frame!r}"
                 ) from exc
         return self._execute(operation)
 
@@ -303,7 +303,7 @@ class OpenTcpClient(BaseClient):
         """per-call 超时校验:None 用 receive_timeout(内部方法)。"""
         read_timeout = self._receive_timeout if timeout is None else float(timeout)
         if read_timeout <= 0:
-            raise ValueError("timeout 必须大于 0,收到:{}".format(read_timeout))
+            raise ValueError(f"timeout 必须大于 0,收到:{read_timeout}")
         return read_timeout
 
     def _receive_frame(self, transport: BaseTransport, timeout: float) -> bytes:

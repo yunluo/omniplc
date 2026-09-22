@@ -72,14 +72,14 @@ def parse_inovance_address(address: str) -> InovanceAddress:
     match = _INOVANCE_ADDRESS_RE.match(address.strip())
     if match is None:
         raise ValueError(
-            "无法解析汇川地址:{!r}(示例:D100 / M10 / X17 / SD10 / D100.3)".format(address)
+            f"无法解析汇川地址:{address!r}(示例:D100 / M10 / X17 / SD10 / D100.3)"
         )
     device = match.group(1).upper()
     number_text = match.group(2)
     bit = int(match.group(3)) if match.group(3) is not None else None
     if device in INOVANCE_OCTAL_DEVICES:
         if "8" in number_text or "9" in number_text:
-            raise ValueError("软元件 {} 编号为八进制,不能包含 8/9:{!r}".format(device, address))
+            raise ValueError(f"软元件 {device} 编号为八进制,不能包含 8/9:{address!r}")
         number = int(number_text, 8)
         _check_bitless(device, bit, address)
     elif device in INOVANCE_BIT_DEVICES:
@@ -89,7 +89,7 @@ def parse_inovance_address(address: str) -> InovanceAddress:
         number = int(number_text)
         if bit is not None and not 0 <= bit <= MODBUS_REGISTER_BIT_MAX:
             raise ValueError(
-                "寄存器位号必须在 0~{} 之间,收到:{}".format(MODBUS_REGISTER_BIT_MAX, bit)
+                f"寄存器位号必须在 0~{MODBUS_REGISTER_BIT_MAX} 之间,收到:{bit}"
             )
     return InovanceAddress(device=device, number=number, bit=bit)
 
@@ -118,7 +118,7 @@ def to_modbus_address(address: Union[InovanceAddress, str], is_bool: bool = Fals
         if parsed.bit is not None:
             return "hr{}.{}".format(base + parsed.number, parsed.bit)
         return "hr{}".format(base + parsed.number)
-    raise ValueError("软元件 {} 为位软元件,不支持字访问".format(parsed.device))
+    raise ValueError(f"软元件 {parsed.device} 为位软元件,不支持字访问")
 
 
 def _check_number(device: str, number: int, limit: int) -> None:
@@ -133,5 +133,5 @@ def _check_bitless(device: str, bit: Optional[int], address: str) -> None:
     """位软元件不允许位号后缀(内部函数)。"""
     if bit is not None:
         raise ValueError(
-            "软元件 {} 本身就是位地址,不支持位号后缀:{!r}".format(device, address)
+            f"软元件 {device} 本身就是位地址,不支持位号后缀:{address!r}"
         )

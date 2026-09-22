@@ -81,7 +81,7 @@ def device_number(device: str, number: str, base: int) -> int:
         return int(number, base)
     except ValueError:
         raise ValueError(
-            "软元件 {} 编号按 {} 进制解析失败:{!r}".format(device, base, number)
+            f"软元件 {device} 编号按 {base} 进制解析失败:{number!r}"
         )
 
 
@@ -110,12 +110,12 @@ def build_core(
     code, is_bit_device, base = device_info(address.device, codes)
     if is_bit and not is_bit_device:
         raise ValueError(
-            "字软元件 {} 不支持位单位成批访问,请按字访问后提取位".format(address.device)
+            f"字软元件 {address.device} 不支持位单位成批访问,请按字访问后提取位"
         )
     _check_points(points, MC_MAX_TRANSFER_POINTS)
     number = device_number(address.device, address.number, base)
     if number > 0xFFFFFF:
-        raise ValueError("MC 软元件编号超出 3 字节范围:{}".format(number))
+        raise ValueError(f"MC 软元件编号超出 3 字节范围:{number}")
 
     command = MC_COMMAND_BATCH_WRITE if is_write else MC_COMMAND_BATCH_READ
     subcommand = MC_SUBCOMMAND_BIT_UNITS if is_bit else MC_SUBCOMMAND_WORD_UNITS
@@ -205,7 +205,7 @@ def build_random_read(
         raise ValueError("多块批量读至少需要一个字块或位块")
     if total_blocks > MC_MAX_RANDOM_BLOCKS:
         raise ValueError(
-            "多块批量读总块数超出上限 {}:{}".format(MC_MAX_RANDOM_BLOCKS, total_blocks)
+            f"多块批量读总块数超出上限 {MC_MAX_RANDOM_BLOCKS}:{total_blocks}"
         )
     core = bytearray(MC_COMMAND_BATCH_READ_BLOCKS.to_bytes(2, "big"))
     core += MC_SUBCOMMAND_WORD_UNITS.to_bytes(2, "little")
@@ -242,7 +242,7 @@ def parse_response_head(head: bytes, frame: str) -> int:
     length = int.from_bytes(head[offset:offset + 2], "little")
     if length < 2:
         raise ProtocolFrameError(
-            "MC 应答数据长非法(至少含结束码 2 字节):{}".format(length)
+            f"MC 应答数据长非法(至少含结束码 2 字节):{length}"
         )
     return length
 
@@ -337,12 +337,12 @@ def _locate_data(
         serial = int.from_bytes(frame[2:4], "little")
         if serial != expected_serial:
             raise ProtocolFrameError(
-                "MC 序列号不匹配:期望 {},收到 {}".format(expected_serial, serial)
+                f"MC 序列号不匹配:期望 {expected_serial},收到 {serial}"
             )
     end_offset = 13 if is_4e else 9
     end_code = int.from_bytes(frame[end_offset:end_offset + 2], "little")
     if end_code != 0:
-        raise DeviceError("MC 结束代码 0x{:04X},详见 MELSEC 手册".format(end_code), end_code)
+        raise DeviceError(f"MC 结束代码 0x{end_code:04X},详见 MELSEC 手册", end_code)
     return end_offset + 2
 
 
@@ -350,7 +350,7 @@ def _check_frame(frame: str) -> str:
     """帧型归一化与校验(内部函数)。"""
     frame_name = str(frame).strip().upper()
     if frame_name not in _FRAME_NAMES:
-        raise ValueError("QnA 兼容帧型必须是 3E/4E,收到:{!r}".format(frame))
+        raise ValueError(f"QnA 兼容帧型必须是 3E/4E,收到:{frame!r}")
     return frame_name
 
 
@@ -384,20 +384,20 @@ def _random_block(code: int, number: int, points: int) -> bytes:
     """多块批量读块条目:码 1 字节 + 编号 3 字节小端 + 点数 2 字节小端(内部函数)。"""
     _check_points(points, MC_MAX_TRANSFER_POINTS)
     if not 0 <= number <= 0xFFFFFF:
-        raise ValueError("MC 软元件编号超出 3 字节范围:{}".format(number))
+        raise ValueError(f"MC 软元件编号超出 3 字节范围:{number}")
     return bytes((code,)) + number.to_bytes(3, "little") + points.to_bytes(2, "little")
 
 
 def _check_points(points: int, limit: int) -> None:
     """点数范围校验(内部函数)。"""
     if not 1 <= points <= limit:
-        raise ValueError("MC 访问点数超出范围 1~{}:{}".format(limit, points))
+        raise ValueError(f"MC 访问点数超出范围 1~{limit}:{points}")
 
 
 def _check_timer(monitoring_timer: int) -> None:
     """监视定时器范围校验(内部函数)。"""
     if not 0 <= monitoring_timer <= 0xFFFF:
-        raise ValueError("监视定时器超出范围 0~65535:{}".format(monitoring_timer))
+        raise ValueError(f"监视定时器超出范围 0~65535:{monitoring_timer}")
 
 
 def _write_payload(points: int, is_bit: bool, data: List[int]) -> bytes:
@@ -412,5 +412,5 @@ def _write_payload(points: int, is_bit: bool, data: List[int]) -> bytes:
         return bytes(packed)
     for word in data:
         if not 0 <= word <= 0xFFFF:
-            raise ValueError("字写数据超出范围 0~65535:{}".format(word))
+            raise ValueError(f"字写数据超出范围 0~65535:{word}")
     return b"".join(word.to_bytes(2, "little") for word in data)

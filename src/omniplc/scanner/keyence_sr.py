@@ -76,7 +76,7 @@ class KeyenceSrClient(BaseClient):
     @scan_dwell.setter
     def scan_dwell(self, seconds: float) -> None:
         if seconds <= 0:
-            raise ValueError("scan_dwell 必须大于 0,收到:{}".format(seconds))
+            raise ValueError(f"scan_dwell 必须大于 0,收到:{seconds}")
         self._scan_dwell = float(seconds)
 
     # ------------------------------------------------------------------
@@ -94,16 +94,16 @@ class KeyenceSrClient(BaseClient):
         :raises ValueError: bank 越界
         """
         if bank is not None and not 0 <= int(bank) <= SR_BANK_MAX:
-            raise ValueError("bank 必须在 0~{} 之间,收到:{}".format(SR_BANK_MAX, bank))
+            raise ValueError(f"bank 必须在 0~{SR_BANK_MAX} 之间,收到:{bank}")
         read_timeout = self._receive_timeout if timeout is None else float(timeout)
         if read_timeout <= 0:
-            raise ValueError("timeout 必须大于 0,收到:{}".format(read_timeout))
+            raise ValueError(f"timeout 必须大于 0,收到:{read_timeout}")
         with self._lock:
             if not self._connected and not self.connect():
                 return False, None  # connect() 已记录 last_error
             transport = self._require_transport()
             try:
-                lon = "LON,{:02d}\r".format(bank).encode("ascii") if bank is not None else SR_CMD_LON
+                lon = f"LON,{bank:02d}\r".encode("ascii") if bank is not None else SR_CMD_LON
                 transport.send(lon)
                 time.sleep(self._scan_dwell)
                 transport.send(SR_CMD_LOFF)
@@ -116,7 +116,7 @@ class KeyenceSrClient(BaseClient):
                     transport.receive_timeout = previous_timeout
             except socket.timeout:
                 # 读码窗口内无应答:链路仍然完好,不断线
-                self._last_error = "扫码读超时({}s),未收到应答".format(read_timeout)
+                self._last_error = f"扫码读超时({read_timeout}s),未收到应答"
                 return False, None
             except (OSError, OmniPLCInternalError) as exc:
                 self._last_error = _describe(exc)
@@ -161,7 +161,7 @@ class KeyenceSrClient(BaseClient):
             started = True
             chunks.append(byte)
             if len(chunks) > SR_RECV_MAX:
-                raise OmniPLCInternalError("SR 应答超过 {} 字节上限".format(SR_RECV_MAX))
+                raise OmniPLCInternalError(f"SR 应答超过 {SR_RECV_MAX} 字节上限")
         return b"".join(chunks).decode("utf-8", errors="replace")
 
     def _command_expect_ok(self, transport: BaseTransport, command: bytes) -> None:

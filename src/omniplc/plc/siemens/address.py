@@ -64,14 +64,14 @@ def parse_s7_address(address: str) -> S7Address:
         if kind == "X":
             if bit_text is None:
                 raise ValueError(
-                    "DB 位地址需要位号:{!r}(示例:DB1.DBX0.3)".format(address)
+                    f"DB 位地址需要位号:{address!r}(示例:DB1.DBX0.3)"
                 )
             bit = int(bit_text)
             _check_bit(bit, address)
         else:
             if bit_text is not None:
                 raise ValueError(
-                    "字节起点地址不带位号:{!r}(位访问用 DBX,如 DB1.DBX0.3)".format(address)
+                    f"字节起点地址不带位号:{address!r}(位访问用 DBX,如 DB1.DBX0.3)"
                 )
             bit = None
         return S7Address("DB", db_number, byte_index, bit)
@@ -90,11 +90,11 @@ def parse_s7_address(address: str) -> S7Address:
         return S7Address(area, 0, byte_index, bit)
 
     raise ValueError(
-        "S7 地址非法:{!r}(示例:DB1.DBX0.3 / DB1.DBD6 / M10.2 / MW10 / IW64)".format(address)
+        f"S7 地址非法:{address!r}(示例:DB1.DBX0.3 / DB1.DBD6 / M10.2 / MW10 / IW64)"
     )
 
 
 def _check_bit(bit: int, address: str) -> None:
     """位号范围校验 0~7(内部函数)。"""
     if not 0 <= bit <= 7:
-        raise ValueError("S7 位号必须在 0~7 之间,收到:{!r} 的 {}".format(address, bit))
+        raise ValueError(f"S7 位号必须在 0~7 之间,收到:{address!r} 的 {bit}")

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import socket
 import time
-from types import TracebackType
 from typing import Optional
 
 from .base import BaseTransport
@@ -37,7 +36,7 @@ class TcpTransport(BaseTransport):
         self._ip_address = ip_address
         self._port = port
         self._socket: Optional[socket.socket] = None
-        self._debug_label = "tcp://{}:{}".format(ip_address, port)
+        self._debug_label = f"tcp://{ip_address}:{port}"
 
     @BaseTransport.receive_timeout.setter  # type: ignore[attr-defined]
     def receive_timeout(self, seconds: float) -> None:
@@ -100,7 +99,7 @@ class TcpTransport(BaseTransport):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise socket.timeout(
-                    "TCP 接收超时({}s)".format(self._receive_timeout)
+                    f"TCP 接收超时({self._receive_timeout}s)"
                 )
             sock.settimeout(remaining)
             chunk = sock.recv(size - received)
@@ -117,18 +116,6 @@ class TcpTransport(BaseTransport):
         if self._socket is None:
             raise TransportClosedError("TCP 未连接,请先调用 connect()")
         return self._socket
-
-    def __enter__(self) -> "TcpTransport":
-        self.connect()
-        return self
-
-    def __exit__(
-        self,
-        exc_type: Optional[type] = None,
-        exc_val: Optional[BaseException] = None,
-        exc_tb: Optional[TracebackType] = None,
-    ) -> None:
-        self.close()
 
 
 def _enable_keepalive(sock: socket.socket) -> None:

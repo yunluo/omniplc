@@ -63,11 +63,11 @@ def _translate_ua_error(exc: BaseException) -> OmniPLCInternalError:
     try:
         from asyncua.ua import uaerrors
     except ImportError:
-        return OmniPLCInternalError("OPC-UA 调用失败:{}".format(exc))
+        return OmniPLCInternalError(f"OPC-UA 调用失败:{exc}")
     if isinstance(exc, uaerrors.UaError):
         code = int(getattr(exc, "code", 0) or 0) & 0xFFFFFFFF
         return DeviceError(
-            "OPC-UA 出错 0x{:08X}:{}".format(code, exc),
+            f"OPC-UA 出错 0x{code:08X}:{exc}",
             code,
         )
     return OmniPLCInternalError(
@@ -90,7 +90,7 @@ class _OpcUaSession(BaseTransport):
         super().__init__()
         self._endpoint = endpoint
         self._client: Any = None
-        self._debug_label = "opcua://{}".format(endpoint)
+        self._debug_label = f"opcua://{endpoint}"
 
     def connect(self) -> None:
         """建立 opc.tcp 会话(每次连接新建 asyncua 客户端与后台事件循环)。
@@ -102,7 +102,7 @@ class _OpcUaSession(BaseTransport):
         try:
             client = asyncua.sync.Client(self._endpoint, timeout=self._receive_timeout)
         except Exception as exc:
-            raise OSError("OPC-UA 会话创建失败:{}(请确认已 pip install omniplc[opcua])".format(exc))
+            raise OSError(f"OPC-UA 会话创建失败:{exc}(请确认已 pip install omniplc[opcua])")
         try:
             client.connect()
         except OSError:
@@ -170,7 +170,7 @@ class _OpcUaSession(BaseTransport):
         try:
             variant_type = getattr(asyncua.ua.VariantType, variant_name)
         except Exception:
-            raise OmniPLCInternalError("OPC-UA VariantType 解析失败:{}".format(variant_name))
+            raise OmniPLCInternalError(f"OPC-UA VariantType 解析失败:{variant_name}")
         try:
             self.client.get_node(node_text).write_value(value, variant_type)
         except OSError:
@@ -255,7 +255,7 @@ class OpcUaClient(BaseClient):
     def _read(self, address: str, data_type: DataType) -> PrimitiveValue:
         """读节点值并按数据类型校验/收窄。"""
         if data_type not in _VARIANT_TYPE_NAMES:
-            raise ValueError("OPC-UA 不支持的数据类型:{}".format(data_type))
+            raise ValueError(f"OPC-UA 不支持的数据类型:{data_type}")
         parsed = parse_opcua_nodeid(address)
         value = self._session().read_value(parsed.text)
         return _coerce_read(value, data_type, address)
@@ -263,7 +263,7 @@ class OpcUaClient(BaseClient):
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """按数据类型对应的 VariantType 写节点值。"""
         if data_type not in _VARIANT_TYPE_NAMES:
-            raise ValueError("OPC-UA 不支持的数据类型:{}".format(data_type))
+            raise ValueError(f"OPC-UA 不支持的数据类型:{data_type}")
         parsed = parse_opcua_nodeid(address)
         coerced, variant_name = _coerce_write(value, data_type)
         self._session().write_value(parsed.text, coerced, variant_name)
@@ -323,7 +323,7 @@ class OpcUaClient(BaseClient):
             data_type_enum = DataType.coerce(data_type)
             if data_type_enum not in _VARIANT_TYPE_NAMES:
                 raise ValueError(
-                    "OPC-UA 不支持的数据类型:{}".format(data_type_enum)
+                    f"OPC-UA 不支持的数据类型:{data_type_enum}"
                 )
             plan.append((parse_opcua_nodeid(address).text, data_type_enum))
 
@@ -350,7 +350,7 @@ def _build_endpoint(ip_address: str, port: int, path: str) -> str:
     :raises ValueError: 组装结果非法
     """
     cleaned = path.strip().strip("/")
-    url = "opc.tcp://{}:{}{}".format(ip_address.strip(), port, "/{}".format(cleaned) if cleaned else "")
+    url = "opc.tcp://{}:{}{}".format(ip_address.strip(), port, f"/{cleaned}" if cleaned else "")
     _validate_endpoint_url(url)
     return url
 
@@ -372,7 +372,7 @@ def _validate_endpoint_url(endpoint: str) -> None:
         )
     port_text = match.group(2)
     if port_text is not None and not 1 <= int(port_text) <= 65535:
-        raise ValueError("OPC-UA 端点端口必须在 1~65535 之间,收到:{}".format(port_text))
+        raise ValueError(f"OPC-UA 端点端口必须在 1~65535 之间,收到:{port_text}")
 
 
 def _coerce_read(value: Any, data_type: DataType, address: str) -> PrimitiveValue:
@@ -383,29 +383,29 @@ def _coerce_read(value: Any, data_type: DataType, address: str) -> PrimitiveValu
     :raises DeviceError: 节点值为空(设备侧条件,链路正常,不断线不重试)
     """
     if value is None:
-        raise DeviceError("OPC-UA 节点值为空:{}".format(address), 0)
+        raise DeviceError(f"OPC-UA 节点值为空:{address}", 0)
     if data_type is DataType.BOOL:
         if not isinstance(value, bool):
             raise ValueError(
-                "OPC-UA 节点返回类型不符(期望布尔):{} ← {!r}".format(address, value)
+                f"OPC-UA 节点返回类型不符(期望布尔):{address} ← {value!r}"
             )
         return value
     if data_type in (DataType.SHORT, DataType.USHORT, DataType.INT, DataType.UINT,
                      DataType.LONG, DataType.ULONG):
         if isinstance(value, bool) or not isinstance(value, int):
             raise ValueError(
-                "OPC-UA 节点返回类型不符(期望整数):{} ← {!r}".format(address, value)
+                f"OPC-UA 节点返回类型不符(期望整数):{address} ← {value!r}"
             )
         return value
     if data_type in (DataType.FLOAT, DataType.DOUBLE):
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError(
-                "OPC-UA 节点返回类型不符(期望数值):{} ← {!r}".format(address, value)
+                f"OPC-UA 节点返回类型不符(期望数值):{address} ← {value!r}"
             )
         return float(value)
     if not isinstance(value, str):
         raise ValueError(
-            "OPC-UA 节点返回类型不符(期望字符串):{} ← {!r}".format(address, value)
+            f"OPC-UA 节点返回类型不符(期望字符串):{address} ← {value!r}"
         )
     return value
 
@@ -432,7 +432,7 @@ def _coerce_write(value: PrimitiveValue, data_type: DataType) -> Tuple[Any, str]
         try:
             struct.pack("<f", number_f)
         except (OverflowError, ValueError) as exc:
-            raise ValueError("float 超出 float32 范围:{}".format(value)) from exc
+            raise ValueError(f"float 超出 float32 范围:{value}") from exc
         return number_f, variant_name
     if data_type is DataType.DOUBLE:
         return require_float(value), variant_name
@@ -456,4 +456,4 @@ def _require_int_range(number: int, data_type: DataType) -> None:
     """整数范围校验(内部函数)。"""
     low, high = _INT_RANGES[data_type]
     if not low <= number <= high:
-        raise ValueError("{} 超出范围 {}~{}:{}".format(data_type.name, low, high, number))
+        raise ValueError(f"{data_type.name} 超出范围 {low}~{high}:{number}")

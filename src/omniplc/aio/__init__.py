@@ -399,7 +399,7 @@ class ABaseClient:
     async def __aenter__(self: _A) -> _A:
         """进入 async with 时自动连接,失败抛 ConnectionError。"""
         if not await self.connect():
-            raise ConnectionError("连接失败:{}".format(self._sync.last_error))
+            raise ConnectionError(f"连接失败:{self._sync.last_error}")
         return self
 
     async def __aexit__(

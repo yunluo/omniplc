@@ -72,7 +72,7 @@ class ModbusBaseClient(BaseClient):
     def station(self, value: int) -> None:
         if not MODBUS_STATION_MIN <= value <= MODBUS_STATION_MAX:
             raise ValueError(
-                "站号必须在 {}~{} 之间,收到:{}".format(MODBUS_STATION_MIN, MODBUS_STATION_MAX, value)
+                f"站号必须在 {MODBUS_STATION_MIN}~{MODBUS_STATION_MAX} 之间,收到:{value}"
             )
         self._station = int(value)
 
@@ -106,7 +106,7 @@ class ModbusBaseClient(BaseClient):
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             registers = self._read_registers(parsed, 4)
             return _decode_64bit(registers, data_type, self._word_order)
-        raise ValueError("Modbus 不支持的数据类型:{}".format(data_type))
+        raise ValueError(f"Modbus 不支持的数据类型:{data_type}")
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """按数据类型分发到位/寄存器写原语。"""
@@ -136,13 +136,13 @@ class ModbusBaseClient(BaseClient):
             registers = list(convert.float64_to_registers(require_float(value), self._word_order))
             self._write_registers_impl(parsed, registers)
             return
-        raise ValueError("Modbus 不支持的数据类型:{}".format(data_type))
+        raise ValueError(f"Modbus 不支持的数据类型:{data_type}")
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """从寄存器区读字符串:连续寄存器 → 按大端拼字节 → 解码。"""
         parsed = parse_address(address)
         if parsed.area not in (ModbusArea.HOLDING_REGISTER, ModbusArea.INPUT_REGISTER):
-            raise ValueError("字符串只能从寄存器区域(hr/ir)读取,收到:{!r}".format(address))
+            raise ValueError(f"字符串只能从寄存器区域(hr/ir)读取,收到:{address!r}")
         registers = self._read_registers(parsed, (length + 1) // 2)
         data = b"".join(reg.to_bytes(2, "big") for reg in registers)[:length]
         return convert.decode_string(data, encoding)
@@ -151,7 +151,7 @@ class ModbusBaseClient(BaseClient):
         """向寄存器区写字符串:编码 → 补齐偶数字节 → 按大端拆寄存器。"""
         parsed = parse_address(address)
         if parsed.area != ModbusArea.HOLDING_REGISTER:
-            raise ValueError("字符串只能写入保持寄存器区域(hr),收到:{!r}".format(address))
+            raise ValueError(f"字符串只能写入保持寄存器区域(hr),收到:{address!r}")
         raw = convert.encode_string(value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding)
         registers = [
             int.from_bytes(raw[i:i + 2], "big") for i in range(0, len(raw), 2)
@@ -223,9 +223,9 @@ class ModbusBaseClient(BaseClient):
         """
         parsed = parse_address(address)
         if parsed.area != ModbusArea.HOLDING_REGISTER:
-            raise ValueError("掩码写只支持保持寄存器区域(hr),收到:{!r}".format(address))
+            raise ValueError(f"掩码写只支持保持寄存器区域(hr),收到:{address!r}")
         if parsed.bit is not None:
-            raise ValueError("掩码写地址不支持位号后缀:{!r}".format(address))
+            raise ValueError(f"掩码写地址不支持位号后缀:{address!r}")
         pdu = codec.build_mask_write_pdu(parsed.offset, int(and_mask), int(or_mask))
         ok, _ = self._execute(
             lambda: codec.parse_mask_write_response(self._transact(pdu), pdu),
@@ -290,11 +290,11 @@ class ModbusTcpClient(ModbusBaseClient):
         received_id, station, response_pdu = codec.parse_mbap(header + transport.recv(length - 1))
         if received_id != self._transaction_id:
             raise ProtocolFrameError(
-                "MBAP 事务号不匹配:期望 {},收到 {}".format(self._transaction_id, received_id)
+                f"MBAP 事务号不匹配:期望 {self._transaction_id},收到 {received_id}"
             )
         if station != self.station:
             raise ProtocolFrameError(
-                "MBAP 站号不匹配:期望 {},收到 {}".format(self.station, station)
+                f"MBAP 站号不匹配:期望 {self.station},收到 {station}"
             )
         codec.check_response_exception(response_pdu, pdu[0])
         return response_pdu
@@ -376,7 +376,7 @@ class ModbusRtuClient(ModbusBaseClient):
             )
         if received_station != station:
             raise ProtocolFrameError(
-                "RTU 站号不匹配:期望 {},收到 {}".format(station, received_station)
+                f"RTU 站号不匹配:期望 {station},收到 {received_station}"
             )
         codec.check_response_exception(response_pdu, pdu[0])
         return response_pdu
@@ -394,14 +394,14 @@ def _coerce_word_order(value: Union[WordOrder, str]) -> WordOrder:
         return WordOrder(str(value).strip().upper())
     except ValueError:
         valid = ", ".join(order.value for order in WordOrder)
-        raise ValueError("未知字序:{!r},支持:{}".format(value, valid))
+        raise ValueError(f"未知字序:{value!r},支持:{valid}")
 
 
 def _check_address(address: str, data_type: DataType) -> ModbusAddress:
     """地址校验:解析 + 类型与位访问的匹配检查。"""
     parsed = parse_address(address)
     if data_type is not DataType.BOOL and parsed.bit is not None:
-        raise ValueError("仅布尔类型支持位访问:{!r}".format(address))
+        raise ValueError(f"仅布尔类型支持位访问:{address!r}")
     return parsed
 
 
@@ -432,10 +432,10 @@ def _encode_32bit(value: PrimitiveValue, data_type: DataType, word_order: WordOr
     number = require_int(value)
     if data_type is DataType.INT:
         if not -2147483648 <= number <= 2147483647:
-            raise ValueError("int 超出 32 位范围:{}".format(number))
+            raise ValueError(f"int 超出 32 位范围:{number}")
         return list(convert.int32_to_registers(number, word_order))
     if not 0 <= number <= 4294967295:
-        raise ValueError("uint 超出 32 位范围:{}".format(number))
+        raise ValueError(f"uint 超出 32 位范围:{number}")
     return list(convert.uint32_to_registers(number, word_order))
 
 
@@ -444,8 +444,8 @@ def _encode_64bit(value: PrimitiveValue, data_type: DataType, word_order: WordOr
     number = require_int(value)
     if data_type is DataType.LONG:
         if not -9223372036854775808 <= number <= 9223372036854775807:
-            raise ValueError("long 超出 64 位范围:{}".format(number))
+            raise ValueError(f"long 超出 64 位范围:{number}")
         return list(convert.int64_to_registers(number, word_order))
     if not 0 <= number <= 18446744073709551615:
-        raise ValueError("ulong 超出 64 位范围:{}".format(number))
+        raise ValueError(f"ulong 超出 64 位范围:{number}")
     return list(convert.uint64_to_registers(number, word_order))

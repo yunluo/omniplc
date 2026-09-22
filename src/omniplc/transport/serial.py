@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from types import TracebackType
 from typing import Any, Optional, Union
 
 from .base import BaseTransport
@@ -49,11 +48,11 @@ class SerialConfig:
         if not self.port_name or not self.port_name.strip():
             raise ValueError("串口名 port_name 不能为空")
         if self.baud_rate <= 0:
-            raise ValueError("波特率必须大于 0,收到:{}".format(self.baud_rate))
+            raise ValueError(f"波特率必须大于 0,收到:{self.baud_rate}")
         if not 5 <= self.data_bits <= 8:
-            raise ValueError("数据位必须在 5~8 之间,收到:{}".format(self.data_bits))
+            raise ValueError(f"数据位必须在 5~8 之间,收到:{self.data_bits}")
         if self.stop_bits not in (1, 1.5, 2):
-            raise ValueError("停止位必须是 1/1.5/2,收到:{}".format(self.stop_bits))
+            raise ValueError(f"停止位必须是 1/1.5/2,收到:{self.stop_bits}")
         _coerce_parity(self.parity)
 
 
@@ -84,7 +83,7 @@ class SerialTransport(BaseTransport):
         config.validate()
         self._config = config
         self._serial: Optional[Any] = None
-        self._debug_label = "serial://{}({})".format(config.port_name, config.baud_rate)
+        self._debug_label = f"serial://{config.port_name}({config.baud_rate})"
 
     @BaseTransport.receive_timeout.setter  # type: ignore[attr-defined]
     def receive_timeout(self, seconds: float) -> None:
@@ -157,14 +156,14 @@ class SerialTransport(BaseTransport):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TransportTimeoutError(
-                    "串口读取超时(receive_timeout={})".format(self._receive_timeout),
+                    f"串口读取超时(receive_timeout={self._receive_timeout})",
                     0,
                 )
             port.timeout = remaining
             chunk = port.read(size - received)
             if not chunk:
                 raise TransportTimeoutError(
-                    "串口读取超时(receive_timeout={})".format(self._receive_timeout),
+                    f"串口读取超时(receive_timeout={self._receive_timeout})",
                     0,
                 )
             chunks.append(chunk)
@@ -179,18 +178,6 @@ class SerialTransport(BaseTransport):
             raise TransportClosedError("串口未打开,请先调用 connect()")
         return self._serial
 
-    def __enter__(self) -> "SerialTransport":
-        self.connect()
-        return self
-
-    def __exit__(
-        self,
-        exc_type: Optional[type] = None,
-        exc_val: Optional[BaseException] = None,
-        exc_tb: Optional[TracebackType] = None,
-    ) -> None:
-        self.close()
-
 
 def _coerce_parity(value: Union[SerialParity, str]) -> SerialParity:
     """把枚举成员或字符串统一解析为 SerialParity(内部函数)。"""
@@ -200,5 +187,5 @@ def _coerce_parity(value: Union[SerialParity, str]) -> SerialParity:
         return SerialParity(str(value).strip().upper())
     except ValueError:
         raise ValueError(
-            "校验位必须是 SerialParity 枚举或 N/E/O,收到:{!r}".format(value)
+            f"校验位必须是 SerialParity 枚举或 N/E/O,收到:{value!r}"
         )

@@ -97,10 +97,10 @@ class _OmronFinsBase(BaseClient):
         """FINS 读原语:存储区地址 → Area Read(0101)→ 按类型解码(大端)。"""
         parsed = parse_fins_address(address)
         if data_type is not DataType.BOOL and parsed.bit is not None:
-            raise ValueError("仅布尔类型支持位访问:{!r}".format(address))
+            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
         if parsed.area in FINS_TIMER_COUNTER_AREAS and parsed.bit is not None:
             raise ValueError(
-                "T/C 完成标志为单点位,地址不带位号:{!r}(示例:T0)".format(address)
+                f"T/C 完成标志为单点位,地址不带位号:{address!r}(示例:T0)"
             )
         if data_type is DataType.BOOL:
             return self._read_bit_impl(parsed)
@@ -110,7 +110,7 @@ class _OmronFinsBase(BaseClient):
             return _words_to_value(self._read_words(parsed, 2), data_type)
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             return _words_to_value(self._read_words(parsed, 4), data_type)
-        raise ValueError("FINS 不支持的数据类型:{}".format(data_type))
+        raise ValueError(f"FINS 不支持的数据类型:{data_type}")
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """FINS 写原语:Area Write(0102)。
@@ -119,10 +119,10 @@ class _OmronFinsBase(BaseClient):
         """
         parsed = parse_fins_address(address)
         if data_type is not DataType.BOOL and parsed.bit is not None:
-            raise ValueError("仅布尔类型支持位访问:{!r}".format(address))
+            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
         if parsed.area in FINS_TIMER_COUNTER_AREAS and parsed.bit is not None:
             raise ValueError(
-                "T/C 完成标志为单点位,地址不带位号:{!r}(示例:T0)".format(address)
+                f"T/C 完成标志为单点位,地址不带位号:{address!r}(示例:T0)"
             )
         if data_type is DataType.BOOL:
             flag = require_bool(value)
@@ -150,7 +150,7 @@ class _OmronFinsBase(BaseClient):
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             self._write_words(parsed, _value_to_words(value, data_type))
             return
-        raise ValueError("FINS 不支持的数据类型:{}".format(data_type))
+        raise ValueError(f"FINS 不支持的数据类型:{data_type}")
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """从字区读字符串:逐字大端拼字节后解码(FINS 字序约定)。"""
@@ -212,7 +212,7 @@ class _OmronFinsBase(BaseClient):
             if data_type_enum is DataType.BOOL:
                 if parsed.area in FINS_TIMER_COUNTER_AREAS:
                     raise ValueError(
-                        "T/C 完成标志不支持批量读取(0104 仅字区):{!r}".format(address)
+                        f"T/C 完成标志不支持批量读取(0104 仅字区):{address!r}"
                     )
                 _, word_code = codec.memory_codes(parsed.area, parsed.bank)
                 plan.append(("wordbit", len(entries), parsed.bit or 0, data_type_enum))
@@ -226,7 +226,7 @@ class _OmronFinsBase(BaseClient):
                 words = 4
             else:
                 raise ValueError(
-                    "FINS 批量读取不支持的数据类型:{}".format(data_type_enum)
+                    f"FINS 批量读取不支持的数据类型:{data_type_enum}"
                 )
             _, word_code = codec.memory_codes(parsed.area, parsed.bank)
             plan.append(("word", len(entries), words, data_type_enum))

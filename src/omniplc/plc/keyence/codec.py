@@ -44,26 +44,26 @@ def build_frame(body: str) -> bytes:
     if not body or not body.strip():
         raise ProtocolFrameError("KV Host Link 命令体不能为空")
     if any(ord(character) < 0x20 or ord(character) == 0x7F for character in body):
-        raise ProtocolFrameError("KV Host Link 命令体不能包含控制字符:{!r}".format(body))
+        raise ProtocolFrameError(f"KV Host Link 命令体不能包含控制字符:{body!r}")
     try:
         payload = body.strip().encode("ascii")
     except UnicodeEncodeError as exc:
-        raise ProtocolFrameError("KV Host Link 命令体必须为 ASCII:{!r}".format(body)) from exc
+        raise ProtocolFrameError(f"KV Host Link 命令体必须为 ASCII:{body!r}") from exc
     return payload + _CR
 
 
 def build_read(device_text: str, count: int = 1) -> bytes:
     """构造单点(RD)或连续(RDS)读命令帧。"""
     if count == 1:
-        return build_frame("RD {}".format(device_text))
+        return build_frame(f"RD {device_text}")
     if count < 1:
-        raise ValueError("连续读取点数必须大于 0,收到:{}".format(count))
-    return build_frame("RDS {} {}".format(device_text, count))
+        raise ValueError(f"连续读取点数必须大于 0,收到:{count}")
+    return build_frame(f"RDS {device_text} {count}")
 
 
 def build_write(device_text: str, value_text: str) -> bytes:
     """构造单点写命令帧(WR)。"""
-    return build_frame("WR {} {}".format(device_text, value_text))
+    return build_frame(f"WR {device_text} {value_text}")
 
 
 def build_write_consecutive(device_text: str, values: Sequence[str]) -> bytes:
@@ -84,11 +84,11 @@ def parse_response(raw: bytes) -> str:
         raise ProtocolFrameError("KV Host Link 响应为空")
     body = raw.rstrip(b"\r\n")
     if not body:
-        raise ProtocolFrameError("KV Host Link 响应行无效:{!r}".format(raw))
+        raise ProtocolFrameError(f"KV Host Link 响应行无效:{raw!r}")
     try:
         return body.decode("ascii")
     except UnicodeDecodeError as exc:
-        raise ProtocolFrameError("KV Host Link 响应不是 ASCII:{!r}".format(raw)) from exc
+        raise ProtocolFrameError(f"KV Host Link 响应不是 ASCII:{raw!r}") from exc
 
 
 def check_error_code(text: str) -> None:
@@ -117,7 +117,7 @@ def parse_bit_token(token: str) -> bool:
         return True
     if normalized in ("0", "OFF"):
         return False
-    raise ProtocolFrameError("无效的位响应令牌:{!r}(应为 0/1 或 OFF/ON)".format(token))
+    raise ProtocolFrameError(f"无效的位响应令牌:{token!r}(应为 0/1 或 OFF/ON)")
 
 
 def parse_word_token(token: str, data_format: str) -> int:
@@ -125,20 +125,20 @@ def parse_word_token(token: str, data_format: str) -> int:
     normalized = token.strip()
     if data_format == ".H":
         if not re.fullmatch(r"[0-9A-Fa-f]{1,4}", normalized):
-            raise ProtocolFrameError("无效的十六进制响应令牌:{!r}".format(token))
+            raise ProtocolFrameError(f"无效的十六进制响应令牌:{token!r}")
         return int(normalized, 16)
     rules = _TOKEN_RULES.get(data_format)
     if rules is None:
-        raise ProtocolFrameError("不支持的数据格式:{!r}".format(data_format))
+        raise ProtocolFrameError(f"不支持的数据格式:{data_format!r}")
     pattern, low, high = rules
     if not re.fullmatch(pattern, normalized):
         raise ProtocolFrameError(
-            "无效的数值响应令牌:{!r}(格式 {})".format(token, data_format)
+            f"无效的数值响应令牌:{token!r}(格式 {data_format})"
         )
     value = int(normalized, 10)
     if not low <= value <= high:
         raise ProtocolFrameError(
-            "数值响应令牌超出 {} 范围:{!r}".format(data_format, token)
+            f"数值响应令牌超出 {data_format} 范围:{token!r}"
         )
     return value
 

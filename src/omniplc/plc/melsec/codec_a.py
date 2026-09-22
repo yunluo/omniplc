@@ -56,10 +56,10 @@ def device_number(device: str, number: str, base: int) -> int:
         value = int(number, base)
     except ValueError:
         raise ValueError(
-            "软元件 {} 编号按 {} 进制解析失败:{!r}".format(device, base, number)
+            f"软元件 {device} 编号按 {base} 进制解析失败:{number!r}"
         )
     if value > 0xFFFF:
-        raise ValueError("1E 软元件编号超出 2 字节范围:{}".format(value))
+        raise ValueError(f"1E 软元件编号超出 2 字节范围:{value}")
     return value
 
 
@@ -86,10 +86,10 @@ def build_request(
     code, is_bit_device, base = device_info(address.device)
     if is_bit and not is_bit_device:
         raise ValueError(
-            "字软元件 {} 不支持位单位成批访问,请按字访问后提取位".format(address.device)
+            f"字软元件 {address.device} 不支持位单位成批访问,请按字访问后提取位"
         )
     if not 1 <= points <= MC_1E_MAX_POINTS:
-        raise ValueError("1E 访问点数超出范围 1~{}:{}".format(MC_1E_MAX_POINTS, points))
+        raise ValueError(f"1E 访问点数超出范围 1~{MC_1E_MAX_POINTS}:{points}")
     number = device_number(address.device, address.number, base)
 
     if is_write:
@@ -133,7 +133,7 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
     if end_code != 0:
         if end_code == MC_1E_ERROR_EXTRA and len(frame) < MC_1E_RESPONSE_HEAD_SIZE + MC_1E_ERROR_EXTRA_SIZE:
             raise ProtocolFrameError("1E 错误响应缺少扩展信息字节")
-        raise DeviceError("MC(1E) 结束代码 0x{:02X},详见 A 系列手册".format(end_code), end_code)
+        raise DeviceError(f"MC(1E) 结束代码 0x{end_code:02X},详见 A 系列手册", end_code)
     if not is_read:
         return []
     expected = (points + 1) // 2 if is_bit else points * 2
@@ -162,5 +162,5 @@ def _write_payload(points: int, is_bit: bool, data: List[int]) -> bytes:
         return bytes(packed)
     for word in data:
         if not 0 <= word <= 0xFFFF:
-            raise ValueError("字写数据超出范围 0~65535:{}".format(word))
+            raise ValueError(f"字写数据超出范围 0~65535:{word}")
     return b"".join(word.to_bytes(2, "little") for word in data)

@@ -59,9 +59,9 @@ class TagTable(Mapping[str, Tag]):
         if not tag.name or not tag.name.strip():
             raise ValueError("点位名称不能为空")
         if not tag.address or not tag.address.strip():
-            raise ValueError("点位 {!r} 的地址不能为空".format(tag.name))
+            raise ValueError(f"点位 {tag.name!r} 的地址不能为空")
         if tag.name in self._tags:
-            raise ValueError("点位名称重复:{!r}".format(tag.name))
+            raise ValueError(f"点位名称重复:{tag.name!r}")
         self._tags[tag.name] = tag
 
     @classmethod
@@ -101,7 +101,7 @@ class TagTable(Mapping[str, Tag]):
             names = reader.fieldnames or []
             for required in ("name", "address", "data_type"):
                 if required not in names:
-                    raise ValueError("CSV 缺少必需列:{!r},表头:{}".format(required, names))
+                    raise ValueError(f"CSV 缺少必需列:{required!r},表头:{names}")
             return cls(_tag_from_record(row) for row in reader)
 
     def __getitem__(self, key: str) -> Tag:
@@ -127,7 +127,7 @@ def _tag_from_record(record: Mapping[str, object]) -> Tag:
         address = str(record["address"]).strip()
         data_type = str(record["data_type"]).strip().lower()
     except KeyError as exc:
-        raise ValueError("点位记录缺少必需字段:{},记录:{}".format(exc, record)) from exc
+        raise ValueError(f"点位记录缺少必需字段:{exc},记录:{record}") from exc
     scale = _to_float(record.get("scale"), 1.0)
     offset = _to_float(record.get("offset"), 0.0)
     return Tag(name=name, address=address, data_type=data_type, scale=scale, offset=offset)

@@ -68,8 +68,8 @@ def station_text(station: int) -> str:
     if station == MEWTOCOL_STATION_DIRECT:
         return "EE"
     if not 1 <= station <= 99:
-        raise ValueError("MEWTOCOL 站号必须在 1~99 或 0xEE(直连):{}".format(station))
-    return "{:02d}".format(station)
+        raise ValueError(f"MEWTOCOL 站号必须在 1~99 或 0xEE(直连):{station}")
+    return f"{station:02d}"
 
 
 def bcc(text: str) -> str:
@@ -77,12 +77,12 @@ def bcc(text: str) -> str:
     value = 0
     for char in text:
         value ^= ord(char)
-    return "{:02X}".format(value)
+    return f"{value:02X}"
 
 
 def build_read_contact(station: str, area: str, word: int, bit: int) -> bytes:
     """构造 RCS 读单接点请求。"""
-    return _assemble(station, "RCS{}{:03d}{:X}".format(area, word, bit))
+    return _assemble(station, f"RCS{area}{word:03d}{bit:X}")
 
 
 def build_write_contact(station: str, area: str, word: int, bit: int, value: bool) -> bytes:
@@ -93,14 +93,14 @@ def build_write_contact(station: str, area: str, word: int, bit: int, value: boo
 def build_read_words(station: str, area: str, start: int, word_count: int) -> bytes:
     """构造 RD 数据区读请求(起止编号各 5 位十进制)。"""
     end = start + word_count - 1
-    return _assemble(station, "RD{}{:05d}{:05d}".format(area, start, end))
+    return _assemble(station, f"RD{area}{start:05d}{end:05d}")
 
 
 def build_write_words(station: str, area: str, start: int, words: List[int]) -> bytes:
     """构造 WD 数据区写请求,逐字 4 位十六进制、高字节在前。"""
     end = start + len(words) - 1
-    data = "".join("{:04X}".format(word) for word in words)
-    return _assemble(station, "WD{}{:05d}{:05d}{}".format(area, start, end, data))
+    data = "".join(f"{word:04X}" for word in words)
+    return _assemble(station, f"WD{area}{start:05d}{end:05d}{data}")
 
 
 def parse_response(response: bytes, station: str, command: str) -> str:
@@ -137,12 +137,12 @@ def parse_response(response: bytes, station: str, command: str) -> str:
         code = text[4:6]
         message = _ERROR_MESSAGES.get(code, "未知错误")
         raise DeviceError(
-            "MEWTOCOL 错误码 {}:{}".format(code, message), int(code)
+            f"MEWTOCOL 错误码 {code}:{message}", int(code)
         )
     echo = text[4:6]
     if echo != command:
         raise ProtocolFrameError(
-            "MEWTOCOL 命令回显不匹配:期望 {},收到 {}".format(command, echo)
+            f"MEWTOCOL 命令回显不匹配:期望 {command},收到 {echo}"
         )
     return text[_RESPONSE_DATA_OFFSET:-3]
 
@@ -154,5 +154,5 @@ def parse_expected_size(data_chars: int) -> int:
 
 def _assemble(station: str, command_text: str) -> bytes:
     """组装完整请求帧:%HH#文本 + BCC + CR(内部函数)。"""
-    body = "%{}#{}".format(station, command_text)
+    body = f"%{station}#{command_text}"
     return (body + bcc(body) + "\r").encode("ascii")

@@ -62,7 +62,7 @@ def parse_opcua_nodeid(address: str) -> OpcUaNodeId:
     kind, _, id_body = identifier.partition("=")
     kind = kind.lower()
     if kind == "i" and int(id_body) > 0xFFFFFFFF:
-        raise ValueError("OPC-UA 数字标识符超出 32 位范围:{!r}".format(address))
-    text = "{}={}".format(kind, id_body) if namespace == 0 \
-        else "ns={};{}={}".format(namespace, kind, id_body)
+        raise ValueError(f"OPC-UA 数字标识符超出 32 位范围:{address!r}")
+    text = f"{kind}={id_body}" if namespace == 0 \
+        else f"ns={namespace};{kind}={id_body}"
     return OpcUaNodeId(namespace=namespace, text=text)

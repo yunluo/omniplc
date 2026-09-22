@@ -92,7 +92,7 @@ def log_op(label: str, message: str, *args: object) -> None:
 def _format_hex(data: bytes) -> str:
     """十六进制转储(大写、空格分隔;超长截断并注明,内部函数)。"""
     dumped = data[:_MAX_DUMP_BYTES]
-    text = " ".join("{:02X}".format(byte) for byte in dumped)
+    text = " ".join(f"{byte:02X}" for byte in dumped)
     if len(data) > len(dumped):
         text += " …(仅转储前 {}B,共 {}B)".format(_MAX_DUMP_BYTES, len(data))
     return text

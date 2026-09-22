@@ -44,7 +44,7 @@ def validate_endpoint(ip_address: str, port: int) -> None:
     if not ip_address or not ip_address.strip():
         raise ValueError("ip_address 不能为空")
     if not 1 <= int(port) <= 65535:
-        raise ValueError("port 必须在 1~65535 之间,收到:{}".format(port))
+        raise ValueError(f"port 必须在 1~65535 之间,收到:{port}")
 
 
 class BaseClient(ABC):
@@ -81,12 +81,17 @@ class BaseClient(ABC):
         self._connected: bool = False
         self._last_error: Optional[str] = None
         self._tag_table: Optional[TagTable] = None
-        self._stats: Dict[str, Union[int, float, None]] = {
+        # 连接健康统计:计数器(int)与时间戳(float)分两组,避免 mypy 在
+        # `Dict[str, Union[int, float, None]]` 上把 `+= 1` 误判为非法运算;
+        # 公开 stats 属性再合并为单 dict 快照。
+        self._counters: Dict[str, int] = {
             "connect_count": 0,
             "disconnect_count": 0,
             "transactions": 0,
             "error_count": 0,
             "device_error_count": 0,
+        }
+        self._timestamps: Dict[str, Optional[float]] = {
             "last_error_at": None,
             "last_connect_at": None,
             "last_success_at": None,
@@ -140,8 +145,8 @@ class BaseClient(ABC):
                 return False
             self._connected = True
             self._last_error = None
-            self._stats["connect_count"] += 1  # type: ignore[operator]
-            self._stats["last_connect_at"] = time.monotonic()
+            self._counters["connect_count"] += 1
+            self._timestamps["last_connect_at"] = time.monotonic()
             return True
 
     def disconnect(self) -> bool:
@@ -158,10 +163,10 @@ class BaseClient(ABC):
             try:
                 transport.close()
             except OSError as exc:
-                self._last_error = "关闭连接失败:{}".format(exc)
+                self._last_error = f"关闭连接失败:{exc}"
                 self._record_error()
                 return False
-            self._stats["disconnect_count"] += 1  # type: ignore[operator]
+            self._counters["disconnect_count"] += 1
             return True
 
     @property
@@ -182,7 +187,7 @@ class BaseClient(ABC):
     @connect_timeout.setter
     def connect_timeout(self, seconds: float) -> None:
         if seconds <= 0:
-            raise ValueError("connect_timeout 必须大于 0,收到:{}".format(seconds))
+            raise ValueError(f"connect_timeout 必须大于 0,收到:{seconds}")
         with self._lock:
             self._connect_timeout = float(seconds)
             if self._transport is not None:
@@ -196,7 +201,7 @@ class BaseClient(ABC):
     @receive_timeout.setter
     def receive_timeout(self, seconds: float) -> None:
         if seconds <= 0:
-            raise ValueError("receive_timeout 必须大于 0,收到:{}".format(seconds))
+            raise ValueError(f"receive_timeout 必须大于 0,收到:{seconds}")
         with self._lock:
             self._receive_timeout = float(seconds)
             if self._transport is not None:
@@ -213,7 +218,7 @@ class BaseClient(ABC):
     @retries.setter
     def retries(self, count: int) -> None:
         if count < 0:
-            raise ValueError("retries 不能为负数,收到:{}".format(count))
+            raise ValueError(f"retries 不能为负数,收到:{count}")
         self._retries = int(count)
 
     @property
@@ -224,7 +229,7 @@ class BaseClient(ABC):
     @write_retries.setter
     def write_retries(self, count: int) -> None:
         if count < 0:
-            raise ValueError("write_retries 不能为负数,收到:{}".format(count))
+            raise ValueError(f"write_retries 不能为负数,收到:{count}")
         self._write_retries = int(count)
 
     @property
@@ -253,12 +258,12 @@ class BaseClient(ABC):
         出错/多久没成功"。
         """
         with self._lock:
-            return dict(self._stats)
+            return dict(self._counters, **self._timestamps)
 
     def _record_error(self) -> None:
         """登记一次失败(错误计数 + 时间戳,内部方法,须锁内调用)。"""
-        self._stats["error_count"] += 1  # type: ignore[operator]
-        self._stats["last_error_at"] = time.monotonic()
+        self._counters["error_count"] += 1
+        self._timestamps["last_error_at"] = time.monotonic()
 
     # ------------------------------------------------------------------
     # 通用读写(模板方法,公共 API)
@@ -377,7 +382,7 @@ class BaseClient(ABC):
         :param encoding: 字符编码,默认 ASCII
         """
         if length <= 0:
-            raise ValueError("length 必须大于 0,收到:{}".format(length))
+            raise ValueError(f"length 必须大于 0,收到:{length}")
         ok, value = self._execute(lambda: self._read_string(address, length, encoding))
         if not ok or value is None:
             return False, None
@@ -479,11 +484,11 @@ class BaseClient(ABC):
         if isinstance(tag, Tag):
             return tag
         if self._tag_table is None:
-            raise ValueError("未绑定 TagTable,无法按名称读写:{!r}".format(tag))
+            raise ValueError(f"未绑定 TagTable,无法按名称读写:{tag!r}")
         try:
             return self._tag_table[tag]
         except KeyError:
-            raise ValueError("点位表中不存在:{!r}".format(tag))
+            raise ValueError(f"点位表中不存在:{tag!r}")
 
     # ------------------------------------------------------------------
     # 事务执行:惰性重连 + 重试 + 错误转换(线程安全核心)
@@ -505,7 +510,7 @@ class BaseClient(ABC):
         """
         retries = self._write_retries if is_write else self._retries
         with self._lock:
-            self._stats["transactions"] += 1  # type: ignore[operator]
+            self._counters["transactions"] += 1
             started = time.perf_counter()
             for attempt in range(retries + 1):
                 if not self._connected and not self.connect():
@@ -514,12 +519,12 @@ class BaseClient(ABC):
                 try:
                     value = operation()
                     self._last_error = None
-                    self._stats["last_success_at"] = time.monotonic()
-                    self._stats["last_rtt"] = time.perf_counter() - started
+                    self._timestamps["last_success_at"] = time.monotonic()
+                    self._timestamps["last_rtt"] = time.perf_counter() - started
                     return True, value
                 except DeviceError as exc:
                     self._last_error = _describe(exc)
-                    self._stats["device_error_count"] += 1  # type: ignore[operator]
+                    self._counters["device_error_count"] += 1
                     self._record_error()
                     return False, None
                 except (OSError, OmniPLCInternalError) as exc:
@@ -537,7 +542,7 @@ class BaseClient(ABC):
             except OSError:
                 pass
             self._transport = None
-            self._stats["disconnect_count"] += 1  # type: ignore[operator]
+            self._counters["disconnect_count"] += 1
 
     # ------------------------------------------------------------------
     # 上下文管理器
@@ -546,7 +551,7 @@ class BaseClient(ABC):
     def __enter__(self: _C) -> _C:
         """进入 with 时自动连接,失败抛 ConnectionError(与 pyhsl 一致)。"""
         if not self.connect():
-            raise ConnectionError("连接失败:{}".format(self._last_error))
+            raise ConnectionError(f"连接失败:{self._last_error}")
         return self
 
     def __exit__(

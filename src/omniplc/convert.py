@@ -50,7 +50,7 @@ def get_bit(value: int, bit: int) -> bool:
     :raises ValueError: bit 超出允许范围
     """
     if not 0 <= bit <= BIT_INDEX_MAX:
-        raise ValueError("bit 必须在 0~{} 之间,收到:{}".format(BIT_INDEX_MAX, bit))
+        raise ValueError(f"bit 必须在 0~{BIT_INDEX_MAX} 之间,收到:{bit}")
     return (int(value) >> bit) & 0x01 == 0x01
 
 
@@ -60,7 +60,7 @@ def set_bit(value: int, bit: int, on: bool) -> int:
     :raises ValueError: bit 超出允许范围
     """
     if not 0 <= bit <= BIT_INDEX_MAX:
-        raise ValueError("bit 必须在 0~{} 之间,收到:{}".format(BIT_INDEX_MAX, bit))
+        raise ValueError(f"bit 必须在 0~{BIT_INDEX_MAX} 之间,收到:{bit}")
     value = int(value)
     if on:
         return value | (1 << bit)
@@ -76,7 +76,7 @@ def to_signed(raw: int, bits: int) -> int:
     """
     raw = int(raw)
     if not 0 <= raw < (1 << bits):
-        raise ValueError("无符号原始值超出 {} 位范围:{}".format(bits, raw))
+        raise ValueError(f"无符号原始值超出 {bits} 位范围:{raw}")
     return raw - (1 << bits) if raw >= 1 << (bits - 1) else raw
 
 
@@ -128,7 +128,7 @@ def short_to_bytes(value: int, byteorder: Union[ByteOrder, str] = ByteOrder.BIG)
     """
     number = int(value)
     if not -32768 <= number <= 32767:
-        raise ValueError("short 超出范围 -32768~32767:{}".format(number))
+        raise ValueError(f"short 超出范围 -32768~32767:{number}")
     return number.to_bytes(2, _byteorder(byteorder), signed=True)
 
 
@@ -139,7 +139,7 @@ def ushort_to_bytes(value: int, byteorder: Union[ByteOrder, str] = ByteOrder.BIG
     """
     number = int(value)
     if not 0 <= number <= 65535:
-        raise ValueError("ushort 超出范围 0~65535:{}".format(number))
+        raise ValueError(f"ushort 超出范围 0~65535:{number}")
     return number.to_bytes(2, _byteorder(byteorder), signed=False)
 
 
@@ -257,7 +257,7 @@ def _byteorder(byteorder: Union[ByteOrder, str]) -> Any:
         return cast(Any, byteorder.value)
     if byteorder in ("big", "little"):
         return cast(Any, byteorder)
-    raise ValueError("byteorder 必须是 ByteOrder.BIG/LITTLE 或 big/little,收到:{!r}".format(byteorder))
+    raise ValueError(f"byteorder 必须是 ByteOrder.BIG/LITTLE 或 big/little,收到:{byteorder!r}")
 
 
 def registers_to_canonical(

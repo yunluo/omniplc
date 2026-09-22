@@ -36,7 +36,7 @@ def build_command(cmd: int, data: bytes = b"") -> bytes:
     :raises ProtocolFrameError: 命令码非法或数据超出 16 位帧长
     """
     if not 0 <= cmd <= 0xFF:
-        raise ProtocolFrameError("TOYOPUC 命令码非法:0x{:X}".format(cmd))
+        raise ProtocolFrameError(f"TOYOPUC 命令码非法:0x{cmd:X}")
     payload = bytes(data)
     length = 1 + len(payload)
     if length > 0xFFFF:
@@ -47,7 +47,7 @@ def build_command(cmd: int, data: bytes = b"") -> bytes:
 def pack_u16(value: int) -> bytes:
     """16 位无符号整数 → 小端两字节(越界抛错,内部函数)。"""
     if not 0 <= value <= 0xFFFF:
-        raise ValueError("16 位无符号数值越界:{}".format(value))
+        raise ValueError(f"16 位无符号数值越界:{value}")
     return bytes((value & 0xFF, value >> 8))
 
 
@@ -61,7 +61,7 @@ def unpack_u16(data: bytes) -> List[int]:
 def build_word_read(address: int, count: int) -> bytes:
     """构造连续字读命令帧(CMD=1C)。"""
     if not 1 <= count <= TOYOPUC_MAX_WORD_COUNT:
-        raise ValueError("连续字读取点数必须在 1~{},收到:{}".format(TOYOPUC_MAX_WORD_COUNT, count))
+        raise ValueError(f"连续字读取点数必须在 1~{TOYOPUC_MAX_WORD_COUNT},收到:{count}")
     return build_command(TOYOPUC_CMD_WORD_READ, pack_u16(address) + pack_u16(count))
 
 
@@ -76,7 +76,7 @@ def build_word_write(address: int, values: Sequence[int]) -> bytes:
 def build_byte_read(address: int, count: int) -> bytes:
     """构造连续字节读命令帧(CMD=1E)。"""
     if not 1 <= count <= TOYOPUC_MAX_BYTE_COUNT:
-        raise ValueError("连续字节读取点数必须在 1~{},收到:{}".format(TOYOPUC_MAX_BYTE_COUNT, count))
+        raise ValueError(f"连续字节读取点数必须在 1~{TOYOPUC_MAX_BYTE_COUNT},收到:{count}")
     return build_command(TOYOPUC_CMD_BYTE_READ, pack_u16(address) + pack_u16(count))
 
 
@@ -113,7 +113,7 @@ def parse_response(frame: bytes) -> Tuple[int, int, bytes]:
             "TOYOPUC 响应帧长不符:收到 {},应为 {}".format(len(frame), 4 + length)
         )
     if frame_type != TOYOPUC_FT_RESPONSE:
-        raise ProtocolFrameError("TOYOPUC 响应 FT 非法:0x{:02X}".format(frame_type))
+        raise ProtocolFrameError(f"TOYOPUC 响应 FT 非法:0x{frame_type:02X}")
     return frame[4], rc, frame[5:]
 
 
@@ -135,11 +135,11 @@ def check_response(
                 detail,
             )
         raise DeviceError(
-            "TOYOPUC 响应出错 RC=0x{:02X},请查阅 TOYOPUC 手册".format(rc), rc
+            f"TOYOPUC 响应出错 RC=0x{rc:02X},请查阅 TOYOPUC 手册", rc
         )
     if cmd != request_cmd:
         raise ProtocolFrameError(
-            "TOYOPUC 响应命令字不符:期望 0x{:02X},收到 0x{:02X}".format(request_cmd, cmd)
+            f"TOYOPUC 响应命令字不符:期望 0x{request_cmd:02X},收到 0x{cmd:02X}"
         )
     if expected_size is not None and len(data) != expected_size:
         raise ProtocolFrameError(

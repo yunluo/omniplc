@@ -71,10 +71,10 @@ def _parse_document(body: bytes) -> ElementTree.Element:
     try:
         root = ElementTree.fromstring(body)
     except ElementTree.ParseError as exc:
-        raise ProtocolFrameError("MTConnect 响应不是合法 XML:{}".format(exc)) from exc
+        raise ProtocolFrameError(f"MTConnect 响应不是合法 XML:{exc}") from exc
     name = _local_name(root.tag)
     if name not in ("MTConnectStreams", "MTConnectDevices", "MTConnectError"):
-        raise ProtocolFrameError("MTConnect 响应文档类型非法:{}".format(name))
+        raise ProtocolFrameError(f"MTConnect 响应文档类型非法:{name}")
     return root
 
 
@@ -110,7 +110,7 @@ class _MtConnectSession(BaseTransport):
         self._ip_address = ip_address
         self._port = port
         self._conn: Optional[http.client.HTTPConnection] = None
-        self._debug_label = "mtc://{}:{}".format(ip_address, port)
+        self._debug_label = f"mtc://{ip_address}:{port}"
 
     def connect(self) -> None:
         """创建 HTTP 会话(每次连接新建连接对象)。
@@ -151,7 +151,7 @@ class _MtConnectSession(BaseTransport):
             body = response.read()
             status = int(response.status)
         except http.client.HTTPException as exc:
-            raise OSError("MTConnect HTTP 协议异常:{}".format(exc)) from exc
+            raise OSError(f"MTConnect HTTP 协议异常:{exc}") from exc
         log_op(self._debug_label, "GET %s → HTTP %d(%dB)", path, status, len(body))
         if status == 200:
             return body
@@ -163,7 +163,7 @@ class _MtConnectSession(BaseTransport):
             )
         info = _error_of_document(root)
         if info is None:
-            raise OSError("MTConnect HTTP 状态 {} 响应非错误文档".format(status))
+            raise OSError(f"MTConnect HTTP 状态 {status} 响应非错误文档")
         raise DeviceError(
             "MTConnect HTTP {} {}:{}".format(status, info[0], info[1]), 0
         )
@@ -295,15 +295,15 @@ class MTConnectClient(BaseClient):
     def _read(self, address: str, data_type: DataType) -> PrimitiveValue:
         """读数据项并按数据类型收窄(值不可用时抛 DeviceError,不断线)。"""
         if data_type not in _SUPPORTED_TYPES:
-            raise ValueError("MTConnect 不支持的数据类型:{}".format(data_type))
+            raise ValueError(f"MTConnect 不支持的数据类型:{data_type}")
         text = _check_address(address)
         items = self._fetch_items()
         if text not in items:
-            raise DeviceError("MTConnect 数据项不存在:{}".format(text), 0)
+            raise DeviceError(f"MTConnect 数据项不存在:{text}", 0)
         value = items[text]
         if value.lower() in _UNAVAILABLE_VALUES:
             raise DeviceError(
-                "MTConnect 数据项当前不可用:{}={}".format(text, value), 0
+                f"MTConnect 数据项当前不可用:{text}={value}", 0
             )
         return _coerce(value, data_type, address)
 
@@ -363,7 +363,7 @@ def _coerce(value: str, data_type: DataType, address: str) -> PrimitiveValue:
             return True
         if lowered in _BOOL_FALSE:
             return False
-        raise ValueError("MTConnect 数据项不是布尔量:{} ← {!r}".format(address, value))
+        raise ValueError(f"MTConnect 数据项不是布尔量:{address} ← {value!r}")
     if data_type is DataType.STRING:
         return value
     if data_type in (DataType.FLOAT, DataType.DOUBLE):
@@ -371,11 +371,11 @@ def _coerce(value: str, data_type: DataType, address: str) -> PrimitiveValue:
             return float(value)
         except ValueError:
             raise ValueError(
-                "MTConnect 数据项不是数值:{} ← {!r}".format(address, value)
+                f"MTConnect 数据项不是数值:{address} ← {value!r}"
             )
     try:
         return int(value)
     except ValueError:
         raise ValueError(
-            "MTConnect 数据项不是整数:{} ← {!r}".format(address, value)
+            f"MTConnect 数据项不是整数:{address} ← {value!r}"
         )

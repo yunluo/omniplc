@@ -58,7 +58,7 @@ DLE: int = 0x10
 """控制码:DLE(4C 格式 5 帧定界与附加码)。"""
 
 _CRLF = b"\r\n"
-_ID_3C_TEXT = "{:02X}".format(MC_SERIAL_FRAME_ID_3C).encode("ascii")
+_ID_3C_TEXT = f"{MC_SERIAL_FRAME_ID_3C:02X}".encode("ascii")
 _COMMAND_READ_TEXT = "0401"
 """成批读命令的 ASCII 标识符原文(二进制帧按 0x0104 大端两字节发送)。"""
 _COMMAND_WRITE_TEXT = "1401"
@@ -76,7 +76,7 @@ def check_station_number(station: int) -> int:
     """校验站号(0~31),非法抛 :class:`ValueError`。"""
     if not 0 <= int(station) <= MC_SERIAL_STATION_MAX:
         raise ValueError(
-            "站号必须在 0~{} 之间,收到:{}".format(MC_SERIAL_STATION_MAX, station)
+            f"站号必须在 0~{MC_SERIAL_STATION_MAX} 之间,收到:{station}"
         )
     return int(station)
 
@@ -85,7 +85,7 @@ def check_pc_number(pc_number: int) -> int:
     """校验 PC 编号(0~3 或 0xFF),非法抛 :class:`ValueError`。"""
     value = int(pc_number)
     if value != 0xFF and not 0 <= value <= 3:
-        raise ValueError("PC 编号必须是 0~3 或 0xFF,收到:{}".format(pc_number))
+        raise ValueError(f"PC 编号必须是 0~3 或 0xFF,收到:{pc_number}")
     return value
 
 
@@ -152,7 +152,7 @@ def parse_3c_response(
         _check_3c_frame_id(response[1:3])
         _check_crlf(response[15:17], "3C 异常响应")
         status = _hex_int(response[11:15])
-        raise DeviceError("MC 错误代码 0x{:04X},详见 MELSEC 手册".format(status), status)
+        raise DeviceError(f"MC 错误代码 0x{status:04X},详见 MELSEC 手册", status)
     if head == ACK:
         if len(response) != 13:
             raise ProtocolFrameError(
@@ -162,7 +162,7 @@ def parse_3c_response(
         _check_crlf(response[11:13], "3C 写响应")
         return []
     if head != STX:
-        raise ProtocolFrameError("3C 响应控制码非法:0x{:02X}".format(head))
+        raise ProtocolFrameError(f"3C 响应控制码非法:0x{head:02X}")
     expected = _data_chars(points, is_bit) if is_read else 0
     total = 1 + 2 + 8 + expected + 1 + 2 + 2
     if len(response) != total:
@@ -187,7 +187,7 @@ def parse_3c_response(
     data_text = response[11:11 + expected].decode("ascii")
     if is_bit:
         if not set(data_text) <= {"0", "1"}:
-            raise ProtocolFrameError("3C 位读数据含非 0/1 字符:{!r}".format(data_text))
+            raise ProtocolFrameError(f"3C 位读数据含非 0/1 字符:{data_text!r}")
         return [1 if char == "1" else 0 for char in data_text]
     return [_hex_int(data_text[i:i + 4].encode("ascii")) for i in range(0, expected, 4)]
 
@@ -248,7 +248,7 @@ def build_4c_request(
         bytes([DLE, STX])
         + payload
         + bytes([DLE, ETX])
-        + "{:02X}".format(total).encode("ascii")
+        + f"{total:02X}".encode("ascii")
     )
 
 
@@ -273,7 +273,7 @@ def parse_4c_response(
     length = int.from_bytes(frame[0:2], "little")
     if length < 12:
         raise ProtocolFrameError(
-            "4C 应答数据长非法(至少含帧识别码+路由+应答识别码+结束代码):{}".format(length)
+            f"4C 应答数据长非法(至少含帧识别码+路由+应答识别码+结束代码):{length}"
         )
     body_size = length - 1
     if len(frame) != 2 + length + 4:
@@ -305,7 +305,7 @@ def parse_4c_response(
         )
     status = int.from_bytes(body[9:11], "little")
     if status != 0:
-        raise DeviceError("MC 结束代码 0x{:04X},详见 MELSEC 手册".format(status), status)
+        raise DeviceError(f"MC 结束代码 0x{status:04X},详见 MELSEC 手册", status)
     if not is_read:
         return []
     data = body[11:]
@@ -345,7 +345,7 @@ def _check_3c_frame_id(raw: bytes) -> None:
 def _check_crlf(raw: bytes, label: str) -> None:
     """校验帧尾 CR LF(内部函数)。"""
     if raw != _CRLF:
-        raise ProtocolFrameError("{}必须以 CR LF 结尾".format(label))
+        raise ProtocolFrameError(f"{label}必须以 CR LF 结尾")
 
 
 def _hex_int(raw: bytes) -> int:
@@ -374,24 +374,24 @@ def _ascii_core(
     code, is_bit_device, base = codec_qna.device_info(address.device, codes)
     if is_bit and not is_bit_device:
         raise ValueError(
-            "字软元件 {} 不支持位单位成批访问,请按字访问后提取位".format(address.device)
+            f"字软元件 {address.device} 不支持位单位成批访问,请按字访问后提取位"
         )
     if not 1 <= points <= MC_MAX_TRANSFER_POINTS:
         raise ValueError(
-            "MC 访问点数超出范围 1~{}:{}".format(MC_MAX_TRANSFER_POINTS, points)
+            f"MC 访问点数超出范围 1~{MC_MAX_TRANSFER_POINTS}:{points}"
         )
     number = codec_qna.device_number(address.device, address.number, base)
     if base == 16 and number > 0xFFFFFF or base == 10 and number > _MAX_DEC_NUMBER:
         raise ValueError(
-            "MC 软元件 {} 编号超出 6 位表示范围:{}".format(address.device, number)
+            f"MC 软元件 {address.device} 编号超出 6 位表示范围:{number}"
         )
     command = _COMMAND_WRITE_TEXT if is_write else _COMMAND_READ_TEXT
     subcommand = "{:04X}".format(
         MC_SUBCOMMAND_BIT_UNITS if is_bit else MC_SUBCOMMAND_WORD_UNITS
     )
-    device_code = "{:*<2}".format(address.device)
-    number_text = "{:06X}".format(number) if base == 16 else "{:06d}".format(number)
-    core = command + subcommand + device_code + number_text + "{:04d}".format(points)
+    device_code = f"{address.device:*<2}"
+    number_text = f"{number:06X}" if base == 16 else f"{number:06d}"
+    core = command + subcommand + device_code + number_text + f"{points:04d}"
     if not is_write:
         return core
     values = data or []
@@ -400,9 +400,9 @@ def _ascii_core(
     if is_bit:
         for flag in values:
             if flag not in (0, 1):
-                raise ValueError("位写数据只能是 0/1,收到:{}".format(flag))
+                raise ValueError(f"位写数据只能是 0/1,收到:{flag}")
         return core + "".join(str(flag) for flag in values)
     for word in values:
         if not 0 <= word <= 0xFFFF:
-            raise ValueError("字写数据超出范围 0~65535:{}".format(word))
-    return core + "".join("{:04X}".format(word) for word in values)
+            raise ValueError(f"字写数据超出范围 0~65535:{word}")
+    return core + "".join(f"{word:04X}" for word in values)

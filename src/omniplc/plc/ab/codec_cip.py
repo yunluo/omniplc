@@ -165,7 +165,7 @@ def data_type_code(data_type: DataType) -> int:
     try:
         return _DATA_TYPE_CODES[data_type]
     except KeyError:
-        raise ValueError("AB 不支持的数据类型:{}".format(data_type))
+        raise ValueError(f"AB 不支持的数据类型:{data_type}")
 
 
 def type_name(cip_type: int) -> str:
@@ -175,7 +175,7 @@ def type_name(cip_type: int) -> str:
         return layout[2]
     if cip_type == CIP_TYPE_STRUCT:
         return "STRUCT"
-    return "0x{:02X}".format(cip_type)
+    return f"0x{cip_type:02X}"
 
 
 def type_size(cip_type: int) -> int:
@@ -185,7 +185,7 @@ def type_size(cip_type: int) -> int:
         return layout[0]
     if cip_type == CIP_TYPE_STRUCT:
         return 4 + AB_EIP_STRING_MAX_CHARS + 2
-    raise ValueError("不支持的 CIP 类型:0x{:02X}".format(cip_type))
+    raise ValueError(f"不支持的 CIP 类型:0x{cip_type:02X}")
 
 
 def is_bit_access_type(cip_type: int) -> bool:
@@ -283,7 +283,7 @@ def _check_enip_reply(
     if command not in allowed:
         canonical = allowed[0]
         raise ProtocolFrameError(
-            "ENIP 命令不符:期望 0x{:04X},实际 0x{:04X}".format(canonical, command)
+            f"ENIP 命令不符:期望 0x{canonical:04X},实际 0x{command:04X}"
         )
     if len(reply) - EIP_HEADER_SIZE != length:
         raise ProtocolFrameError(
@@ -292,7 +292,7 @@ def _check_enip_reply(
     if status != 0:
         text = AB_EIP_STATUS_TEXT.get(status, "未知状态")
         raise ProtocolFrameError(
-            "ENIP 封装状态 0x{:08X}({})".format(status, text)
+            f"ENIP 封装状态 0x{status:08X}({text})"
         )
 
 
@@ -349,7 +349,7 @@ def build_symbol_path(
             member_indices = (0,) * len(member_indices)
         encoded = member.encode("utf-8")
         if not 1 <= len(encoded) <= 0xFF:
-            raise ValueError("AB 标签段长度非法:{}".format(member))
+            raise ValueError(f"AB 标签段长度非法:{member}")
         path += struct.pack("<BB", 0x91, len(encoded))
         path += encoded
         if len(encoded) % 2:
@@ -379,9 +379,9 @@ def build_class_instance_path(class_id: int, instance: int) -> bytes:
     instance 各 1 字节,共 4 字节(偶长度满足 :func:`_service_request`)。
     """
     if not 0 <= class_id <= 0xFF:
-        raise ValueError("CIP class_id 超出 0~255:{}".format(class_id))
+        raise ValueError(f"CIP class_id 超出 0~255:{class_id}")
     if not 0 <= instance <= 0xFF:
-        raise ValueError("CIP instance 超出 0~255:{}".format(instance))
+        raise ValueError(f"CIP instance 超出 0~255:{instance}")
     return bytes((0x20, class_id, 0x24, instance))
 
 
@@ -400,7 +400,7 @@ def build_get_attribute_list(
     """构造 Get_Attribute_List 请求(服务 0x03,body = 属性数 + 属性号列表)。"""
     for attr in attributes:
         if not 0 <= attr <= 0xFFFF:
-            raise ValueError("CIP 属性号超出 0~65535:{}".format(attr))
+            raise ValueError(f"CIP 属性号超出 0~65535:{attr}")
     body = struct.pack("<H", len(attributes)) + b"".join(
         struct.pack("<H", a) for a in attributes
     )
@@ -653,7 +653,7 @@ def parse_forward_close_reply(reply: bytes) -> int:
     reply_service = cip[0]
     if reply_service != (CIP_SERVICE_FORWARD_CLOSE | 0x80):
         raise ProtocolFrameError(
-            "Forward Close 应答服务码不符:期望 0xCE,实际 0x{:02X}".format(reply_service)
+            f"Forward Close 应答服务码不符:期望 0xCE,实际 0x{reply_service:02X}"
         )
     return cip[2]
 
@@ -709,7 +709,7 @@ def parse_send_unit_data_reply(
         )
     data_type, data_length, reply_sequence = struct.unpack_from("<HHH", prefix, 16)
     if data_type != _CPF_ITEM_CONNECTED_DATA:
-        raise ProtocolFrameError("CPF 数据项类型非法:0x{:04X}".format(data_type))
+        raise ProtocolFrameError(f"CPF 数据项类型非法:0x{data_type:04X}")
     cip = prefix[22:]
     if len(cip) != data_length - 2:
         raise ProtocolFrameError(
@@ -717,7 +717,7 @@ def parse_send_unit_data_reply(
         )
     if reply_sequence != sequence:
         raise ProtocolFrameError(
-            "序列号回显不符:期望 {},实际 {}".format(sequence, reply_sequence)
+            f"序列号回显不符:期望 {sequence},实际 {reply_sequence}"
         )
     return _parse_service_payload(cip, request_service)
 
@@ -745,12 +745,12 @@ def _parse_rr_data_cip(reply: bytes) -> bytes:
         "<HHHHH", prefix, 6
     )
     if item_count != 2:
-        raise ProtocolFrameError("SendRRData CPF 项数非法:{}".format(item_count))
+        raise ProtocolFrameError(f"SendRRData CPF 项数非法:{item_count}")
     if address_type == _CPF_ITEM_NULL_ADDRESS:
         if address_length != 0:
             raise ProtocolFrameError("SendRRData CPF 地址项非法")
         if data_type != _CPF_ITEM_UNCONNECTED_DATA:
-            raise ProtocolFrameError("CPF 数据项类型非法:0x{:04X}".format(data_type))
+            raise ProtocolFrameError(f"CPF 数据项类型非法:0x{data_type:04X}")
         cip = prefix[EIP_RRDATA_PREFIX_SIZE:]
         if len(cip) != data_length:
             raise ProtocolFrameError(
@@ -761,7 +761,7 @@ def _parse_rr_data_cip(reply: bytes) -> bytes:
             raise ProtocolFrameError("SendRRData 连接式 CPF 地址项非法")
         data_type, data_length = struct.unpack_from("<HH", prefix, 16)
         if data_type != _CPF_ITEM_CONNECTED_DATA:
-            raise ProtocolFrameError("CPF 数据项类型非法:0x{:04X}".format(data_type))
+            raise ProtocolFrameError(f"CPF 数据项类型非法:0x{data_type:04X}")
         cip = prefix[22:]  # 跳过 2 字节序列号(无连接态可校验,丢弃)
         if len(cip) != data_length - 2:
             raise ProtocolFrameError(
@@ -769,7 +769,7 @@ def _parse_rr_data_cip(reply: bytes) -> bytes:
             )
     else:
         raise ProtocolFrameError(
-            "SendRRData CPF 地址项类型非法:0x{:04X}".format(address_type)
+            f"SendRRData CPF 地址项类型非法:0x{address_type:04X}"
         )
     if len(cip) < 4:
         raise ProtocolFrameError("CIP 应答不完整")
@@ -885,7 +885,7 @@ def _extended_status_text(status: int, cip: bytes) -> Optional[str]:
     text = table.get(extended)
     if text is None:
         return None
-    return "{}  ({:0>2X}, {:0>4X})".format(text, status, extended)
+    return f"{text}  ({status:0>2X}, {extended:0>4X})"
 
 
 def parse_tag_read_payload(payload: bytes) -> Tuple[int, bytes]:
@@ -1046,7 +1046,7 @@ def decode_values(
 ) -> List[Union[int, float]]:
     """按 CIP 类型码解码定长值序列(BOOL 解码为 0/1,内部配合调用方)。"""
     if cip_type not in _CIP_TYPE_LAYOUTS:
-        raise ValueError("不支持的 CIP 类型:0x{:02X}".format(cip_type))
+        raise ValueError(f"不支持的 CIP 类型:0x{cip_type:02X}")
     size, fmt, _ = _CIP_TYPE_LAYOUTS[cip_type]
     if len(data) < size * count:
         raise ProtocolFrameError(
@@ -1060,9 +1060,9 @@ def decode_word(data: bytes, cip_type: int) -> int:
     size = type_size(cip_type)
     fmt = _UNSIGNED_FORMATS.get(size)
     if fmt is None:
-        raise ValueError("不支持的位访问类型:0x{:02X}".format(cip_type))
+        raise ValueError(f"不支持的位访问类型:0x{cip_type:02X}")
     if len(data) < size:
-        raise ProtocolFrameError("应答数据不足:{} 字节".format(size))
+        raise ProtocolFrameError(f"应答数据不足:{size} 字节")
     return struct.unpack_from(fmt, data, 0)[0]
 
 
@@ -1118,7 +1118,7 @@ def encode_value(data_type: DataType, value: PrimitiveValue) -> bytes:
         )
     if data_type is DataType.ULONG:
         return struct.pack("<Q", check_range(number, 0, 18446744073709551615, "ulong"))
-    raise ValueError("AB 不支持的数据类型:{}".format(data_type))
+    raise ValueError(f"AB 不支持的数据类型:{data_type}")
 
 
 def tag_type_path(parsed: AbTag, zero_last_index: bool = False) -> bytes:

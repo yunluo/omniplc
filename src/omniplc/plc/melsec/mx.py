@@ -129,7 +129,7 @@ class _MxComLink(BaseTransport):
         super().__init__()
         self._logical_station_number = logical_station_number
         self._com: Any = None
-        self._debug_label = "mx://站号{}".format(logical_station_number)
+        self._debug_label = f"mx://站号{logical_station_number}"
 
     def connect(self) -> None:
         """打开 COM 通信线路(Open)。
@@ -219,7 +219,7 @@ class MelsecMxClient(BaseClient):
                 )
             )
         self._logical_station_number = int(logical_station_number)
-        self._debug_label = "mx://站号{}".format(self._logical_station_number)
+        self._debug_label = f"mx://站号{self._logical_station_number}"
 
     @property
     def logical_station_number(self) -> int:
@@ -241,7 +241,7 @@ class MelsecMxClient(BaseClient):
         """批量读字软元件(ReadDeviceBlock),返回 0~65535 原始字列表。"""
         if count > MX_MAX_BLOCK_WORDS:
             raise ValueError(
-                "批量读取字数超过上限 {}:{}".format(MX_MAX_BLOCK_WORDS, count)
+                f"批量读取字数超过上限 {MX_MAX_BLOCK_WORDS}:{count}"
             )
         words = _com_read_words(self._com(), device_text, count)
         log_op(self._debug_label, "ReadDeviceBlock %s×%d → %s", device_text, count, words)
@@ -295,7 +295,7 @@ class MelsecMxClient(BaseClient):
             return _decode_32(self._read_words(_device_text(parsed), 2), data_type)
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             return _decode_64(self._read_words(_device_text(parsed), 4), data_type)
-        raise ValueError("MX Component 不支持的数据类型:{}".format(data_type))
+        raise ValueError(f"MX Component 不支持的数据类型:{data_type}")
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """按数据类型分发到单点/块写入原语。"""
@@ -315,7 +315,7 @@ class MelsecMxClient(BaseClient):
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             self._write_words(_device_text(parsed), _encode_64(value, data_type))
             return
-        raise ValueError("MX Component 不支持的数据类型:{}".format(data_type))
+        raise ValueError(f"MX Component 不支持的数据类型:{data_type}")
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """读字符串:批量读字 → 小端拼字节 → 解码。"""
@@ -445,7 +445,7 @@ def _check_address(address: str) -> McAddress:
     parsed = parse_mc_address(address)
     if parsed.bit is not None and _is_bit_device(parsed.device):
         raise ValueError(
-            "位软元件不支持位号后缀:{!r}(示例:M10 或 D100.3)".format(address)
+            f"位软元件不支持位号后缀:{address!r}(示例:M10 或 D100.3)"
         )
     return parsed
 
@@ -453,13 +453,13 @@ def _check_address(address: str) -> McAddress:
 def _device_text(parsed: McAddress) -> str:
     """把解析后的地址还原为控件软元件名(如 ``"D100"``/``"M10"``/``"D100.3"``)。"""
     if parsed.bit is not None:
-        return "{}{}.{}".format(parsed.device, parsed.number, parsed.bit)
-    return "{}{}".format(parsed.device, parsed.number)
+        return f"{parsed.device}{parsed.number}.{parsed.bit}"
+    return f"{parsed.device}{parsed.number}"
 
 
 def _base_text(parsed: McAddress) -> str:
     """字软元件本体名(不含位号后缀,供读-改-写,如 ``"D100"``)。"""
-    return "{}{}".format(parsed.device, parsed.number)
+    return f"{parsed.device}{parsed.number}"
 
 
 def _is_bit_device(device: str) -> bool:
@@ -471,7 +471,7 @@ def _require_word_device(address: str) -> McAddress:
     """字符串存取只允许字软元件(内部函数)。"""
     parsed = _check_address(address)
     if parsed.bit is not None or _is_bit_device(parsed.device):
-        raise ValueError("字符串只能从字软元件存取,收到:{!r}".format(address))
+        raise ValueError(f"字符串只能从字软元件存取,收到:{address!r}")
     return parsed
 
 

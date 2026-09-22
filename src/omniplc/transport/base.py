@@ -44,7 +44,7 @@ class BaseTransport(ABC):
     @connect_timeout.setter
     def connect_timeout(self, seconds: float) -> None:
         if seconds <= 0:
-            raise ValueError("connect_timeout 必须大于 0,收到:{}".format(seconds))
+            raise ValueError(f"connect_timeout 必须大于 0,收到:{seconds}")
         self._connect_timeout = float(seconds)
 
     @property
@@ -55,7 +55,7 @@ class BaseTransport(ABC):
     @receive_timeout.setter
     def receive_timeout(self, seconds: float) -> None:
         if seconds <= 0:
-            raise ValueError("receive_timeout 必须大于 0,收到:{}".format(seconds))
+            raise ValueError(f"receive_timeout 必须大于 0,收到:{seconds}")
         self._receive_timeout = float(seconds)
 
     @abstractmethod

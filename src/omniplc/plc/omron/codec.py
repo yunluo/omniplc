@@ -56,7 +56,7 @@ def memory_codes(area: str, bank: int = 0) -> Tuple[int, int]:
     if area == "E":
         if not 0 <= bank <= FINS_EM_BANK_MAX:
             raise ValueError(
-                "EM 区 bank 号超出范围 0~{}:{}".format(FINS_EM_BANK_MAX, bank)
+                f"EM 区 bank 号超出范围 0~{FINS_EM_BANK_MAX}:{bank}"
             )
         return FINS_EM_BIT_CODE_BASE + bank, FINS_EM_WORD_CODE_BASE + bank
     try:
@@ -170,7 +170,7 @@ def build_multiple_area_read(
     payload = bytearray()
     for code, offset in entries:
         if not 0 <= offset <= 0xFFFF:
-            raise ValueError("FINS 字地址超出范围 0~65535:{}".format(offset))
+            raise ValueError(f"FINS 字地址超出范围 0~65535:{offset}")
         payload += code.to_bytes(1, "big")
         payload += offset.to_bytes(2, "big")
         payload += b"\x00"
@@ -206,7 +206,7 @@ def parse_multiple_area_read(frame: bytes, codes: Sequence[int]) -> List[int]:
     end_code = int.from_bytes(frame[12:14], "big")
     if end_code != FINS_END_CODE_OK:
         text = FINS_END_CODE_TEXT.get(end_code, "详见 Omron FINS 手册")
-        raise DeviceError("FINS 结束码 0x{:04X}({})".format(end_code, text), end_code)
+        raise DeviceError(f"FINS 结束码 0x{end_code:04X}({text})", end_code)
     expected = len(codes) * 3
     data = frame[14:14 + expected]
     if len(data) != expected:
@@ -250,7 +250,7 @@ def parse_response(frame: bytes, count: int, is_bit: bool, is_read: bool) -> Lis
     end_code = int.from_bytes(frame[12:14], "big")
     if end_code != FINS_END_CODE_OK:
         text = FINS_END_CODE_TEXT.get(end_code, "详见 Omron FINS 手册")
-        raise DeviceError("FINS 结束码 0x{:04X}({})".format(end_code, text), end_code)
+        raise DeviceError(f"FINS 结束码 0x{end_code:04X}({text})", end_code)
     if not is_read:
         return []
     expected = count if is_bit else count * 2
@@ -275,7 +275,7 @@ def build_handshake(local_node: int) -> bytes:
     :raises ValueError: 节点号非法
     """
     if not 0 <= local_node <= 0xFF:
-        raise ValueError("本地节点号超出范围 0~255:{}".format(local_node))
+        raise ValueError(f"本地节点号超出范围 0~255:{local_node}")
     return (
         FINS_TCP_MAGIC
         + FINS_HANDSHAKE_LENGTH.to_bytes(4, "big")
@@ -309,7 +309,7 @@ def parse_handshake_response(frame: bytes) -> Tuple[int, int]:
         )
     error = int.from_bytes(frame[12:16], "big")
     if error != 0:
-        raise ProtocolFrameError("FINS/TCP 握手失败,错误码 0x{:08X}".format(error))
+        raise ProtocolFrameError(f"FINS/TCP 握手失败,错误码 0x{error:08X}")
     return frame[19], frame[23]
 
 
@@ -332,7 +332,7 @@ def extract_tcp_error(content: bytes) -> None:
         raise ProtocolFrameError("FINS/TCP 数据帧过短:{}".format(len(content)))
     error = int.from_bytes(content[4:8], "big")
     if error != 0:
-        raise ProtocolFrameError("FINS/TCP 错误码 0x{:08X}".format(error))
+        raise ProtocolFrameError(f"FINS/TCP 错误码 0x{error:08X}")
 
 
 def extract_tcp_payload(content: bytes) -> bytes:
@@ -387,7 +387,7 @@ def _area_code(address: FinsAddress, is_bit: bool) -> int:
 def _address_bytes(address: FinsAddress) -> bytes:
     """起始地址 3 字节:字地址 2 字节大端 + 位号 1 字节(内部函数)。"""
     if not 0 <= address.offset <= 0xFFFF:
-        raise ValueError("FINS 字地址超出范围 0~65535:{}".format(address.offset))
+        raise ValueError(f"FINS 字地址超出范围 0~65535:{address.offset}")
     bit = address.bit if address.bit is not None else 0
     return address.offset.to_bytes(2, "big") + bytes([bit])
 
@@ -398,11 +398,11 @@ def _write_data(data: List[int], is_bit: bool) -> bytes:
         return bytes([1 if flag else 0 for flag in data])
     for word in data:
         if not 0 <= word <= 0xFFFF:
-            raise ValueError("字写数据超出范围 0~65535:{}".format(word))
+            raise ValueError(f"字写数据超出范围 0~65535:{word}")
     return b"".join(word.to_bytes(2, "big") for word in data)
 
 
 def _check_count(count: int) -> None:
     """点数范围校验(内部函数)。"""
     if not 1 <= count <= 0xFFFF:
-        raise ValueError("FINS 访问点数超出范围 1~65535:{}".format(count))
+        raise ValueError(f"FINS 访问点数超出范围 1~65535:{count}")

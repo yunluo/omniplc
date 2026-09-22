@@ -76,10 +76,10 @@ def build_read_pdu(function_code: int, offset: int, count: int) -> bytes:
     elif function_code in _READ_REGISTER_FUNCTIONS:
         limit = MODBUS_MAX_READ_REGISTERS
     else:
-        raise ValueError("读功能码必须是 1/2/3/4,收到:{}".format(function_code))
+        raise ValueError(f"读功能码必须是 1/2/3/4,收到:{function_code}")
     _check_offset(offset)
     if not 1 <= count <= limit:
-        raise ValueError("读数量超出范围 1~{}:{}".format(limit, count))
+        raise ValueError(f"读数量超出范围 1~{limit}:{count}")
     return struct.pack(">BHH", function_code, offset, count)
 
 
@@ -96,10 +96,10 @@ def build_write_single_pdu(function_code: int, offset: int, value: int) -> bytes
         payload = MODBUS_COIL_ON if value else MODBUS_COIL_OFF
     elif function_code == ModbusFunction.WRITE_SINGLE_REGISTER:
         if not 0 <= value <= 0xFFFF:
-            raise ValueError("寄存器写入值超出范围 0~65535:{}".format(value))
+            raise ValueError(f"寄存器写入值超出范围 0~65535:{value}")
         payload = value
     else:
-        raise ValueError("单点写功能码必须是 5 或 6,收到:{}".format(function_code))
+        raise ValueError(f"单点写功能码必须是 5 或 6,收到:{function_code}")
     return struct.pack(">BHH", function_code, offset, payload)
 
 
@@ -129,11 +129,11 @@ def build_write_multi_pdu(function_code: int, offset: int, values: List[int]) ->
             )
         for value in values:
             if not 0 <= value <= 0xFFFF:
-                raise ValueError("寄存器写入值超出范围 0~65535:{}".format(value))
+                raise ValueError(f"寄存器写入值超出范围 0~65535:{value}")
         return struct.pack(">BHHB", function_code, offset, len(values), len(values) * 2) + struct.pack(
             ">{:d}H".format(len(values)), *values
         )
-    raise ValueError("批量写功能码必须是 15 或 16,收到:{}".format(function_code))
+    raise ValueError(f"批量写功能码必须是 15 或 16,收到:{function_code}")
 
 
 # ----------------------------------------------------------------------
@@ -193,7 +193,7 @@ def parse_read_response(pdu: bytes, function_code: int, count: int) -> List[int]
         )
     if function_code in _READ_BIT_FUNCTIONS:
         return [1 if pdu[2 + index // 8] & (1 << (index % 8)) else 0 for index in range(count)]
-    return list(struct.unpack(">{:d}H".format(count), pdu[2:2 + expected]))
+    return list(struct.unpack(f">{count:d}H", pdu[2:2 + expected]))
 
 
 def parse_write_response(pdu: bytes, request_pdu: bytes) -> None:
@@ -222,9 +222,9 @@ def build_mask_write_pdu(offset: int, and_mask: int, or_mask: int) -> bytes:
     """
     _check_offset(offset)
     if not 0 <= and_mask <= 0xFFFF:
-        raise ValueError("and_mask 超出范围 0~65535:{}".format(and_mask))
+        raise ValueError(f"and_mask 超出范围 0~65535:{and_mask}")
     if not 0 <= or_mask <= 0xFFFF:
-        raise ValueError("or_mask 超出范围 0~65535:{}".format(or_mask))
+        raise ValueError(f"or_mask 超出范围 0~65535:{or_mask}")
     return struct.pack(">BHHH", MODBUS_COMMAND_MASK_WRITE, offset, and_mask, or_mask)
 
 
@@ -254,9 +254,9 @@ def build_mbap(transaction_id: int, station: int, pdu: bytes) -> bytes:
     :raises ValueError: 参数非法
     """
     if not 0 <= transaction_id <= 0xFFFF:
-        raise ValueError("事务号超出范围 0~65535:{}".format(transaction_id))
+        raise ValueError(f"事务号超出范围 0~65535:{transaction_id}")
     if not 0 <= station <= 0xFF:
-        raise ValueError("站号超出范围 0~255:{}".format(station))
+        raise ValueError(f"站号超出范围 0~255:{station}")
     max_pdu = MODBUS_MAX_ADU_SIZE - MBAP_HEADER_SIZE
     if not 1 <= len(pdu) <= max_pdu:
         raise ValueError("PDU 长度超出范围 1~{}:{}".format(max_pdu, len(pdu)))
@@ -274,9 +274,9 @@ def parse_mbap_header(header: bytes) -> Tuple[int, int]:
         raise ProtocolFrameError("MBAP 帧头不足 {} 字节:{}".format(MBAP_HEADER_SIZE, len(header)))
     transaction_id, protocol_id, length = struct.unpack(">HHH", header[:6])
     if protocol_id != MODBUS_PROTOCOL_ID:
-        raise ProtocolFrameError("MBAP 协议标识符必须为 0,收到:{}".format(protocol_id))
+        raise ProtocolFrameError(f"MBAP 协议标识符必须为 0,收到:{protocol_id}")
     if length < 2:
-        raise ProtocolFrameError("MBAP 长度字段非法(至少含站号+功能码):{}".format(length))
+        raise ProtocolFrameError(f"MBAP 长度字段非法(至少含站号+功能码):{length}")
     if length > MODBUS_MBAP_LENGTH_MAX:
         raise ProtocolFrameError(
             "MBAP 长度字段超出上限 {}(按长收包将挂死,按坏帧处理):{}".format(
@@ -316,7 +316,7 @@ def build_rtu_frame(station: int, pdu: bytes) -> bytes:
     :raises ValueError: 站号/PDU 非法
     """
     if not 0 <= station <= 0xFF:
-        raise ValueError("站号超出范围 0~255:{}".format(station))
+        raise ValueError(f"站号超出范围 0~255:{station}")
     if not pdu:
         raise ValueError("PDU 不能为空")
     body = bytes([station]) + pdu
@@ -337,7 +337,7 @@ def parse_rtu_frame(frame: bytes) -> Tuple[int, bytes]:
     computed = crc16(body)
     if computed != received:
         raise ProtocolFrameError(
-            "RTU CRC 校验失败:计算 0x{:04X},收到 0x{:04X}".format(computed, received)
+            f"RTU CRC 校验失败:计算 0x{computed:04X},收到 0x{received:04X}"
         )
     return body[0], body[1:]
 
@@ -381,10 +381,10 @@ def expected_response_length(request_pdu: bytes) -> int:
         return 5
     if function_code == ModbusFunction.MASK_WRITE_REGISTER:
         return MODBUS_MASK_WRITE_PDU_SIZE
-    raise ProtocolFrameError("未知功能码 0x{:02X}".format(function_code))
+    raise ProtocolFrameError(f"未知功能码 0x{function_code:02X}")
 
 
 def _check_offset(offset: int) -> None:
     """校验 0 基地址偏移(内部函数)。"""
     if not 0 <= offset <= 0xFFFF:
-        raise ValueError("地址偏移超出范围 0~65535:{}".format(offset))
+        raise ValueError(f"地址偏移超出范围 0~65535:{offset}")

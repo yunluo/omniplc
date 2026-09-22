@@ -58,7 +58,7 @@ def parse_ab_tag(address: str) -> AbTag:
     if not text:
         raise ValueError("AB 标签名为空")
     if not _ADDRESS_PATTERN.fullmatch(text):
-        raise ValueError("AB 标签含非法字符:{!r}".format(address))
+        raise ValueError(f"AB 标签含非法字符:{address!r}")
 
     bit: Optional[int] = None
     body = text
@@ -80,12 +80,12 @@ def parse_ab_tag(address: str) -> AbTag:
             segment = segment[: index_match.start()]
         if not _MEMBER_PATTERN.fullmatch(segment):
             raise ValueError(
-                "AB 标签段非法(应为标识符):{!r}(地址 {!r})".format(raw_segment, address)
+                f"AB 标签段非法(应为标识符):{raw_segment!r}(地址 {address!r})"
             )
         for number in segment_indexes:
             if number > _INDEX_MAX:
                 raise ValueError(
-                    "AB 数组下标超出 0~{}:{!r}".format(_INDEX_MAX, address)
+                    f"AB 数组下标超出 0~{_INDEX_MAX}:{address!r}"
                 )
         members.append(segment)
         indices.append(segment_indexes)

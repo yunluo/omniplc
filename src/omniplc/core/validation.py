@@ -33,7 +33,7 @@ def check_int16(value: PrimitiveValue) -> int:
     """校验 16 位有符号整数范围,返回 0~65535 原始字。"""
     number = require_int(value)
     if not -32768 <= number <= 32767:
-        raise ValueError("short 超出范围 -32768~32767:{}".format(number))
+        raise ValueError(f"short 超出范围 -32768~32767:{number}")
     return number & 0xFFFF
 
 
@@ -41,7 +41,7 @@ def check_uint16(value: PrimitiveValue) -> int:
     """校验 16 位无符号整数范围。"""
     number = require_int(value)
     if not 0 <= number <= 65535:
-        raise ValueError("ushort 超出范围 0~65535:{}".format(number))
+        raise ValueError(f"ushort 超出范围 0~65535:{number}")
     return number
 
 
@@ -52,7 +52,7 @@ def check_range(value: int, low: int, high: int, name: str) -> int:
     :func:`check_uint16`,它们还带换算语义)。
     """
     if not low <= value <= high:
-        raise ValueError("{} 超出范围 {}~{}:{}".format(name, low, high, value))
+        raise ValueError(f"{name} 超出范围 {low}~{high}:{value}")
     return value
 
 
@@ -63,5 +63,5 @@ def check_byte_field(name: str, value: int, maximum: int = 0xFF) -> int:
     站号字段共用。
     """
     if not 0 <= int(value) <= maximum:
-        raise ValueError("{} 必须在 0~{} 之间,收到:{}".format(name, maximum, value))
+        raise ValueError(f"{name} 必须在 0~{maximum} 之间,收到:{value}")
     return int(value)

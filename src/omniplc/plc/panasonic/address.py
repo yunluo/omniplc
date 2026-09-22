@@ -78,7 +78,7 @@ def parse_mewtocol_address(address: str, is_bit: bool) -> MewtocolAddress:
             )
         )
     raise ValueError(
-        "无法解析 MEWTOCOL 地址:{!r}(示例:R000F / R1.15 / D100)".format(address)
+        f"无法解析 MEWTOCOL 地址:{address!r}(示例:R000F / R1.15 / D100)"
     )
 
 
@@ -93,7 +93,7 @@ def _build_contact(match: "re.Match[str]", address: str) -> MewtocolAddress:
     if match.group(3) is not None:
         bit = int(match.group(3))
         if not 0 <= bit <= 15:
-            raise ValueError("MEWTOCOL 接点位号必须在 0~15 之间,收到:{}".format(bit))
+            raise ValueError(f"MEWTOCOL 接点位号必须在 0~15 之间,收到:{bit}")
         word = int(digits, 10) if digits else 0
         return MewtocolAddress(area=area, word=word, bit=bit)
     if not digits or len(digits) < 2:
@@ -117,5 +117,5 @@ def _build_data(match: "re.Match[str]", address: str, is_bit: bool) -> MewtocolA
             "接点区软元件为 {}".format(area, address, "/".join(MEWTOCOL_CONTACT_AREAS))
         )
     if bit is not None and not 0 <= bit <= 15:
-        raise ValueError("MEWTOCOL 字软元件位号必须在 0~15 之间,收到:{}".format(bit))
+        raise ValueError(f"MEWTOCOL 字软元件位号必须在 0~15 之间,收到:{bit}")
     return MewtocolAddress(area=area, word=number, bit=bit)
