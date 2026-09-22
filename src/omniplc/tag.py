@@ -54,12 +54,14 @@ class TagTable(Mapping[str, Tag]):
         """添加一个点位。
 
         :param tag: 点位定义
-        :raises ValueError: 名称重复或字段为空
+        :raises ValueError: 名称重复、字段为空或 ``scale`` 为 0
         """
         if not tag.name or not tag.name.strip():
             raise ValueError("点位名称不能为空")
         if not tag.address or not tag.address.strip():
             raise ValueError(f"点位 {tag.name!r} 的地址不能为空")
+        if tag.scale == 0:
+            raise ValueError(f"点位 {tag.name!r} 的 scale 不能为 0(写入无法逆缩放)")
         if tag.name in self._tags:
             raise ValueError(f"点位名称重复:{tag.name!r}")
         self._tags[tag.name] = tag
@@ -83,7 +85,7 @@ class TagTable(Mapping[str, Tag]):
         with open(path, "r", encoding=encoding) as fp:
             data = json.load(fp)
         if not isinstance(data, list):
-            raise ValueError("JSON 点位表必须是数组,收到:{}".format(type(data).__name__))
+            raise ValueError(f"JSON 点位表必须是数组,收到:{type(data).__name__}")
         return cls(_tag_from_record(item) for item in data)
 
     @classmethod
@@ -117,15 +119,20 @@ class TagTable(Mapping[str, Tag]):
         return key in self._tags
 
     def __repr__(self) -> str:
-        return "TagTable({!r})".format(sorted(self._tags))
+        return f"TagTable({sorted(self._tags)!r})"
 
 
 def _tag_from_record(record: Mapping[str, object]) -> Tag:
-    """把一行 JSON/CSV 记录转换为 Tag(内部函数)。"""
+    """把一行 JSON/CSV 记录转换为 Tag(内部函数)。
+
+    :raises ValueError: 记录不是对象、缺必需字段或必填单元格为空
+    """
+    if not isinstance(record, dict):
+        raise ValueError(f"点位记录必须是对象,收到:{type(record).__name__}")
     try:
-        name = str(record["name"]).strip()
-        address = str(record["address"]).strip()
-        data_type = str(record["data_type"]).strip().lower()
+        name = _required_cell(record["name"], "name")
+        address = _required_cell(record["address"], "address")
+        data_type = _required_cell(record["data_type"], "data_type").lower()
     except KeyError as exc:
         raise ValueError(f"点位记录缺少必需字段:{exc},记录:{record}") from exc
     scale = _to_float(record.get("scale"), 1.0)
@@ -133,10 +140,24 @@ def _tag_from_record(record: Mapping[str, object]) -> Tag:
     return Tag(name=name, address=address, data_type=data_type, scale=scale, offset=offset)
 
 
+def _required_cell(value: object, field: str) -> str:
+    """取必填文本单元格,``None``/空白视为空(CSV 短行的缺列即 ``None``)。"""
+    text = "" if value is None else str(value).strip()
+    if not text:
+        raise ValueError(f"点位记录字段 {field!r} 不能为空")
+    return text
+
+
 def _to_float(value: object, default: float) -> float:
-    """把 JSON/CSV 单元格安全转换为 float,空值用默认(内部函数)。"""
+    """把 JSON/CSV 单元格安全转换为 float,空值用默认(内部函数)。
+
+    :raises ValueError: 非空值不是合法数字
+    """
     if value is None or value == "":
         return default
     if isinstance(value, (int, float)):
         return float(value)
-    return float(str(value))
+    try:
+        return float(str(value))
+    except ValueError:
+        raise ValueError(f"点位数值字段格式错误:{value!r}") from None

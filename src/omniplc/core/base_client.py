@@ -472,11 +472,16 @@ class BaseClient(ABC):
 
         :param tag: Tag 实例或已绑定表中的名称
         :param value: 目标工程量
-        :raises ValueError: 同 :meth:`read_tag`
+        :raises ValueError: 同 :meth:`read_tag`;或点位 ``scale`` 为 0
         """
         resolved = self._resolve_tag(tag)
         if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if resolved.scale == 0:
+                raise ValueError(f"点位 {resolved.name!r} 的 scale 不能为 0,无法逆缩放")
             value = (value - resolved.offset) / resolved.scale
+            if isinstance(value, float) and value.is_integer():
+                # 真除法恒为 float,还原整数,否则底层整数类型校验拒收
+                value = int(value)
         return self.write(resolved.address, resolved.data_type, value)
 
     def _resolve_tag(self, tag: Union[str, Tag]) -> Tag:
