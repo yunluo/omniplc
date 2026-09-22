@@ -332,6 +332,11 @@ FINS_COMMAND_AREA_READ: int = 0x0101
 """Area Read 命令(MRC=01, SRC=01)。"""
 FINS_COMMAND_AREA_WRITE: int = 0x0102
 """Area Write 命令(MRC=01, SRC=02)。"""
+FINS_COMMAND_MULTIPLE_AREA_READ: int = 0x0104
+"""Multiple Memory Area Read 命令(MRC=01, SRC=04;W342 §5-3-5)。"""
+FINS_MAX_MULTIPLE_ELEMENTS: int = 167
+"""多存储区读单命令条目上限(W342 §5-3-5:Ethernet/Controller Link 167,
+SYSMAC LINK/DeviceNet 89,本库为以太网走线取 167 口径)。"""
 FINS_END_CODE_SIZE: int = 2
 """结束码长度(大端两字节,紧跟 MRC/SRC)。"""
 FINS_END_CODE_OK: int = 0

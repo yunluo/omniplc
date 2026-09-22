@@ -1,9 +1,12 @@
 """FINS 客户端帧收发测试:脚本化传输验证 TCP(握手)与 UDP 全链路。"""
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from omniplc import OmronFinsTcpClient, OmronFinsUdpClient
+from omniplc.aio import AOmronFinsUdpClient
 from omniplc.plc.omron import codec
 from omniplc.plc.omron.address import parse_fins_address
 from scripted import ScriptedTransport
@@ -160,3 +163,81 @@ def test_tcp_bad_magic_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> No
     assert client.read_ushort("D100") == (False, None)
     assert client.connected is False
     assert client.last_error is not None and "帧头非法" in client.last_error
+
+
+def _fins_multiple_read_response(entries: list) -> bytes:
+    """构造多存储区读响应(测试脚手架,SID=1):每条 = 区码回显 + 字数据。"""
+    data = b"".join(
+        code.to_bytes(1, "big") + value.to_bytes(2, "big") for code, value in entries
+    )
+    return _FINS_ECHO_HEAD + b"\x01" + b"\x01\x04" + b"\x00\x00" + data
+
+
+def test_udp_read_batch_mixed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UDP read_batch:混类型混软元件单事务,0104 逐条字读后按计划解码。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    # D100=0xFFFE(short -2)、D102-D103=float 1.0(大端 3F80 0000)、CIO0 bit3=1
+    scripted = ScriptedTransport(
+        [
+            _fins_multiple_read_response(
+                [(0x82, 0xFFFE), (0x82, 0x3F80), (0x82, 0x0000), (0xB0, 0x0008)]
+            )
+        ]
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, values = client.read_batch(
+        [
+            ("D100", "short"),
+            ("D102", "float"),
+            ("CIO0.3", "bool"),
+        ]
+    )
+    assert ok is True and values == [-2, 1.0, True]
+    sent = bytes(scripted.sent)
+    assert sent[10:12] == b"\x01\x04"
+    assert sent[12:] == bytes.fromhex("82006400" "82006600" "82006700" "b0000000")
+
+
+def test_udp_read_many_single_transaction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UDP read_many:覆写为 0104 单事务(协议原生批量合并)。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport(
+        [_fins_multiple_read_response([(0x82, 7), (0x82, 9)])]
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_many(["D0", "D2"], "short") == [(True, 7), (True, 9)]
+    sent = bytes(scripted.sent)
+    assert sent[10:12] == b"\x01\x04"
+    assert sent[12:] == bytes.fromhex("82000000" "82000200")
+
+
+def test_read_batch_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_batch 拒绝路径:空列表、T/C 完成标志、条目数超限。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    with pytest.raises(ValueError):
+        client.read_batch([])
+    with pytest.raises(ValueError):
+        client.read_batch([("T0", "bool")])
+    with pytest.raises(ValueError):
+        client.read_batch([("D{}".format(index), "short") for index in range(168)])
+
+
+def test_async_mirror_read_batch() -> None:
+    """异步镜像 read_batch:混类型批量读往返。"""
+
+    async def scenario() -> None:
+        client = AOmronFinsUdpClient("127.0.0.1")
+        scripted = ScriptedTransport(
+            [_fins_multiple_read_response([(0x82, 0xFFFE), (0x82, 0x3F80), (0x82, 0x0000)])]
+        )
+        client._sync._transport = scripted
+        client._sync._connected = True
+        assert await client.read_batch([("D100", "short"), ("D102", "float")]) == (
+            True,
+            [-2, 1.0],
+        )
+        await client.close()
+
+    asyncio.run(scenario())

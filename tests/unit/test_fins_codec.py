@@ -11,9 +11,11 @@ from typing import Any, Dict, List, Tuple
 
 import pytest
 
-from omniplc.core.errors import DeviceError
+from omniplc.core.errors import DeviceError, ProtocolFrameError
 from omniplc.plc.omron import codec
 from omniplc.plc.omron.address import parse_fins_address
+
+_FINS_ECHO_HEAD = b"\xc0\x00\x02\x00\x0a\x00\x00\x05\x00"
 
 GOLDEN_DIR = Path(__file__).resolve().parent.parent / "golden"
 
@@ -126,3 +128,46 @@ def test_em_address_uses_bank_code() -> None:
     assert frame[12] == 0xA0
     with pytest.raises(ValueError):
         parse_fins_address("E0")
+
+
+def test_build_multiple_area_read() -> None:
+    """多存储区读请求:命令 0104,每条 = 区码 1 字节 + 字地址 2 字节大端 + 位 0。"""
+    frame = codec.build_multiple_area_read(
+        0, 5, 0, 0, 10, 0, 1, [(0x82, 100), (0xB0, 5)]
+    )
+    assert frame[10:12] == b"\x01\x04"
+    assert frame[12:] == bytes.fromhex("82006400" "b0000500")
+
+
+def test_build_multiple_area_read_validation() -> None:
+    """多存储区读构造校验:空条目/条数超限/地址越界。"""
+    with pytest.raises(ValueError):
+        codec.build_multiple_area_read(0, 5, 0, 0, 10, 0, 1, [])
+    with pytest.raises(ValueError):
+        codec.build_multiple_area_read(
+            0, 5, 0, 0, 10, 0, 1, [(0x82, index) for index in range(168)]
+        )
+    with pytest.raises(ValueError):
+        codec.build_multiple_area_read(0, 5, 0, 0, 10, 0, 1, [(0x82, 0x10000)])
+
+
+def test_parse_multiple_area_read() -> None:
+    """多存储区读响应:每条 = 区码回显 1 字节 + 字数据 2 字节大端。"""
+    frame = (
+        _FINS_ECHO_HEAD + b"\x01" + b"\x01\x04" + b"\x00\x00"
+        + b"\x82" + (0x1234).to_bytes(2, "big")
+        + b"\xb0" + (0x0007).to_bytes(2, "big")
+    )
+    assert codec.parse_multiple_area_read(frame, [0x82, 0xB0]) == [0x1234, 0x0007]
+
+
+def test_parse_multiple_area_read_errors() -> None:
+    """多存储区读响应错误路径:数据不足与区码回显不符按坏帧,结束码按设备故障。"""
+    base = _FINS_ECHO_HEAD + b"\x01" + b"\x01\x04"
+    with pytest.raises(ProtocolFrameError):
+        codec.parse_multiple_area_read(base + b"\x00\x00" + b"\x82", [0x82, 0xB0])
+    bad_echo = base + b"\x00\x00" + b"\x83" + (1).to_bytes(2, "big") + b"\xb0" + (0).to_bytes(2, "big")
+    with pytest.raises(ProtocolFrameError):
+        codec.parse_multiple_area_read(bad_echo, [0x82, 0xB0])
+    with pytest.raises(DeviceError):
+        codec.parse_multiple_area_read(base + b"\x11\x01", [0x82])

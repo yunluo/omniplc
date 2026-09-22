@@ -876,6 +876,15 @@ class AOmronFinsTcpClient(ABaseClient):
             raise TypeError("内部错误:sync 实例不是 OmronFinsTcpClient")
         return sync.local_node
 
+    async def read_batch(
+        self, items: Sequence[Tuple[str, Union[DataType, str]]]
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """多存储区批量读取(0104,单事务;语义同同步版)。"""
+        sync = self._sync
+        if not isinstance(sync, OmronFinsTcpClient):
+            raise TypeError("内部错误:sync 实例不是 OmronFinsTcpClient")
+        return await self._run(lambda: sync.read_batch(items))
+
 
 class AOmronFinsUdpClient(ABaseClient):
     """欧姆龙 FINS/UDP 异步客户端。"""
@@ -883,6 +892,15 @@ class AOmronFinsUdpClient(ABaseClient):
     def __init__(self, ip_address: str = "192.168.250.1", port: int = FINS_DEFAULT_PORT) -> None:
         """参数同 :class:`omniplc.plc.omron.OmronFinsUdpClient`。"""
         super().__init__(OmronFinsUdpClient(ip_address, port))
+
+    async def read_batch(
+        self, items: Sequence[Tuple[str, Union[DataType, str]]]
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """多存储区批量读取(0104,单事务;语义同同步版)。"""
+        sync = self._sync
+        if not isinstance(sync, OmronFinsUdpClient):
+            raise TypeError("内部错误:sync 实例不是 OmronFinsUdpClient")
+        return await self._run(lambda: sync.read_batch(items))
 
 
 class AOmronCipClient(ABaseClient):

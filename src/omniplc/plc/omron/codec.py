@@ -16,12 +16,13 @@
 """
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List, Sequence, Tuple
 
 from .address import FinsAddress
 from ...core.constants import (
     FINS_COMMAND_AREA_READ,
     FINS_COMMAND_AREA_WRITE,
+    FINS_COMMAND_MULTIPLE_AREA_READ,
     FINS_EM_BANK_MAX,
     FINS_EM_BIT_CODE_BASE,
     FINS_EM_WORD_CODE_BASE,
@@ -33,6 +34,7 @@ from ...core.constants import (
     FINS_HANDSHAKE_RESPONSE_SIZE,
     FINS_HEADER_SIZE,
     FINS_ICF,
+    FINS_MAX_MULTIPLE_ELEMENTS,
     FINS_MEMORY_CODES,
     FINS_RSV,
     FINS_TCP_COMMAND_DATA,
@@ -136,6 +138,95 @@ def build_area_write(
         FINS_COMMAND_AREA_WRITE,
         payload,
     )
+
+
+def build_multiple_area_read(
+    destination_network: int,
+    destination_node: int,
+    destination_unit: int,
+    source_network: int,
+    source_node: int,
+    source_unit: int,
+    sid: int,
+    entries: Sequence[Tuple[int, int]],
+) -> bytes:
+    """构造 Multiple Memory Area Read(0104)FINS 帧。
+
+    每条 ``(存储区字码, 字地址)`` 读 **1 个字**(W342 §5-3-5:非连续字
+    成批读,仅字码,条目位号恒 0);32/64 位类型由调用方拆成相邻多条。
+    Ethernet/Controller Link 单命令上限 :data:`~omniplc.core.constants.
+    FINS_MAX_MULTIPLE_ELEMENTS` 条(SYSMAC LINK/DeviceNet 为 89)。
+
+    :raises ValueError: 无条目/条数超限/地址越界
+    """
+    if not entries:
+        raise ValueError("多存储区读至少需要一条 (区码, 字地址)")
+    if len(entries) > FINS_MAX_MULTIPLE_ELEMENTS:
+        raise ValueError(
+            "多存储区读条目数超出上限 {}:{}".format(
+                FINS_MAX_MULTIPLE_ELEMENTS, len(entries)
+            )
+        )
+    payload = bytearray()
+    for code, offset in entries:
+        if not 0 <= offset <= 0xFFFF:
+            raise ValueError("FINS 字地址超出范围 0~65535:{}".format(offset))
+        payload += code.to_bytes(1, "big")
+        payload += offset.to_bytes(2, "big")
+        payload += b"\x00"
+    return _build_frame(
+        destination_network,
+        destination_node,
+        destination_unit,
+        source_network,
+        source_node,
+        source_unit,
+        sid,
+        FINS_COMMAND_MULTIPLE_AREA_READ,
+        bytes(payload),
+    )
+
+
+def parse_multiple_area_read(frame: bytes, codes: Sequence[int]) -> List[int]:
+    """解析多存储区读响应,返回逐条字数据(大端)。
+
+    响应每条为 ``区码回显(1 字节) + 字数据(2 字节,大端)``,区码
+    与请求顺序逐一比对,不符按坏帧处理(流内可能已失步)。
+
+    :raises omniplc.core.errors.DeviceError: 结束码非 0
+    :raises omniplc.core.errors.ProtocolFrameError: 帧结构/区码回显不符
+    """
+    prefix = FINS_HEADER_SIZE + 2
+    if len(frame) < prefix + FINS_END_CODE_SIZE:
+        raise ProtocolFrameError(
+            "FINS 响应不完整:至少 {} 字节,实际 {}".format(
+                prefix + FINS_END_CODE_SIZE, len(frame)
+            )
+        )
+    end_code = int.from_bytes(frame[12:14], "big")
+    if end_code != FINS_END_CODE_OK:
+        text = FINS_END_CODE_TEXT.get(end_code, "详见 Omron FINS 手册")
+        raise DeviceError("FINS 结束码 0x{:04X}({})".format(end_code, text), end_code)
+    expected = len(codes) * 3
+    data = frame[14:14 + expected]
+    if len(data) != expected:
+        raise ProtocolFrameError(
+            "FINS 多存储区读响应数据不足:期望 {} 字节,实际 {}".format(
+                expected, len(data)
+            )
+        )
+    words: List[int] = []
+    for index, code in enumerate(codes):
+        base = index * 3
+        echo = data[base]
+        if echo != code:
+            raise ProtocolFrameError(
+                "FINS 多存储区读区码回显不符:期望 0x{:02X},收到 0x{:02X}".format(
+                    code, echo
+                )
+            )
+        words.append(int.from_bytes(data[base + 1:base + 3], "big"))
+    return words
 
 
 def parse_response(frame: bytes, count: int, is_bit: bool, is_read: bool) -> List[int]:

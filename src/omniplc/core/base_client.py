@@ -246,7 +246,9 @@ class BaseClient(ABC):
 
         基类实现为逐点独立事务;驱动可覆写为协议级批量合并(接口不变):
         MC 3E/4E 已覆写为 0406 多块批量读单事务(整批容错,
-        见 :meth:`omniplc.plc.melsec.MelsecMcTcpClient.read_many`)。
+        见 :meth:`omniplc.plc.melsec.MelsecMcTcpClient.read_many`);
+        欧姆龙 FINS 已覆写为 0104 多存储区读单事务
+        (见 :meth:`omniplc.plc.omron.OmronFinsTcpClient.read_many`)。
 
         :param addresses: 地址列表
         :param data_type: 数据类型,推荐用 :class:`omniplc.types.DataType` 枚举

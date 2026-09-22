@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import struct
 from abc import abstractmethod
-from typing import List
+from typing import List, Optional, Sequence, Tuple, Union
 
 from . import codec
 from .address import FinsAddress, parse_fins_address
@@ -162,6 +162,95 @@ class _OmronFinsBase(BaseClient):
         words = [int.from_bytes(raw[i:i + 2], "big") for i in range(0, len(raw), 2)]
         self._write_words(parsed, words)
         return value
+
+    # ------------------------------------------------------------------
+    # 批量读取(0104 多存储区读,单事务)
+    # ------------------------------------------------------------------
+
+    def read_many(
+        self, addresses: Sequence[str], data_type: Union[DataType, str]
+    ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
+        """批量读取:覆写为 0104 多存储区读(单事务)。
+
+        与基类逐点独立容错不同:任一地址非法或 PLC 拒绝则**整批失败**
+        (原因见 :attr:`last_error`);需要逐点容错请逐点调用 :meth:`read`。
+        """
+        data_type_enum = DataType.coerce(data_type)
+        ok, values = self.read_batch([(address, data_type_enum) for address in addresses])
+        if not ok or values is None:
+            return [(False, None) for _ in addresses]
+        return [(True, value) for value in values]
+
+    def read_batch(
+        self, items: Sequence[Tuple[str, Union[DataType, str]]]
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """多存储区批量读取:0104 单事务混读多个非连续字(TCP/UDP 通用)。
+
+        利用 FINS 原生 Multiple Memory Area Read 能力(W342 §5-3-5):
+        每条目读 1 个字,软元件/类型可各不相同——32/64 位类型拆成相邻
+        多条,BOOL 走包含字的字区码后本地提位(0104 仅字码);T/C 完成
+        标志为位区,不支持批量(T/C 当前值可按字批量读)。条目上限
+        167(Ethernet/Controller Link 口径)。字符串请用
+        :meth:`read_string`(变长不适合混读)。
+
+        :param items: ``(地址, 数据类型)`` 序列
+        :return: ``(是否成功, 与 items 顺序对应的值列表)``
+        :raises ValueError: 列表为空/地址或类型非法/条目数超限
+        """
+        if not items:
+            raise ValueError("read_batch 至少需要一个 (地址, 数据类型) 项")
+        entries: List[Tuple[int, int]] = []
+        # 解码计划:(类别, 字索引, 位号或字数, 数据类型)
+        plan: List[Tuple[str, int, int, DataType]] = []
+        for address, data_type in items:
+            data_type_enum = DataType.coerce(data_type)
+            parsed = parse_fins_address(address)
+            if data_type_enum is DataType.BOOL:
+                if parsed.area in FINS_TIMER_COUNTER_AREAS:
+                    raise ValueError(
+                        "T/C 完成标志不支持批量读取(0104 仅字区):{!r}".format(address)
+                    )
+                _, word_code = codec.memory_codes(parsed.area, parsed.bank)
+                plan.append(("wordbit", len(entries), parsed.bit or 0, data_type_enum))
+                entries.append((word_code, parsed.offset))
+                continue
+            if data_type_enum in (DataType.SHORT, DataType.USHORT):
+                words = 1
+            elif data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
+                words = 2
+            elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
+                words = 4
+            else:
+                raise ValueError(
+                    "FINS 批量读取不支持的数据类型:{}".format(data_type_enum)
+                )
+            _, word_code = codec.memory_codes(parsed.area, parsed.bank)
+            plan.append(("word", len(entries), words, data_type_enum))
+            for index in range(words):
+                entries.append((word_code, parsed.offset + index))
+        codes = [code for code, _ in entries]
+
+        def operation() -> List[PrimitiveValue]:
+            frame = codec.build_multiple_area_read(
+                self._destination_network,
+                self._destination_node,
+                self._destination_unit,
+                self._source_network,
+                self._source_node,
+                self._source_unit,
+                self._next_sid(),
+                entries,
+            )
+            words = codec.parse_multiple_area_read(self._transact(frame), codes)
+            values: List[PrimitiveValue] = []
+            for kind, index, extra, item_type in plan:
+                if kind == "wordbit":
+                    values.append(bool(convert.get_bit(words[index], extra)))
+                else:
+                    values.append(_words_to_value(words[index:index + extra], item_type))
+            return values
+
+        return self._execute(operation)
 
     # ------------------------------------------------------------------
     # 位/字原语(0101/0102 命令)
