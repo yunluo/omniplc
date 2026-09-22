@@ -90,6 +90,7 @@ from ..types import DataType, McFrame, PrimitiveValue, SerialParity
 
 _T = TypeVar("_T")
 _A = TypeVar("_A", bound="ABaseClient")
+_SyncT = TypeVar("_SyncT", bound="BaseClient")
 
 # 本包公开面仅异步基类与 A* 客户端:同步客户端、端口等常量、内部助手
 # (如 _coerce_word_order)只是实现依赖,不进 __all__,避免
@@ -167,6 +168,17 @@ class ABaseClient:
     # ------------------------------------------------------------------
     # 执行机制
     # ------------------------------------------------------------------
+
+    def _typed(self, expected: Type[_SyncT]) -> _SyncT:
+        """取同步实例并断言其驱动类型(内部方法,驱动专属转发的公共守卫)。
+
+        各 A* 客户端把 ``self._sync`` 收窄为具体驱动类型后转发驱动特有
+        方法/属性;实例类型由构造保证,断言失败即内部组装错误。
+        """
+        sync = self._sync
+        if not isinstance(sync, expected):
+            raise TypeError(f"内部错误:sync 实例不是 {expected.__name__}")
+        return sync
 
     async def _run(self, operation: Callable[[], _T]) -> _T:
         """把同步操作投递到单线程 executor 执行(内部方法)。"""
@@ -441,10 +453,7 @@ class AModbusBaseClient(ABaseClient):
     @property
     def _modbus(self) -> ModbusBaseClient:
         """取 Modbus 同步实例(内部属性)。"""
-        sync = self._sync
-        if not isinstance(sync, ModbusBaseClient):
-            raise TypeError("内部错误:sync 实例不是 ModbusBaseClient")
-        return sync
+        return self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
 
 
 class AModbusTcpClient(AModbusBaseClient):
@@ -477,9 +486,7 @@ class AModbusRtuClient(AModbusBaseClient):
         parity: Union[SerialParity, str] = SERIAL_DEFAULT_PARITY,
     ) -> None:
         """配置串口参数(转发到同步实例,推荐 :class:`~omniplc.types.SerialParity` 枚举)。"""
-        sync = self._sync
-        if not isinstance(sync, ModbusRtuClient):
-            raise TypeError("内部错误:sync 实例不是 ModbusRtuClient")
+        sync = self._typed(ModbusRtuClient)
         sync.configure_serial(port_name, baud_rate, data_bits, stop_bits, parity)
 
 
@@ -516,9 +523,7 @@ class AInovanceRtuClient(AModbusBaseClient):
         parity: Union[SerialParity, str] = SERIAL_DEFAULT_PARITY,
     ) -> None:
         """配置串口参数(汇川缺省 9600-8N2,转发到同步实例)。"""
-        sync = self._sync
-        if not isinstance(sync, InovanceRtuClient):
-            raise TypeError("内部错误:sync 实例不是 InovanceRtuClient")
+        sync = self._typed(InovanceRtuClient)
         sync.configure_serial(port_name, baud_rate, data_bits, stop_bits, parity)
 
 
@@ -537,9 +542,7 @@ class APanasonicMewtocolTcpClient(ABaseClient):
     @property
     def station(self) -> int:
         """当前站号(转发同步实例)。"""
-        sync = self._sync
-        if not isinstance(sync, PanasonicMewtocolTcpClient):
-            raise TypeError("内部错误:sync 实例不是 PanasonicMewtocolTcpClient")
+        sync = self._typed(PanasonicMewtocolTcpClient)
         return sync.station
 
 
@@ -558,9 +561,7 @@ class APanasonicMewtocolUdpClient(ABaseClient):
     @property
     def station(self) -> int:
         """当前站号(转发同步实例)。"""
-        sync = self._sync
-        if not isinstance(sync, PanasonicMewtocolUdpClient):
-            raise TypeError("内部错误:sync 实例不是 PanasonicMewtocolUdpClient")
+        sync = self._typed(PanasonicMewtocolUdpClient)
         return sync.station
 
 
@@ -581,18 +582,13 @@ class AMelsecMcTcpClient(ABaseClient):
     @property
     def frame(self) -> McFrame:
         """当前帧型(:class:`omniplc.types.McFrame` 枚举)。"""
-        sync = self._sync
-        if isinstance(sync, MelsecMcTcpClient):
-            return sync.frame
-        raise TypeError("内部错误")
+        return self._typed(MelsecMcTcpClient).frame
 
     async def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """多块批量读取(0406,单事务;语义同同步版)。"""
-        sync = self._sync
-        if not isinstance(sync, MelsecMcTcpClient):
-            raise TypeError("内部错误")
+        sync = self._typed(MelsecMcTcpClient)
         return await self._run(lambda: sync.read_batch(items))
 
 
@@ -613,18 +609,13 @@ class AMelsecMcUdpClient(ABaseClient):
     @property
     def frame(self) -> McFrame:
         """当前帧型(:class:`omniplc.types.McFrame` 枚举)。"""
-        sync = self._sync
-        if isinstance(sync, MelsecMcUdpClient):
-            return sync.frame
-        raise TypeError("内部错误")
+        return self._typed(MelsecMcUdpClient).frame
 
     async def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """多块批量读取(0406,单事务;语义同同步版)。"""
-        sync = self._sync
-        if not isinstance(sync, MelsecMcUdpClient):
-            raise TypeError("内部错误")
+        sync = self._typed(MelsecMcUdpClient)
         return await self._run(lambda: sync.read_batch(items))
 
 
@@ -707,50 +698,37 @@ class AMelsecMcSerialClient(ABaseClient):
         parity: Union[SerialParity, str] = SERIAL_DEFAULT_PARITY,
     ) -> None:
         """配置串口参数(转发到同步实例,推荐 :class:`~omniplc.types.SerialParity` 枚举)。"""
-        sync = self._sync
-        if not isinstance(sync, MelsecMcSerialClient):
-            raise TypeError("内部错误:sync 实例不是 MelsecMcSerialClient")
+        sync = self._typed(MelsecMcSerialClient)
         sync.configure_serial(port_name, baud_rate, data_bits, stop_bits, parity)
 
     @property
     def frame(self) -> McFrame:
         """当前帧型(:class:`omniplc.types.McFrame` 枚举)。"""
-        sync = self._sync
-        if isinstance(sync, MelsecMcSerialClient):
-            return sync.frame
-        raise TypeError("内部错误")
+        return self._typed(MelsecMcSerialClient).frame
 
     @property
     def station_number(self) -> int:
         """当前站号(转发同步实例)。"""
-        sync = self._sync
-        if not isinstance(sync, MelsecMcSerialClient):
-            raise TypeError("内部错误:sync 实例不是 MelsecMcSerialClient")
+        sync = self._typed(MelsecMcSerialClient)
         return sync.station_number
 
     @property
     def pc_number(self) -> int:
         """当前 PC 编号(转发同步实例)。"""
-        sync = self._sync
-        if not isinstance(sync, MelsecMcSerialClient):
-            raise TypeError("内部错误:sync 实例不是 MelsecMcSerialClient")
+        sync = self._typed(MelsecMcSerialClient)
         return sync.pc_number
 
     @property
     def module_io(self) -> int:
         """请求目标模块 I/O 编号(仅 4C 帧,转发同步实例)。"""
-        sync = self._sync
-        if not isinstance(sync, MelsecMcSerialClient):
-            raise TypeError("内部错误:sync 实例不是 MelsecMcSerialClient")
+        sync = self._typed(MelsecMcSerialClient)
         return sync.module_io
 
     async def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """多块批量读取(3C/4C 帧不支持,抛 ValueError;镜像契约一致性)。"""
-        sync = self._sync
-        if not isinstance(sync, MelsecMcSerialClient):
-            raise TypeError("内部错误:sync 实例不是 MelsecMcSerialClient")
+        sync = self._typed(MelsecMcSerialClient)
         return await self._run(lambda: sync.read_batch(items))
 
 
@@ -774,10 +752,7 @@ class AKeyenceMcTcpClient(AMelsecMcTcpClient):
     @property
     def frame(self) -> McFrame:
         """当前帧型,恒为 :attr:`McFrame.FRAME_3E`。"""
-        sync = self._sync
-        if isinstance(sync, KeyenceMcTcpClient):
-            return sync.frame
-        raise TypeError("内部错误")
+        return self._typed(KeyenceMcTcpClient).frame
 
 
 class AKeyenceMcUdpClient(AMelsecMcUdpClient):
@@ -800,10 +775,7 @@ class AKeyenceMcUdpClient(AMelsecMcUdpClient):
     @property
     def frame(self) -> McFrame:
         """当前帧型,恒为 :attr:`McFrame.FRAME_3E`。"""
-        sync = self._sync
-        if isinstance(sync, KeyenceMcUdpClient):
-            return sync.frame
-        raise TypeError("内部错误")
+        return self._typed(KeyenceMcUdpClient).frame
 
 
 class AMelsecMxClient(ABaseClient):
@@ -820,18 +792,14 @@ class AMelsecMxClient(ABaseClient):
     @property
     def logical_station_number(self) -> int:
         """逻辑站号(转发同步实例)。"""
-        sync = self._sync
-        if not isinstance(sync, MelsecMxClient):
-            raise TypeError("内部错误:sync 实例不是 MelsecMxClient")
+        sync = self._typed(MelsecMxClient)
         return sync.logical_station_number
 
     async def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """随机批量读取(ReadDeviceRandom 单事务;语义同同步版)。"""
-        sync = self._sync
-        if not isinstance(sync, MelsecMxClient):
-            raise TypeError("内部错误:sync 实例不是 MelsecMxClient")
+        sync = self._typed(MelsecMxClient)
         return await self._run(lambda: sync.read_batch(items))
 
 
@@ -873,10 +841,7 @@ class AKeyenceSrClient(ABaseClient):
 
     def _scanner(self) -> KeyenceSrClient:
         """取扫码枪同步实例(内部属性)。"""
-        sync = self._sync
-        if not isinstance(sync, KeyenceSrClient):
-            raise TypeError("内部错误:sync 实例不是 KeyenceSrClient")
-        return sync
+        return self._typed(KeyenceSrClient)
 
     async def scan(
         self, bank: Optional[int] = None, timeout: Optional[float] = None
@@ -942,18 +907,14 @@ class AOpcUaClient(ABaseClient):
     @property
     def endpoint(self) -> str:
         """opc.tcp 端点 URL(转发同步实例)。"""
-        sync = self._sync
-        if not isinstance(sync, OpcUaClient):
-            raise TypeError("内部错误:sync 实例不是 OpcUaClient")
+        sync = self._typed(OpcUaClient)
         return sync.endpoint
 
     async def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """多节点批量读取(UA Read 单请求;语义同同步版)。"""
-        sync = self._sync
-        if not isinstance(sync, OpcUaClient):
-            raise TypeError("内部错误:sync 实例不是 OpcUaClient")
+        sync = self._typed(OpcUaClient)
         return await self._run(lambda: sync.read_batch(items))
 
 
@@ -972,18 +933,14 @@ class AOmronFinsTcpClient(ABaseClient):
     @property
     def local_node(self) -> int:
         """本地节点号(自动分配时在连接后可用,转发同步实例)。"""
-        sync = self._sync
-        if not isinstance(sync, OmronFinsTcpClient):
-            raise TypeError("内部错误:sync 实例不是 OmronFinsTcpClient")
+        sync = self._typed(OmronFinsTcpClient)
         return sync.local_node
 
     async def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """多存储区批量读取(0104,单事务;语义同同步版)。"""
-        sync = self._sync
-        if not isinstance(sync, OmronFinsTcpClient):
-            raise TypeError("内部错误:sync 实例不是 OmronFinsTcpClient")
+        sync = self._typed(OmronFinsTcpClient)
         return await self._run(lambda: sync.read_batch(items))
 
 
@@ -998,9 +955,7 @@ class AOmronFinsUdpClient(ABaseClient):
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """多存储区批量读取(0104,单事务;语义同同步版)。"""
-        sync = self._sync
-        if not isinstance(sync, OmronFinsUdpClient):
-            raise TypeError("内部错误:sync 实例不是 OmronFinsUdpClient")
+        sync = self._typed(OmronFinsUdpClient)
         return await self._run(lambda: sync.read_batch(items))
 
 
@@ -1019,67 +974,51 @@ class AOmronCipClient(ABaseClient):
     @property
     def connected_messaging(self) -> bool:
         """是否走 connected 消息(转发同步实例)。"""
-        sync = self._sync
-        if not isinstance(sync, OmronCipClient):
-            raise TypeError("内部错误:sync 实例不是 OmronCipClient")
+        sync = self._typed(OmronCipClient)
         return sync.connected_messaging
 
     async def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """多服务包批量读取(0x0A,单事务;语义同同步版)。"""
-        sync = self._sync
-        if not isinstance(sync, OmronCipClient):
-            raise TypeError("内部错误:sync 实例不是 OmronCipClient")
+        sync = self._typed(OmronCipClient)
         return await self._run(lambda: sync.read_batch(items))
 
     @property
     def slot(self) -> int:
         """CPU 槽号(转发同步实例;NJ 直发路径默认 0)。"""
-        sync = self._sync
-        if not isinstance(sync, OmronCipClient):
-            raise TypeError("内部错误:sync 实例不是 OmronCipClient")
+        sync = self._typed(OmronCipClient)
         return sync.slot
 
     async def generic_message(
         self, service: int, class_id: int, instance: int, body: bytes = b""
     ) -> Tuple[bool, Optional[bytes]]:
         """通用 CIP 服务(语义同同步版 :meth:`OmronCipClient.generic_message`)。"""
-        sync = self._sync
-        if not isinstance(sync, OmronCipClient):
-            raise TypeError("内部错误:sync 实例不是 OmronCipClient")
+        sync = self._typed(OmronCipClient)
         return await self._run(lambda: sync.generic_message(service, class_id, instance, body))
 
     async def list_identity(self) -> Tuple[bool, Optional[dict]]:
         """ENIP ListIdentity 单播(语义同同步版)。"""
-        sync = self._sync
-        if not isinstance(sync, OmronCipClient):
-            raise TypeError("内部错误:sync 实例不是 OmronCipClient")
+        sync = self._typed(OmronCipClient)
         return await self._run(sync.list_identity)
 
     async def get_plc_info(self) -> Tuple[bool, Optional[dict]]:
         """Identity Object GetAttributesAll(语义同同步版)。"""
-        sync = self._sync
-        if not isinstance(sync, OmronCipClient):
-            raise TypeError("内部错误:sync 实例不是 OmronCipClient")
+        sync = self._typed(OmronCipClient)
         return await self._run(sync.get_plc_info)
 
     async def get_attribute_all(
         self, class_id: int, instance: int
     ) -> Tuple[bool, Optional[bytes]]:
         """通用 GetAttributesAll(语义同同步版)。"""
-        sync = self._sync
-        if not isinstance(sync, OmronCipClient):
-            raise TypeError("内部错误:sync 实例不是 OmronCipClient")
+        sync = self._typed(OmronCipClient)
         return await self._run(lambda: sync.get_attribute_all(class_id, instance))
 
     async def get_attribute_list(
         self, class_id: int, instance: int, attributes: Sequence[int]
     ) -> Tuple[bool, Optional[List[Tuple[int, object]]]]:
         """通用 GetAttributeList(语义同同步版)。"""
-        sync = self._sync
-        if not isinstance(sync, OmronCipClient):
-            raise TypeError("内部错误:sync 实例不是 OmronCipClient")
+        sync = self._typed(OmronCipClient)
         return await self._run(
             lambda: sync.get_attribute_list(class_id, instance, attributes)
         )
@@ -1087,9 +1026,7 @@ class AOmronCipClient(ABaseClient):
     @property
     def connection_size(self) -> Optional[int]:
         """生效连接尺寸(connected 模式 Forward Open 后可用,转发同步实例)。"""
-        sync = self._sync
-        if not isinstance(sync, OmronCipClient):
-            raise TypeError("内部错误:sync 实例不是 OmronCipClient")
+        sync = self._typed(OmronCipClient)
         return sync.connection_size
 
 
@@ -1123,10 +1060,7 @@ class AOpenTcpClient(ABaseClient):
 
     def _client(self) -> OpenTcpClient:
         """取通用 TCP 同步实例(内部属性)。"""
-        sync = self._sync
-        if not isinstance(sync, OpenTcpClient):
-            raise TypeError("内部错误:sync 实例不是 OpenTcpClient")
-        return sync
+        return self._typed(OpenTcpClient)
 
     async def send(self, data: bytes) -> bool:
         """原样发送字节(语义同同步版 :meth:`OpenTcpClient.send`)。"""
@@ -1204,10 +1138,7 @@ class AMTConnectClient(ABaseClient):
 
     def _client(self) -> MTConnectClient:
         """取 MTConnect 同步实例(内部属性)。"""
-        sync = self._sync
-        if not isinstance(sync, MTConnectClient):
-            raise TypeError("内部错误:sync 实例不是 MTConnectClient")
-        return sync
+        return self._typed(MTConnectClient)
 
     async def snapshot(self) -> Tuple[bool, Optional[Dict[str, str]]]:
         """读取 /current 全量数据项快照(id/name → 文本值)。"""
@@ -1240,59 +1171,45 @@ class AAllenBradleyEthIpClient(ABaseClient):
     @property
     def slot(self) -> int:
         """CPU 槽号(转发同步实例)。"""
-        sync = self._sync
-        if not isinstance(sync, AllenBradleyEthIpClient):
-            raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
+        sync = self._typed(AllenBradleyEthIpClient)
         return sync.slot
 
     async def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """多服务包批量读取(0x0A,单事务;语义同同步版)。"""
-        sync = self._sync
-        if not isinstance(sync, AllenBradleyEthIpClient):
-            raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
+        sync = self._typed(AllenBradleyEthIpClient)
         return await self._run(lambda: sync.read_batch(items))
 
     async def generic_message(
         self, service: int, class_id: int, instance: int, body: bytes = b""
     ) -> Tuple[bool, Optional[bytes]]:
         """通用 CIP 服务(语义同同步版 :meth:`AllenBradleyEthIpClient.generic_message`)。"""
-        sync = self._sync
-        if not isinstance(sync, AllenBradleyEthIpClient):
-            raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
+        sync = self._typed(AllenBradleyEthIpClient)
         return await self._run(lambda: sync.generic_message(service, class_id, instance, body))
 
     async def list_identity(self) -> Tuple[bool, Optional[dict]]:
         """ENIP ListIdentity 单播(语义同同步版)。"""
-        sync = self._sync
-        if not isinstance(sync, AllenBradleyEthIpClient):
-            raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
+        sync = self._typed(AllenBradleyEthIpClient)
         return await self._run(sync.list_identity)
 
     async def get_plc_info(self) -> Tuple[bool, Optional[dict]]:
         """Identity Object GetAttributesAll(语义同同步版)。"""
-        sync = self._sync
-        if not isinstance(sync, AllenBradleyEthIpClient):
-            raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
+        sync = self._typed(AllenBradleyEthIpClient)
         return await self._run(sync.get_plc_info)
 
     async def get_attribute_all(
         self, class_id: int, instance: int
     ) -> Tuple[bool, Optional[bytes]]:
         """通用 GetAttributesAll(语义同同步版)。"""
-        sync = self._sync
-        if not isinstance(sync, AllenBradleyEthIpClient):
-            raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
+        sync = self._typed(AllenBradleyEthIpClient)
         return await self._run(lambda: sync.get_attribute_all(class_id, instance))
 
     async def get_attribute_list(
         self, class_id: int, instance: int, attributes: Sequence[int]
     ) -> Tuple[bool, Optional[List[Tuple[int, object]]]]:
         """通用 GetAttributeList(语义同同步版)。"""
-        sync = self._sync
-        if not isinstance(sync, AllenBradleyEthIpClient):
-            raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
+        sync = self._typed(AllenBradleyEthIpClient)
         return await self._run(
             lambda: sync.get_attribute_list(class_id, instance, attributes)
         )
@@ -1300,17 +1217,13 @@ class AAllenBradleyEthIpClient(ABaseClient):
     @property
     def connected_messaging(self) -> bool:
         """是否走 connected 消息(转发同步实例)。"""
-        sync = self._sync
-        if not isinstance(sync, AllenBradleyEthIpClient):
-            raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
+        sync = self._typed(AllenBradleyEthIpClient)
         return sync.connected_messaging
 
     @property
     def connection_size(self) -> Optional[int]:
         """生效连接尺寸(connected 模式 Forward Open 后可用,转发同步实例)。"""
-        sync = self._sync
-        if not isinstance(sync, AllenBradleyEthIpClient):
-            raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
+        sync = self._typed(AllenBradleyEthIpClient)
         return sync.connection_size
 
 
@@ -1329,17 +1242,13 @@ class ABeckhoffAdsClient(ABaseClient):
     @property
     def net_id(self) -> str:
         """目标 AMS NetId(转发同步实例)。"""
-        sync = self._sync
-        if not isinstance(sync, BeckhoffAdsClient):
-            raise TypeError("内部错误:sync 实例不是 BeckhoffAdsClient")
+        sync = self._typed(BeckhoffAdsClient)
         return sync.net_id
 
     @property
     def ads_port(self) -> int:
         """目标 AMS 端口(转发同步实例)。"""
-        sync = self._sync
-        if not isinstance(sync, BeckhoffAdsClient):
-            raise TypeError("内部错误:sync 实例不是 BeckhoffAdsClient")
+        sync = self._typed(BeckhoffAdsClient)
         return sync.ads_port
 
 
@@ -1359,10 +1268,7 @@ class ASiemensS7Client(ABaseClient):
 
     def _client(self) -> SiemensS7Client:
         """取 S7 同步实例(内部属性)。"""
-        sync = self._sync
-        if not isinstance(sync, SiemensS7Client):
-            raise TypeError("内部错误:sync 实例不是 SiemensS7Client")
-        return sync
+        return self._typed(SiemensS7Client)
 
     @property
     def rack(self) -> int:
