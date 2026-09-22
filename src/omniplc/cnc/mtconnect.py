@@ -41,6 +41,13 @@ _PROBE_PATH = "/probe"
 _UNAVAILABLE_VALUES = ("unavailable", "not_available")
 """MTConnect 约定的"当前无值"文本(比较用小写)。"""
 
+_STALE_CONNECTION_ERRORS = (ConnectionResetError, BrokenPipeError)
+"""keep-alive 连接被 Agent 空闲超时静默关闭后,复用时抛的连接层异常。
+
+``http.client.RemoteDisconnected`` 同时继承 ``ConnectionResetError`` 与
+``BadStatusLine``,故归入此类;这类失效按 GET 幂等重建连接重试一次。
+"""
+
 _BOOL_TRUE = ("true", "1")
 _BOOL_FALSE = ("false", "0")
 
@@ -101,8 +108,10 @@ class _MtConnectSession(BaseTransport):
     供 :class:`BaseClient` 的连接状态机直接管理——``connect`` 创建
     ``http.client.HTTPConnection``(惰性建链,首次请求才真正握手),
     ``close`` 关闭;无字节流收发,HTTP 请求经 :meth:`request` 完成。
-    HTTP 库协议异常归一为 OSError(断线惰性重连);socket 层异常
-    本就是 OSError,直接上抛。
+    keep-alive 连接被 Agent 空闲超时静默关闭时,request 内先原位重建
+    连接透明重试一次(GET 幂等),不惊动上层状态机;仍失败才按断线
+    上抛。HTTP 库协议异常归一为 OSError(断线惰性重连);socket 层
+    异常本就是 OSError,直接上抛。
     """
 
     def __init__(self, ip_address: str, port: int) -> None:
@@ -139,10 +148,27 @@ class _MtConnectSession(BaseTransport):
     def request(self, path: str) -> bytes:
         """执行一次 HTTP GET,返回 200 响应体(会话调用,异常在此翻译)。
 
+        keep-alive 连接可能已被 Agent 空闲超时静默关闭:遇到连接层
+        失效(连接被重置/管道破裂)先原位重建连接再重试一次(GET 幂等,
+        同 urllib3 的 stale 连接重试策略),重试仍失败才按断线上抛。
+
         :raises DeviceError: HTTP 非 200 且响应体为 MTConnectError 文档
         :raises OSError: socket/超时/HTTP 协议异常,或非 200 且无错误文档
         """
         conn = self._require_conn()
+        try:
+            return self._exchange(conn, path)
+        except _STALE_CONNECTION_ERRORS as exc:
+            log_op(self._debug_label, "keep-alive 连接已失效,重建后重试:%s", exc)
+            self._recreate()
+            return self._exchange(self._require_conn(), path)
+
+    def _exchange(self, conn: http.client.HTTPConnection, path: str) -> bytes:
+        """发送 GET 并处理响应(单次尝试,连接失效异常交上层重试)。
+
+        :raises DeviceError: HTTP 非 200 且响应体为 MTConnectError 文档
+        :raises OSError: 连接被重置/超时/HTTP 协议异常,或非 200 且无错误文档
+        """
         if conn.sock is not None:
             conn.sock.settimeout(self._receive_timeout)
         try:
@@ -150,6 +176,8 @@ class _MtConnectSession(BaseTransport):
             response = conn.getresponse()
             body = response.read()
             status = int(response.status)
+        except _STALE_CONNECTION_ERRORS:
+            raise  # 连接层失效,由 request() 原位重建后重试
         except http.client.HTTPException as exc:
             raise OSError(f"MTConnect HTTP 协议异常:{exc}") from exc
         log_op(self._debug_label, "GET %s → HTTP %d(%dB)", path, status, len(body))
@@ -159,14 +187,19 @@ class _MtConnectSession(BaseTransport):
             root = ElementTree.fromstring(body)
         except ElementTree.ParseError:
             raise OSError(
-                "MTConnect HTTP 状态 {}:{}".format(status, body[:120].decode("utf-8", "replace"))
+                f"MTConnect HTTP 状态 {status}:{body[:120].decode('utf-8', 'replace')}"
             )
         info = _error_of_document(root)
         if info is None:
             raise OSError(f"MTConnect HTTP 状态 {status} 响应非错误文档")
-        raise DeviceError(
-            "MTConnect HTTP {} {}:{}".format(status, info[0], info[1]), 0
-        )
+        raise DeviceError(f"MTConnect HTTP {status} {info[0]}:{info[1]}", 0)
+
+    def _recreate(self) -> None:
+        """关闭当前 HTTP 连接并原位重建(keep-alive 失效重试用,内部方法)。"""
+        conn, self._conn = self._conn, None
+        if conn is not None:
+            conn.close()
+        self.connect()
 
     def _require_conn(self) -> http.client.HTTPConnection:
         """取当前 HTTP 连接,未建立则抛出(内部方法)。"""
@@ -235,7 +268,7 @@ class MTConnectClient(BaseClient):
         root = self._fetch(_CURRENT_PATH)
         if _local_name(root.tag) != "MTConnectStreams":
             raise ProtocolFrameError(
-                "MTConnect /current 返回了 {} 文档".format(_local_name(root.tag))
+                f"MTConnect /current 返回了 {_local_name(root.tag)} 文档"
             )
         items: Dict[str, str] = {}
         for elem in root.iter():
@@ -256,7 +289,7 @@ class MTConnectClient(BaseClient):
         root = self._fetch(_CURRENT_PATH)
         if _local_name(root.tag) != "MTConnectStreams":
             raise ProtocolFrameError(
-                "MTConnect /current 返回了 {} 文档".format(_local_name(root.tag))
+                f"MTConnect /current 返回了 {_local_name(root.tag)} 文档"
             )
         conditions: List[Dict[str, str]] = []
         for elem in root.iter():
@@ -281,7 +314,7 @@ class MTConnectClient(BaseClient):
         root = self._fetch(_PROBE_PATH)
         if _local_name(root.tag) != "MTConnectDevices":
             raise ProtocolFrameError(
-                "MTConnect /probe 返回了 {} 文档".format(_local_name(root.tag))
+                f"MTConnect /probe 返回了 {_local_name(root.tag)} 文档"
             )
         for elem in root.iter():
             if _local_name(elem.tag) == "Device":

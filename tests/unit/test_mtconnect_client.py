@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import http.client
 from typing import Optional
 
 import pytest
@@ -271,6 +272,54 @@ def test_socket_error_lazy_reconnect(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.read_float("Sspeed") == (True, 8400.0)
     assert client.connected is True
     assert len(created) == 2
+
+
+def test_stale_keepalive_transparent_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Agent 空闲超时静默关闭 keep-alive → 原位重建重试一次,本次读成功且不断线。"""
+    first = FakeHTTPConnection("127.0.0.1", 5000)
+    first.responses = {"/current": (200, _CURRENT_XML.encode("utf-8"))}
+    first.fail_next = http.client.RemoteDisconnected("对端已关闭连接")
+    created: list = []
+
+    def factory(ip: str, port: int, timeout: float) -> FakeHTTPConnection:
+        if not created:
+            created.append(first)
+            return first
+        second = FakeHTTPConnection(ip, port, timeout)
+        second.responses = dict(first.responses)
+        created.append(second)
+        return second
+
+    monkeypatch.setattr(mtc_module, "_new_connection", factory)
+    client = MTConnectClient("127.0.0.1", 5000)
+    assert client.connect() is True
+    assert client.read_float("Sspeed") == (True, 8400.0)
+    assert client.connected is True
+    assert client.last_error is None
+    assert len(created) == 2  # 重试用了重建的新连接
+
+
+def test_stale_retry_second_failure_disconnects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """重建重试仍失败 → 按断线上抛;下次读经惰性重连恢复。"""
+    created: list = []
+
+    def factory(ip: str, port: int, timeout: float) -> FakeHTTPConnection:
+        fresh = FakeHTTPConnection(ip, port, timeout)
+        fresh.responses = {"/current": (200, _CURRENT_XML.encode("utf-8"))}
+        if len(created) < 2:  # 前两个连接都注入失效
+            fresh.fail_next = http.client.RemoteDisconnected("对端已关闭连接")
+        created.append(fresh)
+        return fresh
+
+    monkeypatch.setattr(mtc_module, "_new_connection", factory)
+    client = MTConnectClient("127.0.0.1", 5000)
+    assert client.connect() is True
+    assert client.read_float("Sspeed") == (False, None)
+    assert client.connected is False
+    assert len(created) == 2  # 只重建了一次,第二次失败即上抛
+    assert client.read_float("Sspeed") == (True, 8400.0)
+    assert client.connected is True
+    assert len(created) == 3
 
 
 # ----------------------------------------------------------------------
