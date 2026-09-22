@@ -1,6 +1,6 @@
 # omniplc 架构设计
 
-> 版本:v0.29.2 · 更新日期:2026-09-22 · 状态:Modbus / 三菱 MC(以太网 + 串口帧)/ FINS / NJ/NX CIP / KV / SR / TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / 西门子 S7 / OPC-UA / 通用自定义 TCP / CNC MTConnect 已全部落地,全局报文调试开关已上线
+> 版本:v0.30.0 · 更新日期:2026-09-22 · 状态:Modbus / 三菱 MC(以太网 + 串口帧)/ FINS / NJ/NX CIP / KV / SR / TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / 西门子 S7 / OPC-UA / 通用自定义 TCP / CNC MTConnect 已全部落地,全局报文调试开关已上线;工业场景可靠性 + 观测诊断收口(per-call timeout 立即下发、整事务 deadline、超时分流、AB connected 重连、TCP keepalive、aio close 生命周期、UDP datagram 上限、FINS 重连节点刷新、MX COM 清理、连接健康统计)
 
 omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7+,uv 开发)。
 本文档描述 v1.0 的完整架构:分层、类设计、继承树、线程安全模型、类型标注纪律、
@@ -902,6 +902,7 @@ FINS 与 fins-driver 0.3.1 对照(2026-09 复审):FINS 帧头 10 字节布局
 | v0.29 | MX Component 批量读取:ActUtlType 原生 ReadDeviceRandom(`read_batch` 混软元件单事务 + `read_many` 覆写;软元件列表换行分隔、每条 1 字;仅 16 位类型 BOOL/SHORT/USHORT——地址编号原文透传无法安全拆 32 位相邻字;手册 5.2.5 核证)| ✅ 完成 |
 | v0.29.1 | 异步镜像完整性收口:全量内省审计补齐 9 处缺口(Keyence/Inovance/Panasonic MC 的 read_batch 经对称继承获得,AB/NJ 补 5 个通用 CIP 服务 + NJ slot,Inovance TCP/RTU 补 station/word_order/write_mask_register);aio 家族镜像改对称继承结构;新增内省守卫测试防再漂移;性能实测:单设备异步零收益(线程切换 +67µs/笔),10 台并发 10.0 倍| ✅ 完成 |
 | v0.29.2 | 使用范例完善:逐客户端补读写与驱动扩展示例(MC/FINS/KV/MX、AB 批量与 Identity 服务),新增"批量读取(协议原生,单事务)"专节,异步节补多设备并发示例与性能提示| ✅ 完成 |
+| v0.30.0 | 工业场景可靠性与观测诊断收口:A1 `receive_timeout` setter 下发到 live socket(TCP/UDP/串口);A2 整事务 deadline(`monotonic()` 绝对 deadline 重设 `settimeout`,涓流拖不死);A3 新增 `TransportTimeoutError(DeviceError)`,串口/UDP 超时按链路完好不断线,TCP 仍 OSError 拆连防串帧;A4 `connect()`/`_after_connect()` 异常统一清理到干净状态;A5 AB connected CIP 状态 0x01(`Connection failure`)映射为 `ProtocolFrameError` 触发惰性重连与重建 Forward Open,其余 CIP 状态保持 DeviceError;A6 TCP 默认 SO_KEEPALIVE(Linux `TCP_KEEPIDLE/INTVL/CNT` 30/5/3,Windows `SIO_KEEPALIVE_VALS`,best-effort);A7 aio `close()` 幂等(先同步 disconnect 再 `executor.shutdown(wait=False)`,关闭后协议调用抛 `RuntimeError`);A8 UDP datagram 上限 2048→8192(`MC_MAX_DATAGRAM`/`FINS_MAX_DATAGRAM`);A9 FINS/TCP 重连刷新自动节点号(构造期 `auto_*` 标志保留,握手结果在自动模式下每次覆盖);A10 MX COM `Close()` 先于 `_com` 清空,失败也清引用,`CoUninitialize` 配对释放线程计数;B1 `BaseClient.stats` 健康统计(connect/disconnect/transactions/error/device_error 计数 + last_error_at/last_connect_at/last_success_at/last_rtt 时间戳),aio 镜像转发 | ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、通用 TCP 长度域成帧/空闲切块成帧、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 更多品牌/协议按需扩展(drivers 插槽沿用 BaseClient 原语模式) | 规划 |
