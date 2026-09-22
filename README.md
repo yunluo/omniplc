@@ -1,10 +1,10 @@
 # omniplc
 
 #### 介绍
-omniplc —— 一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、汇川、松下、丰田、罗克韦尔(AB)、倍福(TwinCAT)、西门子(S7)等 PLC/扫码枪、OPC-UA 服务器与 CNC 机床(MTConnect),支持 Modbus、MC(3E/4E/1E 以太网帧、3C/4C 串口帧)、FINS、NJ/NX CIP(EtherNet/IP)、KV Host Link、KV MC 协议兼容(SLMP)、汇川 H3U/H5U(Modbus TCP/RTU、MC 协议兼容 3E)、松下 FP(MC 协议兼容 3E、MEWTOCOL)、SR、TOYOPUC 计算机链接、EtherNet/IP(Logix 标签读写)、TwinCAT ADS(封装 pyads)、西门子 S7(封装 python-snap7,DB/I/Q/M)、通用自定义 TCP(分隔符成帧)、OPC-UA、MTConnect 数采等协议。
+omniplc:一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、汇川、松下、丰田、罗克韦尔(AB)、倍福(TwinCAT)、西门子(S7)等 PLC/扫码枪、OPC-UA 服务器与 CNC 机床(MTConnect),支持 Modbus、MC(3E/4E/1E 以太网帧、3C/4C 串口帧)、FINS、NJ/NX CIP(EtherNet/IP)、KV Host Link、KV MC 协议兼容(SLMP)、汇川 H3U/H5U(Modbus TCP/RTU、MC 协议兼容 3E)、松下 FP(MC 协议兼容 3E、MEWTOCOL)、SR、TOYOPUC 计算机链接、EtherNet/IP(Logix 标签读写)、TwinCAT ADS(封装 pyads)、西门子 S7(封装 python-snap7,DB/I/Q/M)、通用自定义 TCP(分隔符成帧)、OPC-UA、MTConnect 数采等协议。
 
 - **Python 3.7+**,uv 开发,核心零第三方依赖
-- 命名与使用习惯对齐 pyhsl,迁移成本极低
+- 命名与使用习惯对齐,迁移成本极低
 - 全量类型标注(PEP 484 + py.typed),mypy 检查通过
 - 内置全局报文调试开关(`omniplc.set_debug(True)` 一键输出所有协议的请求/响应报文)
 - 线程安全、惰性自动重连、可配置超时/重试
@@ -385,7 +385,7 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 
 #### 错误处理约定
 
-与 pyhsl 一致:**读返回 `(bool, 值)`,写返回 `bool`,不抛自定义异常**;
+**读返回 `(bool, 值)`,写返回 `bool`,不抛自定义异常**;
 失败原因记录在 `client.last_error`(含 PLC 原始错误码)。参数非法(地址/类型/
 范围错误)抛 `ValueError`。批量操作逐点独立容错,单点失败不影响其他点。
 
@@ -411,40 +411,40 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 
 下表汇总散落各处的真机核证项(实现已完成,缺真机条件或排队中):
 
-| 项                              | 驱动                  | 现状态                          |
-|---------------------------------|-----------------------|--------------------------------|
-| AB 0x0A 多服务包批量读           | AB Logix              | 已实现,HSL 模拟器不支持,待真机核证 |
-| NJ CIP 0x0A 多服务包             | 欧姆龙 NJ/NX CIP      | 继承 AB,理论同,待真机核证       |
-| 倍福 ADS                        | TwinCAT               | 封装 pyads,需 TwinCAT 运行时    |
-| 西门子 S7                        | S7-300/1200/1500      | 封装 python-snap7,需 PLC 或 PLCSIM |
-| NJ STRING 拒绝                  | 欧姆龙 NJ/NX CIP      | 编码已禁,待真机复核边界         |
-| KV MC 0406 批量读                | 基恩士 KV MC          | 继承 MelsecMc,码表已覆写,待真机 |
-| OPC-UA                          | opc.tcp               | 封装 asyncua,需 OPC-UA 服务器   |
-| MTConnect                       | MTConnect Agent       | 标准库 HTTP/XML,需 CNC 端 Agent |
-| MX Component                    | 三菱 MX              | Windows + MX 运行时 + comtypes   |
+| 项                | 驱动               | 现状态                            |
+|------------------|------------------|--------------------------------|
+| AB 0x0A 多服务包批量读  | AB Logix         | 已实现,HSL 模拟器不支持,待真机核证           |
+| NJ CIP 0x0A 多服务包 | 欧姆龙 NJ/NX CIP    | 继承 AB,理论同,待真机核证                |
+| 倍福 ADS           | TwinCAT          | 封装 pyads,需 TwinCAT 运行时         |
+| 西门子 S7           | S7-300/1200/1500 | 封装 python-snap7,需 PLC 或 PLCSIM |
+| NJ STRING 拒绝     | 欧姆龙 NJ/NX CIP    | 编码已禁,待真机复核边界                   |
+| KV MC 0406 批量读   | 基恩士 KV MC        | 继承 MelsecMc,码表已覆写,待真机          |
+| OPC-UA           | opc.tcp          | 封装 asyncua,需 OPC-UA 服务器        |
+| MTConnect        | MTConnect Agent  | 标准库 HTTP/XML,需 CNC 端 Agent     |
+| MX Component     | 三菱 MX            | Windows + MX 运行时 + comtypes    |
 
 #### v1 协议 × 走线矩阵
 
-| 协议             | TCP | UDP | RTU(串口)       | MX Component        |
-|------------------|-----|-----|-----------------|---------------------|
-| Modbus(含 FC22 掩码写) | ✅  | —   | ✅(广播写)     | —                   |
-| 三菱 MC 3E/4E/1E | ✅  | ✅  | ✅(3C/4C 串口帧) | ✅(Windows + COM)  |
-| 欧姆龙 FINS      | ✅  | ✅  | v1.x(Host Link) | —                   |
-| 欧姆龙 CIP / 连接型 CIP(NJ/NX) | ✅(44818,unconnected/connected) | — | — | —      |
-| 倍福 TwinCAT(ADS) | ✅(封装 pyads,AMS 851) | — | — | —           |
-| 罗克韦尔 AB EtherNet/IP(Logix) | ✅(44818,unconnected/connected) | — | — | —      |
-| 基恩士 KV Host Link | ✅ | ✅ | —               | —                   |
-| 基恩士 KV MC 协议兼容(SLMP 3E) | ✅(5000) | ✅(5000) | — | —              |
-| 汇川 H3U/H5U(Modbus + 汇川地址映射) | ✅(502) | — | ✅(9600-8N2) | —      |
-| 汇川 MC 协议兼容(3E 帧,Easy/H5U 固件 V6.4.0.0+) | ✅(端口以 MC配置 为准) | — | — | —      |
-| 松下 FP0H/FP7 MC 协议兼容(3E 帧) | ✅(端口以模块配置为准) | — | — | —      |
-| 松下 MEWTOCOL | ✅(1024) | ✅(1024) | v1.x(MEWTOCOL-COM) | —      |
-| 基恩士 SR 扫码枪 | ✅(9004) | — | —            | —                   |
-| 丰田 TOYOPUC 计算机链接 | ✅(1025) | ✅(1025) | — | —              |
-| OPC-UA(opc.tcp) | ✅(4840,封装 asyncua) | — | — | —                   |
-| CNC 机床数采(MTConnect) | ✅(Agent 5000,HTTP/XML 只读) | — | — | —      |
-| 西门子 S7(DB/I/Q/M) | ✅(102,封装 python-snap7:3.7~3.9→1.3,3.10+→3.x 纯 Python) | — | — | —      |
-| 通用自定义 TCP(分隔符成帧) | ✅(分隔符/编码/帧上限可配) | — | — | —      |
+| 协议                                     | TCP                                                   | UDP     | RTU(串口)            | MX Component     |
+|----------------------------------------|-------------------------------------------------------|---------|--------------------|------------------|
+| Modbus(含 FC22 掩码写)                     | ✅                                                     | —       | ✅(广播写)             | —                |
+| 三菱 MC 3E/4E/1E                         | ✅                                                     | ✅       | ✅(3C/4C 串口帧)       | ✅(Windows + COM) |
+| 欧姆龙 FINS                               | ✅                                                     | ✅       | v1.x(Host Link)    | —                |
+| 欧姆龙 CIP / 连接型 CIP(NJ/NX)               | ✅(44818,unconnected/connected)                        | —       | —                  | —                |
+| 倍福 TwinCAT(ADS)                        | ✅(封装 pyads,AMS 851)                                   | —       | —                  | —                |
+| 罗克韦尔 AB EtherNet/IP(Logix)             | ✅(44818,unconnected/connected)                        | —       | —                  | —                |
+| 基恩士 KV Host Link                       | ✅                                                     | ✅       | —                  | —                |
+| 基恩士 KV MC 协议兼容(SLMP 3E)                | ✅(5000)                                               | ✅(5000) | —                  | —                |
+| 汇川 H3U/H5U(Modbus + 汇川地址映射)            | ✅(502)                                                | —       | ✅(9600-8N2)        | —                |
+| 汇川 MC 协议兼容(3E 帧,Easy/H5U 固件 V6.4.0.0+) | ✅(端口以 MC配置 为准)                                        | —       | —                  | —                |
+| 松下 FP0H/FP7 MC 协议兼容(3E 帧)              | ✅(端口以模块配置为准)                                          | —       | —                  | —                |
+| 松下 MEWTOCOL                            | ✅(1024)                                               | ✅(1024) | v1.x(MEWTOCOL-COM) | —                |
+| 基恩士 SR 扫码枪                             | ✅(9004)                                               | —       | —                  | —                |
+| 丰田 TOYOPUC 计算机链接                       | ✅(1025)                                               | ✅(1025) | —                  | —                |
+| OPC-UA(opc.tcp)                        | ✅(4840,封装 asyncua)                                    | —       | —                  | —                |
+| CNC 机床数采(MTConnect)                    | ✅(Agent 5000,HTTP/XML 只读)                             | —       | —                  | —                |
+| 西门子 S7(DB/I/Q/M)                       | ✅(102,封装 python-snap7:3.7~3.9→1.3,3.10+→3.x 纯 Python) | —       | —                  | —                |
+| 通用自定义 TCP(分隔符成帧)                       | ✅(分隔符/编码/帧上限可配)                                       | —       | —                  | —                |
 
 #### 路线图
 
@@ -481,9 +481,7 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 - **v0.29.1**:异步镜像完整性收口——全量内省审计补齐 9 处缺口(基恩士 MC ×2/汇川 MC/松下 MC 的 `read_batch` 经对称继承获得,AB/NJ 补 `generic_message`/`list_identity`/`get_plc_info`/`get_attribute_all`/`get_attribute_list`,NJ 补 `slot`,汇川 TCP/RTU 补 `station`/`word_order`/`write_mask_register`);aio 家族镜像改对称继承结构(Keyence/Inovance/Panasonic MC 继承 AMelsecMc*,汇川 Modbus 继承 AModbusBaseClient);新增内省守卫测试:同步扩展必须有异步镜像,防再漂移
 - **v0.29.2**:使用范例完善——逐客户端补读写与驱动特有扩展示例(MC/FINS/KV HostLink/MX 补完整读写,MX 补 ReadDeviceRandom 批量,AB 补 0x0A 批量与 Identity 服务),新增"批量读取(协议原生,单事务)"专节(五家原生能力与统一契约),异步节补多设备并发示例与性能提示(并发 ≈ 顺序 1/N 耗时)
 - **v0.30.0(当前)**:工业场景可靠性与观测诊断收口——(A1)`receive_timeout` setter 下发到 live socket(TCP/UDP/串口);(A2)整事务 deadline 防涓流拖死(TCP/串口按 `monotonic()` 绝对 deadline 重设 `settimeout`);(A3)新增 `TransportTimeoutError(DeviceError)`,串口/UDP 超时按链路完好不断线,TCP 仍 OSError 拆连防串帧;(A4)`connect()`/`_after_connect()` 异常统一清理到干净状态(失败必 close+null+返回 False);(A5)AB connected 模式 CIP 状态 0x01(`Connection failure`)映射为 `ProtocolFrameError`,断开惰性重连重建 Forward Open;其余 CIP 状态(只读等)保持 DeviceError 不拆连;(A6)TCP 默认启用 SO_KEEPALIVE,Linux `TCP_KEEPIDLE/INTVL/CNT`(30s/5s/3 次),Windows `SIO_KEEPALIVE_VALS`,best-effort 静默降级;(A7)aio `close()` 幂等——先尽力断开同步客户端再 shutdown executor,关闭后协议调用抛 `RuntimeError`;(A8)UDP datagram 上限 2048→8192(`MC_MAX_DATAGRAM`/`FINS_MAX_DATAGRAM`);(A9)FINS/TCP 重连刷新自动节点号(构造期 `auto_*` 标志保留,握手结果在自动模式下每次覆盖);(A10)MX COM `Close()` 先于 `_com` 清空,失败也清引用,`CoUninitialize` 配对释放线程计数;(B1)`BaseClient.stats` 健康统计(connect/disconnect/transactions/error/device_error 计数 + last_error_at/last_connect_at/last_success_at/last_rtt 时间戳),aio 镜像转发,README 字段说明 + 真机联测待做汇总清单
-- **v1.0**:点位表完善 + 示例 + 文档,正式发布
-- **v1.x**:MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、MTConnect /sample 历史流与写入、FANUC FOCAS / 三菱 CNC EZSocket(Windows DLL 封装)、通用 TCP 长度域成帧/空闲切块成帧、心跳保活、轮询器、连接池
-- **v2**:更多品牌/协议按需扩展(驱动插槽沿用 BaseClient 原语模式)
+
 
 #### 开发
 
