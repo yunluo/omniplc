@@ -591,3 +591,58 @@ def test_parse_service_reply_tolerates_zero_echo_write_reply() -> None:
     wrong_echo = bytes((0xCB, 0x00, 0x00, 0x00))  # 期望 0xCC,实际 0xCB
     with pytest.raises(ProtocolFrameError):
         codec_cip.parse_service_reply(_reply_with_embedded(wrong_echo), 0x4D)
+
+
+def test_build_multiple_service_packet() -> None:
+    """多服务包:0x0A + 消息路由器路径 + 条数/偏移(自条数域起算)/补齐。"""
+    packet = codec_cip.build_multiple_service_packet([
+        bytes.fromhex("4c01020304"),  # 5 字节(奇)
+        bytes.fromhex("4c0105060708"),  # 6 字节(偶)
+    ])
+    # 条数 0200;偏移:第 1 条 6(2+2*2),第 2 条 6+5+1(补齐)=0x0C
+    assert packet == bytes.fromhex(
+        "0a02" "20022401" "0200" "0600" "0c00" "4c01020304" "00" "4c0105060708"
+    )
+
+
+def test_build_multiple_service_packet_validation() -> None:
+    """多服务包构造校验:空请求/条数超限。"""
+    with pytest.raises(ValueError):
+        codec_cip.build_multiple_service_packet([])
+    with pytest.raises(ValueError):
+        codec_cip.build_multiple_service_packet(
+            [b"\x4c\x01\x01"] * 33
+        )
+
+
+def test_parse_multiple_service_payload() -> None:
+    """多服务包应答:按偏移切段,逐条校验回显与状态后返回数据域。"""
+    seg1 = bytes((0xCC, 0x00, 0x00, 0x00)) + b"\x01\x02\x03\x04"
+    seg2 = bytes((0xCC, 0x00, 0x00, 0x00)) + b"\x05\x06"
+    payload = (
+        struct.pack("<H", 2)
+        + struct.pack("<H", 6)
+        + struct.pack("<H", 6 + len(seg1))
+        + seg1
+        + seg2
+    )
+    assert codec_cip.parse_multiple_service_payload(payload, [0x4C, 0x4C]) == [
+        b"\x01\x02\x03\x04",
+        b"\x05\x06",
+    ]
+
+
+def test_parse_multiple_service_payload_errors() -> None:
+    """多服务包应答错误路径:条数不符/回显不符/内嵌状态非 0。"""
+    seg = bytes((0xCC, 0x00, 0x00, 0x00)) + b"\x01"
+    payload = struct.pack("<H", 2) + struct.pack("<H", 6) + seg * 2
+    with pytest.raises(ValueError):
+        codec_cip.parse_multiple_service_payload(payload, [0x4C])
+    bad_echo = bytes((0xCD, 0x00, 0x00, 0x00)) + b"\x01"
+    bad_payload = struct.pack("<H", 1) + struct.pack("<H", 4) + bad_echo
+    with pytest.raises(ProtocolFrameError):
+        codec_cip.parse_multiple_service_payload(bad_payload, [0x4C])
+    status_seg = bytes((0xCC, 0x00, 0x05, 0x00))
+    status_payload = struct.pack("<H", 1) + struct.pack("<H", 4) + status_seg
+    with pytest.raises(DeviceError):
+        codec_cip.parse_multiple_service_payload(status_payload, [0x4C])

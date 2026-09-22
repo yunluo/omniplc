@@ -47,6 +47,14 @@ class FakeSession(_OpcUaSession):
             raise self.read_errors[node_text]
         return self.values[node_text]
 
+    def read_values(self, node_texts: list) -> list:
+        out = []
+        for text in node_texts:
+            if text in self.read_errors:
+                raise self.read_errors[text]
+            out.append(self.values[text])
+        return out
+
     def write_value(self, node_text: str, value: Any, variant_name: str) -> None:
         self.written.append((node_text, value, variant_name))
         self.values[node_text] = value
@@ -242,6 +250,48 @@ def test_unsupported_data_type(monkeypatch: pytest.MonkeyPatch) -> None:
         client.read_ushort("D100")  # 不是 NodeId
     with pytest.raises(ValueError):
         client.read("ns=2;s=T", "not-a-type")
+
+
+# ----------------------------------------------------------------------
+# 批量读取(UA Read 单请求)
+# ----------------------------------------------------------------------
+
+def test_read_batch_and_read_many(monkeypatch: pytest.MonkeyPatch) -> None:
+    """批量读:read_batch/read_many 均为单次 UA Read 请求,值按序对应。"""
+    client = OpcUaClient("127.0.0.1", 4840)
+    fake = FakeSession()
+    fake.values["ns=2;s=Run"] = True
+    fake.values["ns=2;s=Temp"] = -5
+    fake.values["ns=2;s=Offset"] = 7
+    monkeypatch.setattr(client, "_create_transport", lambda: fake)
+    client.connect()
+    calls: list = []
+    orig = fake.read_values
+
+    def traced(texts: list) -> list:
+        calls.append(list(texts))
+        return orig(texts)
+
+    fake.read_values = traced
+    assert client.read_batch([("ns=2;s=Run", "bool"), ("ns=2;s=Temp", "short")]) == (
+        True,
+        [True, -5],
+    )
+    assert calls == [["ns=2;s=Run", "ns=2;s=Temp"]]
+    assert client.read_many(["ns=2;s=Temp", "ns=2;s=Offset"], "short") == [
+        (True, -5),
+        (True, 7),
+    ]
+    assert len(calls) == 2  # 每次调用各一帧
+
+
+def test_read_batch_rejects() -> None:
+    """read_batch 拒绝路径:空列表与非法数据类型。"""
+    client = OpcUaClient("127.0.0.1", 4840)
+    with pytest.raises(ValueError):
+        client.read_batch([])
+    with pytest.raises(ValueError):
+        client.read_batch([("ns=2;s=T", "bad-type")])
 
 
 # ----------------------------------------------------------------------

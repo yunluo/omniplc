@@ -616,6 +616,11 @@ AB_EIP_STRING_STRUCT_ID: int = 0x0FCE
 """Logix 标准 STRING 结构体模板实例号(写入类型域携带)。"""
 AB_EIP_STRING_MAX_CHARS: int = 82
 """Logix STRING 结构体最大字符数(len u32 + 82 字符 + 2 对齐 = 88 字节)。"""
+AB_MAX_BATCH_SERVICES: int = 32
+"""AB 多服务包(0x0A)单事务内嵌服务数上限。
+
+保守口径:unconnected 消息经 UC-Send 包裹后须落在 Logix 未连接缓冲
+(504 字节)内,典型标签名下 32 条约 500 字节;标签名较长时请分批。"""
 AB_EIP_STATUS_TEXT: dict = {
     0x01: "非法命令或未提供协议版本",
     0x02: "内存不足",

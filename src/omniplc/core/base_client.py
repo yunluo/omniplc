@@ -245,10 +245,8 @@ class BaseClient(ABC):
         """批量读取,逐点独立容错:单点失败不影响其他点。
 
         基类实现为逐点独立事务;驱动可覆写为协议级批量合并(接口不变):
-        MC 3E/4E 已覆写为 0406 多块批量读单事务(整批容错,
-        见 :meth:`omniplc.plc.melsec.MelsecMcTcpClient.read_many`);
-        欧姆龙 FINS 已覆写为 0104 多存储区读单事务
-        (见 :meth:`omniplc.plc.omron.OmronFinsTcpClient.read_many`)。
+        MC 3E/4E(0406)、FINS(0104)、AB 0x0A 多服务包、OPC-UA UA Read
+        均已覆写为单事务(整批容错,见各驱动 ``read_many`` docstring)。
 
         :param addresses: 地址列表
         :param data_type: 数据类型,推荐用 :class:`omniplc.types.DataType` 枚举

@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import re
 import struct
-from typing import Any, Tuple
+from typing import Any, List, Optional, Sequence, Tuple, Union
 
 from ..core.base_client import BaseClient, validate_endpoint
 from ..core.constants import OPCUA_DEFAULT_PORT
@@ -150,6 +150,19 @@ class _OpcUaSession(BaseTransport):
         log_op(self._debug_label, "读 %s → %r", node_text, value)
         return value
 
+    def read_values(self, node_texts: List[str]) -> List[Any]:
+        """批量读节点当前值(单次 Read 服务,asyncua 异常在此翻译)。"""
+        try:
+            values = self.client.read_values(
+                [self.client.get_node(text) for text in node_texts]
+            )
+        except OSError:
+            raise
+        except Exception as exc:
+            raise _translate_ua_error(exc) from exc
+        log_op(self._debug_label, "批量读 %d 节点", len(node_texts))
+        return values
+
     def write_value(self, node_text: str, value: Any, variant_name: str) -> None:
         """按 VariantType 写节点值(会话调用,asyncua 异常在此翻译)。"""
         import asyncua.ua
@@ -269,6 +282,59 @@ class OpcUaClient(BaseClient):
         parsed = parse_opcua_nodeid(address)
         self._session().write_value(parsed.text, value, _VARIANT_TYPE_NAMES[DataType.STRING])
         return value
+
+    # ------------------------------------------------------------------
+    # 批量读取(UA Read 服务原生多节点,单请求)
+    # ------------------------------------------------------------------
+
+    def read_many(
+        self, addresses: Sequence[str], data_type: Union[DataType, str]
+    ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
+        """批量读取:覆写为 UA Read 服务单请求。
+
+        与基类逐点独立容错不同:任一节点非法或服务端拒绝则**整批失败**
+        (原因见 :attr:`last_error`);需要逐点容错请逐点调用 :meth:`read`。
+        """
+        data_type_enum = DataType.coerce(data_type)
+        ok, values = self.read_batch([(address, data_type_enum) for address in addresses])
+        if not ok or values is None:
+            return [(False, None) for _ in addresses]
+        return [(True, value) for value in values]
+
+    def read_batch(
+        self, items: Sequence[Tuple[str, Union[DataType, str]]]
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """多节点批量读取:一次 UA Read 服务读回全部节点值。
+
+        OPC-UA Read 服务原生支持一次携带多个 NodeId,``read_many``/
+        ``read_batch`` 均为单请求往返;任一节点 Bad 状态即整批失败
+        (asyncua ``read_values`` 语义)。服务端对单请求节点数上限不一,
+        超限时按服务端报错处理。字符串节点为变长 Unicode,
+        ``length``/``encoding`` 参数不适用。
+
+        :param items: ``(NodeId, 数据类型)`` 序列
+        :return: ``(是否成功, 与 items 顺序对应的值列表)``
+        :raises ValueError: 列表为空或数据类型非法
+        """
+        if not items:
+            raise ValueError("read_batch 至少需要一个 (NodeId, 数据类型) 项")
+        plan: List[Tuple[str, DataType]] = []
+        for address, data_type in items:
+            data_type_enum = DataType.coerce(data_type)
+            if data_type_enum not in _VARIANT_TYPE_NAMES:
+                raise ValueError(
+                    "OPC-UA 不支持的数据类型:{}".format(data_type_enum)
+                )
+            plan.append((parse_opcua_nodeid(address).text, data_type_enum))
+
+        def operation() -> List[PrimitiveValue]:
+            values = self._session().read_values([text for text, _ in plan])
+            return [
+                _coerce_read(value, data_type, text)
+                for (text, data_type), value in zip(plan, values)
+            ]
+
+        return self._execute(operation)
 
     def _create_transport(self) -> BaseTransport:
         return _OpcUaSession(self._endpoint)

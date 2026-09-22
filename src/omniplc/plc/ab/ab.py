@@ -19,7 +19,8 @@
 - STRING 走结构体(0xA0,模板 0x0FCE),``len(u32) + 82 字符`` 布局
 
 地址语法见 :mod:`.address`;多级成员/数组下标/程序作用域均原样透传。
-UDT 整体读取、批量多服务(0x0A)、分片读写在 v1.x 规划。
+批量读取(0x0A 多服务包,``read_batch``/``read_many`` 覆写)已实现;
+UDT 整体读取、分片读写在 v1.x 规划。
 
 继承定制点:`_route_path` / `_wrap_unconnected` / `_parse_unconnected_reply`,
 欧姆龙 NJ/NX CIP(:mod:`omniplc.plc.omron.cip`)即据此覆写三处走线差异。
@@ -28,7 +29,7 @@ from __future__ import annotations
 
 import random
 import struct
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple, Union
 
 from . import codec_cip
 from .codec_cip import CIP_CLASS_IDENTITY, CIP_INSTANCE_IDENTITY
@@ -39,6 +40,7 @@ from ...core.constants import (
     AB_EIP_DEFAULT_SLOT,
     AB_EIP_ORIGINATOR_VENDOR_ID,
     AB_EIP_SLOT_MAX,
+    AB_MAX_BATCH_SERVICES,
 )
 from ...core.errors import OmniPLCInternalError, ProtocolFrameError
 from ...core.validation import require_bool
@@ -507,6 +509,128 @@ class AllenBradleyEthIpClient(BaseClient):
                 )
             )
         return codec_cip.decode_string_payload(data, encoding)[:length]
+
+    # ------------------------------------------------------------------
+    # 批量读取(0x0A 多服务包,单事务)
+    # ------------------------------------------------------------------
+
+    def read_many(
+        self, addresses: Sequence[str], data_type: Union[DataType, str]
+    ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
+        """批量读取:覆写为 0x0A 多服务包(单事务)。
+
+        与基类逐点独立容错不同:任一标签非法或 PLC 拒绝则**整批失败**
+        (原因见 :attr:`last_error`);需要逐点容错请逐点调用 :meth:`read`。
+        """
+        data_type_enum = DataType.coerce(data_type)
+        ok, values = self.read_batch([(address, data_type_enum) for address in addresses])
+        if not ok or values is None:
+            return [(False, None) for _ in addresses]
+        return [(True, value) for value in values]
+
+    def read_batch(
+        self, items: Sequence[Tuple[str, Union[DataType, str]]]
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """多服务包批量读取(0x0A,单事务混读多个标签;上限 32 条)。
+
+        利用 CIP 原生 Multiple Service Packet 能力:每条 ``(标签, 数据类型)``
+        内嵌为一个 0x4C 标签读,一帧往返取回全部值;unconnected/connected
+        与 NJ/NX 直发路径均适用(经继承定制点分发)。
+
+        - 标量/字符串:应答自带实际类型码,类型不符抛 ``ValueError``(同单点读)
+        - 布尔:BOOL 标签直读、整型位号读词提位、BOOL 数组元素定词提位;
+          未知类型首次批量读会先做一次类型发现(按基名缓存,之后无额外往返)
+        - 条目上限 :data:`~omniplc.core.constants.AB_MAX_BATCH_SERVICES`;
+          标签名较长时未连接缓冲(504 字节)可能先于条数触顶,请分批
+
+        :raises ValueError: 列表为空/条数超限/地址或类型非法
+        """
+        if not items:
+            raise ValueError("read_batch 至少需要一个 (标签, 数据类型) 项")
+        if len(items) > AB_MAX_BATCH_SERVICES:
+            raise ValueError(
+                "read_batch 条目数超出上限 {}:{}".format(AB_MAX_BATCH_SERVICES, len(items))
+            )
+
+        def operation() -> List[PrimitiveValue]:
+            requests: List[bytes] = []
+            # 解码计划:(类别, 标签地址, 位号/数组下标, 数据类型)
+            plan: List[Tuple[str, str, int, DataType]] = []
+            for address, data_type in items:
+                data_type_enum = DataType.coerce(data_type)
+                parsed = parse_ab_tag(address)
+                if data_type_enum is DataType.BOOL:
+                    cip_type = self._ensure_type(parsed)
+                    if parsed.bit is not None:
+                        if cip_type == codec_cip.CIP_TYPE_BOOL:
+                            raise ValueError(
+                                "BOOL 标签不支持位号后缀:{!r}".format(parsed.name)
+                            )
+                        bit = parsed.bit or 0
+                        _check_bit_range(parsed, cip_type, bit)
+                        requests.append(codec_cip.build_tag_read(
+                            codec_cip.tag_type_path(_strip_bit(parsed)), 1
+                        ))
+                        plan.append(("bitofword", address, bit, data_type_enum))
+                    elif cip_type == codec_cip.CIP_TYPE_DWORD:
+                        index = _single_array_index(parsed)
+                        requests.append(codec_cip.build_tag_read(
+                            codec_cip.tag_type_path(_word_index_path(parsed, index)), 1
+                        ))
+                        plan.append(("boolarray", address, index, data_type_enum))
+                    else:
+                        requests.append(codec_cip.build_tag_read(
+                            codec_cip.tag_type_path(parsed), 1
+                        ))
+                        plan.append(("booltag", address, 0, data_type_enum))
+                    continue
+                requests.append(codec_cip.build_tag_read(
+                    codec_cip.tag_type_path(parsed), 1
+                ))
+                if data_type_enum is DataType.STRING:
+                    plan.append(("string", address, 0, data_type_enum))
+                else:
+                    plan.append(("scalar", address, 0, data_type_enum))
+            packet = codec_cip.build_multiple_service_packet(requests)
+            payloads = codec_cip.parse_multiple_service_payload(
+                self._transact(packet, codec_cip.CIP_SERVICE_MULTIPLE),
+                [codec_cip.CIP_SERVICE_READ_TAG] * len(requests),
+            )
+            values: List[PrimitiveValue] = []
+            for (kind, address, extra, data_type_enum), payload in zip(plan, payloads):
+                parsed = parse_ab_tag(address)
+                cip_type, data = codec_cip.parse_tag_read_payload(payload)
+                if parsed.bit is None:
+                    self._known_types.setdefault(parsed.base, cip_type)
+                if kind == "scalar":
+                    expected = codec_cip.data_type_code(data_type_enum)
+                    self._check_type(address, cip_type, expected)
+                    values.append(codec_cip.decode_values(data, cip_type, 1)[0])
+                elif kind == "string":
+                    if cip_type != codec_cip.CIP_TYPE_STRUCT:
+                        raise ValueError(
+                            "标签 {!r} 实际类型 {},字符串读取需要 STRING".format(
+                                address, codec_cip.type_name(cip_type)
+                            )
+                        )
+                    values.append(codec_cip.decode_string_payload(data, "utf-8"))
+                elif kind == "booltag":
+                    if cip_type != codec_cip.CIP_TYPE_BOOL:
+                        raise ValueError(
+                            "标签 {!r} 实际类型 {} 不是 BOOL".format(
+                                address, codec_cip.type_name(cip_type)
+                            )
+                        )
+                    values.append(bool(codec_cip.decode_values(data, cip_type, 1)[0]))
+                elif kind == "bitofword":
+                    values.append(bool((codec_cip.decode_word(data, cip_type) >> extra) & 1))
+                else:  # boolarray
+                    values.append(bool(
+                        (codec_cip.decode_word(data, codec_cip.CIP_TYPE_DWORD) >> (extra % 32)) & 1
+                    ))
+            return values
+
+        return self._execute(operation)
 
     # ------------------------------------------------------------------
     # 写原语

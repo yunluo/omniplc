@@ -855,6 +855,15 @@ class AOpcUaClient(ABaseClient):
             raise TypeError("内部错误:sync 实例不是 OpcUaClient")
         return sync.endpoint
 
+    async def read_batch(
+        self, items: Sequence[Tuple[str, Union[DataType, str]]]
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """多节点批量读取(UA Read 单请求;语义同同步版)。"""
+        sync = self._sync
+        if not isinstance(sync, OpcUaClient):
+            raise TypeError("内部错误:sync 实例不是 OpcUaClient")
+        return await self._run(lambda: sync.read_batch(items))
+
 
 class AOmronFinsTcpClient(ABaseClient):
     """欧姆龙 FINS/TCP 异步客户端。"""
@@ -922,6 +931,15 @@ class AOmronCipClient(ABaseClient):
         if not isinstance(sync, OmronCipClient):
             raise TypeError("内部错误:sync 实例不是 OmronCipClient")
         return sync.connected_messaging
+
+    async def read_batch(
+        self, items: Sequence[Tuple[str, Union[DataType, str]]]
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """多服务包批量读取(0x0A,单事务;语义同同步版)。"""
+        sync = self._sync
+        if not isinstance(sync, OmronCipClient):
+            raise TypeError("内部错误:sync 实例不是 OmronCipClient")
+        return await self._run(lambda: sync.read_batch(items))
 
     @property
     def connection_size(self) -> Optional[int]:
@@ -1083,6 +1101,15 @@ class AAllenBradleyEthIpClient(ABaseClient):
         if not isinstance(sync, AllenBradleyEthIpClient):
             raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
         return sync.slot
+
+    async def read_batch(
+        self, items: Sequence[Tuple[str, Union[DataType, str]]]
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """多服务包批量读取(0x0A,单事务;语义同同步版)。"""
+        sync = self._sync
+        if not isinstance(sync, AllenBradleyEthIpClient):
+            raise TypeError("内部错误:sync 实例不是 AllenBradleyEthIpClient")
+        return await self._run(lambda: sync.read_batch(items))
 
     @property
     def connected_messaging(self) -> bool:

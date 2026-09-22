@@ -24,7 +24,7 @@
 from __future__ import annotations
 
 import struct
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from .address import AbTag
 from ...core.constants import (
@@ -33,6 +33,7 @@ from ...core.constants import (
     AB_EIP_STATUS_TEXT,
     AB_EIP_STRING_MAX_CHARS,
     AB_EIP_STRING_STRUCT_ID,
+    AB_MAX_BATCH_SERVICES,
 )
 from ...core.errors import DeviceError, ProtocolFrameError
 from ...core.validation import (
@@ -77,6 +78,8 @@ CIP_SERVICE_LARGE_FORWARD_OPEN: int = 0x5B
 """CIP Large Forward Open(参数域 32 位,连接尺寸 >505 时使用)。"""
 CIP_SERVICE_FORWARD_CLOSE: int = 0x4E
 """CIP Forward Close(Connection Manager;与标签 RMW 同码不同类,不冲突)。"""
+CIP_SERVICE_MULTIPLE: int = 0x0A
+"""CIP Multiple Service Packet(批量内嵌服务,发往消息路由器 0x02/0x01)。"""
 
 # ---- ENIP 封装命令扩展(发现/调试) ----
 EIP_COMMAND_LIST_IDENTITY: int = 0x0063
@@ -87,6 +90,10 @@ CIP_CLASS_IDENTITY: int = 0x01
 """Identity Object 类号(CIP 通用 Class ID 0x01)。"""
 CIP_INSTANCE_IDENTITY: int = 0x01
 """Identity Object 实例号(GetAttributesAll/GetAttributeList 实例属性用 1)。"""
+CIP_CLASS_MESSAGE_ROUTER: int = 0x02
+"""Message Router 类号(Multiple Service Packet 0x0A 的目标对象)。"""
+CIP_INSTANCE_MESSAGE_ROUTER: int = 0x01
+"""Message Router 实例号(pylogix 多标签请求同口径)。"""
 
 # ---- Forward Open / SendUnitData 参数(报文常量,沿用参考库惯例值) ----
 FO_PRIORITY_TIME_TICK: int = 0x0A
@@ -402,6 +409,77 @@ def build_get_attribute_list(
 def build_tag_read(path: bytes, elements: int = 1) -> bytes:
     """构造 Tag Read 请求(服务 0x4C)。"""
     return _service_request(CIP_SERVICE_READ_TAG, path, struct.pack("<H", elements))
+
+
+def build_multiple_service_packet(requests: Sequence[bytes]) -> bytes:
+    """构造 Multiple Service Packet(0x0A)服务请求。
+
+    数据域 = 条数(u16 LE)+ 偏移(u16 LE × n,**自条数域首字节起算**,
+    pylogix ``_build_multi_service_header`` 与 cm_ethernetip
+    ``multi_service.handle_multi_service`` 双参考同口径)+ 内嵌服务请求;
+    每条内嵌请求补齐偶数字节(ODVA CIP 字对齐),偏移含补齐字节。
+
+    :raises ValueError: 无请求或条数超出 :data:`AB_MAX_BATCH_SERVICES`
+    """
+    if not requests:
+        raise ValueError("多服务包至少需要一条内嵌服务请求")
+    if len(requests) > AB_MAX_BATCH_SERVICES:
+        raise ValueError(
+            "多服务包内嵌服务数超出上限 {}:{}".format(
+                AB_MAX_BATCH_SERVICES, len(requests)
+            )
+        )
+    head = bytearray(len(requests).to_bytes(2, "little"))
+    segments = bytearray()
+    offset = 2 + 2 * len(requests)
+    for request in requests:
+        head += offset.to_bytes(2, "little")
+        segments += request
+        pad = len(request) % 2
+        segments += b"\x00" * pad
+        offset += len(request) + pad
+    data = bytes(head) + bytes(segments)
+    return _service_request(
+        CIP_SERVICE_MULTIPLE,
+        build_class_instance_path(CIP_CLASS_MESSAGE_ROUTER, CIP_INSTANCE_MESSAGE_ROUTER),
+        data,
+    )
+
+
+def parse_multiple_service_payload(
+    data: bytes, expected_services: Sequence[int]
+) -> List[bytes]:
+    """解析 Multiple Service Packet(0x0A)应答数据域,返回逐条内嵌服务数据。
+
+    内层布局与请求对称:条数(u16 LE)+ 偏移 × n + 内嵌服务应答
+    (标准 CIP 应答帧 = 回显 | 0x80 + 保留 + 通用状态 + 附加长 + 数据),
+    逐条经 :func:`_parse_service_payload` 校验回显与状态(含扩展码诊断)。
+
+    :param data: 外层 0x0A 应答的数据域(已由事务层剥掉封装与服务头)
+    :raises ValueError: 条数不符
+    :raises ProtocolFrameError: 帧结构/内嵌回显不符
+    :raises omniplc.core.errors.DeviceError: 任一内嵌服务 CIP 状态非 0
+    """
+    if len(data) < 2:
+        raise ProtocolFrameError("多服务包应答数据不足")
+    count = int.from_bytes(data[0:2], "little")
+    if count != len(expected_services):
+        raise ValueError(
+            "多服务包应答条数不符:期望 {},实际 {}".format(len(expected_services), count)
+        )
+    segments: List[bytes] = []
+    for index in range(count):
+        base = 2 + index * 2
+        offset = int.from_bytes(data[base:base + 2], "little")
+        if index + 1 < count:
+            end = int.from_bytes(data[base + 2:base + 4], "little")
+        else:
+            end = len(data)
+        segments.append(data[offset:end])
+    return [
+        _parse_service_payload(segment, expected_services[index])
+        for index, segment in enumerate(segments)
+    ]
 
 
 def build_tag_write(path: bytes, cip_type: int, payload: bytes, elements: int = 1) -> bytes:

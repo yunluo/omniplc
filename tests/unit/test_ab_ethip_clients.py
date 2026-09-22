@@ -854,3 +854,96 @@ def test_write_roundtrip_with_zero_echo_reply(
     )
     _mount(monkeypatch, client, scripted)
     assert client.write_int("MyDint", 5) is True
+
+
+def _msp_payload(segments: List[bytes]) -> bytes:
+    """构造多服务包应答数据域(测试脚手架):条数 + 偏移 + 内嵌应答段。
+
+    每段自动补标准 CIP 应答头(回显 0x80|服务 + 保留 + 状态 + 附加长)。
+    """
+    data = struct.pack("<H", len(segments))
+    offset = 2 + 2 * len(segments)
+    offsets = b""
+    parts = []
+    for seg in segments:
+        offsets += struct.pack("<H", offset)
+        offset += len(seg) + 4
+        parts.append(bytes((codec_cip.CIP_SERVICE_READ_TAG | 0x80, 0, 0, 0)) + seg)
+    return data + offsets + b"".join(parts)
+
+
+def test_read_batch_scalars(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TCP read_batch:两个标量标签单事务往返,请求为 0x0A 多服务包。"""
+    from omniplc.plc.ab.address import parse_ab_tag
+
+    client = AllenBradleyEthIpClient("127.0.0.1", AB_EIP_DEFAULT_PORT)
+    payload = _msp_payload([
+        _atomic_payload(0xC4, struct.pack("<i", 123)),
+        _atomic_payload(0xCA, struct.pack("<f", 2.5)),
+    ])
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _reply_chunks(payload=payload, service=codec_cip.CIP_SERVICE_MULTIPLE)
+    )
+    _mount(monkeypatch, client, scripted)
+    assert client.connect() is True
+    assert client.read_batch([("MyDint", "int"), ("MyReal", "float")]) == (
+        True,
+        [123, 2.5],
+    )
+    packet = codec_cip.build_multiple_service_packet([
+        codec_cip.build_tag_read(codec_cip.tag_type_path(parse_ab_tag("MyDint")), 1),
+        codec_cip.build_tag_read(codec_cip.tag_type_path(parse_ab_tag("MyReal")), 1),
+    ])
+    assert bytes(scripted.sent) == codec_cip.build_register_session() + \
+        codec_cip.build_rr_data(_SESSION, codec_cip.build_uc_send(packet, 0))
+
+
+def test_read_batch_bool_and_string(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_batch 布尔与字符串:BOOL 先类型发现再入包;STRING 按结构体解。"""
+    client = AllenBradleyEthIpClient("127.0.0.1", AB_EIP_DEFAULT_PORT)
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _reply_chunks(payload=_atomic_payload(0xC1, b"\x01"))
+        + _reply_chunks(
+            payload=_msp_payload([
+                _atomic_payload(0xC1, b"\x01"),
+                _string_payload("PT01"),
+            ]),
+            service=codec_cip.CIP_SERVICE_MULTIPLE,
+        )
+    )
+    _mount(monkeypatch, client, scripted)
+    assert client.connect() is True
+    assert client.read_batch([("MyBool", "bool"), ("MyString", "string")]) == (
+        True,
+        [True, "PT01"],
+    )
+
+
+def test_read_batch_rejects() -> None:
+    """read_batch 拒绝路径:空列表与条数超限。"""
+    client = AllenBradleyEthIpClient("127.0.0.1", AB_EIP_DEFAULT_PORT)
+    with pytest.raises(ValueError):
+        client.read_batch([])
+    with pytest.raises(ValueError):
+        client.read_batch([("Tag{}".format(index), "int") for index in range(33)])
+
+
+def test_async_mirror_read_batch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """异步镜像 read_batch:标量批量往返。"""
+
+    async def scenario() -> None:
+        client = AAllenBradleyEthIpClient("127.0.0.1", AB_EIP_DEFAULT_PORT)
+        sync = client._sync
+        payload = _msp_payload([_atomic_payload(0xC4, struct.pack("<i", 7))])
+        scripted = ScriptedTransport(
+            _session_chunks()
+            + _reply_chunks(payload=payload, service=codec_cip.CIP_SERVICE_MULTIPLE)
+        )
+        monkeypatch.setattr(sync, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        assert await client.read_batch([("MyDint", "int")]) == (True, [7])
+        await client.close()
+
+    asyncio.run(scenario())
