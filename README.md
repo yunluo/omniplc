@@ -135,6 +135,10 @@ from omniplc import MelsecMcTcpClient, OmronFinsUdpClient, McFrame
 
 # 三菱 MC:frame=McFrame.FRAME_3E/FRAME_4E(QnA 兼容)或 FRAME_1E(A 兼容,A 系列)
 mc = MelsecMcTcpClient(ip_address="192.168.3.39", port=2000, frame=McFrame.FRAME_3E)
+mc.connect()
+ok, value = mc.read_ushort("D100")
+ok = mc.write_bool("M100", True)
+ok, values = mc.read_batch([("D100", "short"), ("M100", "bool")])  # 0406 多块批量读,单事务
 
 # 三菱 MC 串口帧(C24 串口模块,需 pyserial):3C=ASCII 格式 4,4C=二进制格式 5
 # 软元件地址与 3E 帧一致;串口参数须与 C24"传送设定"一致,默认访问连接站 CPU(PC 号 FF)
@@ -149,9 +153,18 @@ ok = mc_sio.write_bool("M100", True)
 # 安装:pip install 'omniplc[mx]'
 from omniplc import MelsecMxClient
 mx = MelsecMxClient(logical_station_number=1)
+mx.connect()
+ok, value = mx.read_ushort("D100")
+ok = mx.write_bool("M10", True)
+# ReadDeviceRandom 原生随机读:仅 16 位类型(BOOL/SHORT/USHORT),单事务
+ok, values = mx.read_batch([("M10", "bool"), ("D100", "short")])
 
 # 欧姆龙 FINS:TCP 自动做节点分配握手,UDP 无握手
 fins = OmronFinsUdpClient(ip_address="192.168.250.1", port=9600)
+fins.connect()
+ok, value = fins.read_ushort("D100")
+ok = fins.write_bool("CIO0.5", True)
+ok, values = fins.read_batch([("D100", "short"), ("CIO0.5", "bool")])  # 0104 多存储区读,单事务
 
 # 欧姆龙 NJ/NX CIP(内置 EtherNet/IP):Sysmac 变量自描述,地址即变量名
 # TestVar / MyArray[5] / Motor[2].Speed;继承 AB 客户端,直发不包 UC Send
@@ -173,15 +186,23 @@ ok, text = bc.read_string("MAIN.sRecipe")
 # 地址即标签名:MyDint / MyArray[5] / MyUdt.Member / MyDint.3(位)/ 程序作用域 Program:prog.Tag
 from omniplc import AllenBradleyEthIpClient
 ab = AllenBradleyEthIpClient(ip_address="192.168.1.20", port=44818, slot=0)
+ab.connect()
 ok, value = ab.read_int("MyDint")
 ok = ab.write_bool("StartCmd", True)
 ok, text = ab.read_string("RecipeName")
+# 0x0A 多服务包:一帧混读多个标签(上限 32 条;BOOL 首次批量读会做一次类型发现)
+ok, values = ab.read_batch([("MyDint", "int"), ("MyReal", "float"), ("RecipeName", "string")])
+ok, info = ab.get_plc_info()      # Identity Object:厂商/序列号/产品名
+ok, ident = ab.list_identity()    # ENIP 单播发现
 # connected 消息(Forward Open + SendUnitData,大批量轮询吞吐更高):
 ab_c = AllenBradleyEthIpClient(ip_address="192.168.1.20", connected_messaging=True)
 
 # 基恩士 KV Host Link:ASCII 行式协议,地址如 DM100 / R515 / W100
 from omniplc import KeyenceHostLinkTcpClient
 kv = KeyenceHostLinkTcpClient(ip_address="192.168.0.10", port=8000)
+kv.connect()
+ok, value = kv.read_ushort("DM100")
+ok = kv.write_bool("R515", True)
 
 # 基恩士 KV MC 协议兼容(SLMP):二进制 3E 帧复用三菱实现,仅码表不同
 # 地址如 R5(位,十进制)/ DM100(字,十进制)/ B1F / W10(十六进制)/ ZR100
@@ -274,6 +295,25 @@ ok, current = s7.read_ushort("MW10")   # Merker 字
 ok, text = s7.read_string("DB1.DBS20", length=32)  # S7 String(头 2 字节声明/实际长)
 ```
 
+#### 批量读取(协议原生,单事务)
+
+`read_many(地址列表, 数据类型)` 与 `read_batch([(地址, 类型), ...])` 全库统一契约：**一帧往返**读回多个点(不是循环单点),任一地址非法或设备拒绝则**整批失败**(原因在 `last_error`;要逐点容错请逐点 `read`)。以下驱动覆写为协议原生批量,其余驱动回退逐点独立事务:
+
+- 三菱 MC 3E/4E:`0406` 多块批量读(混软元件,总块数 ≤120);KV/汇川/松下 MC 兼容子类经继承同享
+- 欧姆龙 FINS:`0104` 多存储区读(以太网上限 167 条)
+- AB / 欧姆龙 NJ-NX CIP:`0x0A` 多服务包(上限 32 条;BOOL 首次批量读做一次类型发现后缓存)
+- OPC-UA:UA Read 服务原生多节点(asyncua `read_values` 单请求)
+- MX Component:`ReadDeviceRandom`(软元件列表换行分隔;仅 16 位类型)
+
+```python
+# 混类型混软元件:一帧取回全部值(以 MC 为例,其余驱动同款接口)
+ok, values = mc.read_batch([
+    ("D100", "short"), ("D102", "float"), ("M100", "bool"), ("D110.3", "bool"),
+])
+# 统一类型批量:read_many(等价于 read_batch 的同类型版本)
+ok_list = mc.read_many(["D0", "D2", "D4"], DataType.FLOAT)
+```
+
 #### 报文调试(全局开关)
 
 ```python
@@ -303,6 +343,33 @@ async def main():
     await client.connect()
     ok, value = await client.read_float("hr100")
     await client.disconnect()
+
+asyncio.run(main())
+```
+
+异步客户端是**多设备并发**的手段,不是单连接提速(单设备逐笔轮询用同步即可,异步只多线程切换开销):
+协议事务在单连接内本就是"一问一答"串行,收益来自把多台设备的等待重叠——10 台设备并发采集约等于顺序轮询的 1/10 耗时。
+
+```python
+import asyncio
+from omniplc.aio import AMelsecMcTcpClient, AOmronFinsTcpClient, AAllenBradleyEthIpClient
+
+async def main():
+    clients = [
+        AMelsecMcTcpClient("192.168.0.11", 2000),
+        AOmronFinsTcpClient("192.168.0.12", 9600),
+        AAllenBradleyEthIpClient("192.168.0.13", 44818),
+    ]
+    for client in clients:
+        await client.connect()
+    # 三台设备的同时刻采集:总耗时 ≈ 最慢一台的往返,而非三者之和
+    d1, d2, d3 = await asyncio.gather(
+        clients[0].read_float("D100"),
+        clients[1].read_float("D100"),
+        clients[2].read_float("MyReal"),
+    )
+    for client in clients:
+        await client.disconnect()
 
 asyncio.run(main())
 ```
@@ -377,7 +444,8 @@ ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应�
 - **v0.27**:欧姆龙 FINS 批量读取,利用协议原生 0104 多存储区读(`read_many` 覆写为单事务、`read_batch` 混类型混软元件;W342 §5-3-5 核证:每条读 1 字、响应逐条区码回显、仅字码,以太网上限 167 条;BOOL 走包含字提位,T/C 完成标志不支持)
 - **v0.28**:CIP 与 OPC-UA 批量读取——AB 0x0A 多服务包(`read_batch` 混标签混类型单事务,BOOL 首次类型发现后入包,NJ/NX CIP 零改动继承;pylogix/cm_ethernetip 双参考核证,内嵌服务 32 条上限;HSL 模拟器不支持 0x0A,真机核证待做)+ OPC-UA UA Read 服务原生多节点(asyncua `read_values` 单请求,`read_many` 覆写)
 - **v0.29**:MX Component 批量读取——ActUtlType 原生 `ReadDeviceRandom`(`read_batch` 混软元件单事务、`read_many` 覆写;软元件列表换行分隔每条 1 字;仅 16 位类型 BOOL/SHORT/USHORT,32/64 位因地址编号原文透传无法安全拆字,逐点读取;手册 5.2.5 核证)
-- **v0.29.1(当前)**:异步镜像完整性收口——全量内省审计补齐 9 处缺口(基恩士 MC ×2/汇川 MC/松下 MC 的 `read_batch` 经对称继承获得,AB/NJ 补 `generic_message`/`list_identity`/`get_plc_info`/`get_attribute_all`/`get_attribute_list`,NJ 补 `slot`,汇川 TCP/RTU 补 `station`/`word_order`/`write_mask_register`);aio 家族镜像改对称继承结构(Keyence/Inovance/Panasonic MC 继承 AMelsecMc*,汇川 Modbus 继承 AModbusBaseClient);新增内省守卫测试:同步扩展必须有异步镜像,防再漂移
+- **v0.29.1**:异步镜像完整性收口——全量内省审计补齐 9 处缺口(基恩士 MC ×2/汇川 MC/松下 MC 的 `read_batch` 经对称继承获得,AB/NJ 补 `generic_message`/`list_identity`/`get_plc_info`/`get_attribute_all`/`get_attribute_list`,NJ 补 `slot`,汇川 TCP/RTU 补 `station`/`word_order`/`write_mask_register`);aio 家族镜像改对称继承结构(Keyence/Inovance/Panasonic MC 继承 AMelsecMc*,汇川 Modbus 继承 AModbusBaseClient);新增内省守卫测试:同步扩展必须有异步镜像,防再漂移
+- **v0.29.2(当前)**:使用范例完善——逐客户端补读写与驱动特有扩展示例(MC/FINS/KV HostLink/MX 补完整读写,MX 补 ReadDeviceRandom 批量,AB 补 0x0A 批量与 Identity 服务),新增"批量读取(协议原生,单事务)"专节(五家原生能力与统一契约),异步节补多设备并发示例与性能提示(并发 ≈ 顺序 1/N 耗时)
 - **v1.0**:点位表完善 + 示例 + 文档,正式发布
 - **v1.x**:MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、MTConnect /sample 历史流与写入、FANUC FOCAS / 三菱 CNC EZSocket(Windows DLL 封装)、通用 TCP 长度域成帧/空闲切块成帧、心跳保活、轮询器、连接池
 - **v2**:更多品牌/协议按需扩展(驱动插槽沿用 BaseClient 原语模式)
