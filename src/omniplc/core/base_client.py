@@ -609,13 +609,28 @@ class BaseClient(ABC):
         """
         raise DeviceError("当前驱动暂不支持字符串写入", 0)
 
+    def _bump_id(self, attr: str, bits: int = 16) -> int:
+        """递增指定字段的协议序列号(回绕到 0),返回新值(内部方法)。
+
+        协议层(MC 4E 串行号、FINS SID、AB connected 序列号、Modbus 事务号等)
+        自增的 1~16 位无符号循环计数器复用本工具,避免每客户端重复
+        ``(x + 1) & mask`` 样板。
+
+        :param attr: 内部计数器字段名(以下划线开头,如 ``"_serial"``)
+        :param bits: 位宽(默认 16,即 0~65535 循环)
+        """
+        current = getattr(self, attr)
+        next_val = (current + 1) & ((1 << bits) - 1)
+        setattr(self, attr, next_val)
+        return next_val
+
 
 def _describe(exc: BaseException) -> str:
     """把异常转换为可读的 last_error 文本(内部函数)。"""
     text = str(exc).strip()
     if isinstance(exc, socket.timeout):
-        return "通信超时:{}".format(text or "receive_timeout 到期")
-    return "{}:{}".format(type(exc).__name__, text) if text else type(exc).__name__
+        return f"通信超时:{text or 'receive_timeout 到期'}"
+    return f"{type(exc).__name__}:{text}" if text else type(exc).__name__
 
 
 def _narrow_int(

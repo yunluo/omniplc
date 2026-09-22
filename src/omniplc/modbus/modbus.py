@@ -283,14 +283,14 @@ class ModbusTcpClient(ModbusBaseClient):
         TCP 无广播语义(Unit ID 为路由字段),站号 0 照常等待响应。
         """
         transport = self._require_transport()
-        self._transaction_id = (self._transaction_id + 1) & 0xFFFF
-        transport.send(codec.build_mbap(self._transaction_id, self.station, pdu))
+        sent_id = self._bump_id("_transaction_id", 16)
+        transport.send(codec.build_mbap(sent_id, self.station, pdu))
         header = transport.recv(MBAP_HEADER_SIZE)
         transaction_id, length = codec.parse_mbap_header(header)
         received_id, station, response_pdu = codec.parse_mbap(header + transport.recv(length - 1))
-        if received_id != self._transaction_id:
+        if received_id != sent_id:
             raise ProtocolFrameError(
-                f"MBAP 事务号不匹配:期望 {self._transaction_id},收到 {received_id}"
+                f"MBAP 事务号不匹配:期望 {sent_id},收到 {received_id}"
             )
         if station != self.station:
             raise ProtocolFrameError(

@@ -413,8 +413,7 @@ class _MelsecMcBase(BaseClient):
 
     def _next_serial(self) -> int:
         """4E 序列号递增(0~65535 回绕,内部方法)。"""
-        self._serial = (self._serial + 1) & 0xFFFF
-        return self._serial
+        return self._bump_id("_serial", 16)
 
     def _transact(self, request: bytes, tail_size: int = 0) -> bytes:
         """发送请求并接收完整响应帧(内部方法)。

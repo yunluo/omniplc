@@ -86,8 +86,7 @@ class _OmronFinsBase(BaseClient):
 
     def _next_sid(self) -> int:
         """SID 递增(0~255 回绕,事务标识,内部方法)。"""
-        self._sid = (self._sid + 1) & 0xFF
-        return self._sid
+        return self._bump_id("_sid", 8)
 
     # ------------------------------------------------------------------
     # 协议原语(BaseClient 类型化方法只调用 _read/_write)

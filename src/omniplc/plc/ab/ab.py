@@ -218,8 +218,7 @@ class AllenBradleyEthIpClient(BaseClient):
 
     def _next_sequence(self) -> int:
         """connected 序列号递增(1~65535 回绕,内部方法)。"""
-        self._sequence = (self._sequence + 1) & 0xFFFF
-        return self._sequence
+        return self._bump_id("_sequence", 16)
 
     def _route_path(self) -> bytes:
         """Forward Open/Close 连接路径的路由段(内部方法,继承定制点)。
