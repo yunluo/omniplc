@@ -91,6 +91,57 @@ from ..types import DataType, McFrame, PrimitiveValue, SerialParity
 _T = TypeVar("_T")
 _A = TypeVar("_A", bound="ABaseClient")
 
+# 本包公开面仅异步基类与 A* 客户端:同步客户端、端口等常量、内部助手
+# (如 _coerce_word_order)只是实现依赖,不进 __all__,避免
+# ``from omniplc.aio import *`` 把同步类与内部名倒入使用者命名空间。
+__all__ = [
+    # ---- 客户端基类 ----
+    "ABaseClient",
+    # ---- Modbus 客户端 ----
+    "AModbusBaseClient",
+    "AModbusTcpClient",
+    "AModbusRtuClient",
+    # ---- 三菱 MC 客户端 ----
+    "AMelsecMcTcpClient",
+    "AMelsecMcUdpClient",
+    "AMelsecMcSerialClient",
+    "AMelsecMxClient",
+    # ---- 基恩士 KV Host Link / MC 兼容客户端 ----
+    "AKeyenceHostLinkTcpClient",
+    "AKeyenceHostLinkUdpClient",
+    "AKeyenceMcTcpClient",
+    "AKeyenceMcUdpClient",
+    # ---- 基恩士 SR 扫码枪 ----
+    "AKeyenceSrClient",
+    # ---- 欧姆龙 FINS / CIP 客户端 ----
+    "AOmronFinsTcpClient",
+    "AOmronFinsUdpClient",
+    "AOmronCipClient",
+    # ---- 汇川 H3U/H5U 客户端 ----
+    "AInovanceTcpClient",
+    "AInovanceRtuClient",
+    "AInovanceMcTcpClient",
+    # ---- 松下 FP 系列客户端 ----
+    "APanasonicMcTcpClient",
+    "APanasonicMewtocolTcpClient",
+    "APanasonicMewtocolUdpClient",
+    # ---- 丰田 TOYOPUC 客户端 ----
+    "AToyopucTcpClient",
+    "AToyopucUdpClient",
+    # ---- 罗克韦尔 AB EtherNet/IP 客户端 ----
+    "AAllenBradleyEthIpClient",
+    # ---- 倍福 TwinCAT ADS 客户端 ----
+    "ABeckhoffAdsClient",
+    # ---- 西门子 S7 客户端 ----
+    "ASiemensS7Client",
+    # ---- 通用自定义 TCP 客户端 ----
+    "AOpenTcpClient",
+    # ---- OPC-UA 客户端 ----
+    "AOpcUaClient",
+    # ---- CNC 机床数采客户端 ----
+    "AMTConnectClient",
+]
+
 
 class ABaseClient:
     """异步客户端基类。
