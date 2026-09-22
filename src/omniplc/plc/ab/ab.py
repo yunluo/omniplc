@@ -42,7 +42,7 @@ from ...core.constants import (
     AB_EIP_SLOT_MAX,
     AB_MAX_BATCH_SERVICES,
 )
-from ...core.errors import OmniPLCInternalError, ProtocolFrameError
+from ...core.errors import DeviceError, OmniPLCInternalError, ProtocolFrameError
 from ...core.validation import require_bool
 from ...transport import BaseTransport, TcpTransport
 from ...types import DataType, PrimitiveValue
@@ -257,9 +257,19 @@ class AllenBradleyEthIpClient(BaseClient):
             self._session_handle, self._ot_connection_id, sequence, cip_request
         )
         transport.send(frame)
-        return codec_cip.parse_send_unit_data_reply(
-            self._recv_frame(), request_service, self._to_connection_id, sequence
-        )
+        try:
+            return codec_cip.parse_send_unit_data_reply(
+                self._recv_frame(), request_service, self._to_connection_id, sequence
+            )
+        except DeviceError as exc:
+            if exc.code == codec_cip.CIP_STATUS_CONNECTION_FAILURE:
+                # connected 会话已被 PLC 丢弃(空闲超时等):按坏帧断开,
+                # 下次事务惰性重连并重新 Forward Open;其余 CIP 状态
+                # (真实标签错误如只读)保持 DeviceError 不断线
+                raise ProtocolFrameError(
+                    "connected 连接失效(CIP 状态 0x01):{}".format(exc)
+                ) from exc
+            raise
 
     def _create_transport(self) -> BaseTransport:
         return TcpTransport(self._ip_address, self._port)

@@ -50,6 +50,20 @@ def _com_initialize() -> None:
     comtypes.CoInitialize()
 
 
+def _com_uninitialize() -> None:
+    """配对 :func:`_com_initialize`:释放使用线程的 COM 初始化计数(尽力而为)。
+
+    线程未初始化过 COM 时 CoUninitialize 会报错,静默忽略——aio 单工作
+    线程与同步主线程场景计数可正常归零,避免连接/关闭循环累积计数。
+    """
+    try:
+        import comtypes
+
+        comtypes.CoUninitialize()
+    except Exception:
+        pass
+
+
 def _new_com_object(logical_station_number: int) -> Any:
     """创建 ActUtlType COM 控件并设置逻辑站号。"""
     import comtypes.client
@@ -142,14 +156,21 @@ class _MxComLink(BaseTransport):
         log_op(self._debug_label, "会话已建立")
 
     def close(self) -> None:
-        """关闭 COM 通信线路(Close),幂等。"""
-        com, self._com = self._com, None
+        """关闭 COM 通信线路(Close),幂等。
+
+        先调用 Close 再清内部引用;Close 失败时引用照清并抛 OSError
+        (下一次 connect 重建全新控件对象),同时配对
+        :func:`_com_uninitialize` 释放本线程 COM 初始化计数。
+        """
+        com = self._com
         if com is None:
             return
         try:
             code = int(com.Close())
         except Exception:
-            return
+            code = -1
+        self._com = None
+        _com_uninitialize()
         if code != 0:
             raise OSError("MX Component Close 失败:返回码 {}".format(_format_code(code)))
         log_op(self._debug_label, "会话已断开")

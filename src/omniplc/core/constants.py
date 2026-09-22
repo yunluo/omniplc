@@ -16,6 +16,14 @@ from ..types import SerialParity
 DEFAULT_CONNECT_TIMEOUT: float = 5.0
 DEFAULT_RECEIVE_TIMEOUT: float = 3.0
 
+# ---------------------------------------------------------------- TCP keepalive
+TCP_KEEPALIVE_IDLE: int = 30
+"""TCP keepalive 空闲秒数(平台支持时尽力启用,检测 PLC 断电/断网的空闲半开连接)。"""
+TCP_KEEPALIVE_INTERVAL: int = 5
+"""TCP keepalive 探测间隔秒数。"""
+TCP_KEEPALIVE_COUNT: int = 3
+"""TCP keepalive 失败判定次数(连续无应答即认为对端失联)。"""
+
 # ---------------------------------------------------------------- 默认端口
 MODBUS_DEFAULT_PORT: int = 502
 MC_DEFAULT_PORT: int = 2000
@@ -107,8 +115,8 @@ MC_SUBCOMMAND_WORD_UNITS: int = 0x0000
 """子命令:以字为单位(小端两字节 00 00)。"""
 MC_SUBCOMMAND_BIT_UNITS: int = 0x0001
 """子命令:以位为单位(小端两字节 01 00)。"""
-MC_MAX_DATAGRAM: int = 2048
-"""UDP 整包接收缓冲上限(足以容纳最大点数响应)。"""
+MC_MAX_DATAGRAM: int = 8192
+"""UDP 整包接收缓冲上限(8192 覆盖长字符串/大批量响应;UDP 单包上限 65507)。"""
 MC_SUBHEADER_3E: bytes = b"\x50\x00"
 """3E 请求副头部(读/写相同,由命令字段区分;响应为 D0 00)。"""
 MC_SUBHEADER_4E: bytes = b"\x54\x00"
@@ -430,8 +438,8 @@ FINS_END_CODE_TEXT: Dict[int, str] = {
 }
 """FINS 结束码 → 可读描述(全表,与手册 W340 5-4-2 及 fins-driver
 参考实现一致;2026-09 对照补全);未收录的提示查阅手册。"""
-FINS_MAX_DATAGRAM: int = 2048
-"""UDP 整包接收缓冲上限(足以容纳最大区域读响应)。"""
+FINS_MAX_DATAGRAM: int = 8192
+"""UDP 整包接收缓冲上限(8192 覆盖长字符串/大批量响应;UDP 单包上限 65507)。"""
 FINS_TCP_MAGIC: bytes = b"FINS"
 """FINS/TCP 帧头魔数。"""
 FINS_TCP_HEADER_SIZE: int = 8

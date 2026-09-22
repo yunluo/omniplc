@@ -78,6 +78,10 @@ class _OmronFinsBase(BaseClient):
         self._source_network = int(source_network)
         self._source_node = int(source_node)
         self._source_unit = int(source_unit)
+        # 记录节点号是否为自动模式(0 = 由握手分配):自动模式每次重连都
+        # 刷新为最新握手结果,显式配置的节点号不被覆盖
+        self._auto_destination_node = destination_node == 0
+        self._auto_source_node = source_node == 0
         self._sid = 0
 
     def _next_sid(self) -> int:
@@ -356,6 +360,7 @@ class OmronFinsTcpClient(_OmronFinsBase):
             source_unit,
         )
         self._local_node = int(local_node)
+        self._auto_local_node = local_node == 0
 
     @property
     def local_node(self) -> int:
@@ -363,17 +368,21 @@ class OmronFinsTcpClient(_OmronFinsBase):
         return self._local_node
 
     def _after_connect(self) -> None:
-        """FINS/TCP 握手:发送节点分配请求并解析响应(内部方法)。"""
+        """FINS/TCP 握手:发送节点分配请求并解析响应(内部方法)。
+
+        自动模式(构造时节点号传 0)每次重连都刷新为最新握手分配值;
+        显式配置的节点号保持不被覆盖。
+        """
         transport = self._require_transport()
         transport.send(codec.build_handshake(self._local_node))
         head = transport.recv(FINS_TCP_HEADER_SIZE)
         frame = head + transport.recv(codec.parse_tcp_head(head))
         local_node, plc_node = codec.parse_handshake_response(frame)
-        if self._local_node == 0:
+        if self._auto_local_node:
             self._local_node = local_node
-        if self._source_node == 0:
+        if self._auto_source_node:
             self._source_node = local_node
-        if self._destination_node == 0:
+        if self._auto_destination_node:
             self._destination_node = plc_node
 
     def _transact(self, fins_frame: bytes) -> bytes:

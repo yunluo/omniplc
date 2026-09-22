@@ -80,6 +80,11 @@ CIP_SERVICE_FORWARD_CLOSE: int = 0x4E
 """CIP Forward Close(Connection Manager;与标签 RMW 同码不同类,不冲突)。"""
 CIP_SERVICE_MULTIPLE: int = 0x0A
 """CIP Multiple Service Packet(批量内嵌服务,发往消息路由器 0x02/0x01)。"""
+CIP_STATUS_CONNECTION_FAILURE: int = 0x01
+"""CIP 通用状态 0x01:Connection failure(connected 消息的会话已失效)。
+
+connected 模式下该状态几乎总意味着 Class 3 连接被 PLC 丢弃(空闲
+超时等),事务层按坏帧断开触发惰性重连;其余状态保持 DeviceError。"""
 
 # ---- ENIP 封装命令扩展(发现/调试) ----
 EIP_COMMAND_LIST_IDENTITY: int = 0x0063

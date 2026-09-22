@@ -7,7 +7,7 @@ from typing import Optional
 
 from .base import BaseTransport
 from ..core.debug import RECV_MARK, SEND_MARK, log_frame, log_op
-from ..core.errors import TransportClosedError
+from ..core.errors import TransportClosedError, TransportTimeoutError
 
 
 class UdpTransport(BaseTransport):
@@ -17,6 +17,9 @@ class UdpTransport(BaseTransport):
     - :meth:`recv` 返回**一条数据报**(最长 ``size`` 字节,超出截断),
       即一次收发对应一个协议帧
     - UDP 无连接概念,``connect()`` 只做本地套接字初始化,不会失败于对端
+    - 接收超时抛 :class:`omniplc.core.errors.TransportTimeoutError`
+      (DeviceError 子类):数据报整收无残留字节,按"链路完好不断线"
+    - :attr:`receive_timeout` 修改后**立即作用于已连接 socket**
     """
 
     datagram: bool = True
@@ -33,6 +36,14 @@ class UdpTransport(BaseTransport):
         self._port = port
         self._socket: Optional[socket.socket] = None
         self._debug_label = "udp://{}:{}".format(ip_address, port)
+
+    @BaseTransport.receive_timeout.setter  # type: ignore[attr-defined]
+    def receive_timeout(self, seconds: float) -> None:
+        """单次收发超时(秒);已连接时立即下发到 socket。"""
+        BaseTransport.receive_timeout.fset(self, seconds)  # type: ignore[attr-defined]
+        sock = self._socket
+        if sock is not None:
+            sock.settimeout(self._receive_timeout)
 
     def connect(self) -> None:
         """初始化 UDP 套接字并固定对端。
@@ -70,10 +81,15 @@ class UdpTransport(BaseTransport):
 
         :param size: 缓冲上限(超出部分截断)
         :raises TransportClosedError: 未初始化
-        :raises OSError: 接收超时
+        :raises TransportTimeoutError: 接收超时(不断线语义)
         """
         sock = self._require_socket()
-        frame = sock.recv(size)
+        try:
+            frame = sock.recv(size)
+        except socket.timeout as exc:
+            raise TransportTimeoutError(
+                "UDP 接收超时({}s)".format(self._receive_timeout), 0
+            ) from exc
         log_frame(self._debug_label, RECV_MARK, frame)
         return frame
 

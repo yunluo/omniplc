@@ -6,6 +6,7 @@ pyserial 为可选依赖:仅在使用 :class:`SerialTransport` 时才需要安�
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Optional, Union
@@ -18,7 +19,7 @@ from ..core.constants import (
     SERIAL_DEFAULT_STOP_BITS,
 )
 from ..core.debug import RECV_MARK, SEND_MARK, log_frame, log_op
-from ..core.errors import TransportClosedError
+from ..core.errors import TransportClosedError, TransportTimeoutError
 from ..types import SerialParity
 
 
@@ -59,8 +60,11 @@ class SerialConfig:
 class SerialTransport(BaseTransport):
     """串口传输,基于 pyserial。
 
-    recv 语义:阻塞读取恰好 ``size`` 字节,超时抛出
-    :class:`omniplc.core.errors.TransportClosedError`。
+    recv 语义:阻塞读取恰好 ``size`` 字节;超时抛
+    :class:`omniplc.core.errors.TransportTimeoutError`(DeviceError
+    子类,不断线——串口按长度收,超时无残留字节时安全)。
+
+    :attr:`receive_timeout` 修改后**立即作用于已打开串口**。
     """
 
     _PARITY_MAP = {
@@ -81,6 +85,15 @@ class SerialTransport(BaseTransport):
         self._config = config
         self._serial: Optional[Any] = None
         self._debug_label = "serial://{}({})".format(config.port_name, config.baud_rate)
+
+    @BaseTransport.receive_timeout.setter  # type: ignore[attr-defined]
+    def receive_timeout(self, seconds: float) -> None:
+        """串口已打开时立即下发。"""
+        BaseTransport.receive_timeout.fset(self, seconds)  # type: ignore[attr-defined]
+        port = self._serial
+        if port is not None:
+            port.timeout = self._receive_timeout
+            port.write_timeout = self._receive_timeout
 
     def connect(self) -> None:
         """打开串口。
@@ -129,15 +142,31 @@ class SerialTransport(BaseTransport):
     def recv(self, size: int) -> bytes:
         """读取恰好 ``size`` 字节。
 
-        :raises TransportClosedError: 串口未打开或读取超时
+        整事务受 ``receive_timeout`` 绝对 deadline 约束(涓流对端不能
+        无限拖住读);超时抛 :class:`omniplc.core.errors.TransportTimeoutError`
+        (DeviceError 子类,按链路完好不断线处理)。
+
+        :raises TransportClosedError: 串口未打开
+        :raises TransportTimeoutError: 接收超时
         """
         port = self._require_serial()
+        deadline = time.monotonic() + self._receive_timeout
         chunks = []
         received = 0
         while received < size:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TransportTimeoutError(
+                    "串口读取超时(receive_timeout={})".format(self._receive_timeout),
+                    0,
+                )
+            port.timeout = remaining
             chunk = port.read(size - received)
             if not chunk:
-                raise TransportClosedError("串口读取超时(receive_timeout={})".format(self._receive_timeout))
+                raise TransportTimeoutError(
+                    "串口读取超时(receive_timeout={})".format(self._receive_timeout),
+                    0,
+                )
             chunks.append(chunk)
             received += len(chunk)
         frame = b"".join(chunks)

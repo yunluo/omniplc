@@ -14,9 +14,10 @@ from __future__ import annotations
 
 import socket
 import threading
+import time
 from abc import ABC, abstractmethod
 from types import TracebackType
-from typing import Callable, List, Optional, Sequence, Tuple, Type, TypeVar, Union
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
 
 from .constants import (
     DEFAULT_CONNECT_TIMEOUT,
@@ -80,6 +81,18 @@ class BaseClient(ABC):
         self._connected: bool = False
         self._last_error: Optional[str] = None
         self._tag_table: Optional[TagTable] = None
+        self._stats: Dict[str, Union[int, float, None]] = {
+            "connect_count": 0,
+            "disconnect_count": 0,
+            "transactions": 0,
+            "error_count": 0,
+            "device_error_count": 0,
+            "last_error_at": None,
+            "last_connect_at": None,
+            "last_success_at": None,
+            "last_rtt": None,
+        }
+        """连接健康统计(锁内更新;公开只读快照见 :attr:`stats`)。"""
 
     # ------------------------------------------------------------------
     # 连接管理
@@ -93,28 +106,42 @@ class BaseClient(ABC):
         with self._lock:
             if self._connected:
                 return True
+            # 传输对象创建独立于 try:参数类错误(如未配置串口参数)照常上抛
+            transport = self._create_transport()
             try:
-                transport = self._create_transport()
                 transport.connect_timeout = self._connect_timeout
                 transport.receive_timeout = self._receive_timeout
                 transport.connect()
-            except OSError as exc:
+            except Exception as exc:
+                # 建连失败:任何异常都清理为"未连接"(防脏 socket/传输逃逸)
                 self._connected = False
                 self._last_error = "连接 {}:{} 失败:{}".format(
                     self._ip_address or "-", self._port or "-", exc
                 )
+                try:
+                    transport.close()
+                except Exception:
+                    pass
+                self._record_error()
                 return False
             self._transport = transport
             try:
                 self._after_connect()
-            except (OSError, OmniPLCInternalError) as exc:
+            except Exception as exc:
+                # 握手/会话初始化失败:清理到干净状态,下次事务惰性重连
                 self._last_error = "连接初始化失败:{}".format(_describe(exc))
-                transport.close()
+                try:
+                    transport.close()
+                except Exception:
+                    pass
                 self._transport = None
                 self._connected = False
+                self._record_error()
                 return False
             self._connected = True
             self._last_error = None
+            self._stats["connect_count"] += 1  # type: ignore[operator]
+            self._stats["last_connect_at"] = time.monotonic()
             return True
 
     def disconnect(self) -> bool:
@@ -132,7 +159,9 @@ class BaseClient(ABC):
                 transport.close()
             except OSError as exc:
                 self._last_error = "关闭连接失败:{}".format(exc)
+                self._record_error()
                 return False
+            self._stats["disconnect_count"] += 1  # type: ignore[operator]
             return True
 
     @property
@@ -203,6 +232,33 @@ class BaseClient(ABC):
         """最近一次失败的错误描述;成功执行读写后清空为 None。"""
         with self._lock:
             return self._last_error
+
+    @property
+    def stats(self) -> dict:
+        """连接健康统计快照(只读 dict,锁内取)。
+
+        字段:
+
+        - ``connect_count``:成功建连次数(含惰性重连)
+        - ``disconnect_count``:关闭的连接数(显式 disconnect 与
+          传输失败后的拆连都计)
+        - ``transactions``:已执行的协议事务数(含失败尝试)
+        - ``error_count``:失败总数(设备错误 + 传输错误 + 建连失败)
+        - ``device_error_count``:PLC 明确返回错误码的次数(链路完好)
+        - ``last_error_at`` / ``last_connect_at`` / ``last_success_at``:
+          ``time.monotonic()`` 时间戳(秒)
+        - ``last_rtt``:最近一次成功事务的往返耗时(秒,含 PLC 等待)
+
+        时间戳为单调钟相对值,跨重启无意义;用于现场判断"多久前
+        出错/多久没成功"。
+        """
+        with self._lock:
+            return dict(self._stats)
+
+    def _record_error(self) -> None:
+        """登记一次失败(错误计数 + 时间戳,内部方法,须锁内调用)。"""
+        self._stats["error_count"] += 1  # type: ignore[operator]
+        self._stats["last_error_at"] = time.monotonic()
 
     # ------------------------------------------------------------------
     # 通用读写(模板方法,公共 API)
@@ -449,6 +505,8 @@ class BaseClient(ABC):
         """
         retries = self._write_retries if is_write else self._retries
         with self._lock:
+            self._stats["transactions"] += 1  # type: ignore[operator]
+            started = time.perf_counter()
             for attempt in range(retries + 1):
                 if not self._connected and not self.connect():
                     # connect() 内部已记录 last_error;标记断开后重试即重连
@@ -456,12 +514,17 @@ class BaseClient(ABC):
                 try:
                     value = operation()
                     self._last_error = None
+                    self._stats["last_success_at"] = time.monotonic()
+                    self._stats["last_rtt"] = time.perf_counter() - started
                     return True, value
                 except DeviceError as exc:
                     self._last_error = _describe(exc)
+                    self._stats["device_error_count"] += 1  # type: ignore[operator]
+                    self._record_error()
                     return False, None
                 except (OSError, OmniPLCInternalError) as exc:
                     self._last_error = _describe(exc)
+                    self._record_error()
                     self._mark_disconnected()
             return False, None
 
@@ -474,6 +537,7 @@ class BaseClient(ABC):
             except OSError:
                 pass
             self._transport = None
+            self._stats["disconnect_count"] += 1  # type: ignore[operator]
 
     # ------------------------------------------------------------------
     # 上下文管理器

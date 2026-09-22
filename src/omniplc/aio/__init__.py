@@ -160,7 +160,9 @@ class ABaseClient:
     def __init__(self, sync_client: BaseClient) -> None:
         """由具体异步子类调用,传入已配置好的同步实例。"""
         self._sync = sync_client
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="omniplc-aio")
+        self._executor: Optional[ThreadPoolExecutor] = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="omniplc-aio"
+        )
 
     # ------------------------------------------------------------------
     # 执行机制
@@ -168,6 +170,7 @@ class ABaseClient:
 
     async def _run(self, operation: Callable[[], _T]) -> _T:
         """把同步操作投递到单线程 executor 执行(内部方法)。"""
+        self._ensure_open()
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, operation)
 
@@ -192,6 +195,11 @@ class ABaseClient:
     def last_error(self) -> Optional[str]:
         """最近一次失败的错误描述。"""
         return self._sync.last_error
+
+    @property
+    def stats(self) -> dict:
+        """连接健康统计快照(转发同步实例,字段说明见同步版)。"""
+        return self._sync.stats
 
     @property
     def receive_timeout(self) -> float:
@@ -364,9 +372,29 @@ class ABaseClient:
     # 生命周期
     # ------------------------------------------------------------------
 
+    def _ensure_open(self) -> None:
+        """已关闭客户端不可再执行协议操作(内部方法)。"""
+        if self._executor is None:
+            raise RuntimeError("客户端已关闭,无法再执行协议操作")
+
     async def close(self) -> None:
-        """释放 executor 线程(不断开连接,需要时先 await disconnect())。"""
-        self._executor.shutdown(wait=False)
+        """断开连接并释放单工作线程(幂等;关闭后客户端不可复用)。
+
+        先尽力断开同步客户端(释放 socket/会话),再关闭 executor;
+        关闭后任何协议调用(含 :meth:`disconnect` 与 :meth:`close`)
+        抛 ``RuntimeError`` 或安全返回。与 :meth:`disconnect` 的区别:
+        disconnect 只断同步侧、客户端仍可用;close 是彻底收尾。
+        """
+        if self._executor is None:
+            return
+        executor = self._executor
+        try:
+            await self._run(self._sync.disconnect)
+        except Exception:
+            pass  # 尽力断开,失败不阻断释放
+        finally:
+            self._executor = None
+            executor.shutdown(wait=False)
 
     async def __aenter__(self: _A) -> _A:
         """进入 async with 时自动连接,失败抛 ConnectionError。"""
@@ -380,8 +408,7 @@ class ABaseClient:
         exc_val: Optional[BaseException] = None,
         exc_tb: Optional[TracebackType] = None,
     ) -> None:
-        await self.disconnect()
-        self._executor.shutdown(wait=False)
+        await self.close()
 
 
 class AModbusBaseClient(ABaseClient):
