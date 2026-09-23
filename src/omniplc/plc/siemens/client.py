@@ -152,6 +152,14 @@ class _S7Session(BaseTransport):
         port: int,
         dll_path: str,
     ) -> None:
+        """S7 会话适配器。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param rack: 机架号
+        :param slot: 槽位号
+        :param port: ISO-on-TCP 端口,标准 102
+        :param dll_path: snap7 原生库路径(1.x/2.x 生效,留空用捆绑库)
+        """
         super().__init__()
         self._ip_address = ip_address
         self._rack = rack

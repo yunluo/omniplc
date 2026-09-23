@@ -319,7 +319,12 @@ class KeyenceHostLinkUdpClient(_KeyenceHostLinkBase):
         ip_address: str = "192.168.0.10",
         port: int = KV_DEFAULT_PORT,
     ) -> None:
-        """初始化 KV Host Link UDP 客户端,参数同 :class:`KeyenceHostLinkTcpClient`。"""
+        """初始化 KV Host Link UDP 客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: Host Link 端口,默认 8000
+        :raises ValueError: 参数非法
+        """
         validate_endpoint(ip_address, port)
         super().__init__()
         self._ip_address = ip_address

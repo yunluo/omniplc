@@ -335,9 +335,17 @@ class OmronFinsTcpClient(_OmronFinsBase):
     ) -> None:
         """初始化 FINS/TCP 客户端。
 
-        :param local_node: 本地节点号,0 = 由 PLC 自动分配(握手时获取)
-        :param ip_address: PLC 的 IP
+        :param ip_address: PLC 的 IP 或主机名
         :param port: 端口,默认 9600
+        :param local_node: 本地节点号,0 = 由 PLC 自动分配(握手时获取)
+        :param destination_network: 目标网络号(0 = 本网络)
+        :param destination_node: 目标节点号(0 = 握手自动获取;
+            手工配置常用 PLC IP 地址末位)
+        :param destination_unit: 目标单元号(0 = CPU)
+        :param source_network: 源网络号(上位机侧,一般 0)
+        :param source_node: 源节点号(0 = 握手自动获取;手工配置常用
+            本机 IP 地址末位)
+        :param source_unit: 源单元号(上位机为 0)
         :raises ValueError: 参数非法
         """
         super().__init__(
@@ -403,7 +411,20 @@ class OmronFinsUdpClient(_OmronFinsBase):
         source_node: int = 0,
         source_unit: int = 0,
     ) -> None:
-        """初始化 FINS/UDP 客户端,参数说明见 :class:`_OmronFinsBase`。"""
+        """初始化 FINS/UDP 客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: 端口,FINS 默认 9600
+        :param destination_network: 目标网络号(0 = 本网络)
+        :param destination_node: 目标节点号(0 = 握手自动获取;
+            手工配置常用 PLC IP 地址末位)
+        :param destination_unit: 目标单元号(0 = CPU)
+        :param source_network: 源网络号(上位机侧,一般 0)
+        :param source_node: 源节点号(0 = 握手自动获取;手工配置常用
+            本机 IP 地址末位)
+        :param source_unit: 源单元号(上位机为 0)
+        :raises ValueError: 参数非法
+        """
         super().__init__(
             ip_address,
             port,

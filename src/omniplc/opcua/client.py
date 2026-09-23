@@ -87,6 +87,10 @@ class _OpcUaSession(BaseTransport):
     """
 
     def __init__(self, endpoint: str) -> None:
+        """OPC-UA 会话适配器。
+
+        :param endpoint: opc.tcp 端点 URL(由 :class:`OpcUaClient` 组装或显式覆盖)
+        """
         super().__init__()
         self._endpoint = endpoint
         self._client: Any = None

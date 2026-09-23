@@ -124,6 +124,11 @@ class _AdsSession(BaseTransport):
     """
 
     def __init__(self, net_id: str, ads_port: int) -> None:
+        """ADS 会话适配器。
+
+        :param net_id: 目标 AMS NetId(由 :class:`BeckhoffAdsClient` 组装或显式覆盖)
+        :param ads_port: 目标 AMS 端口
+        """
         super().__init__()
         self._net_id = net_id
         self._ads_port = ads_port

@@ -414,6 +414,10 @@ class _MxComLink(BaseTransport):
     """
 
     def __init__(self, logical_station_number: int) -> None:
+        """MX Component 通信线路适配器。
+
+        :param logical_station_number: 通信设置实用程序中配置的逻辑站号
+        """
         super().__init__()
         self._logical_station_number = logical_station_number
         self._com: Any = None

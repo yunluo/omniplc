@@ -115,8 +115,12 @@ class KeyenceMcUdpClient(_KeyenceMcCodeMixin, MelsecMcUdpClient):
         network_number: int = MC_DEFAULT_NETWORK_NUMBER,
         pc_number: int = MC_DEFAULT_PC_NUMBER,
     ) -> None:
-        """初始化 KV MC 兼容 UDP 客户端,参数说明见 TCP 版。
+        """初始化 KV MC 兼容 UDP 客户端。
 
+        :param ip_address: PLC 的 IP 或主机名(KV 以太网单元设置中配置)
+        :param port: 端口(KV SLMP 兼容默认 5000,以单元设置为准)
+        :param network_number: 网络编号(KV 通常按默认 0 应答)
+        :param pc_number: PC 编号(默认 0xFF,与三菱 MC 客户端约定一致)
         :raises ValueError: 参数非法
         """
         super().__init__(ip_address, port, McFrame.FRAME_3E, network_number, pc_number)

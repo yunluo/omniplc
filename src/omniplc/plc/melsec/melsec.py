@@ -457,7 +457,17 @@ class MelsecMcTcpClient(_MelsecMcBase):
         network_number: int = MC_DEFAULT_NETWORK_NUMBER,
         pc_number: int = MC_DEFAULT_PC_NUMBER,
     ) -> None:
-        """初始化 MC TCP 客户端,参数说明见 :class:`_MelsecMcBase`。"""
+        """初始化 MC TCP 客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: 端口(MELSEC 以太网模块常用 2000,调试器场景 6000)
+        :param frame: 帧型,推荐 :class:`omniplc.types.McFrame` 枚举
+            (``McFrame.FRAME_3E``/``FRAME_4E`` 为 QnA 兼容,
+            ``FRAME_1E`` 为 A 兼容);也兼容 ``"3E"``/``"4E"``/``"1E"`` 字符串
+        :param network_number: 网络编号(仅 3E/4E 使用)
+        :param pc_number: PC 编号(仅 3E/4E 使用;1E 帧语义为站号)
+        :raises ValueError: 参数非法
+        """
         super().__init__(ip_address, port, frame, network_number, pc_number)
 
     def _create_transport(self) -> BaseTransport:
@@ -475,7 +485,17 @@ class MelsecMcUdpClient(_MelsecMcBase):
         network_number: int = MC_DEFAULT_NETWORK_NUMBER,
         pc_number: int = MC_DEFAULT_PC_NUMBER,
     ) -> None:
-        """初始化 MC UDP 客户端,参数说明见 :class:`_MelsecMcBase`。"""
+        """初始化 MC UDP 客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: 端口(MELSEC 以太网模块常用 2000,调试器场景 6000)
+        :param frame: 帧型,推荐 :class:`omniplc.types.McFrame` 枚举
+            (``McFrame.FRAME_3E``/``FRAME_4E`` 为 QnA 兼容,
+            ``FRAME_1E`` 为 A 兼容);也兼容 ``"3E"``/``"4E"``/``"1E"`` 字符串
+        :param network_number: 网络编号(仅 3E/4E 使用)
+        :param pc_number: PC 编号(仅 3E/4E 使用;1E 帧语义为站号)
+        :raises ValueError: 参数非法
+        """
         super().__init__(ip_address, port, frame, network_number, pc_number)
 
     def _create_transport(self) -> BaseTransport:

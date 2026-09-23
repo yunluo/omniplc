@@ -159,7 +159,10 @@ class ABaseClient:
     """
 
     def __init__(self, sync_client: BaseClient) -> None:
-        """由具体异步子类调用,传入已配置好的同步实例。"""
+        """由具体异步子类调用,传入已配置好的同步实例。
+
+        :param sync_client: 已配置好的同步客户端实例(协议驱动类见各 A* 子类)
+        """
         self._sync = sync_client
         self._executor: Optional[ThreadPoolExecutor] = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="omniplc-aio"
@@ -460,7 +463,13 @@ class AModbusTcpClient(AModbusBaseClient):
     """Modbus TCP 异步客户端。"""
 
     def __init__(self, ip_address: str = "127.0.0.1", port: int = MODBUS_DEFAULT_PORT, station: int = MODBUS_DEFAULT_STATION) -> None:
-        """参数同 :class:`omniplc.modbus.ModbusTcpClient`。"""
+        """初始化 Modbus TCP 异步客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: 端口,默认 502
+        :param station: 站号(Unit ID),默认 1
+        :raises ValueError: 参数非法
+        """
         super().__init__(ModbusTcpClient(ip_address, port, station))
 
 
@@ -468,7 +477,10 @@ class AModbusRtuClient(AModbusBaseClient):
     """Modbus RTU 异步客户端。"""
 
     def __init__(self, station: int = MODBUS_DEFAULT_STATION) -> None:
-        """参数同 :class:`omniplc.modbus.ModbusRtuClient`。
+        """初始化 Modbus RTU 异步客户端。
+
+        :param station: 站号,默认 1
+        :raises ValueError: 站号非法
 
         串口参数需在 connect 前配置::
 
@@ -503,7 +515,14 @@ class AInovanceTcpClient(AModbusBaseClient):
         port: int = MODBUS_DEFAULT_PORT,
         station: int = MODBUS_DEFAULT_STATION,
     ) -> None:
-        """参数同 :class:`omniplc.plc.inovance.InovanceTcpClient`。"""
+        """初始化汇川 TCP 异步客户端。
+
+        :param ip_address: PLC 的 IP 或主机名(Modbus TCP 从站默认开启,
+            示例默认取 Easy 系列出厂 IP,实际以 AutoShop 以太网配置为准)
+        :param port: 端口,默认 502(汇川从站服务默认开启且多数机型不可改)
+        :param station: 从站站号(Unit ID),默认 1
+        :raises ValueError: 参数非法
+        """
         super().__init__(InovanceTcpClient(ip_address, port, station))
 
 
@@ -511,7 +530,11 @@ class AInovanceRtuClient(AModbusBaseClient):
     """汇川 H3U/H5U Modbus RTU 异步客户端(串口)。"""
 
     def __init__(self, station: int = MODBUS_DEFAULT_STATION) -> None:
-        """参数同 :class:`omniplc.plc.inovance.InovanceRtuClient`。"""
+        """初始化汇川 RTU 异步客户端。
+
+        :param station: 站号,默认 1
+        :raises ValueError: 站号非法
+        """
         super().__init__(InovanceRtuClient(station))
 
     def configure_serial(
@@ -536,7 +559,13 @@ class APanasonicMewtocolTcpClient(ABaseClient):
         port: int = MEWTOCOL_DEFAULT_PORT,
         station: int = MEWTOCOL_DEFAULT_STATION,
     ) -> None:
-        """参数同 :class:`omniplc.plc.panasonic.PanasonicMewtocolTcpClient`。"""
+        """初始化 MEWTOCOL TCP 异步客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: 端口(以太网 MEWTOCOL 默认 1024,以模块设置为准)
+        :param station: 站号(1~99,编程口直连场景 0xEE)
+        :raises ValueError: 参数非法
+        """
         super().__init__(PanasonicMewtocolTcpClient(ip_address, port, station))
 
     @property
@@ -555,7 +584,13 @@ class APanasonicMewtocolUdpClient(ABaseClient):
         port: int = MEWTOCOL_DEFAULT_PORT,
         station: int = MEWTOCOL_DEFAULT_STATION,
     ) -> None:
-        """参数同 :class:`omniplc.plc.panasonic.PanasonicMewtocolUdpClient`。"""
+        """初始化 MEWTOCOL UDP 异步客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: 端口(以太网 MEWTOCOL 默认 1024,以模块设置为准)
+        :param station: 站号(1~99,编程口直连场景 0xEE)
+        :raises ValueError: 参数非法
+        """
         super().__init__(PanasonicMewtocolUdpClient(ip_address, port, station))
 
     @property
@@ -576,7 +611,17 @@ class AMelsecMcTcpClient(ABaseClient):
         network_number: int = MC_DEFAULT_NETWORK_NUMBER,
         pc_number: int = MC_DEFAULT_PC_NUMBER,
     ) -> None:
-        """参数同 :class:`omniplc.plc.melsec.MelsecMcTcpClient`。"""
+        """初始化 MC TCP 异步客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: 端口(MELSEC 以太网模块常用 2000,调试器场景 6000)
+        :param frame: 帧型,推荐 :class:`omniplc.types.McFrame` 枚举
+            (``McFrame.FRAME_3E``/``FRAME_4E`` 为 QnA 兼容,
+            ``FRAME_1E`` 为 A 兼容);也兼容 ``"3E"``/``"4E"``/``"1E"`` 字符串
+        :param network_number: 网络编号(仅 3E/4E 使用)
+        :param pc_number: PC 编号(仅 3E/4E 使用;1E 帧语义为站号)
+        :raises ValueError: 参数非法
+        """
         super().__init__(MelsecMcTcpClient(ip_address, port, frame, network_number, pc_number))
 
     @property
@@ -603,7 +648,17 @@ class AMelsecMcUdpClient(ABaseClient):
         network_number: int = MC_DEFAULT_NETWORK_NUMBER,
         pc_number: int = MC_DEFAULT_PC_NUMBER,
     ) -> None:
-        """参数同 :class:`omniplc.plc.melsec.MelsecMcUdpClient`。"""
+        """初始化 MC UDP 异步客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: 端口(MELSEC 以太网模块常用 2000,调试器场景 6000)
+        :param frame: 帧型,推荐 :class:`omniplc.types.McFrame` 枚举
+            (``McFrame.FRAME_3E``/``FRAME_4E`` 为 QnA 兼容,
+            ``FRAME_1E`` 为 A 兼容);也兼容 ``"3E"``/``"4E"``/``"1E"`` 字符串
+        :param network_number: 网络编号(仅 3E/4E 使用)
+        :param pc_number: PC 编号(仅 3E/4E 使用;1E 帧语义为站号)
+        :raises ValueError: 参数非法
+        """
         super().__init__(MelsecMcUdpClient(ip_address, port, frame, network_number, pc_number))
 
     @property
@@ -634,7 +689,16 @@ class AInovanceMcTcpClient(AMelsecMcTcpClient):
         network_number: int = MC_DEFAULT_NETWORK_NUMBER,
         pc_number: int = MC_DEFAULT_PC_NUMBER,
     ) -> None:
-        """参数同 :class:`omniplc.plc.inovance.InovanceMcTcpClient`。"""
+        """初始化汇川 MC 兼容异步客户端。
+
+        :param ip_address: PLC 的 IP 或主机名(H5U/Easy 出厂默认 192.168.1.88)
+        :param port: 端口,与 AutoShop"MC配置"中设置的端口号一致
+            (手册未规定出厂默认;范围 1025~4999、5010~49151,
+            不可用 502/9600/44818/2222/34980/12939/12940)
+        :param network_number: 网络编号(按三菱 MC 默认 0)
+        :param pc_number: PC 编号(默认 0xFF,与三菱 MC 客户端约定一致)
+        :raises ValueError: 参数非法
+        """
         ABaseClient.__init__(self, InovanceMcTcpClient(ip_address, port, network_number, pc_number))
 
 
@@ -652,7 +716,15 @@ class APanasonicMcTcpClient(AMelsecMcTcpClient):
         network_number: int = MC_DEFAULT_NETWORK_NUMBER,
         pc_number: int = MC_DEFAULT_PC_NUMBER,
     ) -> None:
-        """参数同 :class:`omniplc.plc.panasonic.PanasonicMcTcpClient`。"""
+        """初始化松下 MC 兼容异步客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: 端口,与 PLC 以太网模块 MC 协议配置一致
+            (手册未规定出厂默认;默认 2000 为三菱惯例占位)
+        :param network_number: 网络编号(按三菱 MC 默认 0)
+        :param pc_number: PC 编号(默认 0xFF,与三菱 MC 客户端约定一致)
+        :raises ValueError: 参数非法
+        """
         ABaseClient.__init__(self, PanasonicMcTcpClient(ip_address, port, network_number, pc_number))
 
 
@@ -676,7 +748,18 @@ class AMelsecMcSerialClient(ABaseClient):
         module_io: int = MC_SERIAL_DEFAULT_MODULE_IO,
         module_station: int = MC_SERIAL_DEFAULT_MODULE_STATION,
     ) -> None:
-        """参数同 :class:`omniplc.plc.melsec.MelsecMcSerialClient`。"""
+        """初始化 MC 串口异步客户端。
+
+        :param frame: 帧型,``McFrame.FRAME_3C``(ASCII 格式 4)或
+            ``McFrame.FRAME_4C``(二进制格式 5);也兼容 ``"3C"``/``"4C"`` 字符串
+        :param station_number: 站号 0~31(0 = 连接站/主机站)
+        :param network_number: 网络编号(0 = 本网络)
+        :param pc_number: PC 编号(0~3 或 0xFF;0xFF = 连接站 CPU)
+        :param self_station_number: 本站号(m:n 多点连接时外部设备自身站号)
+        :param module_io: 请求目标模块 I/O 编号(4C 帧使用,CPU 直连 0x03FF)
+        :param module_station: 请求目标模块局号(4C 帧使用,CPU 直连 0)
+        :raises ValueError: 参数非法
+        """
         super().__init__(
             MelsecMcSerialClient(
                 frame,
@@ -746,7 +829,14 @@ class AKeyenceMcTcpClient(AMelsecMcTcpClient):
         network_number: int = MC_DEFAULT_NETWORK_NUMBER,
         pc_number: int = MC_DEFAULT_PC_NUMBER,
     ) -> None:
-        """参数同 :class:`omniplc.plc.keyence.KeyenceMcTcpClient`。"""
+        """初始化 KV MC 兼容异步客户端。
+
+        :param ip_address: PLC 的 IP 或主机名(KV 以太网单元设置中配置)
+        :param port: 端口(KV SLMP 兼容默认 5000,以单元设置为准)
+        :param network_number: 网络编号(KV 通常按默认 0 应答)
+        :param pc_number: PC 编号(默认 0xFF,与三菱 MC 客户端约定一致)
+        :raises ValueError: 参数非法
+        """
         ABaseClient.__init__(self, KeyenceMcTcpClient(ip_address, port, network_number, pc_number))
 
     @property
@@ -769,7 +859,14 @@ class AKeyenceMcUdpClient(AMelsecMcUdpClient):
         network_number: int = MC_DEFAULT_NETWORK_NUMBER,
         pc_number: int = MC_DEFAULT_PC_NUMBER,
     ) -> None:
-        """参数同 :class:`omniplc.plc.keyence.KeyenceMcUdpClient`。"""
+        """初始化 KV MC 兼容 UDP 异步客户端。
+
+        :param ip_address: PLC 的 IP 或主机名(KV 以太网单元设置中配置)
+        :param port: 端口(KV SLMP 兼容默认 5000,以单元设置为准)
+        :param network_number: 网络编号(KV 通常按默认 0 应答)
+        :param pc_number: PC 编号(默认 0xFF,与三菱 MC 客户端约定一致)
+        :raises ValueError: 参数非法
+        """
         ABaseClient.__init__(self, KeyenceMcUdpClient(ip_address, port, network_number, pc_number))
 
     @property
@@ -786,7 +883,11 @@ class AMelsecMxClient(ABaseClient):
     """
 
     def __init__(self, logical_station_number: int = MX_DEFAULT_LOGICAL_STATION) -> None:
-        """参数同 :class:`omniplc.plc.melsec.MelsecMxClient`。"""
+        """初始化 MX Component 异步客户端。
+
+        :param logical_station_number: 通信设置实用程序中配置的逻辑站号(0~1023)
+        :raises ValueError: 逻辑站号越界
+        """
         super().__init__(MelsecMxClient(logical_station_number))
 
     @property
@@ -851,7 +952,12 @@ class AKeyenceHostLinkTcpClient(ABaseClient):
         ip_address: str = "192.168.0.10",
         port: int = KV_DEFAULT_PORT,
     ) -> None:
-        """参数同 :class:`omniplc.plc.keyence.KeyenceHostLinkTcpClient`。"""
+        """初始化 KV Host Link TCP 异步客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: Host Link 端口,默认 8000
+        :raises ValueError: 参数非法
+        """
         super().__init__(KeyenceHostLinkTcpClient(ip_address, port))
 
 
@@ -863,7 +969,12 @@ class AKeyenceHostLinkUdpClient(ABaseClient):
         ip_address: str = "192.168.0.10",
         port: int = KV_DEFAULT_PORT,
     ) -> None:
-        """参数同 :class:`omniplc.plc.keyence.KeyenceHostLinkUdpClient`。"""
+        """初始化 KV Host Link UDP 异步客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: Host Link 端口,默认 8000
+        :raises ValueError: 参数非法
+        """
         super().__init__(KeyenceHostLinkUdpClient(ip_address, port))
 
 
@@ -876,7 +987,13 @@ class AKeyenceSrClient(ABaseClient):
         port: int = SR_DEFAULT_PORT,
         scan_dwell: float = SR_DEFAULT_SCAN_DWELL,
     ) -> None:
-        """参数同 :class:`omniplc.scanner.KeyenceSrClient`。"""
+        """初始化 SR 扫码枪异步客户端。
+
+        :param ip_address: 扫码枪 IP 或主机名
+        :param port: TCP 端口,默认 9004
+        :param scan_dwell: 扫码窗口时长(秒),LON 到 LOFF 的等待时间
+        :raises ValueError: 参数非法
+        """
         super().__init__(KeyenceSrClient(ip_address, port, scan_dwell))
 
     def _scanner(self) -> KeyenceSrClient:
@@ -911,7 +1028,12 @@ class AToyopucTcpClient(ABaseClient):
         ip_address: str = "192.168.0.10",
         port: int = TOYOPUC_DEFAULT_PORT,
     ) -> None:
-        """参数同 :class:`omniplc.plc.toyopuc.ToyopucTcpClient`。"""
+        """初始化 TOYOPUC TCP 异步客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: 计算机链接端口,默认 1025
+        :raises ValueError: 参数非法
+        """
         super().__init__(ToyopucTcpClient(ip_address, port))
 
 
@@ -923,7 +1045,12 @@ class AToyopucUdpClient(ABaseClient):
         ip_address: str = "192.168.0.10",
         port: int = TOYOPUC_DEFAULT_PORT,
     ) -> None:
-        """参数同 :class:`omniplc.plc.toyopuc.ToyopucUdpClient`。"""
+        """初始化 TOYOPUC UDP 异步客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: 计算机链接端口,默认 1025
+        :raises ValueError: 参数非法
+        """
         super().__init__(ToyopucUdpClient(ip_address, port))
 
 
@@ -941,7 +1068,15 @@ class AOpcUaClient(ABaseClient):
         path: str = "",
         endpoint: str = "",
     ) -> None:
-        """参数同 :class:`omniplc.opcua.OpcUaClient`。"""
+        """初始化 OPC-UA 异步客户端。
+
+        :param ip_address: 服务器 IP 或主机名
+        :param port: 端口,标准默认 4840
+        :param path: 端点 URL 路径(可空,如 ``"UA/Server"``)
+        :param endpoint: 完整端点 URL 显式覆盖(以 ``opc.tcp://`` 开头;
+            用于服务器发现返回的完整 URL,设置后忽略 ip/port/path)
+        :raises ValueError: 参数非法
+        """
         super().__init__(OpcUaClient(ip_address, port, path, endpoint))
 
     @property
@@ -967,7 +1102,13 @@ class AOmronFinsTcpClient(ABaseClient):
         port: int = FINS_DEFAULT_PORT,
         local_node: int = 0,
     ) -> None:
-        """参数同 :class:`omniplc.plc.omron.OmronFinsTcpClient`。"""
+        """初始化 FINS/TCP 异步客户端。
+
+        :param ip_address: PLC 的 IP
+        :param port: 端口,默认 9600
+        :param local_node: 本地节点号,0 = 由 PLC 自动分配(握手时获取)
+        :raises ValueError: 参数非法
+        """
         super().__init__(OmronFinsTcpClient(ip_address, port, local_node))
 
     @property
@@ -988,7 +1129,12 @@ class AOmronFinsUdpClient(ABaseClient):
     """欧姆龙 FINS/UDP 异步客户端。"""
 
     def __init__(self, ip_address: str = "192.168.250.1", port: int = FINS_DEFAULT_PORT) -> None:
-        """参数同 :class:`omniplc.plc.omron.OmronFinsUdpClient`。"""
+        """初始化 FINS/UDP 异步客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: 端口,FINS 默认 9600
+        :raises ValueError: 参数非法
+        """
         super().__init__(OmronFinsUdpClient(ip_address, port))
 
     async def read_batch(
@@ -1008,7 +1154,14 @@ class AOmronCipClient(ABaseClient):
         port: int = AB_EIP_DEFAULT_PORT,
         connected_messaging: bool = False,
     ) -> None:
-        """参数同 :class:`omniplc.plc.omron.OmronCipClient`。"""
+        """初始化欧姆龙 CIP 异步客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: 端口,EtherNet/IP 默认 44818
+        :param connected_messaging: True 走 connected 消息(Forward Open +
+            SendUnitData);默认 False 走 unconnected 直发
+        :raises ValueError: 参数非法
+        """
         super().__init__(OmronCipClient(ip_address, port, connected_messaging))
 
     @property
@@ -1084,7 +1237,23 @@ class AOpenTcpClient(ABaseClient):
         max_frame: int = OPEN_TCP_MAX_FRAME,
         frame_length: Optional[int] = None,
     ) -> None:
-        """参数同 :class:`omniplc.opentcp.OpenTcpClient`。"""
+        """初始化通用 TCP 异步客户端。
+
+        :param ip_address: 设备 IP 或主机名
+        :param port: TCP 端口(自定义设备无统一标准,按现场配置)
+        :param delimiter: 帧分隔符(bytes 或 str;str 按 UTF-8 编码);
+            定长成帧时传 ``None``
+        :param encoding: ``send_text``/``receive_text``/``transact_text``
+            的字符编码,默认 UTF-8
+        :param append_delimiter: ``send_text``/``transact_text`` 发送时
+            自动补分隔符(定长成帧必须为 False)
+        :param strip_delimiter: ``receive``/``transact*`` 返回帧时是否
+            去掉末尾分隔符(仅分隔符成帧生效)
+        :param max_frame: 帧内容字节上限(不含分隔符),超限判流内失步
+        :param frame_length: 定长成帧的每帧字节数(≥1,不超过
+            ``max_frame``);与 ``delimiter`` 互斥,二者必须提供其一
+        :raises ValueError: 参数非法
+        """
         super().__init__(
             OpenTcpClient(
                 ip_address,
@@ -1173,7 +1342,12 @@ class AMTConnectClient(ABaseClient):
         ip_address: str = "192.168.0.10",
         port: int = MTCONNECT_DEFAULT_PORT,
     ) -> None:
-        """参数同 :class:`omniplc.cnc.MTConnectClient`。"""
+        """初始化 MTConnect 异步客户端。
+
+        :param ip_address: Agent 所在 IP 或主机名(机床或工控机)
+        :param port: Agent HTTP 端口,默认 5000
+        :raises ValueError: 参数非法
+        """
         super().__init__(MTConnectClient(ip_address, port))
 
     def _client(self) -> MTConnectClient:
@@ -1203,7 +1377,15 @@ class AAllenBradleyEthIpClient(ABaseClient):
         slot: int = AB_EIP_DEFAULT_SLOT,
         connected_messaging: bool = False,
     ) -> None:
-        """参数同 :class:`omniplc.plc.ab.AllenBradleyEthIpClient`。"""
+        """初始化 AB EtherNet/IP 异步客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: 端口,EtherNet/IP 默认 44818
+        :param slot: CPU 槽号(内置以太网口机型为 0;1756 背板按实际槽位)
+        :param connected_messaging: True 走 connected 消息(Forward Open +
+            SendUnitData);默认 False 走 unconnected 消息
+        :raises ValueError: 参数非法
+        """
         super().__init__(
             AllenBradleyEthIpClient(ip_address, port, slot, connected_messaging)
         )
@@ -1276,7 +1458,14 @@ class ABeckhoffAdsClient(ABaseClient):
         ads_port: int = ADS_DEFAULT_ADS_PORT,
         net_id: str = "",
     ) -> None:
-        """参数同 :class:`omniplc.plc.beckhoff.BeckhoffAdsClient`。"""
+        """初始化 TwinCAT ADS 异步客户端。
+
+        :param ip_address: PLC 的 IP 或主机名(构造默认 NetId 用)
+        :param ads_port: 目标 AMS 端口,TC3 PLC 运行时 1 默认 851
+        :param net_id: 目标 AMS NetId 显式覆盖(6 段 0~255 数字);
+            默认由 ``ip_address`` 拼 ``.1.1`` 后缀组装
+        :raises ValueError: 参数非法
+        """
         super().__init__(BeckhoffAdsClient(ip_address, ads_port, net_id))
 
     @property
@@ -1303,7 +1492,17 @@ class ASiemensS7Client(ABaseClient):
         port: int = S7_DEFAULT_PORT,
         dll_path: str = "",
     ) -> None:
-        """参数同 :class:`omniplc.plc.siemens.SiemensS7Client`。"""
+        """初始化 S7 异步客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param rack: 机架号,S7_DEFAULT_RACK(0)
+        :param slot: 槽位号,1200/1500 常用 1;300/400 的 CPU 常在 2
+        :param port: ISO-on-TCP 端口,标准 102
+        :param dll_path: snap7 原生库路径显式覆盖,仅 1.x/2.x(C 封装线)
+            生效——32 位 Python 需自备 32 位 snap7.dll;3.x 纯 Python 实现
+            忽略此参数;留空用捆绑库
+        :raises ValueError: 参数非法
+        """
         super().__init__(SiemensS7Client(ip_address, rack, slot, port, dll_path))
 
     def _client(self) -> SiemensS7Client:

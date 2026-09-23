@@ -226,7 +226,13 @@ class PanasonicMewtocolTcpClient(_MewtocolBase):
         port: int = MEWTOCOL_DEFAULT_PORT,
         station: int = MEWTOCOL_DEFAULT_STATION,
     ) -> None:
-        """初始化 MEWTOCOL TCP 客户端,参数说明见 :class:`_MewtocolBase`。"""
+        """初始化 MEWTOCOL TCP 客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: 端口(以太网 MEWTOCOL 默认 1024,以模块设置为准)
+        :param station: 站号(1~99,编程口直连场景 0xEE)
+        :raises ValueError: 参数非法
+        """
         super().__init__(ip_address, port, station)
 
     def _create_transport(self) -> BaseTransport:
@@ -245,7 +251,13 @@ class PanasonicMewtocolUdpClient(_MewtocolBase):
         port: int = MEWTOCOL_DEFAULT_PORT,
         station: int = MEWTOCOL_DEFAULT_STATION,
     ) -> None:
-        """初始化 MEWTOCOL UDP 客户端,参数说明见 :class:`_MewtocolBase`。"""
+        """初始化 MEWTOCOL UDP 客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: 端口(以太网 MEWTOCOL 默认 1024,以模块设置为准)
+        :param station: 站号(1~99,编程口直连场景 0xEE)
+        :raises ValueError: 参数非法
+        """
         super().__init__(ip_address, port, station)
 
     def _create_transport(self) -> BaseTransport:

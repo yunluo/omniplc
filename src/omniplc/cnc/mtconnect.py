@@ -122,6 +122,11 @@ class _MtConnectSession(BaseTransport):
     """
 
     def __init__(self, ip_address: str, port: int) -> None:
+        """MTConnect 会话适配器。
+
+        :param ip_address: Agent 所在 IP 或主机名(机床或工控机)
+        :param port: Agent HTTP 端口,默认 5000
+        """
         super().__init__()
         self._ip_address = ip_address
         self._port = port

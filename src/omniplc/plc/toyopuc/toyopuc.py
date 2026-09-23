@@ -278,7 +278,12 @@ class ToyopucUdpClient(_ToyopucBase):
         ip_address: str = "192.168.0.10",
         port: int = TOYOPUC_DEFAULT_PORT,
     ) -> None:
-        """初始化 TOYOPUC UDP 客户端,参数同 :class:`ToyopucTcpClient`。"""
+        """初始化 TOYOPUC UDP 客户端。
+
+        :param ip_address: PLC 的 IP 或主机名
+        :param port: 计算机链接端口,默认 1025
+        :raises ValueError: 参数非法
+        """
         validate_endpoint(ip_address, port)
         super().__init__(ip_address, port)
 
