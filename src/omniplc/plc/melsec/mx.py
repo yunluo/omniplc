@@ -27,7 +27,7 @@ comtypes 调用口径(真机联测核证,两种形态并存):``GetDevice(软元�
 """
 from __future__ import annotations
 import ctypes
-from typing import Any, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, Union
 
 from ... import convert
 from ...core.base_client import BaseClient
@@ -37,6 +37,7 @@ from ...core.constants import (
     MX_LOGICAL_STATION_MAX,
     MX_MAX_BLOCK_WORDS,
     MX_PROG_ID,
+    MX_SUPPORT_MSG_PROG_ID,
 )
 from ...core.debug import log_op
 from ...core.errors import OmniPLCInternalError, TransportClosedError
@@ -50,6 +51,10 @@ from .melsec import _decode_32, _decode_64, _encode_32, _encode_64
 # ----------------------------------------------------------------------
 # COM 交互辅助(模块级,单测以假对象替换;依赖 comtypes 延迟导入)
 # ----------------------------------------------------------------------
+
+_CLOCK_FIELDS = ("year", "month", "day", "day_of_week", "hour", "minute", "second")
+"""GetClockData/SetClockData 的七字段名(手册 5.2.11 顺序:年/月/日/星期/时/分/秒)。"""
+
 
 def _com_initialize() -> None:
     """在使用线程上初始化 COM(ActUtlType 为 STA 控件,重复调用安全)。"""
@@ -81,7 +86,7 @@ def _new_com_object(logical_station_number: int) -> Any:
     return com
 
 
-def _com_error() -> type:
+def _com_error() -> Type[BaseException]:
     """取 comtypes.COMError 类型(延迟导入,内部函数)。"""
     import comtypes
 
@@ -184,6 +189,160 @@ def _com_read_random(com: Any, device_list: str, count: int) -> List[int]:
         ) from exc
     _check_rc(_return_code(result), "ReadDeviceRandom")
     return [int(word) & 0xFFFF for word in buffer]
+
+
+def _com_write_random(com: Any, device_list: str, count: int, words: Sequence[int]) -> None:
+    """随机写(WriteDeviceRandom):软元件列表换行分隔,数据 LONG 数组纯入参。
+
+    返回码照常校验(手册 5.2.6,数据低 16 位为一个字软元件值)。
+    """
+    payload = [int(word) for word in words]
+    try:
+        result = com.WriteDeviceRandom(device_list, count, payload)
+    except _com_error() as exc:
+        raise OmniPLCInternalError(
+            "MX Component WriteDeviceRandom 失败:{}".format(exc)
+        ) from exc
+    _check_rc(_return_code(result), "WriteDeviceRandom")
+
+
+def _com_get_cpu_type(com: Any) -> Tuple[str, int]:
+    """读 CPU 型号(GetCpuType),返回 (型号字符串, 型号代码)。
+
+    双出参方法,comtypes 口径真机待核证(方法级差异已被 GetDevice/块读
+    证明):先按"出参收进返回值"零参调用(同 GetDevice);包装保留出参
+    时报参数个数 TypeError,退回 byref VARIANT 形态(手册 5.2.13:
+    szCpuName、lCpuType 均 Output)。
+    """
+    from comtypes.automation import VARIANT
+
+    try:
+        result = com.GetCpuType()
+    except TypeError:
+        name = VARIANT()
+        code = VARIANT()
+        try:
+            raw = com.GetCpuType(ctypes.byref(name), ctypes.byref(code))
+        except _com_error() as exc:
+            raise OmniPLCInternalError(
+                "MX Component GetCpuType 失败:{}".format(exc)
+            ) from exc
+        _check_rc(_return_code(raw), "GetCpuType")
+        return str(name.value), int(code.value)
+    except _com_error() as exc:
+        raise OmniPLCInternalError(
+            "MX Component GetCpuType 失败:{}".format(exc)
+        ) from exc
+    values = result if isinstance(result, tuple) else (result,)
+    texts = [value for value in values if isinstance(value, str)]
+    codes = [
+        value
+        for value in values
+        if isinstance(value, int) and not isinstance(value, bool)
+    ]
+    if not texts:
+        raise OmniPLCInternalError(
+            f"MX Component GetCpuType 返回形态未识别:{result!r}"
+        )
+    return texts[0], codes[0] if codes else 0
+
+
+def _com_get_clock_data(com: Any) -> Dict[str, int]:
+    """读 CPU 时钟(GetClockData),返回七字段字典。
+
+    手册 5.2.11:七字段全出参,顺序为年/月/日/星期/时/分/秒。
+    comtypes 口径真机待核证:零参调用(出参收进返回值)优先,
+    TypeError 时退回 byref VARIANT×7 形态。
+    """
+    from comtypes.automation import VARIANT
+
+    try:
+        result = com.GetClockData()
+    except TypeError:
+        variants = [VARIANT() for _ in _CLOCK_FIELDS]
+        try:
+            raw = com.GetClockData(*[ctypes.byref(variant) for variant in variants])
+        except _com_error() as exc:
+            raise OmniPLCInternalError(
+                "MX Component GetClockData 失败:{}".format(exc)
+            ) from exc
+        _check_rc(_return_code(raw), "GetClockData")
+        values = [variant.value for variant in variants]
+    except _com_error() as exc:
+        raise OmniPLCInternalError(
+            "MX Component GetClockData 失败:{}".format(exc)
+        ) from exc
+    else:
+        listed = list(result if isinstance(result, tuple) else (result,))
+        if len(listed) < len(_CLOCK_FIELDS):
+            raise OmniPLCInternalError(
+                f"MX Component GetClockData 返回形态未识别:{result!r}"
+            )
+        values = listed[: len(_CLOCK_FIELDS)]
+    return {
+        name: int(value)
+        for name, value in zip(_CLOCK_FIELDS, values)
+    }
+
+
+def _com_set_clock_data(
+    com: Any,
+    year: int,
+    month: int,
+    day: int,
+    day_of_week: int,
+    hour: int,
+    minute: int,
+    second: int,
+) -> None:
+    """写 CPU 时钟(SetClockData);七字段全入参(顺序:年/月/日/星期/时/分/秒)。"""
+    fields = [year, month, day, day_of_week, hour, minute, second]
+    try:
+        result = com.SetClockData(*[int(value) for value in fields])
+    except _com_error() as exc:
+        raise OmniPLCInternalError(
+            "MX Component SetClockData 失败:{}".format(exc)
+        ) from exc
+    _check_rc(_return_code(result), "SetClockData")
+
+
+def _new_support_msg_com(logical_station_number: int) -> Any:
+    """创建 ActSupportMsg 控件(GetErrorMessage 专用,与 ActUtlType 独立)。"""
+    import comtypes.client
+
+    com = comtypes.client.CreateObject(MX_SUPPORT_MSG_PROG_ID)
+    try:
+        com.ActLogicalStationNumber = logical_station_number
+    except Exception:
+        pass  # SupportMsg 的站号属性依版本而异,设置失败不阻断文本查询
+    return com
+
+
+def _com_get_error_message(com: Any, code: int) -> str:
+    """出错代码转官方文本(GetErrorMessage,经 ActSupportMsg 控件)。
+
+    (lErrorCode 入参、szErrorMessage 出参):先按"出参收进返回值"
+    单参调用,TypeError 退回 byref VARIANT 形态。
+    """
+    from comtypes.automation import VARIANT
+
+    try:
+        result = com.GetErrorMessage(int(code))
+    except TypeError:
+        message = VARIANT()
+        try:
+            raw = com.GetErrorMessage(int(code), ctypes.byref(message))
+        except _com_error() as exc:
+            raise OmniPLCInternalError(
+                "MX Component GetErrorMessage 失败:{}".format(exc)
+            ) from exc
+        _check_rc(_return_code(raw), "GetErrorMessage")
+        return str(message.value)
+    except _com_error() as exc:
+        raise OmniPLCInternalError(
+            "MX Component GetErrorMessage 失败:{}".format(exc)
+        ) from exc
+    return str(_first(result))
 
 
 class _MxComLink(BaseTransport):
@@ -346,6 +505,45 @@ class MelsecMxClient(BaseClient):
         log_op(self._debug_label, "ReadDeviceRandom %d 点 → %s", len(device_texts), words)
         return words
 
+    def _write_random(self, device_texts: List[str], words: List[int]) -> None:
+        """随机写(WriteDeviceRandom),软元件列表换行分隔(内部方法)。"""
+        _com_write_random(self._com(), "\n".join(device_texts), len(device_texts), words)
+        log_op(
+            self._debug_label, "WriteDeviceRandom %d 点 ← %s", len(device_texts), words
+        )
+
+    def _get_cpu_type(self) -> Tuple[str, int]:
+        """读 CPU 型号(GetCpuType),返回 (型号字符串, 型号代码)(内部方法)。"""
+        name, code = _com_get_cpu_type(self._com())
+        log_op(self._debug_label, "GetCpuType → %s (0x%04X)", name, code)
+        return name, code
+
+    def _get_clock_data(self) -> Dict[str, int]:
+        """读 CPU 时钟(GetClockData),返回七字段字典(内部方法)。"""
+        clock = _com_get_clock_data(self._com())
+        log_op(self._debug_label, "GetClockData → %s", clock)
+        return clock
+
+    def _set_clock_data(
+        self,
+        year: int,
+        month: int,
+        day: int,
+        day_of_week: int,
+        hour: int,
+        minute: int,
+        second: int,
+    ) -> None:
+        """写 CPU 时钟(SetClockData)(内部方法)。"""
+        _com_set_clock_data(
+            self._com(), year, month, day, day_of_week, hour, minute, second
+        )
+        log_op(
+            self._debug_label,
+            "SetClockData ← %d-%d-%d 星期%d %d:%d:%d",
+            year, month, day, day_of_week, hour, minute, second,
+        )
+
     # ------------------------------------------------------------------
     # 协议原语
     # ------------------------------------------------------------------
@@ -481,6 +679,142 @@ class MelsecMxClient(BaseClient):
             return values
 
         return self._execute(operation)
+
+    # ------------------------------------------------------------------
+    # 批量写入(WriteDeviceRandom 随机写,单事务)
+    # ------------------------------------------------------------------
+
+    def write_batch(self, items: Sequence[Tuple[str, PrimitiveValue]]) -> bool:
+        """随机批量写入(WriteDeviceRandom,单事务写多个软元件)。
+
+        与 :meth:`read_batch` 对称:软元件列表换行分隔,单事务一次写入。
+        仅支持 16 位量——**位软元件**(bool 写 1/0)与**整数值**(int,
+        收窄到 -32768~65535 后按字写入,负数按补码);字软元件位号
+        (如 ``D100.3``)与 32/64 位类型不支持(随机写每条 1 字,且
+        位号写入需读-改-写语义),请逐点 :meth:`write_bool`/:meth:`write_int`。
+
+        :param items: ``(地址, 值)`` 序列;bool → 位软元件,int → 字软元件
+        :return: 是否成功;任一地址非法、值越界或控件返回出错代码则整批失败
+            (原因见 :attr:`last_error`)
+        :raises ValueError: 列表为空/值类型不支持/条数超限
+        """
+        if not items:
+            raise ValueError("write_batch 至少需要一个 (地址, 值) 项")
+        if len(items) > MX_MAX_BLOCK_WORDS:
+            raise ValueError(
+                "write_batch 条目数超出上限 {}:{}".format(MX_MAX_BLOCK_WORDS, len(items))
+            )
+        texts: List[str] = []
+        words: List[int] = []
+        for address, value in items:
+            parsed = _check_address(address)
+            if parsed.bit is not None:
+                raise ValueError(
+                    f"write_batch 不支持字软元件位号 {address!r}"
+                    "(位写入需读-改-写语义,请逐点 write_bool)"
+                )
+            if isinstance(value, bool):
+                if not _is_bit_device(parsed.device):
+                    raise ValueError(
+                        f"write_batch 的 bool 值仅支持位软元件:{address!r} ← {value!r}"
+                    )
+                texts.append(_device_text(parsed))
+                words.append(1 if value else 0)
+                continue
+            if isinstance(value, int):
+                if not -32768 <= value <= 65535:
+                    raise ValueError(
+                        f"write_batch 整数值超出 16 位范围(-32768~65535):{value!r}"
+                    )
+                texts.append(_device_text(parsed))
+                words.append(value & 0xFFFF)
+                continue
+            raise ValueError(
+                "write_batch 仅支持 16 位量(bool/int),{} 收到:{!r}"
+                "(32/64 位请逐点写入)".format(type(value).__name__, value)
+            )
+
+        def operation() -> None:
+            self._write_random(texts, words)
+
+        ok, _ = self._execute(operation, is_write=True)
+        return ok
+
+    # ------------------------------------------------------------------
+    # CPU 型号 / 时钟 / 出错文本
+    # ------------------------------------------------------------------
+
+    def get_cpu_type(self) -> Tuple[bool, Optional[Tuple[str, int]]]:
+        """读取 PLC CPU 型号字符串与型号代码(GetCpuType)。
+
+        :return: ``(是否成功, (型号字符串, 型号代码))``,如
+            ``("Q06HCPU", 333)``(代码依 CPU 系列而定,手册附录);
+            失败为 ``(False, None)``
+        """
+
+        def operation() -> Tuple[str, int]:
+            return self._get_cpu_type()
+
+        ok, value = self._execute(operation)
+        return ok, (value if ok else None)
+
+    def get_clock(self) -> Tuple[bool, Optional[Dict[str, int]]]:
+        """读取 PLC CPU 时钟(GetClockData)。
+
+        :return: ``(是否成功, {year, month, day, day_of_week, hour,
+            minute, second})``;``day_of_week`` 为 0~6(0=星期日,依
+            PLC 侧定义);失败为 ``(False, None)``
+        """
+        ok, value = self._execute(self._get_clock_data)
+        return ok, (value if ok else None)
+
+    def set_clock(
+        self,
+        year: int,
+        month: int,
+        day: int,
+        hour: int = 0,
+        minute: int = 0,
+        second: int = 0,
+        day_of_week: int = 0,
+    ) -> bool:
+        """写入 PLC CPU 时钟(SetClockData)——**会改变 PLC 系统时钟**。
+
+        :param year: 年(按 PLC 侧口径,Q/R 系列通常 4 位,如 2026)
+        :param month: 月 1~12
+        :param day: 日 1~31
+        :param hour: 时 0~23
+        :param minute: 分 0~59
+        :param second: 秒 0~59
+        :param day_of_week: 星期 0~6(0=星期日,依 PLC 侧定义),默认 0
+        :return: 是否成功(PLC 侧时钟校验失败会返回出错代码)
+        """
+
+        def operation() -> None:
+            self._set_clock_data(year, month, day, day_of_week, hour, minute, second)
+
+        ok, _ = self._execute(operation, is_write=True)
+        return ok
+
+    def get_error_message(self, code: int) -> Tuple[bool, Optional[str]]:
+        """把 MX 出错代码转为官方文本(GetErrorMessage)。
+
+        经独立的 **ActSupportMsg** 控件查询(手册 5.2.26:该功能不在
+        ActUtlType 上),控件按需创建,ProgID 见
+        :data:`omniplc.core.constants.MX_SUPPORT_MSG_PROG_ID`(真机待核证)。
+
+        :param code: 出错代码(手册第 7 章,如 ``0xC0500100``)
+        :return: ``(是否成功, 出错文本)``(文本含出错内容及处理方法);
+            失败为 ``(False, None)``
+        """
+
+        def operation() -> str:
+            return _com_get_error_message(
+                _new_support_msg_com(self._logical_station_number), int(code)
+            )
+
+        ok, value = self._execute(operation)
+        return ok, (value if ok else None)
 
     def _read_bool_impl(self, parsed: McAddress) -> bool:
         """读取一个布尔量:位软元件单点读;字软元件读字后提位。"""

@@ -103,6 +103,36 @@ def fake(monkeypatch: pytest.MonkeyPatch) -> FakeActUtlType:
         assert len(texts) == count, "随机读条数与换行分隔的软元件列表不符"
         return com.random_read(texts)
 
+    def fake_write_random(
+        com: FakeActUtlType, text: str, count: int, words: list
+    ) -> None:
+        com.calls.append(("WriteDeviceRandom", text, count))
+        texts = text.split("\n")
+        assert len(texts) == count, "随机写条数与换行分隔的软元件列表不符"
+        for device, word in zip(texts, words):
+            com.put(device, word)
+
+    def fake_cpu_type(com: FakeActUtlType) -> tuple:
+        com.calls.append(("GetCpuType",))
+        return com.cpu_type
+
+    def fake_get_clock(com: FakeActUtlType) -> dict:
+        com.calls.append(("GetClockData",))
+        return dict(com.clock)
+
+    def fake_set_clock(
+        com: FakeActUtlType, y: int, mo: int, d: int, dow: int, h: int, mi: int, s: int
+    ) -> None:
+        com.calls.append(("SetClockData", y, mo, d, dow, h, mi, s))
+        com.clock = {
+            "year": y, "month": mo, "day": d, "day_of_week": dow,
+            "hour": h, "minute": mi, "second": s,
+        }
+
+    def fake_error_message(com: FakeActUtlType, code: int) -> str:
+        com.calls.append(("GetErrorMessage", code))
+        return "出错信息文本 0x{:08X}".format(code & 0xFFFFFFFF)
+
     monkeypatch.setattr(mx_module, "_com_initialize", lambda: None)
     monkeypatch.setattr(mx_module, "_new_com_object", capture_new)
     monkeypatch.setattr(mx_module, "_com_get_device", fake_get)
@@ -110,6 +140,17 @@ def fake(monkeypatch: pytest.MonkeyPatch) -> FakeActUtlType:
     monkeypatch.setattr(mx_module, "_com_read_words", fake_read)
     monkeypatch.setattr(mx_module, "_com_write_words", fake_write)
     monkeypatch.setattr(mx_module, "_com_read_random", fake_random)
+    monkeypatch.setattr(mx_module, "_com_write_random", fake_write_random)
+    monkeypatch.setattr(mx_module, "_com_get_cpu_type", fake_cpu_type)
+    monkeypatch.setattr(mx_module, "_com_get_clock_data", fake_get_clock)
+    monkeypatch.setattr(mx_module, "_com_set_clock_data", fake_set_clock)
+    monkeypatch.setattr(mx_module, "_com_get_error_message", fake_error_message)
+    monkeypatch.setattr(mx_module, "_new_support_msg_com", lambda station: act)
+    act.cpu_type = ("Q06HCPU", 0x0333)
+    act.clock = {
+        "year": 2026, "month": 9, "day": 23, "day_of_week": 2,
+        "hour": 8, "minute": 5, "second": 30,
+    }
     return act
 
 
@@ -305,6 +346,13 @@ def test_async_mirror_roundtrip(fake: FakeActUtlType) -> None:
         assert client.logical_station_number == 3
         assert await client.connect() is True
         assert await client.read_ushort("D100") == (True, 1234)
+        assert await client.write_batch([("M11", True), ("D105", 33)]) is True
+        assert await client.get_cpu_type() == (True, ("Q06HCPU", 0x0333))
+        ok, clock = await client.get_clock()
+        assert ok is True and clock is not None and clock["year"] == 2026
+        assert await client.set_clock(2026, 9, 23, 1, 2, 3) is True
+        ok, text = await client.get_error_message(0xC0500100)
+        assert ok is True and text is not None
         await client.close()
 
     asyncio.run(scenario())
@@ -347,20 +395,74 @@ class ComtypesStyleActUtlType:
         self.written = data
         return 0
 
+    def WriteDeviceRandom(self, text: str, count: int, data: list) -> int:
+        self.written_random = (text, data)
+        return 0
+
+    def GetCpuType(self) -> tuple:
+        return ("Q06HCPU", 0x0333)
+
+    def GetClockData(self) -> tuple:
+        return (2026, 9, 23, 3, 12, 30, 15)
+
+    def GetErrorMessage(self, code: int) -> str:
+        if code == 0xBAD:
+            raise comtypes.COMError(-2147024894, "未知出错代码", None)
+        return "出错文本"
+
 
 def test_com_helpers_comtypes_out_param_convention() -> None:
-    """comtypes 口径:GetDevice 单参取值;块读传 ctypes 缓冲原地填充,返回码可校验。"""
+    """comtypes 口径:GetDevice/块读不传 byref 缓冲,数据由返回值带回。"""
     com = ComtypesStyleActUtlType()
     assert mx_module._com_get_device(com, "D100") == 1234
     assert mx_module._com_read_words(com, "D100", 2) == [1, 2]
     assert mx_module._com_read_random(com, "D0\nD2", 2) == [3, 4]
     mx_module._com_write_words(com, "D100", [5, 6])
     assert com.written == [5, 6]
+    assert mx_module._com_write_random(com, "M10\nD100", 2, [1, 0xFFFE]) is None
+    assert com.written_random == ("M10\nD100", [1, 0xFFFE])
+    assert mx_module._com_get_cpu_type(com) == ("Q06HCPU", 0x0333)
+    assert mx_module._com_get_clock_data(com) == {
+        "year": 2026, "month": 9, "day": 23, "day_of_week": 3,
+        "hour": 12, "minute": 30, "second": 15,
+    }
+    assert mx_module._com_get_error_message(com, 0xC0500100) == "出错文本"
     with pytest.raises(OmniPLCInternalError):
         mx_module._com_get_device(com, "BAD")  # COMError → 内部异常(断线)
-    com.read_code = 0xC0500100
     with pytest.raises(OmniPLCInternalError):
-        mx_module._com_read_words(com, "D100", 2)  # 块读返回码照常校验
+        mx_module._com_get_error_message(com, 0xBAD)
+
+
+def test_com_helpers_byref_fallback() -> None:
+    """包装保留出参的版本(TypeError)→ 退回 byref VARIANT 形态。"""
+
+    class ByrefStyle:
+        def GetCpuType(self, *args):
+            if not args:
+                raise TypeError("call takes exactly 3 arguments (2 given)")
+            # byref() 传入的是 CArgObject,经 _obj 取回原 VARIANT
+            args[0]._obj.value = "Q06HCPU"
+            args[1]._obj.value = 0x0333
+            return 0
+
+        def GetClockData(self, *args):
+            if not args:
+                raise TypeError("call takes exactly 8 arguments (1 given)")
+            for arg, value in zip(args, [2026, 9, 23, 3, 12, 30, 15]):
+                arg._obj.value = value
+            return 0
+
+        def GetErrorMessage(self, *args):
+            if len(args) == 1:
+                raise TypeError("call takes exactly 3 arguments (2 given)")
+            args[1]._obj.value = "文本"
+            return 0
+
+    com = ByrefStyle()
+    assert mx_module._com_get_cpu_type(com) == ("Q06HCPU", 0x0333)
+    clock = mx_module._com_get_clock_data(com)
+    assert clock["year"] == 2026 and clock["day_of_week"] == 3
+    assert mx_module._com_get_error_message(com, 0xC0500100) == "文本"
 
 
 def test_com_helpers_tuple_result_defensive() -> None:
@@ -419,3 +521,70 @@ def test_read_batch_rejects(fake: FakeActUtlType) -> None:
         client.read_batch([("D100", "int")])
     with pytest.raises(ValueError):
         client.read_batch([("D{}".format(index), "short") for index in range(961)])
+
+
+# ----------------------------------------------------------------------
+# 批量写入(WriteDeviceRandom 随机写)/ CPU 型号 / 时钟 / 出错文本
+# ----------------------------------------------------------------------
+
+
+def test_write_batch_mixed(fake: FakeActUtlType) -> None:
+    """随机批量写:位软元件 bool + 字软元件 int 混写,单事务。"""
+    client = _client()
+    client.connect()
+    assert client.write_batch([("M10", True), ("D100", -2), ("D102", 7)]) is True
+    assert fake.get("M10") == 1
+    assert fake.get("D100") == 0xFFFE  # -2 补码
+    assert fake.get("D102") == 7
+    random_calls = [call for call in fake.calls if call[0] == "WriteDeviceRandom"]
+    assert len(random_calls) == 1  # 单事务
+    assert random_calls[0][1] == "M10\nD100\nD102"
+
+
+def test_write_batch_rejects(fake: FakeActUtlType) -> None:
+    """write_batch 拒绝路径:空列表/字软元件位号/字软元件 bool/越界/类型/超限。"""
+    client = _client()
+    client.connect()
+    with pytest.raises(ValueError):
+        client.write_batch([])
+    with pytest.raises(ValueError):
+        client.write_batch([("D200.3", True)])  # 字软元件位号(RMW 语义)
+    with pytest.raises(ValueError):
+        client.write_batch([("D100", True)])  # 字软元件不支持 bool
+    with pytest.raises(ValueError):
+        client.write_batch([("D100", 70000)])  # 超出 16 位范围
+    with pytest.raises(ValueError):
+        client.write_batch([("D100", 3.14)])  # 浮点不支持
+    with pytest.raises(ValueError):
+        client.write_batch([("D{}".format(index), 0) for index in range(961)])
+    assert fake.calls[-1][0] != "WriteDeviceRandom"  # 拒绝路径不发请求
+    # 整数值写位软元件合法(1/0)
+    assert client.write_batch([("M20", 1)]) is True
+    assert fake.get("M20") == 1
+
+
+def test_get_cpu_type(fake: FakeActUtlType) -> None:
+    """GetCpuType:返回 (型号字符串, 型号代码)。"""
+    client = _client()
+    client.connect()
+    assert client.get_cpu_type() == (True, ("Q06HCPU", 0x0333))
+
+
+def test_get_set_clock(fake: FakeActUtlType) -> None:
+    """时钟读写:GetClockData 返回七字段字典;SetClockData 字段逐一透传。"""
+    client = _client()
+    client.connect()
+    ok, clock = client.get_clock()
+    assert ok is True and clock is not None
+    assert clock["year"] == 2026 and clock["second"] == 30
+    assert client.set_clock(2026, 9, 23, 12, 30, 15, day_of_week=3) is True
+    set_calls = [call for call in fake.calls if call[0] == "SetClockData"]
+    assert set_calls == [("SetClockData", 2026, 9, 23, 3, 12, 30, 15)]
+
+
+def test_get_error_message(fake: FakeActUtlType) -> None:
+    """GetErrorMessage:出错代码转官方文本(经 ActSupportMsg)。"""
+    client = _client()
+    client.connect()
+    ok, text = client.get_error_message(0xC0500100)
+    assert ok is True and text is not None and "0xC0500100" in text

@@ -802,6 +802,46 @@ class AMelsecMxClient(ABaseClient):
         sync = self._typed(MelsecMxClient)
         return await self._run(lambda: sync.read_batch(items))
 
+    async def write_batch(
+        self, items: Sequence[Tuple[str, PrimitiveValue]]
+    ) -> bool:
+        """随机批量写入(WriteDeviceRandom 单事务;语义同同步版)。"""
+        sync = self._typed(MelsecMxClient)
+        return await self._run(lambda: sync.write_batch(items))
+
+    async def get_cpu_type(self) -> Tuple[bool, Optional[Tuple[str, int]]]:
+        """读取 CPU 型号字符串与型号代码(GetCpuType;语义同同步版)。"""
+        sync = self._typed(MelsecMxClient)
+        return await self._run(lambda: sync.get_cpu_type())
+
+    async def get_clock(self) -> Tuple[bool, Optional[Dict[str, int]]]:
+        """读取 PLC CPU 时钟(GetClockData;语义同同步版)。"""
+        sync = self._typed(MelsecMxClient)
+        return await self._run(lambda: sync.get_clock())
+
+    async def set_clock(
+        self,
+        year: int,
+        month: int,
+        day: int,
+        hour: int = 0,
+        minute: int = 0,
+        second: int = 0,
+        day_of_week: int = 0,
+    ) -> bool:
+        """写入 PLC CPU 时钟(SetClockData;语义同同步版)。"""
+        sync = self._typed(MelsecMxClient)
+        return await self._run(
+            lambda: sync.set_clock(
+                year, month, day, hour, minute, second, day_of_week
+            )
+        )
+
+    async def get_error_message(self, code: int) -> Tuple[bool, Optional[str]]:
+        """出错代码转官方文本(GetErrorMessage;语义同同步版)。"""
+        sync = self._typed(MelsecMxClient)
+        return await self._run(lambda: sync.get_error_message(code))
+
 
 class AKeyenceHostLinkTcpClient(ABaseClient):
     """基恩士 KV Host Link 异步客户端(TCP)。"""

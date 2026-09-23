@@ -125,6 +125,7 @@ module = [
     "serial",
     "comtypes",
     "comtypes.client",
+    "comtypes.automation",
     "asyncua",
     "asyncua.sync",
     "asyncua.ua",
