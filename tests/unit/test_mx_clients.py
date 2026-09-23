@@ -387,22 +387,26 @@ class ComtypesStyleActUtlType:
             raise comtypes.COMError(-2147024894, "软元件不存在", None)
         return 1234
 
-    def __com_ReadDeviceBlock(self, text: str, count: int, buffer: Any) -> int:
+    def __com_ReadDeviceBlock(self, text: str, count: int, buffer: Any, retcode: Any) -> int:
         for index, word in enumerate([1, 2]):
             buffer[index] = word
-        return self.read_code
+        retcode.value = self.read_code
+        return 0
 
-    def __com_ReadDeviceRandom(self, text: str, count: int, buffer: Any) -> int:
+    def __com_ReadDeviceRandom(self, text: str, count: int, buffer: Any, retcode: Any) -> int:
         for index, word in enumerate([3, 4]):
             buffer[index] = word
+        retcode.value = 0
         return 0
 
-    def __com_WriteDeviceBlock(self, text: str, count: int, data: Any) -> int:
+    def __com_WriteDeviceBlock(self, text: str, count: int, data: Any, retcode: Any) -> int:
         self.written = data
+        retcode.value = 0
         return 0
 
-    def __com_WriteDeviceRandom(self, text: str, count: int, data: Any) -> int:
+    def __com_WriteDeviceRandom(self, text: str, count: int, data: Any, retcode: Any) -> int:
         self.written_random = (text, data)
+        retcode.value = 0
         return 0
 
     def GetCpuType(self) -> tuple:
@@ -441,11 +445,23 @@ def test_com_helpers_comtypes_out_param_convention() -> None:
 
 
 def test_com_helpers_raw_error_code() -> None:
-    """原始方法返回非 0 出错码 → 内部异常(标记断线,惰性重连)。"""
+    """原始调用 lplRetCode 出参缓冲非 0 出错码 → 内部异常(标记断线,惰性重连)。"""
     com = ComtypesStyleActUtlType()
     com.read_code = 0xC0500100
     with pytest.raises(OmniPLCInternalError):
         mx_module._com_read_words(com, "D100", 2)
+
+
+def test_com_helpers_raw_hresult_error() -> None:
+    """COM 层 HRESULT 非 0 → 内部异常(COM 调用失败,非 PLC 出错码)。"""
+
+    class HresultFail:
+        def __com_ReadDeviceBlock(self, text, count, buffer, retcode):
+            retcode.value = 0
+            return 0x80004005  # E_FAIL
+
+    with pytest.raises(OmniPLCInternalError):
+        mx_module._com_read_words(HresultFail(), "D100", 2)
 
 
 def test_com_helpers_raw_method_missing() -> None:
@@ -493,7 +509,7 @@ def test_com_helpers_tuple_result_defensive() -> None:
         def GetDevice(self, text: str):
             return (1234, 0)
 
-        def __com_WriteDeviceBlock(self, text: str, count: int, data: Any):
+        def __com_WriteDeviceBlock(self, text: str, count: int, data: Any, retcode: Any):
             return (data, 0)
 
     com = TupleFake()

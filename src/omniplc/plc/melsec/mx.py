@@ -26,8 +26,11 @@ comtypes 调用口径(真机联测核证,分两条路径):``GetDevice`` 的
 **原始 vtable 方法**(:func:`_raw_com_method`):高层包装按类型库旗标
 裁剪实参——[out]-only 数组参数不收缓冲区(真机报参数个数 TypeError,
 真机核证于 ReadDeviceRandom),省略缓冲时其自动分配的单元素缓冲又会被
-服务端越界写;原始方法按 vtable 原样收全部参数,与旗标组合无关,
-自备 ctypes LONG 缓冲传入、原地填充,LONG 出错码照常校验。
+服务端越界写;原始方法按 vtable 原样收全部参数——块读写为
+``(设备/列表, 点数, 数据缓冲, 出错码缓冲)`` 4 参,尾参 ``lplRetCode``
+([out,retval],通信函数的返回值)同样须自备 ``ctypes.c_long`` 缓冲
+传入(真机 3 参调用报 "this function takes 4 arguments (3 given)");
+方法返回值是 COM 层 HRESULT,业务出错码以尾缓冲内容为准。
 """
 from __future__ import annotations
 import ctypes
@@ -174,35 +177,56 @@ def _com_set_device(com: Any, device_text: str, value: int) -> None:
     _check_rc(int(code), "SetDevice")
 
 
+def _check_com_call(result: Any, retcode: int, method: str) -> None:
+    """校验块读写原始调用:COM 层 HRESULT + 通信函数返回值(lplRetCode)。
+
+    原始 vtable 方法返回 HRESULT(COM 层调用结果),业务出错码在尾参
+    ``lplRetCode`` 出参缓冲中(手册"自定义 I/F"格式)——HRESULT 失败
+    是 COM 层问题,通信函数返回值非 0 是 PLC 出错代码(第 7 章)。
+    """
+    hresult = _return_code(result)  # tuple 防御:取首个 int
+    if hresult != 0:
+        raise OmniPLCInternalError(
+            "MX Component {} COM 调用失败:HRESULT 0x{:08X}".format(
+                method, hresult & 0xFFFFFFFF
+            )
+        )
+    _check_rc(retcode, method)
+
+
 def _com_read_words(com: Any, device_text: str, count: int) -> List[int]:
     """批量读字软元件(ReadDeviceBlock),返回 0~65535 原始字列表。
 
     ``Data`` 数组参数经原始 vtable 方法传入自备 ctypes LONG 缓冲、
-    原地填充(高层包装会剥离 [out]-only 数组实参),出错码照常校验。
+    原地填充(高层包装会剥离 [out]-only 数组实参);尾参 ``lplRetCode``
+    (通信函数的返回值)同为出参,须自备 ``ctypes.c_long`` 缓冲传入,
+    业务出错码以缓冲内容为准,方法返回值是 COM 层 HRESULT。
     """
     buffer = (ctypes.c_long * count)()
+    retcode = ctypes.c_long()
     raw = _raw_com_method(com, "ReadDeviceBlock")
     try:
-        result = raw(device_text, count, buffer)
+        result = raw(device_text, count, buffer, retcode)
     except _com_error() as exc:
         raise OmniPLCInternalError(
             "MX Component ReadDeviceBlock 失败:{}".format(exc)
         ) from exc
-    _check_rc(_return_code(result), "ReadDeviceBlock")
+    _check_com_call(result, retcode.value, "ReadDeviceBlock")
     return [int(word) & 0xFFFF for word in buffer]
 
 
 def _com_write_words(com: Any, device_text: str, words: Sequence[int]) -> None:
     """批量写字软元件(WriteDeviceBlock);数据以 ctypes LONG 数组经原始方法传入。"""
     buffer = (ctypes.c_long * len(words))(*[int(word) for word in words])
+    retcode = ctypes.c_long()
     raw = _raw_com_method(com, "WriteDeviceBlock")
     try:
-        result = raw(device_text, len(words), buffer)
+        result = raw(device_text, len(words), buffer, retcode)
     except _com_error() as exc:
         raise OmniPLCInternalError(
             "MX Component WriteDeviceBlock 失败:{}".format(exc)
         ) from exc
-    _check_rc(_return_code(result), "WriteDeviceBlock")
+    _check_com_call(result, retcode.value, "WriteDeviceBlock")
 
 
 def _com_read_random(com: Any, device_list: str, count: int) -> List[int]:
@@ -210,17 +234,18 @@ def _com_read_random(com: Any, device_list: str, count: int) -> List[int]:
 
     ``Data`` 为 [out]-only 数组指针:高层包装不收缓冲区实参(真机报
     参数个数 TypeError),走原始 vtable 方法传自备 ctypes LONG 缓冲、
-    原地填充,出错码照常校验。
+    原地填充;``lplRetCode`` 出参缓冲同前,出错码照常校验。
     """
     buffer = (ctypes.c_long * count)()
+    retcode = ctypes.c_long()
     raw = _raw_com_method(com, "ReadDeviceRandom")
     try:
-        result = raw(device_list, count, buffer)
+        result = raw(device_list, count, buffer, retcode)
     except _com_error() as exc:
         raise OmniPLCInternalError(
             "MX Component ReadDeviceRandom 失败:{}".format(exc)
         ) from exc
-    _check_rc(_return_code(result), "ReadDeviceRandom")
+    _check_com_call(result, retcode.value, "ReadDeviceRandom")
     return [int(word) & 0xFFFF for word in buffer]
 
 
@@ -230,14 +255,15 @@ def _com_write_random(com: Any, device_list: str, count: int, words: Sequence[in
     返回码照常校验(手册 5.2.6,数据低 16 位为一个字软元件值)。
     """
     buffer = (ctypes.c_long * len(words))(*[int(word) for word in words])
+    retcode = ctypes.c_long()
     raw = _raw_com_method(com, "WriteDeviceRandom")
     try:
-        result = raw(device_list, count, buffer)
+        result = raw(device_list, count, buffer, retcode)
     except _com_error() as exc:
         raise OmniPLCInternalError(
             "MX Component WriteDeviceRandom 失败:{}".format(exc)
         ) from exc
-    _check_rc(_return_code(result), "WriteDeviceRandom")
+    _check_com_call(result, retcode.value, "WriteDeviceRandom")
 
 
 def _com_get_cpu_type(com: Any) -> Tuple[str, int]:
