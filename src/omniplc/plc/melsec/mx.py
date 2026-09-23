@@ -17,15 +17,16 @@ MX Component Version 4 运行时。
 - 位软元件的批量访问必须以 16 点为单位(位数指定),本驱动不使用
   位块批量,位操作一律走 ``GetDevice``/``SetDevice`` 单点
 
-comtypes 调用口径(真机联测核证):comtypes 按类型库生成的包装把
-``[out]`` 参数**收进返回值**——``GetDevice(软元件)`` /
-``ReadDeviceBlock(软元件, 点数)`` / ``ReadDeviceRandom(列表, 点数)``
-直接返回数据,**不得再传 byref 缓冲**(会报参数个数 TypeError);
-``SetDevice``/``WriteDeviceBlock`` 为纯入参,返回码照常可得。带出参
-方法的 MX 出错代码不再单独返回,失败以 ``COMError`` 形态出现,翻译为
-内部异常(断线惰性重连)。
+comtypes 调用口径(真机联测核证,两种形态并存):``GetDevice(软元件)``
+的出参被 comtypes 收进返回值——单参调用直接返回数据,**传 byref 缓冲
+会报参数个数 TypeError**;``ReadDeviceBlock``/``ReadDeviceRandom`` 的
+数组参数以 ctypes 缓冲传入、原地填充(**省略缓冲时返回值是出错代码,
+数据被丢弃**),返回码照常校验;``SetDevice``/``WriteDeviceBlock`` 为
+纯入参,返回码照常可得。GetDevice 路径的出错代码不可得,失败以
+``COMError`` 形态出现,翻译为内部异常(断线惰性重连)。
 """
 from __future__ import annotations
+import ctypes
 from typing import Any, List, Optional, Sequence, Tuple, Union
 
 from ... import convert
@@ -92,6 +93,15 @@ def _first(result: Any) -> Any:
     return result[0] if isinstance(result, tuple) else result
 
 
+def _return_code(result: Any) -> int:
+    """取返回码:纯 LONG 直接用;(出参数组, 码) 元组取首个 int(内部函数)。"""
+    items = result if isinstance(result, tuple) else (result,)
+    for item in items:
+        if isinstance(item, int):
+            return item
+    raise OmniPLCInternalError(f"MX Component 返回码缺失:{result!r}")
+
+
 def _check_rc(code: int, method: str) -> None:
     """校验控件方法返回码(0 = 正常,内部函数)。
 
@@ -134,16 +144,18 @@ def _com_set_device(com: Any, device_text: str, value: int) -> None:
 def _com_read_words(com: Any, device_text: str, count: int) -> List[int]:
     """批量读字软元件(ReadDeviceBlock),返回 0~65535 原始字列表。
 
-    与 GetDevice 同口径:出参数组由返回值带回,
-    ``ReadDeviceBlock(软元件, 点数)`` 直接返回数据列表。
+    真机口径:数组参数以 ctypes 缓冲传入、原地填充;省略缓冲时返回值
+    是出错代码、数据被丢弃(真机实测返回 int)。返回码照常校验。
     """
+    buffer = (ctypes.c_long * count)()
     try:
-        result = com.ReadDeviceBlock(device_text, count)
+        result = com.ReadDeviceBlock(device_text, count, buffer)
     except _com_error() as exc:
         raise OmniPLCInternalError(
             "MX Component ReadDeviceBlock 失败:{}".format(exc)
         ) from exc
-    return [int(word) & 0xFFFF for word in _first(result)]
+    _check_rc(_return_code(result), "ReadDeviceBlock")
+    return [int(word) & 0xFFFF for word in buffer]
 
 
 def _com_write_words(com: Any, device_text: str, words: Sequence[int]) -> None:
@@ -155,28 +167,23 @@ def _com_write_words(com: Any, device_text: str, words: Sequence[int]) -> None:
         raise OmniPLCInternalError(
             "MX Component WriteDeviceBlock 失败:{}".format(exc)
         ) from exc
-    items = result if isinstance(result, tuple) else (result,)
-    for item in items:
-        if isinstance(item, int):
-            _check_rc(item, "WriteDeviceBlock")
-            return
-    raise OmniPLCInternalError(
-        f"MX Component WriteDeviceBlock 返回码缺失:{result!r}"
-    )
+    _check_rc(_return_code(result), "WriteDeviceBlock")
 
 
 def _com_read_random(com: Any, device_list: str, count: int) -> List[int]:
     """随机读(ReadDeviceRandom):软元件列表以换行符分隔,返回原始字列表。
 
-    与 ReadDeviceBlock 同口径:出参数组由返回值带回。
+    与 ReadDeviceBlock 同口径:ctypes 缓冲传入、原地填充,返回码照常校验。
     """
+    buffer = (ctypes.c_long * count)()
     try:
-        result = com.ReadDeviceRandom(device_list, count)
+        result = com.ReadDeviceRandom(device_list, count, buffer)
     except _com_error() as exc:
         raise OmniPLCInternalError(
             "MX Component ReadDeviceRandom 失败:{}".format(exc)
         ) from exc
-    return [int(word) & 0xFFFF for word in _first(result)]
+    _check_rc(_return_code(result), "ReadDeviceRandom")
+    return [int(word) & 0xFFFF for word in buffer]
 
 
 class _MxComLink(BaseTransport):

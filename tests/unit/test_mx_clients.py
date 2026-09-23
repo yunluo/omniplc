@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from typing import Any
 
 import comtypes
 import pytest
@@ -321,21 +322,26 @@ def test_device_error_type() -> None:
 
 
 class ComtypesStyleActUtlType:
-    """按 comtypes 真实生成口径的假控件:出参由返回值带回,失败抛 COMError。"""
+    """按 comtypes 真实生成口径的假控件:GetDevice 出参即返回值;块读缓冲原地填充。"""
 
     def __init__(self) -> None:
         self.written: list = []
+        self.read_code = 0
 
     def GetDevice(self, text: str) -> int:
         if text == "BAD":
             raise comtypes.COMError(-2147024894, "软元件不存在", None)
         return 1234
 
-    def ReadDeviceBlock(self, text: str, count: int) -> list:
-        return [1, 2]
+    def ReadDeviceBlock(self, text: str, count: int, buffer: Any) -> int:
+        for index, word in enumerate([1, 2]):
+            buffer[index] = word
+        return self.read_code
 
-    def ReadDeviceRandom(self, text: str, count: int) -> list:
-        return [3, 4]
+    def ReadDeviceRandom(self, text: str, count: int, buffer: Any) -> int:
+        for index, word in enumerate([3, 4]):
+            buffer[index] = word
+        return 0
 
     def WriteDeviceBlock(self, text: str, count: int, data: list) -> int:
         self.written = data
@@ -343,7 +349,7 @@ class ComtypesStyleActUtlType:
 
 
 def test_com_helpers_comtypes_out_param_convention() -> None:
-    """comtypes 口径:GetDevice/块读不传 byref 缓冲,数据由返回值带回。"""
+    """comtypes 口径:GetDevice 单参取值;块读传 ctypes 缓冲原地填充,返回码可校验。"""
     com = ComtypesStyleActUtlType()
     assert mx_module._com_get_device(com, "D100") == 1234
     assert mx_module._com_read_words(com, "D100", 2) == [1, 2]
@@ -352,6 +358,9 @@ def test_com_helpers_comtypes_out_param_convention() -> None:
     assert com.written == [5, 6]
     with pytest.raises(OmniPLCInternalError):
         mx_module._com_get_device(com, "BAD")  # COMError → 内部异常(断线)
+    com.read_code = 0xC0500100
+    with pytest.raises(OmniPLCInternalError):
+        mx_module._com_read_words(com, "D100", 2)  # 块读返回码照常校验
 
 
 def test_com_helpers_tuple_result_defensive() -> None:
