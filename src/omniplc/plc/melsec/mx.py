@@ -17,13 +17,17 @@ MX Component Version 4 运行时。
 - 位软元件的批量访问必须以 16 点为单位(位数指定),本驱动不使用
   位块批量,位操作一律走 ``GetDevice``/``SetDevice`` 单点
 
-comtypes 调用口径(真机联测核证,两种形态并存):``GetDevice(软元件)``
-的出参被 comtypes 收进返回值——单参调用直接返回数据,**传 byref 缓冲
-会报参数个数 TypeError**;``ReadDeviceBlock``/``ReadDeviceRandom`` 的
-数组参数以 ctypes 缓冲传入、原地填充(**省略缓冲时返回值是出错代码,
-数据被丢弃**),返回码照常校验;``SetDevice``/``WriteDeviceBlock`` 为
-纯入参,返回码照常可得。GetDevice 路径的出错代码不可得,失败以
-``COMError`` 形态出现,翻译为内部异常(断线惰性重连)。
+comtypes 调用口径(真机联测核证,分两条路径):``GetDevice`` 的
+``Value`` 出参被 comtypes 收进返回值——单参调用直接返回数据,传 byref
+缓冲会报参数个数 TypeError,失败以 ``COMError`` 形态出现(翻译为内部
+异常,断线惰性重连);``SetDevice`` 为纯入参,返回码照常校验。块读写
+(``ReadDeviceBlock``/``WriteDeviceBlock``/``ReadDeviceRandom``/
+``WriteDeviceRandom``)的 ``Data`` 数组参数一律走 comtypes 挂载的
+**原始 vtable 方法**(:func:`_raw_com_method`):高层包装按类型库旗标
+裁剪实参——[out]-only 数组参数不收缓冲区(真机报参数个数 TypeError,
+真机核证于 ReadDeviceRandom),省略缓冲时其自动分配的单元素缓冲又会被
+服务端越界写;原始方法按 vtable 原样收全部参数,与旗标组合无关,
+自备 ctypes LONG 缓冲传入、原地填充,LONG 出错码照常校验。
 """
 from __future__ import annotations
 import ctypes
@@ -107,6 +111,30 @@ def _return_code(result: Any) -> int:
     raise OmniPLCInternalError(f"MX Component 返回码缺失:{result!r}")
 
 
+def _raw_com_method(com: Any, method: str) -> Any:
+    """取 comtypes 类型库包装挂载的**原始 vtable 方法**(内部函数)。
+
+    comtypes 为类型库接口的每个方法挂载了绕过参数旗标处理的原始函数
+    (属性名形如 ``_<接口类名>__com_<方法名>``,纯 ctypes 语义,vtable
+    参数原样全收)。高层包装对 [out]-only 数组参数(ActUtlType 块读写的
+    ``Data``)不收缓冲区实参、省略时又只分配单元素缓冲,块操作必须经
+    此原始通道传入自备缓冲。挂载名含接口类名(依类型库生成结果而定),
+    故按 ``__com_<方法名>`` 后缀沿 MRO 扫描定位,大小写不敏感。
+
+    :raises OmniPLCInternalError: COM 控件未按类型库绑定(动态派发降级,
+        无原始方法挂载)
+    """
+    suffix = f"__com_{method}".lower()
+    for klass in type(com).__mro__:
+        for key in vars(klass):
+            if key.lower().endswith(suffix):
+                return getattr(com, key)
+    raise OmniPLCInternalError(
+        f"MX Component 接口缺少原始方法 {method}"
+        "(COM 控件未按类型库绑定,块读写无法走原始 vtable 通道)"
+    )
+
+
 def _check_rc(code: int, method: str) -> None:
     """校验控件方法返回码(0 = 正常,内部函数)。
 
@@ -149,12 +177,13 @@ def _com_set_device(com: Any, device_text: str, value: int) -> None:
 def _com_read_words(com: Any, device_text: str, count: int) -> List[int]:
     """批量读字软元件(ReadDeviceBlock),返回 0~65535 原始字列表。
 
-    真机口径:数组参数以 ctypes 缓冲传入、原地填充;省略缓冲时返回值
-    是出错代码、数据被丢弃(真机实测返回 int)。返回码照常校验。
+    ``Data`` 数组参数经原始 vtable 方法传入自备 ctypes LONG 缓冲、
+    原地填充(高层包装会剥离 [out]-only 数组实参),出错码照常校验。
     """
     buffer = (ctypes.c_long * count)()
+    raw = _raw_com_method(com, "ReadDeviceBlock")
     try:
-        result = com.ReadDeviceBlock(device_text, count, buffer)
+        result = raw(device_text, count, buffer)
     except _com_error() as exc:
         raise OmniPLCInternalError(
             "MX Component ReadDeviceBlock 失败:{}".format(exc)
@@ -164,10 +193,11 @@ def _com_read_words(com: Any, device_text: str, count: int) -> List[int]:
 
 
 def _com_write_words(com: Any, device_text: str, words: Sequence[int]) -> None:
-    """批量写字软元件(WriteDeviceBlock);数据以 Python 整数列表传入。"""
-    payload = [int(word) for word in words]
+    """批量写字软元件(WriteDeviceBlock);数据以 ctypes LONG 数组经原始方法传入。"""
+    buffer = (ctypes.c_long * len(words))(*[int(word) for word in words])
+    raw = _raw_com_method(com, "WriteDeviceBlock")
     try:
-        result = com.WriteDeviceBlock(device_text, len(payload), payload)
+        result = raw(device_text, len(words), buffer)
     except _com_error() as exc:
         raise OmniPLCInternalError(
             "MX Component WriteDeviceBlock 失败:{}".format(exc)
@@ -178,11 +208,14 @@ def _com_write_words(com: Any, device_text: str, words: Sequence[int]) -> None:
 def _com_read_random(com: Any, device_list: str, count: int) -> List[int]:
     """随机读(ReadDeviceRandom):软元件列表以换行符分隔,返回原始字列表。
 
-    与 ReadDeviceBlock 同口径:ctypes 缓冲传入、原地填充,返回码照常校验。
+    ``Data`` 为 [out]-only 数组指针:高层包装不收缓冲区实参(真机报
+    参数个数 TypeError),走原始 vtable 方法传自备 ctypes LONG 缓冲、
+    原地填充,出错码照常校验。
     """
     buffer = (ctypes.c_long * count)()
+    raw = _raw_com_method(com, "ReadDeviceRandom")
     try:
-        result = com.ReadDeviceRandom(device_list, count, buffer)
+        result = raw(device_list, count, buffer)
     except _com_error() as exc:
         raise OmniPLCInternalError(
             "MX Component ReadDeviceRandom 失败:{}".format(exc)
@@ -192,13 +225,14 @@ def _com_read_random(com: Any, device_list: str, count: int) -> List[int]:
 
 
 def _com_write_random(com: Any, device_list: str, count: int, words: Sequence[int]) -> None:
-    """随机写(WriteDeviceRandom):软元件列表换行分隔,数据 LONG 数组纯入参。
+    """随机写(WriteDeviceRandom):软元件列表换行分隔,数据以 ctypes LONG 数组经原始方法传入。
 
     返回码照常校验(手册 5.2.6,数据低 16 位为一个字软元件值)。
     """
-    payload = [int(word) for word in words]
+    buffer = (ctypes.c_long * len(words))(*[int(word) for word in words])
+    raw = _raw_com_method(com, "WriteDeviceRandom")
     try:
-        result = com.WriteDeviceRandom(device_list, count, payload)
+        result = raw(device_list, count, buffer)
     except _com_error() as exc:
         raise OmniPLCInternalError(
             "MX Component WriteDeviceRandom 失败:{}".format(exc)

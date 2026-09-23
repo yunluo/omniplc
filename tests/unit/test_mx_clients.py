@@ -365,15 +365,21 @@ def test_device_error_type() -> None:
 
 
 # ----------------------------------------------------------------------
-# COM 助手真口径(comtypes 出参约定;真机联测暴露的回归面)
+# COM 助手真口径(comtypes 出参约定 + 原始 vtable 块读写;真机联测暴露的回归面)
 # ----------------------------------------------------------------------
 
 
 class ComtypesStyleActUtlType:
-    """按 comtypes 真实生成口径的假控件:GetDevice 出参即返回值;块读缓冲原地填充。"""
+    """按 comtypes 真实挂载口径的假控件:
+
+    - GetDevice 出参被高层包装收进返回值:单参调用即回数据
+    - 块读写经 ``__com_*`` 原始 vtable 方法(类体内定义,Python 名字
+      改写后的挂载键与 comtypes 一致保留 ``__com_<方法名>`` 后缀)
+    """
 
     def __init__(self) -> None:
-        self.written: list = []
+        self.written: Any = None
+        self.written_random: Any = None
         self.read_code = 0
 
     def GetDevice(self, text: str) -> int:
@@ -381,21 +387,21 @@ class ComtypesStyleActUtlType:
             raise comtypes.COMError(-2147024894, "软元件不存在", None)
         return 1234
 
-    def ReadDeviceBlock(self, text: str, count: int, buffer: Any) -> int:
+    def __com_ReadDeviceBlock(self, text: str, count: int, buffer: Any) -> int:
         for index, word in enumerate([1, 2]):
             buffer[index] = word
         return self.read_code
 
-    def ReadDeviceRandom(self, text: str, count: int, buffer: Any) -> int:
+    def __com_ReadDeviceRandom(self, text: str, count: int, buffer: Any) -> int:
         for index, word in enumerate([3, 4]):
             buffer[index] = word
         return 0
 
-    def WriteDeviceBlock(self, text: str, count: int, data: list) -> int:
+    def __com_WriteDeviceBlock(self, text: str, count: int, data: Any) -> int:
         self.written = data
         return 0
 
-    def WriteDeviceRandom(self, text: str, count: int, data: list) -> int:
+    def __com_WriteDeviceRandom(self, text: str, count: int, data: Any) -> int:
         self.written_random = (text, data)
         return 0
 
@@ -412,15 +418,16 @@ class ComtypesStyleActUtlType:
 
 
 def test_com_helpers_comtypes_out_param_convention() -> None:
-    """comtypes 口径:GetDevice/块读不传 byref 缓冲,数据由返回值带回。"""
+    """comtypes 口径:GetDevice 单参取出参;块读写走原始方法传自备缓冲。"""
     com = ComtypesStyleActUtlType()
     assert mx_module._com_get_device(com, "D100") == 1234
     assert mx_module._com_read_words(com, "D100", 2) == [1, 2]
     assert mx_module._com_read_random(com, "D0\nD2", 2) == [3, 4]
     mx_module._com_write_words(com, "D100", [5, 6])
-    assert com.written == [5, 6]
+    assert list(com.written) == [5, 6]
     assert mx_module._com_write_random(com, "M10\nD100", 2, [1, 0xFFFE]) is None
-    assert com.written_random == ("M10\nD100", [1, 0xFFFE])
+    assert com.written_random[0] == "M10\nD100"
+    assert list(com.written_random[1]) == [1, 0xFFFE]
     assert mx_module._com_get_cpu_type(com) == ("Q06HCPU", 0x0333)
     assert mx_module._com_get_clock_data(com) == {
         "year": 2026, "month": 9, "day": 23, "day_of_week": 3,
@@ -431,6 +438,20 @@ def test_com_helpers_comtypes_out_param_convention() -> None:
         mx_module._com_get_device(com, "BAD")  # COMError → 内部异常(断线)
     with pytest.raises(OmniPLCInternalError):
         mx_module._com_get_error_message(com, 0xBAD)
+
+
+def test_com_helpers_raw_error_code() -> None:
+    """原始方法返回非 0 出错码 → 内部异常(标记断线,惰性重连)。"""
+    com = ComtypesStyleActUtlType()
+    com.read_code = 0xC0500100
+    with pytest.raises(OmniPLCInternalError):
+        mx_module._com_read_words(com, "D100", 2)
+
+
+def test_com_helpers_raw_method_missing() -> None:
+    """未按类型库绑定(无 __com_* 挂载)→ 明确内部异常。"""
+    with pytest.raises(OmniPLCInternalError):
+        mx_module._raw_com_method(FakeActUtlType(), "ReadDeviceRandom")
 
 
 def test_com_helpers_byref_fallback() -> None:
@@ -472,7 +493,7 @@ def test_com_helpers_tuple_result_defensive() -> None:
         def GetDevice(self, text: str):
             return (1234, 0)
 
-        def WriteDeviceBlock(self, text: str, count: int, data: list):
+        def __com_WriteDeviceBlock(self, text: str, count: int, data: Any):
             return (data, 0)
 
     com = TupleFake()
