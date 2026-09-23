@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import re
 
+import comtypes
 import pytest
 
 from omniplc import MelsecMxClient
@@ -312,6 +313,60 @@ def test_async_mirror_roundtrip(fake: FakeActUtlType) -> None:
 def test_device_error_type() -> None:
     with pytest.raises(OmniPLCInternalError):
         mx_module._check_rc(0xC0500100, "GetDevice")
+
+
+# ----------------------------------------------------------------------
+# COM 助手真口径(comtypes 出参约定;真机联测暴露的回归面)
+# ----------------------------------------------------------------------
+
+
+class ComtypesStyleActUtlType:
+    """按 comtypes 真实生成口径的假控件:出参由返回值带回,失败抛 COMError。"""
+
+    def __init__(self) -> None:
+        self.written: list = []
+
+    def GetDevice(self, text: str) -> int:
+        if text == "BAD":
+            raise comtypes.COMError(-2147024894, "软元件不存在", None)
+        return 1234
+
+    def ReadDeviceBlock(self, text: str, count: int) -> list:
+        return [1, 2]
+
+    def ReadDeviceRandom(self, text: str, count: int) -> list:
+        return [3, 4]
+
+    def WriteDeviceBlock(self, text: str, count: int, data: list) -> int:
+        self.written = data
+        return 0
+
+
+def test_com_helpers_comtypes_out_param_convention() -> None:
+    """comtypes 口径:GetDevice/块读不传 byref 缓冲,数据由返回值带回。"""
+    com = ComtypesStyleActUtlType()
+    assert mx_module._com_get_device(com, "D100") == 1234
+    assert mx_module._com_read_words(com, "D100", 2) == [1, 2]
+    assert mx_module._com_read_random(com, "D0\nD2", 2) == [3, 4]
+    mx_module._com_write_words(com, "D100", [5, 6])
+    assert com.written == [5, 6]
+    with pytest.raises(OmniPLCInternalError):
+        mx_module._com_get_device(com, "BAD")  # COMError → 内部异常(断线)
+
+
+def test_com_helpers_tuple_result_defensive() -> None:
+    """含出参方法回 (数据, 码) 元组时取首个业务值;写返回码在元组中仍可取。"""
+
+    class TupleFake:
+        def GetDevice(self, text: str):
+            return (1234, 0)
+
+        def WriteDeviceBlock(self, text: str, count: int, data: list):
+            return (data, 0)
+
+    com = TupleFake()
+    assert mx_module._com_get_device(com, "D100") == 1234
+    mx_module._com_write_words(com, "D100", [7])
 
 
 # ----------------------------------------------------------------------

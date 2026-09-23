@@ -16,9 +16,16 @@ MX Component Version 4 运行时。
 - ``GetDevice``/``SetDevice``:单点读/写;位软元件取/置最低位
 - 位软元件的批量访问必须以 16 点为单位(位数指定),本驱动不使用
   位块批量,位操作一律走 ``GetDevice``/``SetDevice`` 单点
+
+comtypes 调用口径(真机联测核证):comtypes 按类型库生成的包装把
+``[out]`` 参数**收进返回值**——``GetDevice(软元件)`` /
+``ReadDeviceBlock(软元件, 点数)`` / ``ReadDeviceRandom(列表, 点数)``
+直接返回数据,**不得再传 byref 缓冲**(会报参数个数 TypeError);
+``SetDevice``/``WriteDeviceBlock`` 为纯入参,返回码照常可得。带出参
+方法的 MX 出错代码不再单独返回,失败以 ``COMError`` 形态出现,翻译为
+内部异常(断线惰性重连)。
 """
 from __future__ import annotations
-import ctypes
 from typing import Any, List, Optional, Sequence, Tuple, Union
 
 from ... import convert
@@ -73,6 +80,18 @@ def _new_com_object(logical_station_number: int) -> Any:
     return com
 
 
+def _com_error() -> type:
+    """取 comtypes.COMError 类型(延迟导入,内部函数)。"""
+    import comtypes
+
+    return comtypes.COMError
+
+
+def _first(result: Any) -> Any:
+    """comtypes 含出参方法可能回 (数据, 码) 元组,取首个业务值(内部函数)。"""
+    return result[0] if isinstance(result, tuple) else result
+
+
 def _check_rc(code: int, method: str) -> None:
     """校验控件方法返回码(0 = 正常,内部函数)。
 
@@ -86,35 +105,78 @@ def _check_rc(code: int, method: str) -> None:
 
 
 def _com_get_device(com: Any, device_text: str) -> int:
-    """单点读(GetDevice),返回 0~65535 原始值。"""
-    value = ctypes.c_long()
-    _check_rc(int(com.GetDevice(device_text, ctypes.byref(value))), "GetDevice")
-    return int(value.value) & 0xFFFF
+    """单点读(GetDevice),返回 0~65535 原始值。
+
+    comtypes 生成的包装把 ``[out]`` 参数收进返回值(真机核证):
+    ``GetDevice(软元件)`` 直接返回数据,传 byref 缓冲会报参数个数
+    TypeError;出错以 COMError 形态出现。
+    """
+    try:
+        result = com.GetDevice(device_text)
+    except _com_error() as exc:
+        raise OmniPLCInternalError(
+            "MX Component GetDevice 失败:{}".format(exc)
+        ) from exc
+    return int(_first(result)) & 0xFFFF
 
 
 def _com_set_device(com: Any, device_text: str, value: int) -> None:
-    """单点写(SetDevice);位软元件取最低位。"""
-    _check_rc(int(com.SetDevice(device_text, int(value))), "SetDevice")
+    """单点写(SetDevice);位软元件取最低位。纯入参,返回码照常可得。"""
+    try:
+        code = com.SetDevice(device_text, int(value))
+    except _com_error() as exc:
+        raise OmniPLCInternalError(
+            "MX Component SetDevice 失败:{}".format(exc)
+        ) from exc
+    _check_rc(int(code), "SetDevice")
 
 
 def _com_read_words(com: Any, device_text: str, count: int) -> List[int]:
-    """批量读字软元件(ReadDeviceBlock),返回 0~65535 原始字列表。"""
-    buffer = (ctypes.c_long * count)()
-    _check_rc(int(com.ReadDeviceBlock(device_text, count, buffer)), "ReadDeviceBlock")
-    return [int(word) & 0xFFFF for word in buffer]
+    """批量读字软元件(ReadDeviceBlock),返回 0~65535 原始字列表。
+
+    与 GetDevice 同口径:出参数组由返回值带回,
+    ``ReadDeviceBlock(软元件, 点数)`` 直接返回数据列表。
+    """
+    try:
+        result = com.ReadDeviceBlock(device_text, count)
+    except _com_error() as exc:
+        raise OmniPLCInternalError(
+            "MX Component ReadDeviceBlock 失败:{}".format(exc)
+        ) from exc
+    return [int(word) & 0xFFFF for word in _first(result)]
 
 
 def _com_write_words(com: Any, device_text: str, words: Sequence[int]) -> None:
-    """批量写字软元件(WriteDeviceBlock)。"""
-    buffer = (ctypes.c_long * len(words))(*[int(word) for word in words])
-    _check_rc(int(com.WriteDeviceBlock(device_text, len(words), buffer)), "WriteDeviceBlock")
+    """批量写字软元件(WriteDeviceBlock);数据以 Python 整数列表传入。"""
+    payload = [int(word) for word in words]
+    try:
+        result = com.WriteDeviceBlock(device_text, len(payload), payload)
+    except _com_error() as exc:
+        raise OmniPLCInternalError(
+            "MX Component WriteDeviceBlock 失败:{}".format(exc)
+        ) from exc
+    items = result if isinstance(result, tuple) else (result,)
+    for item in items:
+        if isinstance(item, int):
+            _check_rc(item, "WriteDeviceBlock")
+            return
+    raise OmniPLCInternalError(
+        f"MX Component WriteDeviceBlock 返回码缺失:{result!r}"
+    )
 
 
 def _com_read_random(com: Any, device_list: str, count: int) -> List[int]:
-    """随机读(ReadDeviceRandom):软元件列表以换行符分隔,返回原始字列表。"""
-    buffer = (ctypes.c_long * count)()
-    _check_rc(int(com.ReadDeviceRandom(device_list, count, buffer)), "ReadDeviceRandom")
-    return [int(word) & 0xFFFF for word in buffer]
+    """随机读(ReadDeviceRandom):软元件列表以换行符分隔,返回原始字列表。
+
+    与 ReadDeviceBlock 同口径:出参数组由返回值带回。
+    """
+    try:
+        result = com.ReadDeviceRandom(device_list, count)
+    except _com_error() as exc:
+        raise OmniPLCInternalError(
+            "MX Component ReadDeviceRandom 失败:{}".format(exc)
+        ) from exc
+    return [int(word) & 0xFFFF for word in _first(result)]
 
 
 class _MxComLink(BaseTransport):
