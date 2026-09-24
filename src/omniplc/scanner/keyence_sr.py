@@ -19,7 +19,7 @@ import socket
 import time
 from typing import Optional, Tuple
 
-from ..core.base_client import BaseClient, _describe, validate_endpoint
+from ..core.base_client import BaseClient, _categorize, _describe, _extract_code, validate_endpoint
 from ..core.constants import (
     SR_BANK_MAX,
     SR_CMD_BUFFER_CLEAR,
@@ -33,7 +33,7 @@ from ..core.constants import (
     SR_RESP_ERROR,
     SR_RESP_OK,
 )
-from ..core.errors import DeviceError, OmniPLCInternalError
+from ..core.errors import DeviceError, ErrorCategory, OmniPLCInternalError
 from ..transport import BaseTransport, TcpTransport
 from ..types import DataType, PrimitiveValue
 
@@ -113,20 +113,20 @@ class KeyenceSrClient(BaseClient):
             except socket.timeout:
                 # 读码窗口内无应答:链路仍然完好,不断线
                 self._drain_line(transport)
-                self._last_error = f"扫码读超时({read_timeout}s),未收到应答"
+                self._set_error(f"扫码读超时({read_timeout}s),未收到应答", ErrorCategory.TIMEOUT, None)
                 return False, None
             except (OSError, OmniPLCInternalError) as exc:
-                self._last_error = _describe(exc)
+                self._set_error(_describe(exc), _categorize(exc), _extract_code(exc))
                 self._mark_disconnected()
                 return False, None
             text = text.strip()
             if text == SR_RESP_ERROR:
-                self._last_error = "扫码枪返回 ERROR(未读到条码或距离过远)"
+                self._set_error("扫码枪返回 ERROR(未读到条码或距离过远)", ErrorCategory.DEVICE, None)
                 return False, None
             if text == SR_RESP_OK or not text:
-                self._last_error = "扫码枪无读出(OK)"
+                self._set_error("扫码枪无读出(OK)", ErrorCategory.DEVICE, None)
                 return False, None
-            self._last_error = None
+            self._clear_error()
             return True, text
 
     def reset(self) -> bool:

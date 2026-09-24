@@ -34,7 +34,7 @@ from typing import List, Optional, Sequence, Tuple, Union
 from . import codec_cip
 from .codec_cip import CIP_CLASS_IDENTITY, CIP_INSTANCE_IDENTITY
 from .address import AbTag, parse_ab_tag
-from ...core.base_client import BaseClient, validate_endpoint
+from ...core.base_client import BaseClient, _categorize, _extract_code, validate_endpoint
 from ...core.constants import (
     AB_EIP_DEFAULT_PORT,
     AB_EIP_DEFAULT_SLOT,
@@ -343,7 +343,7 @@ class AllenBradleyEthIpClient(BaseClient):
         try:
             return True, codec_cip.parse_module_identity_payload(payload)
         except Exception as exc:
-            self._last_error = f"GetAttributesAll 解码失败:{exc}"
+            self._set_error(f"GetAttributesAll 解码失败:{exc}", _categorize(exc), _extract_code(exc))
             return False, None
 
     def get_attribute_all(
@@ -399,7 +399,7 @@ class AllenBradleyEthIpClient(BaseClient):
                     payload, decoders
                 )
             except Exception as exc:
-                self._last_error = f"GetAttributeList 解码失败:{exc}"
+                self._set_error(f"GetAttributeList 解码失败:{exc}", _categorize(exc), _extract_code(exc))
                 return False, None
         # 非 Identity 对象:返回原始 payload,调用方自行解
         return True, [(a, payload) for a in attrs]

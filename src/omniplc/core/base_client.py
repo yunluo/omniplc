@@ -25,7 +25,14 @@ from .constants import (
     DEFAULT_STRING_ENCODING,
     READ_STRING_DEFAULT_LENGTH,
 )
-from .errors import DeviceError, OmniPLCInternalError, TransportClosedError
+from .errors import (
+    DeviceError,
+    ErrorCategory,
+    OmniPLCInternalError,
+    ProtocolFrameError,
+    TransportClosedError,
+    TransportTimeoutError,
+)
 from ..tag import Tag, TagTable
 from ..transport import BaseTransport
 from ..types import DataType, PrimitiveValue
@@ -80,6 +87,8 @@ class BaseClient(ABC):
         self._transport: Optional[BaseTransport] = None
         self._connected: bool = False
         self._last_error: Optional[str] = None
+        self._last_error_category: Optional[ErrorCategory] = None
+        self._last_error_code: Optional[int] = None
         self._tag_table: Optional[TagTable] = None
         # 连接健康统计:计数器(int)与时间戳(float)分两组,避免 mypy 在
         # `Dict[str, Union[int, float, None]]` 上把 `+= 1` 误判为非法运算;
@@ -120,31 +129,37 @@ class BaseClient(ABC):
             except Exception as exc:
                 # 建连失败:任何异常都清理为"未连接"(防脏 socket/传输逃逸)
                 self._connected = False
-                self._last_error = "连接 {}:{} 失败:{}".format(
-                    self._ip_address or "-", self._port or "-", exc
+                self._set_error(
+                    "连接 {}:{} 失败:{}".format(
+                        self._ip_address or "-", self._port or "-", exc
+                    ),
+                    _categorize(exc),
+                    _extract_code(exc),
                 )
                 try:
                     transport.close()
                 except Exception:
                     pass
-                self._record_error()
                 return False
             self._transport = transport
             try:
                 self._after_connect()
             except Exception as exc:
                 # 握手/会话初始化失败:清理到干净状态,下次事务惰性重连
-                self._last_error = "连接初始化失败:{}".format(_describe(exc))
+                self._set_error(
+                    "连接初始化失败:{}".format(_describe(exc)),
+                    _categorize(exc),
+                    _extract_code(exc),
+                )
                 try:
                     transport.close()
                 except Exception:
                     pass
                 self._transport = None
                 self._connected = False
-                self._record_error()
                 return False
             self._connected = True
-            self._last_error = None
+            self._clear_error()
             self._counters["connect_count"] += 1
             self._timestamps["last_connect_at"] = time.monotonic()
             return True
@@ -163,8 +178,7 @@ class BaseClient(ABC):
             try:
                 transport.close()
             except OSError as exc:
-                self._last_error = f"关闭连接失败:{exc}"
-                self._record_error()
+                self._set_error(f"关闭连接失败:{exc}", _categorize(exc), _extract_code(exc))
                 return False
             self._counters["disconnect_count"] += 1
             return True
@@ -239,6 +253,27 @@ class BaseClient(ABC):
             return self._last_error
 
     @property
+    def last_error_category(self) -> Optional[ErrorCategory]:
+        """最近一次失败的分类(成功读写后清空为 None)。
+
+        取值见 :class:`~omniplc.core.errors.ErrorCategory`;传输类错误
+        为 ``TRANSPORT``,PLC 明确报错为 ``DEVICE``(配
+        :attr:`last_error_code` 取原始码),超时独立为 ``TIMEOUT``。
+        """
+        with self._lock:
+            return self._last_error_category
+
+    @property
+    def last_error_code(self) -> Optional[int]:
+        """最近一次失败的原始错误码(成功读写后清空为 None)。
+
+        PLC 报错取协议原始码(MC 结束码/FINS 结束码/Modbus 异常码),
+        传输类错误取 ``errno``,无码为 ``None``。
+        """
+        with self._lock:
+            return self._last_error_code
+
+    @property
     def stats(self) -> dict:
         """连接健康统计快照(只读 dict,锁内取)。
 
@@ -264,6 +299,30 @@ class BaseClient(ABC):
         """登记一次失败(错误计数 + 时间戳,内部方法,须锁内调用)。"""
         self._counters["error_count"] += 1
         self._timestamps["last_error_at"] = time.monotonic()
+
+    def _set_error(
+        self,
+        message: str,
+        category: ErrorCategory,
+        code: Optional[int],
+        record: bool = True,
+    ) -> None:
+        """登记失败原因三件套(内部方法,须锁内调用)。
+
+        :param record: 是否同时计一次失败统计(门控拒绝等无网络动作的
+            失败传 False,不污染 ``stats["error_count"]``)
+        """
+        self._last_error = message
+        self._last_error_category = category
+        self._last_error_code = code
+        if record:
+            self._record_error()
+
+    def _clear_error(self) -> None:
+        """清空失败原因三件套(内部方法,须锁内调用)。"""
+        self._last_error = None
+        self._last_error_category = None
+        self._last_error_code = None
 
     # ------------------------------------------------------------------
     # 通用读写(模板方法,公共 API)
@@ -523,18 +582,16 @@ class BaseClient(ABC):
                     continue
                 try:
                     value = operation()
-                    self._last_error = None
+                    self._clear_error()
                     self._timestamps["last_success_at"] = time.monotonic()
                     self._timestamps["last_rtt"] = time.perf_counter() - started
                     return True, value
                 except DeviceError as exc:
-                    self._last_error = _describe(exc)
+                    self._set_error(_describe(exc), _categorize(exc), exc.code)
                     self._counters["device_error_count"] += 1
-                    self._record_error()
                     return False, None
                 except (OSError, OmniPLCInternalError) as exc:
-                    self._last_error = _describe(exc)
-                    self._record_error()
+                    self._set_error(_describe(exc), _categorize(exc), _extract_code(exc))
                     self._mark_disconnected()
             return False, None
 
@@ -636,6 +693,35 @@ def _describe(exc: BaseException) -> str:
     if isinstance(exc, socket.timeout):
         return f"通信超时:{text or 'receive_timeout 到期'}"
     return f"{type(exc).__name__}:{text}" if text else type(exc).__name__
+
+
+def _categorize(exc: BaseException) -> ErrorCategory:
+    """把异常映射为失败分类(内部函数;规则顺序敏感,勿调换)。
+
+    ``TransportTimeoutError`` 是 ``DeviceError`` 子类、``socket.timeout``
+    是 ``OSError`` 子类,必须先判窄类型;新增异常类型须同步本表
+    (见 ``ErrorCategory`` docstring)。
+    """
+    if isinstance(exc, (TransportTimeoutError, socket.timeout)):
+        return ErrorCategory.TIMEOUT
+    if isinstance(exc, ProtocolFrameError):
+        return ErrorCategory.PROTOCOL
+    if isinstance(exc, DeviceError):
+        return ErrorCategory.DEVICE
+    if isinstance(exc, (ConnectionRefusedError, ConnectionResetError, socket.gaierror)):
+        return ErrorCategory.TRANSPORT
+    if isinstance(exc, (OSError, TransportClosedError)):
+        return ErrorCategory.TRANSPORT
+    return ErrorCategory.UNKNOWN
+
+
+def _extract_code(exc: BaseException) -> Optional[int]:
+    """提取原始错误码:DeviceError 取协议码,OSError 取 errno,其余 None。"""
+    if isinstance(exc, DeviceError):
+        return exc.code
+    if isinstance(exc, OSError):
+        return exc.errno
+    return None
 
 
 def _narrow_int(

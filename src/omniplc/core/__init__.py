@@ -6,6 +6,7 @@ from .constants import (
 )
 from .errors import (
     DeviceError,
+    ErrorCategory,
     OmniPLCInternalError,
     ProtocolFrameError,
     TransportClosedError,
@@ -20,4 +21,5 @@ __all__ = [
     "TransportClosedError",
     "ProtocolFrameError",
     "DeviceError",
+    "ErrorCategory",
 ]

@@ -15,6 +15,7 @@ from types import TracebackType
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
 
 from ..core.base_client import BaseClient
+from ..core.errors import ErrorCategory
 from ..cnc import MTConnectClient
 from ..core.constants import (
     AB_EIP_DEFAULT_PORT,
@@ -211,6 +212,16 @@ class ABaseClient:
     def last_error(self) -> Optional[str]:
         """最近一次失败的错误描述。"""
         return self._sync.last_error
+
+    @property
+    def last_error_category(self) -> Optional[ErrorCategory]:
+        """最近一次失败的分类(转发同步实例)。"""
+        return self._sync.last_error_category
+
+    @property
+    def last_error_code(self) -> Optional[int]:
+        """最近一次失败的原始错误码(转发同步实例)。"""
+        return self._sync.last_error_code
 
     @property
     def stats(self) -> dict:

@@ -14,6 +14,8 @@
 """
 from __future__ import annotations
 
+import enum
+
 
 class OmniPLCInternalError(Exception):
     """omniplc 内部异常基类。"""
@@ -47,3 +49,17 @@ class TransportTimeoutError(DeviceError):
     重连+握手抖动;TCP 超时保持 OSError 语义拆连——迟到响应残留在
     socket 缓冲,拆连正是防串帧的机制。
     """
+
+
+class ErrorCategory(enum.Enum):
+    """失败分类(供上位系统告警分级,见 ``BaseClient.last_error_category``)。
+
+    规则表在 ``base_client._categorize``(顺序敏感)。**新增异常类型时
+    必须同步维护该规则表**,否则落入 UNKNOWN 兜底。
+    """
+
+    TRANSPORT = "transport"
+    PROTOCOL = "protocol"
+    DEVICE = "device"
+    TIMEOUT = "timeout"
+    UNKNOWN = "unknown"
