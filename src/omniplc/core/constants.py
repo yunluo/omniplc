@@ -239,6 +239,14 @@ MC_1C_MAX_BITDEV_WORD_READ: int = 32
 MC_1C_MAX_BITDEV_WORD_WRITE: int = 10
 """WW 位软元件按字单位(16 点/字)访问的字数上限,起始编号须为 16 的倍数。"""
 
+# ---------------------------------------------------------------- 连接退避门控(v0.34.0)
+RECONNECT_BACKOFF_BASE: float = 0.5
+"""退避基数(秒):第 n 次连续建连失败后的延迟上限为 base × factorⁿ。"""
+RECONNECT_BACKOFF_FACTOR: float = 2.0
+"""退避指数因子:每连续失败一次延迟上限翻倍。"""
+RECONNECT_BACKOFF_MAX: float = 30.0
+"""退避延迟上限(秒):指数增长在此封顶,实际延迟为 uniform(0, 上限) 的 full jitter。"""
+
 # ---------------------------------------------------------------- 基恩士 MC 协议兼容
 KEYENCE_MC_DEFAULT_PORT: int = 5000
 """基恩士 KV 系列 MC 协议兼容(SLMP)默认 TCP 端口(以太网单元设置默认值)。"""

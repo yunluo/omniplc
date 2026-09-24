@@ -264,6 +264,20 @@ class ABaseClient:
     def write_retries(self, count: int) -> None:
         self._sync.write_retries = count
 
+    @property
+    def reconnect_backoff(self) -> bool:
+        """连接失败后的指数退避门控(转发同步实例)。"""
+        return self._sync.reconnect_backoff
+
+    @reconnect_backoff.setter
+    def reconnect_backoff(self, enabled: bool) -> None:
+        self._sync.reconnect_backoff = enabled
+
+    @property
+    def next_connect_in(self) -> Optional[float]:
+        """距下次允许连接的剩余秒数;None = 可立即连接(转发同步实例)。"""
+        return self._sync.next_connect_in
+
     # ------------------------------------------------------------------
     # 通用与类型化读写(签名与同步版一致)
     # ------------------------------------------------------------------

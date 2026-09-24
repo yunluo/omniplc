@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import random
 import socket
 import threading
 import time
@@ -24,6 +25,9 @@ from .constants import (
     DEFAULT_RECEIVE_TIMEOUT,
     DEFAULT_STRING_ENCODING,
     READ_STRING_DEFAULT_LENGTH,
+    RECONNECT_BACKOFF_BASE,
+    RECONNECT_BACKOFF_FACTOR,
+    RECONNECT_BACKOFF_MAX,
 )
 from .errors import (
     DeviceError,
@@ -89,6 +93,9 @@ class BaseClient(ABC):
         self._last_error: Optional[str] = None
         self._last_error_category: Optional[ErrorCategory] = None
         self._last_error_code: Optional[int] = None
+        self._reconnect_backoff: bool = True
+        self._next_connect_at: float = 0.0
+        self._connect_fail_count: int = 0
         self._tag_table: Optional[TagTable] = None
         # 连接健康统计:计数器(int)与时间戳(float)分两组,避免 mypy 在
         # `Dict[str, Union[int, float, None]]` 上把 `+= 1` 误判为非法运算;
@@ -115,11 +122,27 @@ class BaseClient(ABC):
     def connect(self) -> bool:
         """建立连接(幂等:已连接时直接返回 True)。
 
+        失败后进入**指数退避门控**(v0.34.0):第 n 次连续失败后,
+        ``uniform(0, min(0.5 × 2ⁿ, 30))`` 秒内的再次连接直接拒绝——
+        时间戳比较,不发包、不 sleep。连接成功或显式
+        :meth:`disconnect` 后门控与失败计数全部重置;
+        :attr:`reconnect_backoff` 置 False 可整体关闭。
+
         :return: 是否成功
         """
         with self._lock:
             if self._connected:
                 return True
+            now = time.monotonic()
+            if self._reconnect_backoff and now < self._next_connect_at:
+                delay = self._next_connect_at - now
+                self._set_error(
+                    f"连接退避中:{delay:.1f} 秒后允许重连",
+                    ErrorCategory.TRANSPORT,
+                    None,
+                    record=False,
+                )
+                return False
             # 传输对象创建独立于 try:参数类错误(如未配置串口参数)照常上抛
             transport = self._create_transport()
             try:
@@ -129,6 +152,7 @@ class BaseClient(ABC):
             except Exception as exc:
                 # 建连失败:任何异常都清理为"未连接"(防脏 socket/传输逃逸)
                 self._connected = False
+                self._register_connect_failure()
                 self._set_error(
                     "连接 {}:{} 失败:{}".format(
                         self._ip_address or "-", self._port or "-", exc
@@ -146,6 +170,7 @@ class BaseClient(ABC):
                 self._after_connect()
             except Exception as exc:
                 # 握手/会话初始化失败:清理到干净状态,下次事务惰性重连
+                self._register_connect_failure()
                 self._set_error(
                     "连接初始化失败:{}".format(_describe(exc)),
                     _categorize(exc),
@@ -160,6 +185,7 @@ class BaseClient(ABC):
                 return False
             self._connected = True
             self._clear_error()
+            self._reset_backoff()
             self._counters["connect_count"] += 1
             self._timestamps["last_connect_at"] = time.monotonic()
             return True
@@ -173,6 +199,7 @@ class BaseClient(ABC):
             transport = self._transport
             self._transport = None
             self._connected = False
+            self._reset_backoff()
             if transport is None:
                 return True
             try:
@@ -245,6 +272,30 @@ class BaseClient(ABC):
         if count < 0:
             raise ValueError(f"write_retries 不能为负数,收到:{count}")
         self._write_retries = int(count)
+
+    @property
+    def reconnect_backoff(self) -> bool:
+        """连接失败后的指数退避门控(默认开)。
+
+        PLC 断电/网线松动时,紧密轮询的调用方不再形成高频重连风暴;
+        置 False 恢复"失败后立即可重连"的旧行为。
+        """
+        return self._reconnect_backoff
+
+    @reconnect_backoff.setter
+    def reconnect_backoff(self, enabled: bool) -> None:
+        if not isinstance(enabled, bool):
+            raise ValueError(f"reconnect_backoff 必须为布尔值,收到:{enabled!r}")
+        self._reconnect_backoff = enabled
+
+    @property
+    def next_connect_in(self) -> Optional[float]:
+        """距下次允许连接的剩余秒数;None = 无门控,可立即连接。"""
+        with self._lock:
+            if not self._reconnect_backoff:
+                return None
+            remaining = self._next_connect_at - time.monotonic()
+            return remaining if remaining > 0 else None
 
     @property
     def last_error(self) -> Optional[str]:
@@ -605,6 +656,21 @@ class BaseClient(ABC):
                 pass
             self._transport = None
             self._counters["disconnect_count"] += 1
+
+    def _register_connect_failure(self) -> None:
+        """登记一次建连失败并推进退避门控(内部方法,须锁内调用)。"""
+        cap = min(
+            RECONNECT_BACKOFF_BASE
+            * (RECONNECT_BACKOFF_FACTOR ** self._connect_fail_count),
+            RECONNECT_BACKOFF_MAX,
+        )
+        self._next_connect_at = time.monotonic() + random.uniform(0.0, cap)
+        self._connect_fail_count += 1
+
+    def _reset_backoff(self) -> None:
+        """清空退避门控(连接成功或显式断开时,内部方法,须锁内调用)。"""
+        self._next_connect_at = 0.0
+        self._connect_fail_count = 0
 
     # ------------------------------------------------------------------
     # 上下文管理器

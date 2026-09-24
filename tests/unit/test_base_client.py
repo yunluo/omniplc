@@ -83,6 +83,7 @@ class TestLazyReconnect:
 
     def test_connect_failure_then_lazy_reconnect(self) -> None:
         client = _ScriptedClient(fail_connect_times=1)
+        client.reconnect_backoff = False  # 本测验证惰性重连语义本身;退避行为归 v034 测试
         # 第一次:第一个传输 connect 失败
         ok, value = client.read("hr0", "short")
         assert ok is False

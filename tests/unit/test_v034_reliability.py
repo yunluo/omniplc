@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import socket
+import time
 from typing import List
 
+import pytest
+
+import omniplc.core.base_client as base_client_mod
 from omniplc.core.base_client import BaseClient
 from omniplc.core.errors import (
     DeviceError,
@@ -170,3 +174,134 @@ class TestErrorCategory:
         client.script_failure(OSError("网络中断"))
         client.read("hr0", "short")
         assert client.last_error == "OSError:网络中断"
+
+
+class TestReconnectBackoff:
+    """连接退避门控:full jitter 时间戳门控,零 sleep。"""
+
+    def test_gate_blocks_immediate_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            base_client_mod.random, "uniform", lambda a, b: 0.25
+        )
+        client = _ScriptedClient(fail_connect_times=1)
+        ok, _ = client.read("hr0", "short")
+        assert ok is False  # 真实建连失败
+        ok, _ = client.read("hr0", "short")
+        assert ok is False  # 立即重试被门控拦下
+        assert "退避" in (client.last_error or "")
+        assert client.last_error_category is ErrorCategory.TRANSPORT
+        assert client.last_error_code is None
+        assert len(client.transports) == 1  # 门控拒绝不再建传输
+
+    def test_gate_does_not_count_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """门控拒绝无网络动作,不计 error_count。"""
+        monkeypatch.setattr(base_client_mod.random, "uniform", lambda a, b: 0.25)
+        client = _ScriptedClient(fail_connect_times=1)
+        client.read("hr0", "short")
+        client.read("hr0", "short")  # 门控拒绝
+        assert client.stats["error_count"] == 1  # 只有真实建连失败计入
+
+    def test_gate_expires_allowing_reconnect(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(base_client_mod.random, "uniform", lambda a, b: 0.05)
+        client = _ScriptedClient(fail_connect_times=1)
+        ok, _ = client.read("hr0", "short")
+        assert ok is False
+        time.sleep(0.08)  # 门控窗口 0.05s 过期(裕量 30ms)
+        ok, value = client.read("hr0", "short")
+        assert ok is True
+        assert value == 3.14
+
+    def test_zero_jitter_allows_immediate_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """uniform 取下界 0:门控时间戳=now,立即重试放行。"""
+        monkeypatch.setattr(base_client_mod.random, "uniform", lambda a, b: 0.0)
+        client = _ScriptedClient(fail_connect_times=1)
+        client.read("hr0", "short")
+        ok, _ = client.read("hr0", "short")
+        assert ok is True
+
+    def test_backoff_resets_on_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(base_client_mod.random, "uniform", lambda a, b: 0.05)
+        client = _ScriptedClient(fail_connect_times=1)
+        client.read("hr0", "short")
+        time.sleep(0.08)
+        client.read("hr0", "short")  # 重连成功
+        assert client._connect_fail_count == 0
+        assert client._next_connect_at == 0.0
+        assert client.next_connect_in is None
+
+    def test_backoff_resets_on_disconnect(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(base_client_mod.random, "uniform", lambda a, b: 0.25)
+        client = _ScriptedClient(fail_connect_times=1)
+        client.read("hr0", "short")
+        assert client.next_connect_in is not None
+        client.disconnect()
+        assert client.next_connect_in is None
+        assert client._connect_fail_count == 0
+
+    def test_next_connect_in_semantics(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(base_client_mod.random, "uniform", lambda a, b: 0.25)
+        client = _ScriptedClient()
+        assert client.next_connect_in is None  # 从未失败
+        client._fail_connect_times = 1
+        client.read("hr0", "short")
+        remaining = client.next_connect_in
+        assert remaining is not None and 0 < remaining <= 0.25
+
+    def test_backoff_capped_at_max(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from omniplc.core.constants import RECONNECT_BACKOFF_MAX
+
+        captured: dict = {}
+
+        def _fake_uniform(a: float, b: float) -> float:
+            captured["cap"] = b
+            return b
+
+        monkeypatch.setattr(base_client_mod.random, "uniform", _fake_uniform)
+        client = _ScriptedClient()
+        # 直接驱动失败登记助手:真实场景 12 次失败间隔会超过门控窗口,
+        # 单测压缩时间轴只验证 0.5×2ⁿ 指数增长在 n=6 起封顶 30s
+        for _ in range(12):
+            client._register_connect_failure()
+        assert captured["cap"] == RECONNECT_BACKOFF_MAX
+        assert client._connect_fail_count == 12
+
+    def test_backoff_disabled_matches_legacy(self) -> None:
+        """关闭退避:失败后立即可重连(等同 v0.33 行为)。"""
+        client = _ScriptedClient(fail_connect_times=1)
+        client.reconnect_backoff = False
+        ok, _ = client.read("hr0", "short")
+        assert ok is False
+        ok, value = client.read("hr0", "short")
+        assert ok is True and value == 3.14
+
+    def test_backoff_setter_validation(self) -> None:
+        client = _ScriptedClient()
+        with pytest.raises(ValueError):
+            client.reconnect_backoff = "yes"  # type: ignore[assignment]
+        client.reconnect_backoff = False
+        assert client.reconnect_backoff is False
+        client.reconnect_backoff = True
+        assert client.reconnect_backoff is True
+
+
+class TestAioBackoffAndErrorSurfaces:
+    """aio 镜像:退避与错误结构化表面转发(模式同 v030 TestAioStatsForwarding)。"""
+
+    def test_surfaces_forwarded(self) -> None:
+        import omniplc.aio as aio
+
+        sync = _ScriptedClient(fail_connect_times=1)
+        async_client = aio.AModbusTcpClient.__new__(aio.AModbusTcpClient)
+        aio.ABaseClient.__init__(async_client, sync)
+        # 属性转发
+        assert async_client.reconnect_backoff is True
+        async_client.reconnect_backoff = False
+        assert sync.reconnect_backoff is False
+        sync.reconnect_backoff = True
+        # 触发一次真实失败后错误三件套 + 门控剩余时间转发
+        sync.read("hr0", "short")
+        assert async_client.last_error == sync.last_error
+        assert async_client.last_error_category is ErrorCategory.TRANSPORT
+        assert async_client.last_error_code is None
+        assert async_client.next_connect_in == sync.next_connect_in
+        assert async_client.next_connect_in is not None
