@@ -1,0 +1,60 @@
+name: build-release
+
+# 打标签推送后自动构建并发布:
+#   git push origin v0.32.0 && git push --tags
+# 触发条件为版本号标签(v*):构建 sdist + wheel,挂到对应 GitHub Release,
+# 并发布到 PyPI(可信发布/OIDC,无需明文令牌)。
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # 创建 GitHub Release 并上传构件需要
+
+jobs:
+  build:
+    name: uv build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: omniplc-dist
+          path: dist/
+          if-no-files-found: error
+
+      - name: Create GitHub Release with artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    # 仅主仓库发布,防止 fork 误触
+    if: github.repository == 'yunluo/omniplc'
+    permissions:
+      id-token: write # 信任发布(OIDC)需要;PyPI 侧配置可信发布者后无需任何令牌
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: omniplc-dist
+          path: dist
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
