@@ -14,7 +14,8 @@
 
 - **零核心依赖**:协议实现除已声明的 `[project.dependencies]` 外不得引入新依赖;
   新增第三方包须先开 issue 讨论。
-- **类型标注**:全量 `typing`(PEP 484)+ `# type: ignore` 仅在必要时局部使用;`mypy` 必过。
+- **类型标注**:全量 `typing`(PEP 484)+ `# type: ignore` 仅在必要时局部使用;
+  `mypy` 与 `ty` 双检查器必过(配置见 `pyproject.toml [tool.mypy]` 与 `[tool.ty.src]`)。
 - **注释**:全库中文注释;公开 API docstring 必须有(中文,与 README 一致)。
 - **不可入库**:
   - `tools/manual_test.*`(手工测试脚本)
@@ -27,12 +28,13 @@
 
 ## 三、测试
 
-本仓库三类门禁,**任一挂下即不通过**:
+本仓库三类门禁(实为四件套),**任一挂下即不通过**:
 
 ```bash
 uv run python -m pytest tests -q         # 678+ 例全量
 uvx ruff check src tests                 # 0 告警(规则集显式固定,与 ruff 版本漂移解耦)
-uvx mypy src/omniplc                     # 0 问题(70 源文件)
+uvx mypy src/omniplc                     # 0 问题(70 源文件,mypy 守 3.7 兼容目标)
+uvx ty check src/omniplc                 # 0 问题(Astral 第二类型检查器,与 mypy 互补)
 ```
 
 新增功能必须补测试;黄金报文样本(protocol 字节级契约)在 `tests/golden/`,改动帧

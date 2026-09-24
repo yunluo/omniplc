@@ -38,3 +38,9 @@ jobs:
 
       - name: mypy
         run: uvx mypy src/omniplc
+
+      - name: ty
+        # 第二类型检查器(Astral 的 Rust 实现的 mypy 替代):与 mypy 互补,
+        # 抓不同的检查侧;mypy 守 3.7 兼容目标,ty 守更严格推断路径。
+        # 配置见 pyproject.toml [tool.ty.src]
+        run: uvx ty check src/omniplc
