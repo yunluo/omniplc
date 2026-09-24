@@ -447,17 +447,17 @@ class BaseClient(ABC):
     # ------------------------------------------------------------------
 
     def bind_tags(self, table: TagTable) -> None:
-        """绑定点位表,之后可用名称读写::``client.read_tag("炉温")``。
+        """绑定点位表,之后可用点位标识读写::``client.read_tag("furnace_temp")``。
 
         :param table: :class:`omniplc.tag.TagTable` 实例
         """
         self._tag_table = table
 
     def read_tag(self, tag: Union[str, Tag]) -> Tuple[bool, Optional[PrimitiveValue]]:
-        """按点位(或名称)读取,数值自动应用 ``scale``/``offset``。
+        """按点位(或标识)读取,数值自动应用 ``scale``/``offset``。
 
-        :param tag: :class:`omniplc.tag.Tag` 实例,或已绑定表中的名称
-        :raises ValueError: 传入名称但未绑定 TagTable,或名称不存在
+        :param tag: :class:`omniplc.tag.Tag` 实例,或已绑定表中的点位标识
+        :raises ValueError: 传入标识但未绑定 TagTable,或标识不存在
         """
         resolved = self._resolve_tag(tag)
         ok, value = self.read(resolved.address, resolved.data_type)
@@ -468,16 +468,16 @@ class BaseClient(ABC):
         return True, value * resolved.scale + resolved.offset
 
     def write_tag(self, tag: Union[str, Tag], value: PrimitiveValue) -> bool:
-        """按点位(或名称)写入,数值自动做逆缩放 ``值 = (目标 - offset) / scale``。
+        """按点位(或标识)写入,数值自动做逆缩放 ``值 = (目标 - offset) / scale``。
 
-        :param tag: Tag 实例或已绑定表中的名称
+        :param tag: Tag 实例或已绑定表中的点位标识
         :param value: 目标工程量
         :raises ValueError: 同 :meth:`read_tag`;或点位 ``scale`` 为 0
         """
         resolved = self._resolve_tag(tag)
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             if resolved.scale == 0:
-                raise ValueError(f"点位 {resolved.name!r} 的 scale 不能为 0,无法逆缩放")
+                raise ValueError(f"点位 {resolved.tag_id!r} 的 scale 不能为 0,无法逆缩放")
             value = (value - resolved.offset) / resolved.scale
             if isinstance(value, float) and value.is_integer():
                 # 真除法恒为 float,还原整数,否则底层整数类型校验拒收
@@ -485,11 +485,11 @@ class BaseClient(ABC):
         return self.write(resolved.address, resolved.data_type, value)
 
     def _resolve_tag(self, tag: Union[str, Tag]) -> Tag:
-        """把名称或 Tag 统一解析为 Tag(内部方法)。"""
+        """把点位标识或 Tag 统一解析为 Tag(内部方法)。"""
         if isinstance(tag, Tag):
             return tag
         if self._tag_table is None:
-            raise ValueError(f"未绑定 TagTable,无法按名称读写:{tag!r}")
+            raise ValueError(f"未绑定 TagTable,无法按点位标识读写:{tag!r}")
         try:
             return self._tag_table[tag]
         except KeyError:

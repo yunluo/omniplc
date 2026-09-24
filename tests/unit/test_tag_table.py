@@ -21,8 +21,14 @@ def tags_json(tmp_path: Path) -> Iterator[str]:
     with open(path, "w", encoding="utf-8") as fp:
         json.dump(
             [
-                {"name": "炉温", "address": "D100", "data_type": "float", "scale": 0.1},
-                {"name": "启停", "address": "M10", "data_type": "bool"},
+                {
+                    "tag_id": "furnace_temp",
+                    "address": "D100",
+                    "data_type": "float",
+                    "scale": 0.1,
+                    "remark": "炉温",
+                },
+                {"tag_id": "start_stop", "address": "M10", "data_type": "bool"},
             ],
             fp,
             ensure_ascii=False,
@@ -33,32 +39,36 @@ def tags_json(tmp_path: Path) -> Iterator[str]:
 def test_from_json(tags_json: str) -> None:
     table = TagTable.from_json(tags_json)
     assert len(table) == 2
-    assert table["炉温"].address == "D100"
-    assert table["炉温"].scale == 0.1
-    assert table["启停"].offset == 0.0
+    assert table["furnace_temp"].address == "D100"
+    assert table["furnace_temp"].scale == 0.1
+    assert table["furnace_temp"].remark == "炉温"
+    assert table["start_stop"].offset == 0.0
+    assert table["start_stop"].remark == ""  # 省略 remark 默认空
 
 
 def test_from_csv(tmp_path: Path) -> None:
     path = str(tmp_path / "tags.csv")
     with open(path, "w", encoding="utf-8-sig", newline="") as fp:
-        fp.write("name,address,data_type,scale,offset\n")
-        fp.write("压力,hr0,float,0.01,0\n")
-        fp.write("计数,D200,int\n")
+        fp.write("tag_id,address,data_type,scale,offset,remark\n")
+        fp.write("pressure,hr0,float,0.01,0,压力\n")
+        fp.write("counter,D200,int\n")
     table = TagTable.from_csv(path)
     assert len(table) == 2
-    assert table["压力"].scale == 0.01
-    assert table["计数"].scale == 1.0  # 省略时默认
+    assert table["pressure"].scale == 0.01
+    assert table["pressure"].remark == "压力"
+    assert table["counter"].scale == 1.0  # 省略时默认
+    assert table["counter"].remark == ""  # 省略 remark 列默认空
 
 
 def test_csv_missing_column(tmp_path: Path) -> None:
     path = str(tmp_path / "bad.csv")
     with open(path, "w", encoding="utf-8", newline="") as fp:
-        fp.write("name,address\n")
+        fp.write("tag_id,address\n")
     with pytest.raises(ValueError):
         TagTable.from_csv(path)
 
 
-def test_duplicate_name_rejected() -> None:
+def test_duplicate_tag_id_rejected() -> None:
     table = TagTable([Tag("a", "D0", "short")])
     with pytest.raises(ValueError):
         table.add(Tag("a", "D1", "short"))
@@ -139,28 +149,28 @@ def test_read_tag_scaling() -> None:
     client.bind_tags(
         TagTable(
             [
-                Tag("炉温", "D100", "float", scale=0.1, offset=-5.0),
-                Tag("启停", "M10", "bool"),
-                Tag("牌号", "D200", "string"),
+                Tag("furnace_temp", "D100", "float", scale=0.1, offset=-5.0, remark="炉温"),
+                Tag("start_stop", "M10", "bool", remark="启停"),
+                Tag("steel_grade", "D200", "string", remark="牌号"),
             ]
         )
     )
     client.reads = {"D100": 12345.0, "M10": True, "D200": "Q235"}
-    assert client.read_tag("炉温") == (True, 12345.0 * 0.1 - 5.0)
-    assert client.read_tag("启停") == (True, True)
-    assert client.read_tag("牌号") == (True, "Q235")
-    assert client.read_tag(Tag("临时", "D100", "float", scale=1.0)) == (True, 12345.0)
+    assert client.read_tag("furnace_temp") == (True, 12345.0 * 0.1 - 5.0)
+    assert client.read_tag("start_stop") == (True, True)
+    assert client.read_tag("steel_grade") == (True, "Q235")
+    assert client.read_tag(Tag("ad_hoc", "D100", "float", scale=1.0)) == (True, 12345.0)
 
 
 def test_read_tag_failure_and_binding() -> None:
-    """读失败 → (False, None);未绑表/名称不存在 → ValueError。"""
+    """读失败 → (False, None);未绑表/标识不存在 → ValueError。"""
     client = _recording_client()
     with pytest.raises(ValueError):
-        client.read_tag("炉温")  # 未绑表
-    client.bind_tags(TagTable([Tag("炉温", "D100", "float")]))
-    assert client.read_tag("炉温") == (False, None)  # 设备侧无值
+        client.read_tag("furnace_temp")  # 未绑表
+    client.bind_tags(TagTable([Tag("furnace_temp", "D100", "float")]))
+    assert client.read_tag("furnace_temp") == (False, None)  # 设备侧无值
     with pytest.raises(ValueError):
-        client.read_tag("压力")  # 名称不存在
+        client.read_tag("pressure")  # 标识不存在
 
 
 def test_write_tag_int_result_restored() -> None:
@@ -169,15 +179,15 @@ def test_write_tag_int_result_restored() -> None:
     client.bind_tags(
         TagTable(
             [
-                Tag("计数", "D0", "int"),
-                Tag("半速", "D2", "int", scale=0.5),
-                Tag("炉温", "D4", "float", scale=2.0, offset=1.0),
+                Tag("counter", "D0", "int", remark="计数"),
+                Tag("half_speed", "D2", "int", scale=0.5),
+                Tag("furnace_temp", "D4", "float", scale=2.0, offset=1.0),
             ]
         )
     )
-    assert client.write_tag("计数", 100) is True
-    assert client.write_tag("半速", 50.0) is True
-    assert client.write_tag("炉温", 9.5) is True
+    assert client.write_tag("counter", 100) is True
+    assert client.write_tag("half_speed", 50.0) is True
+    assert client.write_tag("furnace_temp", 9.5) is True
     assert client.writes[0] == ("D0", DataType.INT, 100)  # 修复前是 100.0 → ValueError
     assert isinstance(client.writes[0][2], int)
     assert client.writes[1] == ("D2", DataType.INT, 100)  # 50/0.5 → 还原 int
@@ -187,13 +197,13 @@ def test_write_tag_int_result_restored() -> None:
 def test_write_tag_bool_string_and_scale_zero() -> None:
     """BOOL/STRING 直通不逆缩放;scale=0 直传 Tag 实例时 write_tag 期拒绝。"""
     client = _recording_client()
-    client.bind_tags(TagTable([Tag("启停", "M0", "bool"), Tag("牌号", "D0", "string")]))
-    assert client.write_tag("启停", True) is True
-    assert client.write_tag("牌号", "Q235") is True
+    client.bind_tags(TagTable([Tag("start_stop", "M0", "bool"), Tag("steel_grade", "D0", "string")]))
+    assert client.write_tag("start_stop", True) is True
+    assert client.write_tag("steel_grade", "Q235") is True
     assert client.writes[0] == ("M0", DataType.BOOL, True)
     assert client.writes[1] == ("D0", DataType.STRING, "Q235")
     with pytest.raises(ValueError):
-        client.write_tag(Tag("坏", "D9", "int", scale=0), 1)
+        client.write_tag(Tag("bad", "D9", "int", scale=0), 1)
     assert len(client.writes) == 2
 
 
@@ -210,8 +220,8 @@ def test_from_csv_rejects_short_row(tmp_path: Path) -> None:
     """CSV 短行缺列 → ValueError(而非静默变成 "None" 字符串)。"""
     path = str(tmp_path / "short.csv")
     with open(path, "w", encoding="utf-8", newline="") as fp:
-        fp.write("name,address,data_type\n")
-        fp.write("只有名字\n")
+        fp.write("tag_id,address,data_type\n")
+        fp.write("only-id\n")
     with pytest.raises(ValueError):
         TagTable.from_csv(path)
 
@@ -220,7 +230,7 @@ def test_from_csv_rejects_bad_number(tmp_path: Path) -> None:
     """scale/offset 单元格非数字 → ValueError。"""
     path = str(tmp_path / "nan.csv")
     with open(path, "w", encoding="utf-8", newline="") as fp:
-        fp.write("name,address,data_type,scale\n")
-        fp.write("坏,D0,int,abc\n")
+        fp.write("tag_id,address,data_type,scale\n")
+        fp.write("bad,D0,int,abc\n")
     with pytest.raises(ValueError):
         TagTable.from_csv(path)

@@ -6,31 +6,119 @@
       "driver": "modbus_tcp",
       "ip": "127.0.0.1",
       "port": 502,
-      "params": {"station": 1, "word_order": "ABCD"},
+      "params": {
+        "station": 1,
+        "word_order": "ABCD"
+      },
       "points": [
-        {"name": "线圈", "address": "c0", "type": "bool"},
-        {"name": "线圈1", "address": "c1", "type": "bool"},
-        {"name": "保持寄存器-短整数", "address": "hr0", "type": "short"},
-        {"name": "保持寄存器-无符号短", "address": "hr2", "type": "ushort"},
-        {"name": "保持寄存器-整数", "address": "hr4", "type": "int"},
-        {"name": "保持寄存器-无符号整", "address": "hr6", "type": "uint"},
-        {"name": "保持寄存器-长整数", "address": "hr8", "type": "long"},
-        {"name": "保持寄存器-浮点", "address": "hr12", "type": "float"},
-        {"name": "保持寄存器-双精度", "address": "hr16", "type": "double"},
-        {"name": "寄存器位", "address": "hr20.3", "type": "bool"},
-        {"name": "输入寄存器(只读)", "address": "ir0", "type": "ushort", "access": "r"},
-        {"name": "离散输入(只读)", "address": "di0", "type": "bool", "access": "r"}
+        {
+          "tag_id": "c0_bool",
+          "address": "c0",
+          "type": "bool",
+          "remark": "线圈"
+        },
+        {
+          "tag_id": "c1_bool",
+          "address": "c1",
+          "type": "bool",
+          "remark": "线圈1"
+        },
+        {
+          "tag_id": "hr0_short",
+          "address": "hr0",
+          "type": "short",
+          "remark": "保持寄存器-短整数"
+        },
+        {
+          "tag_id": "hr2_ushort",
+          "address": "hr2",
+          "type": "ushort",
+          "remark": "保持寄存器-无符号短"
+        },
+        {
+          "tag_id": "hr4_int",
+          "address": "hr4",
+          "type": "int",
+          "remark": "保持寄存器-整数"
+        },
+        {
+          "tag_id": "hr6_uint",
+          "address": "hr6",
+          "type": "uint",
+          "remark": "保持寄存器-无符号整"
+        },
+        {
+          "tag_id": "hr8_long",
+          "address": "hr8",
+          "type": "long",
+          "remark": "保持寄存器-长整数"
+        },
+        {
+          "tag_id": "hr12_float",
+          "address": "hr12",
+          "type": "float",
+          "remark": "保持寄存器-浮点"
+        },
+        {
+          "tag_id": "hr16_double",
+          "address": "hr16",
+          "type": "double",
+          "remark": "保持寄存器-双精度"
+        },
+        {
+          "tag_id": "hr20_3_bool",
+          "address": "hr20.3",
+          "type": "bool",
+          "remark": "寄存器位"
+        },
+        {
+          "tag_id": "ir0_ushort",
+          "address": "ir0",
+          "type": "ushort",
+          "remark": "输入寄存器(只读)",
+          "access": "r"
+        },
+        {
+          "tag_id": "di0_bool",
+          "address": "di0",
+          "type": "bool",
+          "remark": "离散输入(只读)",
+          "access": "r"
+        }
       ]
     },
     {
       "name": "Modbus-RTU 串口",
       "driver": "modbus_rtu",
-      "params": {"station": 1},
-      "serial": {"port": "COM3", "baud_rate": 9600, "data_bits": 8, "stop_bits": 1, "parity": "N"},
+      "params": {
+        "station": 1
+      },
+      "serial": {
+        "port": "COM3",
+        "baud_rate": 9600,
+        "data_bits": 8,
+        "stop_bits": 1,
+        "parity": "N"
+      },
       "points": [
-        {"name": "线圈", "address": "c0", "type": "bool"},
-        {"name": "保持寄存器-短整数", "address": "hr0", "type": "short"},
-        {"name": "保持寄存器-浮点", "address": "hr4", "type": "float"}
+        {
+          "tag_id": "c0_bool",
+          "address": "c0",
+          "type": "bool",
+          "remark": "线圈"
+        },
+        {
+          "tag_id": "hr0_short",
+          "address": "hr0",
+          "type": "short",
+          "remark": "保持寄存器-短整数"
+        },
+        {
+          "tag_id": "hr4_float",
+          "address": "hr4",
+          "type": "float",
+          "remark": "保持寄存器-浮点"
+        }
       ]
     },
     {
@@ -38,23 +126,104 @@
       "driver": "melsec_mc_tcp",
       "ip": "127.0.0.1",
       "port": 2000,
-      "params": {"frame": "3E", "network_number": 0, "pc_number": 255},
+      "params": {
+        "frame": "3E",
+        "network_number": 0,
+        "pc_number": 255
+      },
       "points": [
-        {"name": "D100 短整数", "address": "D100", "type": "short"},
-        {"name": "D102 无符号短", "address": "D102", "type": "ushort"},
-        {"name": "D104 整数", "address": "D104", "type": "int"},
-        {"name": "D106 无符号整", "address": "D106", "type": "uint"},
-        {"name": "D108 浮点", "address": "D108", "type": "float"},
-        {"name": "D110 双精度", "address": "D110", "type": "double"},
-        {"name": "D120 长整数", "address": "D120", "type": "long"},
-        {"name": "D130.3 字软元件位访问", "address": "D130.3", "type": "bool"},
-        {"name": "M0 位", "address": "M0", "type": "bool"},
-        {"name": "M10 位", "address": "M10", "type": "bool"},
-        {"name": "Y40 输出位", "address": "Y40", "type": "bool"},
-        {"name": "B0 工作位(十六进制编号)", "address": "B0", "type": "bool"},
-        {"name": "W100 链接寄存器(十六进制编号)", "address": "W100", "type": "ushort"},
-        {"name": "X1F 输入位(只读)", "address": "X1F", "type": "bool", "access": "r"},
-        {"name": "D300 字符串", "address": "D300", "type": "string", "length": 16}
+        {
+          "tag_id": "d100_short",
+          "address": "D100",
+          "type": "short",
+          "remark": "D100 短整数"
+        },
+        {
+          "tag_id": "d102_ushort",
+          "address": "D102",
+          "type": "ushort",
+          "remark": "D102 无符号短"
+        },
+        {
+          "tag_id": "d104_int",
+          "address": "D104",
+          "type": "int",
+          "remark": "D104 整数"
+        },
+        {
+          "tag_id": "d106_uint",
+          "address": "D106",
+          "type": "uint",
+          "remark": "D106 无符号整"
+        },
+        {
+          "tag_id": "d108_float",
+          "address": "D108",
+          "type": "float",
+          "remark": "D108 浮点"
+        },
+        {
+          "tag_id": "d110_double",
+          "address": "D110",
+          "type": "double",
+          "remark": "D110 双精度"
+        },
+        {
+          "tag_id": "d120_long",
+          "address": "D120",
+          "type": "long",
+          "remark": "D120 长整数"
+        },
+        {
+          "tag_id": "d130_3_bool",
+          "address": "D130.3",
+          "type": "bool",
+          "remark": "D130.3 字软元件位访问"
+        },
+        {
+          "tag_id": "m0_bool",
+          "address": "M0",
+          "type": "bool",
+          "remark": "M0 位"
+        },
+        {
+          "tag_id": "m10_bool",
+          "address": "M10",
+          "type": "bool",
+          "remark": "M10 位"
+        },
+        {
+          "tag_id": "y40_bool",
+          "address": "Y40",
+          "type": "bool",
+          "remark": "Y40 输出位"
+        },
+        {
+          "tag_id": "b0_bool",
+          "address": "B0",
+          "type": "bool",
+          "remark": "B0 工作位(十六进制编号)"
+        },
+        {
+          "tag_id": "w100_ushort",
+          "address": "W100",
+          "type": "ushort",
+          "remark": "W100 链接寄存器(十六进制编号)"
+        },
+        {
+          "tag_id": "x1f_bool",
+          "address": "X1F",
+          "type": "bool",
+          "remark": "X1F 输入位(只读)",
+          "access": "r"
+        },
+        {
+          "tag_id": "d300_str",
+          "address": "D300",
+          "type": "string",
+          "remark": "D300 字符串",
+          "length": 16
+        }
       ]
     },
     {
@@ -62,16 +231,58 @@
       "driver": "melsec_mc_tcp",
       "ip": "127.0.0.1",
       "port": 2000,
-      "params": {"frame": "4E"},
+      "params": {
+        "frame": "4E"
+      },
       "points": [
-        {"name": "D400 短整数", "address": "D400", "type": "short"},
-        {"name": "D402 浮点", "address": "D402", "type": "float"},
-        {"name": "D404 整数", "address": "D404", "type": "int"},
-        {"name": "D406 双精度", "address": "D406", "type": "double"},
-        {"name": "M20 位", "address": "M20", "type": "bool"},
-        {"name": "M30 位", "address": "M30", "type": "bool"},
-        {"name": "Y50 输出位", "address": "Y50", "type": "bool"},
-        {"name": "D420.5 字软元件位访问", "address": "D420.5", "type": "bool"}
+        {
+          "tag_id": "d400_short",
+          "address": "D400",
+          "type": "short",
+          "remark": "D400 短整数"
+        },
+        {
+          "tag_id": "d402_float",
+          "address": "D402",
+          "type": "float",
+          "remark": "D402 浮点"
+        },
+        {
+          "tag_id": "d404_int",
+          "address": "D404",
+          "type": "int",
+          "remark": "D404 整数"
+        },
+        {
+          "tag_id": "d406_double",
+          "address": "D406",
+          "type": "double",
+          "remark": "D406 双精度"
+        },
+        {
+          "tag_id": "m20_bool",
+          "address": "M20",
+          "type": "bool",
+          "remark": "M20 位"
+        },
+        {
+          "tag_id": "m30_bool",
+          "address": "M30",
+          "type": "bool",
+          "remark": "M30 位"
+        },
+        {
+          "tag_id": "y50_bool",
+          "address": "Y50",
+          "type": "bool",
+          "remark": "Y50 输出位"
+        },
+        {
+          "tag_id": "d420_5_bool",
+          "address": "D420.5",
+          "type": "bool",
+          "remark": "D420.5 字软元件位访问"
+        }
       ]
     },
     {
@@ -79,17 +290,65 @@
       "driver": "melsec_mc_tcp",
       "ip": "127.0.0.1",
       "port": 2000,
-      "params": {"frame": "1E"},
+      "params": {
+        "frame": "1E"
+      },
       "points": [
-        {"name": "D100 短整数", "address": "D100", "type": "short"},
-        {"name": "D102 无符号短", "address": "D102", "type": "ushort"},
-        {"name": "D104 整数", "address": "D104", "type": "int"},
-        {"name": "D106 浮点", "address": "D106", "type": "float"},
-        {"name": "D108 双精度", "address": "D108", "type": "double"},
-        {"name": "M0 位", "address": "M0", "type": "bool"},
-        {"name": "M1 位", "address": "M1", "type": "bool"},
-        {"name": "S0 步进位", "address": "S0", "type": "bool"},
-        {"name": "X20 输入位(八进制编号,只读)", "address": "X20", "type": "bool", "access": "r"}
+        {
+          "tag_id": "d100_short",
+          "address": "D100",
+          "type": "short",
+          "remark": "D100 短整数"
+        },
+        {
+          "tag_id": "d102_ushort",
+          "address": "D102",
+          "type": "ushort",
+          "remark": "D102 无符号短"
+        },
+        {
+          "tag_id": "d104_int",
+          "address": "D104",
+          "type": "int",
+          "remark": "D104 整数"
+        },
+        {
+          "tag_id": "d106_float",
+          "address": "D106",
+          "type": "float",
+          "remark": "D106 浮点"
+        },
+        {
+          "tag_id": "d108_double",
+          "address": "D108",
+          "type": "double",
+          "remark": "D108 双精度"
+        },
+        {
+          "tag_id": "m0_bool",
+          "address": "M0",
+          "type": "bool",
+          "remark": "M0 位"
+        },
+        {
+          "tag_id": "m1_bool",
+          "address": "M1",
+          "type": "bool",
+          "remark": "M1 位"
+        },
+        {
+          "tag_id": "s0_bool",
+          "address": "S0",
+          "type": "bool",
+          "remark": "S0 步进位"
+        },
+        {
+          "tag_id": "x20_bool",
+          "address": "X20",
+          "type": "bool",
+          "remark": "X20 输入位(八进制编号,只读)",
+          "access": "r"
+        }
       ]
     },
     {
@@ -97,14 +356,46 @@
       "driver": "melsec_mc_udp",
       "ip": "127.0.0.1",
       "port": 2000,
-      "params": {"frame": "3E"},
+      "params": {
+        "frame": "3E"
+      },
       "points": [
-        {"name": "D500 短整数", "address": "D500", "type": "short"},
-        {"name": "D502 浮点", "address": "D502", "type": "float"},
-        {"name": "D504 整数", "address": "D504", "type": "int"},
-        {"name": "M40 位", "address": "M40", "type": "bool"},
-        {"name": "M50 位", "address": "M50", "type": "bool"},
-        {"name": "Y60 输出位", "address": "Y60", "type": "bool"}
+        {
+          "tag_id": "d500_short",
+          "address": "D500",
+          "type": "short",
+          "remark": "D500 短整数"
+        },
+        {
+          "tag_id": "d502_float",
+          "address": "D502",
+          "type": "float",
+          "remark": "D502 浮点"
+        },
+        {
+          "tag_id": "d504_int",
+          "address": "D504",
+          "type": "int",
+          "remark": "D504 整数"
+        },
+        {
+          "tag_id": "m40_bool",
+          "address": "M40",
+          "type": "bool",
+          "remark": "M40 位"
+        },
+        {
+          "tag_id": "m50_bool",
+          "address": "M50",
+          "type": "bool",
+          "remark": "M50 位"
+        },
+        {
+          "tag_id": "y60_bool",
+          "address": "Y60",
+          "type": "bool",
+          "remark": "Y60 输出位"
+        }
       ]
     },
     {
@@ -112,12 +403,34 @@
       "driver": "melsec_mc_udp",
       "ip": "127.0.0.1",
       "port": 2000,
-      "params": {"frame": "4E"},
+      "params": {
+        "frame": "4E"
+      },
       "points": [
-        {"name": "D600 短整数", "address": "D600", "type": "short"},
-        {"name": "D602 浮点", "address": "D602", "type": "float"},
-        {"name": "M60 位", "address": "M60", "type": "bool"},
-        {"name": "M70 位", "address": "M70", "type": "bool"}
+        {
+          "tag_id": "d600_short",
+          "address": "D600",
+          "type": "short",
+          "remark": "D600 短整数"
+        },
+        {
+          "tag_id": "d602_float",
+          "address": "D602",
+          "type": "float",
+          "remark": "D602 浮点"
+        },
+        {
+          "tag_id": "m60_bool",
+          "address": "M60",
+          "type": "bool",
+          "remark": "M60 位"
+        },
+        {
+          "tag_id": "m70_bool",
+          "address": "M70",
+          "type": "bool",
+          "remark": "M70 位"
+        }
       ]
     },
     {
@@ -125,48 +438,155 @@
       "driver": "melsec_mc_udp",
       "ip": "127.0.0.1",
       "port": 2000,
-      "params": {"frame": "1E"},
+      "params": {
+        "frame": "1E"
+      },
       "points": [
-        {"name": "D700 短整数", "address": "D700", "type": "short"},
-        {"name": "D702 浮点", "address": "D702", "type": "float"},
-        {"name": "M2 位", "address": "M2", "type": "bool"},
-        {"name": "M3 位", "address": "M3", "type": "bool"}
+        {
+          "tag_id": "d700_short",
+          "address": "D700",
+          "type": "short",
+          "remark": "D700 短整数"
+        },
+        {
+          "tag_id": "d702_float",
+          "address": "D702",
+          "type": "float",
+          "remark": "D702 浮点"
+        },
+        {
+          "tag_id": "m2_bool",
+          "address": "M2",
+          "type": "bool",
+          "remark": "M2 位"
+        },
+        {
+          "tag_id": "m3_bool",
+          "address": "M3",
+          "type": "bool",
+          "remark": "M3 位"
+        }
       ]
     },
     {
       "name": "三菱MC-串口 3C(ASCII)",
       "driver": "melsec_mc_serial",
-      "params": {"frame": "3C", "station_number": 0},
-      "serial": {"port": "COM4", "baud_rate": 9600, "data_bits": 8, "stop_bits": 1, "parity": "N"},
+      "params": {
+        "frame": "3C",
+        "station_number": 0
+      },
+      "serial": {
+        "port": "COM4",
+        "baud_rate": 9600,
+        "data_bits": 8,
+        "stop_bits": 1,
+        "parity": "N"
+      },
       "points": [
-        {"name": "D100 短整数", "address": "D100", "type": "short"},
-        {"name": "D102 浮点", "address": "D102", "type": "float"},
-        {"name": "M0 位", "address": "M0", "type": "bool"},
-        {"name": "M10 位", "address": "M10", "type": "bool"}
+        {
+          "tag_id": "d100_short",
+          "address": "D100",
+          "type": "short",
+          "remark": "D100 短整数"
+        },
+        {
+          "tag_id": "d102_float",
+          "address": "D102",
+          "type": "float",
+          "remark": "D102 浮点"
+        },
+        {
+          "tag_id": "m0_bool",
+          "address": "M0",
+          "type": "bool",
+          "remark": "M0 位"
+        },
+        {
+          "tag_id": "m10_bool",
+          "address": "M10",
+          "type": "bool",
+          "remark": "M10 位"
+        }
       ]
     },
     {
       "name": "三菱MC-串口 4C(二进制)",
       "driver": "melsec_mc_serial",
-      "params": {"frame": "4C", "station_number": 0},
-      "serial": {"port": "COM4", "baud_rate": 9600, "data_bits": 8, "stop_bits": 1, "parity": "N"},
+      "params": {
+        "frame": "4C",
+        "station_number": 0
+      },
+      "serial": {
+        "port": "COM4",
+        "baud_rate": 9600,
+        "data_bits": 8,
+        "stop_bits": 1,
+        "parity": "N"
+      },
       "points": [
-        {"name": "D200 短整数", "address": "D200", "type": "short"},
-        {"name": "D202 浮点", "address": "D202", "type": "float"},
-        {"name": "D204 整数", "address": "D204", "type": "int"},
-        {"name": "M20 位", "address": "M20", "type": "bool"},
-        {"name": "M30 位", "address": "M30", "type": "bool"},
-        {"name": "Y0 输出位", "address": "Y0", "type": "bool"}
+        {
+          "tag_id": "d200_short",
+          "address": "D200",
+          "type": "short",
+          "remark": "D200 短整数"
+        },
+        {
+          "tag_id": "d202_float",
+          "address": "D202",
+          "type": "float",
+          "remark": "D202 浮点"
+        },
+        {
+          "tag_id": "d204_int",
+          "address": "D204",
+          "type": "int",
+          "remark": "D204 整数"
+        },
+        {
+          "tag_id": "m20_bool",
+          "address": "M20",
+          "type": "bool",
+          "remark": "M20 位"
+        },
+        {
+          "tag_id": "m30_bool",
+          "address": "M30",
+          "type": "bool",
+          "remark": "M30 位"
+        },
+        {
+          "tag_id": "y0_bool",
+          "address": "Y0",
+          "type": "bool",
+          "remark": "Y0 输出位"
+        }
       ]
     },
     {
       "name": "三菱MX Component(COM)",
       "driver": "melsec_mx",
-      "params": {"logical_station_number": 0},
+      "params": {
+        "logical_station_number": 0
+      },
       "points": [
-        {"name": "D100 短整数", "address": "D100", "type": "short"},
-        {"name": "D102 浮点", "address": "D102", "type": "float"},
-        {"name": "M0 位", "address": "M0", "type": "bool"}
+        {
+          "tag_id": "d100_short",
+          "address": "D100",
+          "type": "short",
+          "remark": "D100 短整数"
+        },
+        {
+          "tag_id": "d102_float",
+          "address": "D102",
+          "type": "float",
+          "remark": "D102 浮点"
+        },
+        {
+          "tag_id": "m0_bool",
+          "address": "M0",
+          "type": "bool",
+          "remark": "M0 位"
+        }
       ]
     },
     {
@@ -175,15 +595,62 @@
       "ip": "127.0.0.1",
       "port": 9600,
       "points": [
-        {"name": "D100 短整数", "address": "D100", "type": "short"},
-        {"name": "D102 无符号短", "address": "D102", "type": "ushort"},
-        {"name": "D104 浮点", "address": "D104", "type": "float"},
-        {"name": "D110 双精度", "address": "D110", "type": "double"},
-        {"name": "CIO0.5 位", "address": "CIO0.5", "type": "bool"},
-        {"name": "W10.3 位", "address": "W10.3", "type": "bool"},
-        {"name": "D200.3 字位访问", "address": "D200.3", "type": "bool"},
-        {"name": "EM区 bank0(只读)", "address": "E0_100", "type": "ushort", "access": "r"},
-        {"name": "辅助区A(只读)", "address": "A0", "type": "short", "access": "r"}
+        {
+          "tag_id": "d100_short",
+          "address": "D100",
+          "type": "short",
+          "remark": "D100 短整数"
+        },
+        {
+          "tag_id": "d102_ushort",
+          "address": "D102",
+          "type": "ushort",
+          "remark": "D102 无符号短"
+        },
+        {
+          "tag_id": "d104_float",
+          "address": "D104",
+          "type": "float",
+          "remark": "D104 浮点"
+        },
+        {
+          "tag_id": "d110_double",
+          "address": "D110",
+          "type": "double",
+          "remark": "D110 双精度"
+        },
+        {
+          "tag_id": "cio0_5_bool",
+          "address": "CIO0.5",
+          "type": "bool",
+          "remark": "CIO0.5 位"
+        },
+        {
+          "tag_id": "w10_3_bool",
+          "address": "W10.3",
+          "type": "bool",
+          "remark": "W10.3 位"
+        },
+        {
+          "tag_id": "d200_3_bool",
+          "address": "D200.3",
+          "type": "bool",
+          "remark": "D200.3 字位访问"
+        },
+        {
+          "tag_id": "e0_100_ushort",
+          "address": "E0_100",
+          "type": "ushort",
+          "remark": "EM区 bank0(只读)",
+          "access": "r"
+        },
+        {
+          "tag_id": "a0_short",
+          "address": "A0",
+          "type": "short",
+          "remark": "辅助区A(只读)",
+          "access": "r"
+        }
       ]
     },
     {
@@ -192,9 +659,24 @@
       "ip": "127.0.0.1",
       "port": 9600,
       "points": [
-        {"name": "D300 短整数", "address": "D300", "type": "short"},
-        {"name": "D302 浮点", "address": "D302", "type": "float"},
-        {"name": "CIO10.0 位", "address": "CIO10.0", "type": "bool"}
+        {
+          "tag_id": "d300_short",
+          "address": "D300",
+          "type": "short",
+          "remark": "D300 短整数"
+        },
+        {
+          "tag_id": "d302_float",
+          "address": "D302",
+          "type": "float",
+          "remark": "D302 浮点"
+        },
+        {
+          "tag_id": "cio10_0_bool",
+          "address": "CIO10.0",
+          "type": "bool",
+          "remark": "CIO10.0 位"
+        }
       ]
     },
     {
@@ -203,10 +685,30 @@
       "ip": "127.0.0.1",
       "port": 44818,
       "points": [
-        {"name": "BOOL 变量", "address": "TestBool", "type": "bool"},
-        {"name": "INT 变量", "address": "TestInt", "type": "short"},
-        {"name": "DINT 变量", "address": "TestDint", "type": "int"},
-        {"name": "REAL 变量", "address": "TestReal", "type": "float"}
+        {
+          "tag_id": "testbool_bool",
+          "address": "TestBool",
+          "type": "bool",
+          "remark": "BOOL 变量"
+        },
+        {
+          "tag_id": "testint_short",
+          "address": "TestInt",
+          "type": "short",
+          "remark": "INT 变量"
+        },
+        {
+          "tag_id": "testdint_int",
+          "address": "TestDint",
+          "type": "int",
+          "remark": "DINT 变量"
+        },
+        {
+          "tag_id": "testreal_float",
+          "address": "TestReal",
+          "type": "float",
+          "remark": "REAL 变量"
+        }
       ]
     },
     {
@@ -215,14 +717,54 @@
       "ip": "127.0.0.1",
       "port": 8000,
       "points": [
-        {"name": "DM100 短整数", "address": "DM100", "type": "short"},
-        {"name": "DM102 无符号短", "address": "DM102", "type": "ushort"},
-        {"name": "DM104 浮点", "address": "DM104", "type": "float"},
-        {"name": "DM110 双精度", "address": "DM110", "type": "double"},
-        {"name": "M100 扩展继电器", "address": "M100", "type": "bool"},
-        {"name": "B1F 工作位", "address": "B1F", "type": "bool"},
-        {"name": "DM100.5 字位访问", "address": "DM100.5", "type": "bool"},
-        {"name": "R000 中继电器", "address": "R000", "type": "bool"}
+        {
+          "tag_id": "dm100_short",
+          "address": "DM100",
+          "type": "short",
+          "remark": "DM100 短整数"
+        },
+        {
+          "tag_id": "dm102_ushort",
+          "address": "DM102",
+          "type": "ushort",
+          "remark": "DM102 无符号短"
+        },
+        {
+          "tag_id": "dm104_float",
+          "address": "DM104",
+          "type": "float",
+          "remark": "DM104 浮点"
+        },
+        {
+          "tag_id": "dm110_double",
+          "address": "DM110",
+          "type": "double",
+          "remark": "DM110 双精度"
+        },
+        {
+          "tag_id": "m100_bool",
+          "address": "M100",
+          "type": "bool",
+          "remark": "M100 扩展继电器"
+        },
+        {
+          "tag_id": "b1f_bool",
+          "address": "B1F",
+          "type": "bool",
+          "remark": "B1F 工作位"
+        },
+        {
+          "tag_id": "dm100_5_bool",
+          "address": "DM100.5",
+          "type": "bool",
+          "remark": "DM100.5 字位访问"
+        },
+        {
+          "tag_id": "r000_bool",
+          "address": "R000",
+          "type": "bool",
+          "remark": "R000 中继电器"
+        }
       ]
     },
     {
@@ -231,8 +773,18 @@
       "ip": "127.0.0.1",
       "port": 8000,
       "points": [
-        {"name": "DM200 短整数", "address": "DM200", "type": "short"},
-        {"name": "DM202 浮点", "address": "DM202", "type": "float"}
+        {
+          "tag_id": "dm200_short",
+          "address": "DM200",
+          "type": "short",
+          "remark": "DM200 短整数"
+        },
+        {
+          "tag_id": "dm202_float",
+          "address": "DM202",
+          "type": "float",
+          "remark": "DM202 浮点"
+        }
       ]
     },
     {
@@ -241,10 +793,30 @@
       "ip": "127.0.0.1",
       "port": 5000,
       "points": [
-        {"name": "DM100 短整数", "address": "DM100", "type": "short"},
-        {"name": "DM102 浮点", "address": "DM102", "type": "float"},
-        {"name": "R0 继电器位", "address": "R0", "type": "bool"},
-        {"name": "B0 工作位", "address": "B0", "type": "bool"}
+        {
+          "tag_id": "dm100_short",
+          "address": "DM100",
+          "type": "short",
+          "remark": "DM100 短整数"
+        },
+        {
+          "tag_id": "dm102_float",
+          "address": "DM102",
+          "type": "float",
+          "remark": "DM102 浮点"
+        },
+        {
+          "tag_id": "r0_bool",
+          "address": "R0",
+          "type": "bool",
+          "remark": "R0 继电器位"
+        },
+        {
+          "tag_id": "b0_bool",
+          "address": "B0",
+          "type": "bool",
+          "remark": "B0 工作位"
+        }
       ]
     },
     {
@@ -253,8 +825,18 @@
       "ip": "127.0.0.1",
       "port": 5000,
       "points": [
-        {"name": "DM300 短整数", "address": "DM300", "type": "short"},
-        {"name": "R10 继电器位", "address": "R10", "type": "bool"}
+        {
+          "tag_id": "dm300_short",
+          "address": "DM300",
+          "type": "short",
+          "remark": "DM300 短整数"
+        },
+        {
+          "tag_id": "r10_bool",
+          "address": "R10",
+          "type": "bool",
+          "remark": "R10 继电器位"
+        }
       ]
     },
     {
@@ -262,7 +844,11 @@
       "driver": "keyence_sr",
       "ip": "127.0.0.1",
       "port": 9004,
-      "params": {"scan_dwell": 1.0, "scan_timeout": 3.0}
+      "params": {
+        "scan_dwell": 1.0,
+        "scan_timeout": 3.0
+      },
+      "points": []
     },
     {
       "name": "汇川H3U/H5U Modbus-TCP",
@@ -270,24 +856,83 @@
       "ip": "127.0.0.1",
       "port": 502,
       "points": [
-        {"name": "D0 短整数", "address": "D0", "type": "short"},
-        {"name": "D10 整数", "address": "D10", "type": "int"},
-        {"name": "D20 浮点", "address": "D20", "type": "float"},
-        {"name": "D30 双精度", "address": "D30", "type": "double"},
-        {"name": "M0 位", "address": "M0", "type": "bool"},
-        {"name": "M1 位", "address": "M1", "type": "bool"},
-        {"name": "Y0 输出位", "address": "Y0", "type": "bool"},
-        {"name": "X0 输入位(只读)", "address": "X0", "type": "bool", "access": "r"}
+        {
+          "tag_id": "d0_short",
+          "address": "D0",
+          "type": "short",
+          "remark": "D0 短整数"
+        },
+        {
+          "tag_id": "d10_int",
+          "address": "D10",
+          "type": "int",
+          "remark": "D10 整数"
+        },
+        {
+          "tag_id": "d20_float",
+          "address": "D20",
+          "type": "float",
+          "remark": "D20 浮点"
+        },
+        {
+          "tag_id": "d30_double",
+          "address": "D30",
+          "type": "double",
+          "remark": "D30 双精度"
+        },
+        {
+          "tag_id": "m0_bool",
+          "address": "M0",
+          "type": "bool",
+          "remark": "M0 位"
+        },
+        {
+          "tag_id": "m1_bool",
+          "address": "M1",
+          "type": "bool",
+          "remark": "M1 位"
+        },
+        {
+          "tag_id": "y0_bool",
+          "address": "Y0",
+          "type": "bool",
+          "remark": "Y0 输出位"
+        },
+        {
+          "tag_id": "x0_bool",
+          "address": "X0",
+          "type": "bool",
+          "remark": "X0 输入位(只读)",
+          "access": "r"
+        }
       ]
     },
     {
       "name": "汇川 Modbus-RTU 串口",
       "driver": "inovance_rtu",
-      "params": {"station": 1},
-      "serial": {"port": "COM5", "baud_rate": 9600, "data_bits": 8, "stop_bits": 2, "parity": "N"},
+      "params": {
+        "station": 1
+      },
+      "serial": {
+        "port": "COM5",
+        "baud_rate": 9600,
+        "data_bits": 8,
+        "stop_bits": 2,
+        "parity": "N"
+      },
       "points": [
-        {"name": "D0 短整数", "address": "D0", "type": "short"},
-        {"name": "M0 位", "address": "M0", "type": "bool"}
+        {
+          "tag_id": "d0_short",
+          "address": "D0",
+          "type": "short",
+          "remark": "D0 短整数"
+        },
+        {
+          "tag_id": "m0_bool",
+          "address": "M0",
+          "type": "bool",
+          "remark": "M0 位"
+        }
       ]
     },
     {
@@ -296,9 +941,24 @@
       "ip": "127.0.0.1",
       "port": 2000,
       "points": [
-        {"name": "D100 短整数", "address": "D100", "type": "short"},
-        {"name": "D102 浮点", "address": "D102", "type": "float"},
-        {"name": "M0 位", "address": "M0", "type": "bool"}
+        {
+          "tag_id": "d100_short",
+          "address": "D100",
+          "type": "short",
+          "remark": "D100 短整数"
+        },
+        {
+          "tag_id": "d102_float",
+          "address": "D102",
+          "type": "float",
+          "remark": "D102 浮点"
+        },
+        {
+          "tag_id": "m0_bool",
+          "address": "M0",
+          "type": "bool",
+          "remark": "M0 位"
+        }
       ]
     },
     {
@@ -307,10 +967,30 @@
       "ip": "127.0.0.1",
       "port": 2000,
       "points": [
-        {"name": "D100 短整数", "address": "D100", "type": "short"},
-        {"name": "D102 浮点", "address": "D102", "type": "float"},
-        {"name": "R0 继电器位", "address": "R0", "type": "bool"},
-        {"name": "Y0 输出位", "address": "Y0", "type": "bool"}
+        {
+          "tag_id": "d100_short",
+          "address": "D100",
+          "type": "short",
+          "remark": "D100 短整数"
+        },
+        {
+          "tag_id": "d102_float",
+          "address": "D102",
+          "type": "float",
+          "remark": "D102 浮点"
+        },
+        {
+          "tag_id": "r0_bool",
+          "address": "R0",
+          "type": "bool",
+          "remark": "R0 继电器位"
+        },
+        {
+          "tag_id": "y0_bool",
+          "address": "Y0",
+          "type": "bool",
+          "remark": "Y0 输出位"
+        }
       ]
     },
     {
@@ -319,10 +999,30 @@
       "ip": "127.0.0.1",
       "port": 1024,
       "points": [
-        {"name": "D100 短整数", "address": "D100", "type": "short"},
-        {"name": "D102 浮点", "address": "D102", "type": "float"},
-        {"name": "R0 接点位", "address": "R0", "type": "bool"},
-        {"name": "R1.5 接点位(点号形式)", "address": "R1.5", "type": "bool"}
+        {
+          "tag_id": "d100_short",
+          "address": "D100",
+          "type": "short",
+          "remark": "D100 短整数"
+        },
+        {
+          "tag_id": "d102_float",
+          "address": "D102",
+          "type": "float",
+          "remark": "D102 浮点"
+        },
+        {
+          "tag_id": "r0_bool",
+          "address": "R0",
+          "type": "bool",
+          "remark": "R0 接点位"
+        },
+        {
+          "tag_id": "r1_5_bool",
+          "address": "R1.5",
+          "type": "bool",
+          "remark": "R1.5 接点位(点号形式)"
+        }
       ]
     },
     {
@@ -331,8 +1031,18 @@
       "ip": "127.0.0.1",
       "port": 1024,
       "points": [
-        {"name": "D200 短整数", "address": "D200", "type": "short"},
-        {"name": "R10 接点位", "address": "R10", "type": "bool"}
+        {
+          "tag_id": "d200_short",
+          "address": "D200",
+          "type": "short",
+          "remark": "D200 短整数"
+        },
+        {
+          "tag_id": "r10_bool",
+          "address": "R10",
+          "type": "bool",
+          "remark": "R10 接点位"
+        }
       ]
     },
     {
@@ -341,10 +1051,30 @@
       "ip": "127.0.0.1",
       "port": 1025,
       "points": [
-        {"name": "D0100 短整数(十六进制编号)", "address": "D0100", "type": "short"},
-        {"name": "D0200 浮点", "address": "D0200", "type": "float"},
-        {"name": "M0100 位", "address": "M0100", "type": "bool"},
-        {"name": "X0100 位", "address": "X0100", "type": "bool"}
+        {
+          "tag_id": "d0100_short",
+          "address": "D0100",
+          "type": "short",
+          "remark": "D0100 短整数(十六进制编号)"
+        },
+        {
+          "tag_id": "d0200_float",
+          "address": "D0200",
+          "type": "float",
+          "remark": "D0200 浮点"
+        },
+        {
+          "tag_id": "m0100_bool",
+          "address": "M0100",
+          "type": "bool",
+          "remark": "M0100 位"
+        },
+        {
+          "tag_id": "x0100_bool",
+          "address": "X0100",
+          "type": "bool",
+          "remark": "X0100 位"
+        }
       ]
     },
     {
@@ -353,8 +1083,18 @@
       "ip": "127.0.0.1",
       "port": 1025,
       "points": [
-        {"name": "D0300 短整数", "address": "D0300", "type": "short"},
-        {"name": "M0200 位", "address": "M0200", "type": "bool"}
+        {
+          "tag_id": "d0300_short",
+          "address": "D0300",
+          "type": "short",
+          "remark": "D0300 短整数"
+        },
+        {
+          "tag_id": "m0200_bool",
+          "address": "M0200",
+          "type": "bool",
+          "remark": "M0200 位"
+        }
       ]
     },
     {
@@ -362,14 +1102,48 @@
       "driver": "ab_eip",
       "ip": "127.0.0.1",
       "port": 44818,
-      "params": {"slot": 0, "connected_messaging": false},
+      "params": {
+        "slot": 0,
+        "connected_messaging": false
+      },
       "points": [
-        {"name": "BOOL 标签", "address": "MyBool", "type": "bool"},
-        {"name": "INT 标签", "address": "MyInt", "type": "short"},
-        {"name": "DINT 标签", "address": "MyDint", "type": "int"},
-        {"name": "REAL 标签", "address": "MyReal", "type": "float"},
-        {"name": "LINT 标签", "address": "MyLong", "type": "long"},
-        {"name": "STRING 标签", "address": "MyString", "type": "string", "length": 40}
+        {
+          "tag_id": "mybool_bool",
+          "address": "MyBool",
+          "type": "bool",
+          "remark": "BOOL 标签"
+        },
+        {
+          "tag_id": "myint_short",
+          "address": "MyInt",
+          "type": "short",
+          "remark": "INT 标签"
+        },
+        {
+          "tag_id": "mydint_int",
+          "address": "MyDint",
+          "type": "int",
+          "remark": "DINT 标签"
+        },
+        {
+          "tag_id": "myreal_float",
+          "address": "MyReal",
+          "type": "float",
+          "remark": "REAL 标签"
+        },
+        {
+          "tag_id": "mylong_long",
+          "address": "MyLong",
+          "type": "long",
+          "remark": "LINT 标签"
+        },
+        {
+          "tag_id": "mystring_str",
+          "address": "MyString",
+          "type": "string",
+          "remark": "STRING 标签",
+          "length": 40
+        }
       ]
     },
     {
@@ -377,12 +1151,35 @@
       "driver": "beckhoff_ads",
       "ip": "127.0.0.1",
       "port": 851,
-      "params": {"ads_port": 851, "net_id": ""},
+      "params": {
+        "ads_port": 851,
+        "net_id": ""
+      },
       "points": [
-        {"name": "MAIN 布尔", "address": "MAIN.bSwitch", "type": "bool"},
-        {"name": "MAIN 短整数", "address": "MAIN.nValue", "type": "short"},
-        {"name": "MAIN 浮点", "address": "MAIN.fValue", "type": "float"},
-        {"name": "GVL 整数", "address": "GVL.nCounter", "type": "int"}
+        {
+          "tag_id": "main_bswitch_bool",
+          "address": "MAIN.bSwitch",
+          "type": "bool",
+          "remark": "MAIN 布尔"
+        },
+        {
+          "tag_id": "main_nvalue_short",
+          "address": "MAIN.nValue",
+          "type": "short",
+          "remark": "MAIN 短整数"
+        },
+        {
+          "tag_id": "main_fvalue_float",
+          "address": "MAIN.fValue",
+          "type": "float",
+          "remark": "MAIN 浮点"
+        },
+        {
+          "tag_id": "gvl_ncounter_int",
+          "address": "GVL.nCounter",
+          "type": "int",
+          "remark": "GVL 整数"
+        }
       ]
     },
     {
@@ -390,17 +1187,67 @@
       "driver": "siemens_s7",
       "ip": "127.0.0.1",
       "port": 102,
-      "params": {"rack": 0, "slot": 1},
+      "params": {
+        "rack": 0,
+        "slot": 1
+      },
       "points": [
-        {"name": "DB1.DBX0.3 位", "address": "DB1.DBX0.3", "type": "bool"},
-        {"name": "M10.2 位", "address": "M10.2", "type": "bool"},
-        {"name": "Q0.1 输出位", "address": "Q0.1", "type": "bool"},
-        {"name": "I0.0 输入位(只读)", "address": "I0.0", "type": "bool", "access": "r"},
-        {"name": "DB1.DBW2 短整数", "address": "DB1.DBW2", "type": "short"},
-        {"name": "MW20 无符号短", "address": "MW20", "type": "ushort"},
-        {"name": "DB1.DBD4 浮点", "address": "DB1.DBD4", "type": "float"},
-        {"name": "DB1.DBD10 双精度", "address": "DB1.DBD10", "type": "double"},
-        {"name": "DB1.DBS30 字符串", "address": "DB1.DBS30", "type": "string", "length": 32}
+        {
+          "tag_id": "db1_dbx0_3_bool",
+          "address": "DB1.DBX0.3",
+          "type": "bool",
+          "remark": "DB1.DBX0.3 位"
+        },
+        {
+          "tag_id": "m10_2_bool",
+          "address": "M10.2",
+          "type": "bool",
+          "remark": "M10.2 位"
+        },
+        {
+          "tag_id": "q0_1_bool",
+          "address": "Q0.1",
+          "type": "bool",
+          "remark": "Q0.1 输出位"
+        },
+        {
+          "tag_id": "i0_0_bool",
+          "address": "I0.0",
+          "type": "bool",
+          "remark": "I0.0 输入位(只读)",
+          "access": "r"
+        },
+        {
+          "tag_id": "db1_dbw2_short",
+          "address": "DB1.DBW2",
+          "type": "short",
+          "remark": "DB1.DBW2 短整数"
+        },
+        {
+          "tag_id": "mw20_ushort",
+          "address": "MW20",
+          "type": "ushort",
+          "remark": "MW20 无符号短"
+        },
+        {
+          "tag_id": "db1_dbd4_float",
+          "address": "DB1.DBD4",
+          "type": "float",
+          "remark": "DB1.DBD4 浮点"
+        },
+        {
+          "tag_id": "db1_dbd10_double",
+          "address": "DB1.DBD10",
+          "type": "double",
+          "remark": "DB1.DBD10 双精度"
+        },
+        {
+          "tag_id": "db1_dbs30_str",
+          "address": "DB1.DBS30",
+          "type": "string",
+          "remark": "DB1.DBS30 字符串",
+          "length": 32
+        }
       ]
     },
     {
@@ -409,12 +1256,43 @@
       "ip": "127.0.0.1",
       "port": 4840,
       "points": [
-        {"name": "布尔变量", "address": "ns=2;s=Demo.Bool", "type": "bool"},
-        {"name": "短整数变量", "address": "ns=2;s=Demo.Short", "type": "short"},
-        {"name": "整数变量", "address": "ns=2;s=Demo.Int", "type": "int"},
-        {"name": "浮点变量", "address": "ns=2;s=Demo.Float", "type": "float"},
-        {"name": "双精度变量", "address": "ns=2;s=Demo.Double", "type": "double"},
-        {"name": "字符串变量", "address": "ns=2;s=Demo.String", "type": "string", "length": 32}
+        {
+          "tag_id": "ns_2_s_demo_bool_bool",
+          "address": "ns=2;s=Demo.Bool",
+          "type": "bool",
+          "remark": "布尔变量"
+        },
+        {
+          "tag_id": "ns_2_s_demo_short_short",
+          "address": "ns=2;s=Demo.Short",
+          "type": "short",
+          "remark": "短整数变量"
+        },
+        {
+          "tag_id": "ns_2_s_demo_int_int",
+          "address": "ns=2;s=Demo.Int",
+          "type": "int",
+          "remark": "整数变量"
+        },
+        {
+          "tag_id": "ns_2_s_demo_float_float",
+          "address": "ns=2;s=Demo.Float",
+          "type": "float",
+          "remark": "浮点变量"
+        },
+        {
+          "tag_id": "ns_2_s_demo_double_double",
+          "address": "ns=2;s=Demo.Double",
+          "type": "double",
+          "remark": "双精度变量"
+        },
+        {
+          "tag_id": "ns_2_s_demo_string_str",
+          "address": "ns=2;s=Demo.String",
+          "type": "string",
+          "remark": "字符串变量",
+          "length": 32
+        }
       ]
     },
     {
@@ -422,8 +1300,15 @@
       "driver": "opentcp",
       "ip": "127.0.0.1",
       "port": 9000,
-      "params": {"delimiter": "\r\n", "encoding": "utf-8"},
-      "raw": {"send_text": "PING", "expect_contains": "PONG"}
+      "params": {
+        "delimiter": "\r\n",
+        "encoding": "utf-8"
+      },
+      "raw": {
+        "send_text": "PING",
+        "expect_contains": "PONG"
+      },
+      "points": []
     },
     {
       "name": "CNC MTConnect",
@@ -432,9 +1317,28 @@
       "port": 5000,
       "snapshot": true,
       "points": [
-        {"name": "X 轴实际位置", "address": "Xact", "type": "float", "access": "r"},
-        {"name": "主轴转速", "address": "Sov", "type": "float", "access": "r"},
-        {"name": "程序号", "address": "program", "type": "string", "length": 32, "access": "r"}
+        {
+          "tag_id": "xact_float",
+          "address": "Xact",
+          "type": "float",
+          "remark": "X 轴实际位置",
+          "access": "r"
+        },
+        {
+          "tag_id": "sov_float",
+          "address": "Sov",
+          "type": "float",
+          "remark": "主轴转速",
+          "access": "r"
+        },
+        {
+          "tag_id": "program_str",
+          "address": "program",
+          "type": "string",
+          "remark": "程序号",
+          "length": 32,
+          "access": "r"
+        }
       ]
     }
   ]

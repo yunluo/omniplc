@@ -352,8 +352,11 @@ asyncio.run(main())
 ```python
 from omniplc import TagTable
 
+# tags.json 格式:[{"tag_id": "furnace_temp", "address": "D100", "data_type": "float",
+#                  "scale": 0.1, "remark": "炉温"}, ...]
+# tag_id 为程序用标识(一般字母/数字),remark 为中文备注(供人员查看记录,可省略)
 client.bind_tags(TagTable.from_json("tags.json"))
-ok, value = client.read_tag("炉温")     # 名称 → 地址+类型,自动应用缩放
+ok, value = client.read_tag("furnace_temp")   # 点位标识 → 地址+类型,自动应用缩放
 ```
 
 #### 错误处理约定
