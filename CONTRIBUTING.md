@@ -81,3 +81,13 @@ sdist + wheel、挂 GitHub Release、可信发布(OIDC)到 PyPI;PR 触发的是�
 
 本仓库参与讨论须遵守 [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md);
 安全漏洞披露见 [`SECURITY.md`](SECURITY.md)(**不要**在公开 issue 提)。
+
+## 九、真机联测
+
+单元测试走黄金报文 + 模拟传输,**不等于**真机联测;协议面改动提交 PR 时须:
+
+- 自检清单勾选「真机联测」
+- 在 [`docs/real-machine-checklist.md`](docs/real-machine-checklist.md) 填写真机型号 / 固件 / 版本 / 日期 / 结果
+- 模拟器(PLCSIM Advanced / HSL / TwinCAT Simulator 等)需在备注里明确标注
+
+现有未真机项目清单:`README.md`「真机联测待做」表。

@@ -435,6 +435,8 @@ ok, value = client.read_tag("furnace_temp")   # 点位标识 → 地址+类型,�
 | MTConnect        | MTConnect Agent  | 标准库 HTTP/XML,需 CNC 端 Agent     |
 | MX Component     | 三菱 MX            | 读写/批量/CPU 型号/时钟已真机核证;get_error_message(ActSupportMsg)待核证 |
 
+实际真机联测通过项的核验记录见 [`docs/real-machine-checklist.md`](docs/real-machine-checklist.md)(按厂商/协议/读写独立勾选)。
+
 #### v1 协议 × 走线矩阵
 
 | 协议                                     | TCP                                                   | UDP     | RTU(串口)            | MX Component     |
