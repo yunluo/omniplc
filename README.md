@@ -12,83 +12,48 @@ omniplc:一个面向多品牌、多协议 PLC 的 Python 统一通信库。一�
 
 #### 类继承图
 
-```mermaid
-flowchart TB
-    BaseClient["BaseClient(ABC,模板方法)<br/>连接状态机 / 事务锁 / 惰性重连 / 类型化读写只写一次"]
+```text
+BaseClient(ABC,模板方法:连接状态机 / 事务锁 / 惰性重连 / 类型化读写只写一次)
+│
+├── ModbusBaseClient —— 寄存器级公共逻辑:字序 / 类型分发 / 范围校验
+│   ├── ModbusTcpClient —— MBAP over TCP(502)
+│   │   └── InovanceTcpClient —— 汇川 H3U/H5U,继承 Modbus 只换软元件地址映射
+│   └── ModbusRtuClient —— 站号+PDU+CRC16 over 串口(需 pyserial)
+│       └── InovanceRtuClient —— 汇川 H3U/H5U RTU(9600-8N2),继承 Modbus 只换地址映射
+│
+├── MelsecMcTcpClient —— 三菱 MC 3E/4E/1E 帧 over TCP(2000)
+│   ├── KeyenceMcTcpClient —— 基恩士 KV MC 兼容 / SLMP 3E(5000),只换码表
+│   ├── InovanceMcTcpClient —— 汇川 MC 兼容 3E,换码表 + 记号换算(S→L、R=D+8000、X/Y 八进制)
+│   └── PanasonicMcTcpClient —— 松下 FP0H/FP7 MC 兼容 3E,换码表 + 记号换算(字号×16+位号、R9000+→SM、D90000+→SD)
+├── MelsecMcUdpClient —— 三菱 MC 同帧型 over UDP(2000)
+│   └── KeyenceMcUdpClient —— 基恩士 KV MC 兼容 SLMP 3E over UDP(5000),与 TCP 版共用码表覆写
+├── MelsecMcSerialClient —— 三菱 MC 串口帧(C24):3C ASCII 格式 4 / 4C 二进制格式 5,需 pyserial
+├── MelsecMxClient —— 三菱 MX Component(Windows,comtypes,逻辑站号)
+│
+├── OmronFinsTcpClient —— 欧姆龙 FINS + TCP 握手(9600)
+├── OmronFinsUdpClient —— 欧姆龙 FINS over UDP(9600)
+├── AllenBradleyEthIpClient —— 罗克韦尔 AB EtherNet/IP(44818):Logix 标签自描述,unconnected/connected 双通道
+│   └── OmronCipClient —— 欧姆龙 NJ/NX CIP(44818):unconnected 直发无背板路由,NJ 变量读写
+├── BeckhoffAdsClient —— 倍福 TwinCAT ADS(AMS 851,封装 pyads):变量名即地址,ADSError 不断线
+├── KeyenceHostLinkTcpClient —— 基恩士 KV Host Link over TCP(8000)
+├── KeyenceHostLinkUdpClient —— 基恩士 KV Host Link over UDP(8000)
+├── KeyenceSrClient —— 基恩士 SR 扫码枪 TCP(9004,LON/LOFF 触发扫码)
+├── PanasonicMewtocolTcpClient —— 松下 MEWTOCOL over TCP(1024):ASCII 帧 + BCC,RCS/WCS 单接点、RD/WD 数据区
+├── PanasonicMewtocolUdpClient —— 松下 MEWTOCOL over UDP(1024)
+├── ToyopucTcpClient —— 丰田 TOYOPUC 计算机链接 over TCP(1025)
+├── ToyopucUdpClient —— TOYOPUC 同帧 over UDP(1025)
+├── OpcUaClient —— OPC-UA opc.tcp 会话(4840,封装 asyncua)
+├── MTConnectClient —— CNC 机床数采(HTTP/XML 只读,Agent 默认 5000)
+├── SiemensS7Client —— 西门子 S7(102,rack/slot 路由,封装 python-snap7)
+└── OpenTcpClient —— 通用自定义 TCP/IP(端口按设备):分隔符/定长成帧 + 内部缓冲,send/receive/transact*
 
-    ModbusBaseClient["ModbusBaseClient<br/>寄存器级公共逻辑:字序 / 类型分发 / 范围校验"]
-    ModbusTcpClient["ModbusTcpClient — MBAP over TCP(502)"]
-    ModbusRtuClient["ModbusRtuClient — 站号+PDU+CRC16 over 串口"]
-    InovanceTcpClient["InovanceTcpClient — 汇川 H3U/H5U Modbus TCP(502)<br/>继承 Modbus,只换软元件地址映射"]
-    InovanceRtuClient["InovanceRtuClient — 汇川 H3U/H5U Modbus RTU(串口)<br/>继承 Modbus,只换软元件地址映射"]
-
-    MelsecMcTcpClient["MelsecMcTcpClient — 三菱 MC 3E/4E/1E 帧 over TCP(2000)"]
-    MelsecMcUdpClient["MelsecMcUdpClient — 三菱 MC 同帧型 over UDP(2000)"]
-    MelsecMcSerialClient["MelsecMcSerialClient — 三菱 MC 串口帧(C24)<br/>3C 帧 ASCII 格式 4 / 4C 帧 二进制格式 5,需 pyserial"]
-    MelsecMxClient["MelsecMxClient — 三菱 MX Component(Windows,comtypes,逻辑站号)"]
-    KeyenceMcTcpClient["KeyenceMcTcpClient — 基恩士 KV MC 协议兼容 / SLMP 3E 帧 over TCP(5000)<br/>继承 MelsecMcTcpClient,只换软元件码表"]
-    KeyenceMcUdpClient["KeyenceMcUdpClient — 基恩士 KV MC 协议兼容 SLMP 3E 帧 over UDP(5000)<br/>继承 MelsecMcUdpClient,与 TCP 版共用码表覆写"]
-    InovanceMcTcpClient["InovanceMcTcpClient — 汇川 MC 协议兼容 3E 帧<br/>继承 MelsecMcTcpClient,换码表 + 记号换算(S→L 码、R=D+8000、X/Y 八进制)"]
-    PanasonicMcTcpClient["PanasonicMcTcpClient — 松下 FP0H/FP7 MC 协议兼容 3E 帧<br/>继承 MelsecMcTcpClient,换码表 + 记号换算(字号×16+位号、R9000+→SM、D90000+→SD)"]
-    PanasonicMewtocolTcpClient["PanasonicMewtocolTcpClient — 松下 MEWTOCOL over TCP(1024)<br/>ASCII 帧 + BCC,RCS/WCS 单接点、RD/WD 数据区"]
-    PanasonicMewtocolUdpClient["PanasonicMewtocolUdpClient — MEWTOCOL over UDP(1024)"]
-
-    OmronFinsTcpClient["OmronFinsTcpClient — 欧姆龙 FINS + TCP 握手(9600)"]
-    OmronFinsUdpClient["OmronFinsUdpClient — 欧姆龙 FINS over UDP(9600)"]
-
-    AllenBradleyEthIpClient["AllenBradleyEthIpClient — 罗克韦尔 AB EtherNet/IP(44818)<br/>Logix 标签读写,标签自描述<br/>unconnected(UC Send 槽号路由)/ connected(Forward Open + SendUnitData)双通道"]
-
-    OmronCipClient["OmronCipClient — 欧姆龙 NJ/NX CIP(44818)<br/>继承 AllenBradleyEthIpClient:unconnected 直发(无背板路由)<br/>connected 连接路径只剩消息路由对象,NJ 变量读写"]
-
-    BeckhoffAdsClient["BeckhoffAdsClient — 倍福 TwinCAT ADS(AMS 851,封装 pyads)<br/>变量名即地址(MAIN.nCounter),类型显式指定<br/>ADSError → DeviceError 不断线"]
-
-    KeyenceHostLinkTcpClient["KeyenceHostLinkTcpClient — 基恩士 KV Host Link over TCP(8000)"]
-    KeyenceHostLinkUdpClient["KeyenceHostLinkUdpClient — 基恩士 KV Host Link over UDP(8000)"]
-
-    KeyenceSrClient["KeyenceSrClient — 基恩士 SR 扫码枪 TCP(9004,LON/LOFF 触发扫码)"]
-
-    ToyopucTcpClient["ToyopucTcpClient — 丰田 TOYOPUC 计算机链接 over TCP(1025)"]
-    ToyopucUdpClient["ToyopucUdpClient — TOYOPUC 同帧 over UDP(1025)"]
-
-    OpcUaClient["OpcUaClient — OPC-UA opc.tcp 会话(4840,封装 asyncua)"]
-
-    MTConnectClient["MTConnectClient — CNC 机床数采(HTTP/XML 只读,Agent 默认 5000)"]
-    SiemensS7Client["SiemensS7Client — 西门子 S7(102,rack/slot 路由,封装 python-snap7)"]
-
-    OpenTcpClient["OpenTcpClient — 通用自定义 TCP/IP 客户端(端口按设备)<br/>分隔符/定长成帧 + 内部缓冲,重连/超时沿用 BaseClient 属性<br/>send/send_text/receive/receive_text/transact*"]
-
-    BaseClient --> ModbusBaseClient
-    ModbusBaseClient --> ModbusTcpClient
-    ModbusBaseClient --> ModbusRtuClient
-    ModbusBaseClient --> InovanceTcpClient
-    ModbusBaseClient --> InovanceRtuClient
-    BaseClient --> MelsecMcTcpClient
-    BaseClient --> MelsecMcUdpClient
-    BaseClient --> MelsecMcSerialClient
-    BaseClient --> MelsecMxClient
-    MelsecMcTcpClient --> KeyenceMcTcpClient
-    MelsecMcUdpClient --> KeyenceMcUdpClient
-    MelsecMcTcpClient --> InovanceMcTcpClient
-    MelsecMcTcpClient --> PanasonicMcTcpClient
-    BaseClient --> PanasonicMewtocolTcpClient
-    BaseClient --> PanasonicMewtocolUdpClient
-    BaseClient --> OmronFinsTcpClient
-    BaseClient --> OmronFinsUdpClient
-    BaseClient --> BeckhoffAdsClient
-    BaseClient --> AllenBradleyEthIpClient
-    AllenBradleyEthIpClient --> OmronCipClient
-    BaseClient --> KeyenceHostLinkTcpClient
-    BaseClient --> KeyenceHostLinkUdpClient
-    BaseClient --> KeyenceSrClient
-    BaseClient --> ToyopucTcpClient
-    BaseClient --> ToyopucUdpClient
-    BaseClient --> OpcUaClient
-    BaseClient --> MTConnectClient
-    BaseClient --> SiemensS7Client
-    BaseClient --> OpenTcpClient
-
-    AsyncMirror["异步镜像(omniplc.aio,类名 = 同步类名前加 A):<br/>AModbusTcpClient / AModbusRtuClient / AInovanceTcpClient / AInovanceRtuClient / AInovanceMcTcpClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient / AOmronFinsTcpClient<br/>AOmronFinsUdpClient / AOmronCipClient / ABeckhoffAdsClient / AAllenBradleyEthIpClient / AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient<br/>APanasonicMcTcpClient / APanasonicMewtocolTcpClient / APanasonicMewtocolUdpClient<br/>AKeyenceSrClient / AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient / AOpenTcpClient / AMTConnectClient / ASiemensS7Client"]
-    BaseClient -.-> AsyncMirror
+异步镜像(omniplc.aio):类名 = 同步类名前加 A,签名同名同型,共 28 个
+AModbusTcpClient / AModbusRtuClient / AInovanceTcpClient / AInovanceRtuClient / AInovanceMcTcpClient
+AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient / AOmronFinsTcpClient
+AOmronFinsUdpClient / AOmronCipClient / ABeckhoffAdsClient / AAllenBradleyEthIpClient / AKeyenceHostLinkTcpClient
+AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient / APanasonicMcTcpClient / APanasonicMewtocolTcpClient
+APanasonicMewtocolUdpClient / AKeyenceSrClient / AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient
+AOpenTcpClient / AMTConnectClient / ASiemensS7Client
 ```
 
 详细架构设计见 [docs/architecture.md](docs/architecture.md)。
