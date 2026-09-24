@@ -35,13 +35,19 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: omniplc-dist
-          path: dist/
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
           if-no-files-found: error
 
       - name: Create GitHub Release with artifacts
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          # 显式只发布分发包:uv build 会在 dist/ 生成 .gitignore(内容 *,
+          # 防产物污染 VCS),通配 dist/* 会把它一并挂上 Release
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
           fail_on_unmatched_files: true
 
   publish:
