@@ -1,0 +1,40 @@
+name: ci
+
+# 每次提交强制三件套门禁:pytest 全量 / ruff / mypy
+# 与 build-release.yml 互补(本工作流 push+PR 触发,发布仍走 tag 触发的 build-release.yml)
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true   # 新推送自动取消旧运行,省分钟
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          # 与 build-release.yml 一致;仓库 .python-version 钉 3.7.9(本地开发用),
+          # runner 无此解释器且 uv 托管下载不支持 3.7;测试本身在 3.12 跑(纯 Python
+          # 库行为一致),py3.7 真兼容由本地门禁兜底
+          python-version: "3.12"
+
+      - name: Sync dev dependencies
+        run: uv sync --group dev
+
+      - name: pytest
+        run: uv run python -m pytest tests -q
+
+      - name: ruff
+        run: uvx ruff check src tests
+
+      - name: mypy
+        run: uvx mypy src/omniplc
