@@ -343,7 +343,8 @@ class AllenBradleyEthIpClient(BaseClient):
         try:
             return True, codec_cip.parse_module_identity_payload(payload)
         except Exception as exc:
-            self._set_error(f"GetAttributesAll 解码失败:{exc}", _categorize(exc), _extract_code(exc))
+            with self._lock:
+                self._set_error(f"GetAttributesAll 解码失败:{exc}", _categorize(exc), _extract_code(exc))
             return False, None
 
     def get_attribute_all(
@@ -399,7 +400,8 @@ class AllenBradleyEthIpClient(BaseClient):
                     payload, decoders
                 )
             except Exception as exc:
-                self._set_error(f"GetAttributeList 解码失败:{exc}", _categorize(exc), _extract_code(exc))
+                with self._lock:
+                    self._set_error(f"GetAttributeList 解码失败:{exc}", _categorize(exc), _extract_code(exc))
                 return False, None
         # 非 Identity 对象:返回原始 payload,调用方自行解
         return True, [(a, payload) for a in attrs]

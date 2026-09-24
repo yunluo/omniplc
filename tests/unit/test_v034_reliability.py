@@ -101,6 +101,15 @@ class TestErrorCategory:
         assert client.last_error_category is ErrorCategory.TRANSPORT
         assert client.connected is False
 
+    def test_oserror_errno_extracted(self) -> None:
+        """OSError 的 errno 直通 last_error_code(上位系统告警分类用)。"""
+        client = _ScriptedClient()
+        client.connect()
+        client.script_failure(OSError(10061, "连接被拒绝"))
+        ok, _ = client.read("hr0", "short")
+        assert ok is False
+        assert client.last_error_code == 10061
+
     def test_socket_timeout_category(self) -> None:
         client = _ScriptedClient()
         client.connect()
@@ -111,13 +120,14 @@ class TestErrorCategory:
         assert "通信超时" in (client.last_error or "")
 
     def test_transport_timeout_error_wins_over_device(self) -> None:
-        """顺序敏感:TransportTimeoutError(DeviceError 子类)必须归 TIMEOUT。"""
+        """顺序敏感:TransportTimeoutError(DeviceError 子类)必须归 TIMEOUT,code 为 None。"""
         client = _ScriptedClient()
         client.connect()
         client.script_failure(TransportTimeoutError("接收超时", 0))
         ok, _ = client.read("hr0", "short")
         assert ok is False
         assert client.last_error_category is ErrorCategory.TIMEOUT
+        assert client.last_error_code is None  # 传输超时码 0 不当作协议码
 
     def test_protocol_frame_error_category(self) -> None:
         client = _ScriptedClient()
@@ -188,10 +198,46 @@ class TestReconnectBackoff:
         assert ok is False  # 真实建连失败
         ok, _ = client.read("hr0", "short")
         assert ok is False  # 立即重试被门控拦下
-        assert "退避" in (client.last_error or "")
+        # 根因错误保留(门控消息是瞬态提示,不覆盖诊断信息)
+        assert "连接被拒绝" in (client.last_error or "")
+        assert client.last_error_category is ErrorCategory.TRANSPORT
+        assert len(client.transports) == 1  # 门控拒绝不再建传输
+
+    def test_gate_preserves_root_cause_with_retries(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """I1 回归:retries>0 时门控窗口内重试直接结束,根因不被覆盖。"""
+        monkeypatch.setattr(base_client_mod.random, "uniform", lambda a, b: 0.25)
+        client = _ScriptedClient(fail_connect_times=1)
+        client.retries = 1
+        ok, _ = client.read("hr0", "short")
+        assert ok is False
+        # 迭代 1 真实失败写入根因;迭代 2 门控预检 break —— 根因保留
+        assert "连接被拒绝" in (client.last_error or "")
         assert client.last_error_category is ErrorCategory.TRANSPORT
         assert client.last_error_code is None
-        assert len(client.transports) == 1  # 门控拒绝不再建传输
+        assert len(client.transports) == 1
+
+    def test_gate_does_not_advance_state(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """门控拒绝不改 _next_connect_at / _connect_fail_count(§2.4)。"""
+        monkeypatch.setattr(base_client_mod.random, "uniform", lambda a, b: 0.25)
+        client = _ScriptedClient(fail_connect_times=1)
+        client.read("hr0", "short")  # 真实失败:推进一次
+        assert client._connect_fail_count == 1
+        before = client._next_connect_at
+        client.read("hr0", "short")  # 门控拒绝
+        assert client._connect_fail_count == 1
+        assert client._next_connect_at == before
+
+    def test_enter_raises_during_backoff(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """退避窗口内 __enter__ 抛 ConnectionError(消息含"退避")。"""
+        monkeypatch.setattr(base_client_mod.random, "uniform", lambda a, b: 0.25)
+        client = _ScriptedClient(fail_connect_times=1)
+        assert client.connect() is False  # 真实失败,武装门控
+        with pytest.raises(ConnectionError) as ei:
+            with client:
+                pass
+        assert "退避" in str(ei.value)
 
     def test_gate_does_not_count_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """门控拒绝无网络动作,不计 error_count。"""
@@ -258,11 +304,15 @@ class TestReconnectBackoff:
 
         monkeypatch.setattr(base_client_mod.random, "uniform", _fake_uniform)
         client = _ScriptedClient()
-        # 直接驱动失败登记助手:真实场景 12 次失败间隔会超过门控窗口,
-        # 单测压缩时间轴只验证 0.5×2ⁿ 指数增长在 n=6 起封顶 30s
+        caps: List[float] = []
         for _ in range(12):
-            client._register_connect_failure()
-        assert captured["cap"] == RECONNECT_BACKOFF_MAX
+            client._fail_connect_times = 1  # 每轮一个新失败传输
+            assert client.connect() is False
+            caps.append(captured["cap"])
+            client._next_connect_at = 0.0  # 清门控,制造下一次真实失败
+        # 真实失败序列下延迟上限单调不降,0.5×2ⁿ 在 n=6 起封顶 30s
+        assert caps == sorted(caps)
+        assert caps[-1] == RECONNECT_BACKOFF_MAX
         assert client._connect_fail_count == 12
 
     def test_backoff_disabled_matches_legacy(self) -> None:

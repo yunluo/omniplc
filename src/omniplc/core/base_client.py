@@ -628,9 +628,14 @@ class BaseClient(ABC):
             self._counters["transactions"] += 1
             started = time.perf_counter()
             for attempt in range(retries + 1):
-                if not self._connected and not self.connect():
-                    # connect() 内部已记录 last_error;标记断开后重试即重连
-                    continue
+                if not self._connected:
+                    if self.next_connect_in is not None:
+                        # 退避门控激活:窗口内重试只会空转,直接结束——
+                        # last_error 保留武装门控的那次真实失败根因
+                        break
+                    if not self.connect():
+                        # connect() 内部已记录 last_error;标记断开后重试即重连
+                        continue
                 try:
                     value = operation()
                     self._clear_error()
@@ -638,7 +643,7 @@ class BaseClient(ABC):
                     self._timestamps["last_rtt"] = time.perf_counter() - started
                     return True, value
                 except DeviceError as exc:
-                    self._set_error(_describe(exc), _categorize(exc), exc.code)
+                    self._set_error(_describe(exc), _categorize(exc), _extract_code(exc))
                     self._counters["device_error_count"] += 1
                     return False, None
                 except (OSError, OmniPLCInternalError) as exc:
@@ -782,7 +787,13 @@ def _categorize(exc: BaseException) -> ErrorCategory:
 
 
 def _extract_code(exc: BaseException) -> Optional[int]:
-    """提取原始错误码:DeviceError 取协议码,OSError 取 errno,其余 None。"""
+    """提取原始错误码:DeviceError 取协议码,OSError 取 errno,其余 None。
+
+    注意:``TransportTimeoutError`` 虽是 DeviceError 子类,但其 code
+    (传输层构造传 0)不是 PLC 协议码,按无码处理。
+    """
+    if isinstance(exc, TransportTimeoutError):
+        return None
     if isinstance(exc, DeviceError):
         return exc.code
     if isinstance(exc, OSError):

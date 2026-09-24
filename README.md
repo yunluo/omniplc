@@ -396,6 +396,10 @@ ok, value = client.read_tag("furnace_temp")   # 点位标识 → 地址+类型,�
 - 默认开启;`client.reconnect_backoff = False` 一行恢复 v0.33 行为
 - `client.next_connect_in`:距下次允许连接的剩余秒数(`None` = 可立即连)
 - 门控拒绝不计入 `stats["error_count"]`(无真实网络动作)
+- 显式 `disconnect()` 会**重置门控与失败计数**(视为干净起点);
+  失败重试循环中请勿"先 disconnect 再 connect",否则退避不生效
+- 配置了 `retries` 时,门控窗口内的重试直接结束(不空转),
+  `last_error` 保留武装门控的那次真实失败根因
 
 #### 连接健康统计(v0.30.0 起)
 
