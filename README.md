@@ -458,53 +458,9 @@ ok, value = client.read_tag("furnace_temp")   # 点位标识 → 地址+类型,�
 | 西门子 S7(DB/I/Q/M)                       | ✅(102,封装 python-snap7:3.7~3.9→1.3,3.10+→3.x 纯 Python) | —       | —                  | —                |
 | 通用自定义 TCP(分隔符成帧)                       | ✅(分隔符/编码/帧上限可配)                                       | —       | —                  | —                |
 
-#### 路线图
+#### 变更历史
 
-- **v0.34.0(当前)**:可靠性 P0 双项——(1)**连接退避门控**:建连/握手失败后指数退避(full jitter,`uniform(0, min(0.5×2ⁿ, 30))` 秒,`monotonic()` 时间戳门控零 sleep),`reconnect_backoff` 可写属性(默认开,`retries` 同款)+ `next_connect_in` 只读属性;防 PLC 断电高频重连风暴,门控拒绝不计 `error_count`,连接成功/显式断开全重置;(2)**失败结构化**:`ErrorCategory` 五值枚举(TRANSPORT/PROTOCOL/DEVICE/TIMEOUT/UNKNOWN,TIMEOUT 独立——链路完好可重试,与坏帧区分)+ `last_error_category`/`last_error_code` 只读属性(`DeviceError.code` 协议原始码 / `OSError.errno` 直通),`last_error` 文本契约不变;失败写入统一收口 `_set_error`/`_clear_error`(SR 扫码枪 ×5、AB 解码 ×2 直写点迁移);aio 镜像全量转发,内省守卫通过。决策与依据:`docs/superpowers/specs/2026-09-22-v0.34-reliability-observability-design.md`。
-- **v0.33.0**:MC A 兼容 1C 帧落地(`MelsecMcSerialClient(frame="1C")`,命令 BR/WR/BW/WW)——C24 A 兼容通信,ASCII 格式 4(ENQ 起始、和校验后接 CR LF),与 3C/4C 共享同一串口客户端;软元件规格 X/Y/B/W 十六进制、M/L/S/F/D/R 十进制,T/C 双性质映射(字=TN/CN、位读=TS/CS、位写=TC/CC),位软元件按字访问起始编号须 16 的倍数;点数上限 BR 256/BW 160/WR·WW 64 字(位软元件按字 32/10);消息等待(`message_wait`,0~15,10ms 单位)构造期可配;与 3C 的差异——无帧识别码、路由缩为站号+PC 号、错误代码 2 位、命令字 BR/BR/WW/WW(ACPU 共通),JR/QR/BT/WT/监视登录/扩展文件寄存器/TT 等与点位读写契约不符未做;以本地 SH-080008-AB 第 17 章逐字节核证(`codec_serial_a.py`),黄金向量入库(21 例含 T/C 映射、点位上下限、回显/和校验/控制码坏帧、aio 镜像);`docs/architecture.md` MC 串口段补 1C 详解,协议覆盖表 RTU 列 3C/4C → 1C/3C/4C,backlog 行 1C/2C → 2C。**点位表 schema 破坏性变更**(随本期发布):`Tag.name` → `tag_id`(字母标识)+ 新增 `remark`(中文备注,可选);迁移指南见 README「点位表」节与 `tag.py` 文档。
-- **v0.32.1**:CI 修复——Release 发布物收紧为显式 `dist/*.whl` + `dist/*.tar.gz`:`uv build` 会在 `dist/` 生成 `.gitignore`(内容 `*`,防构建产物污染 VCS,本地复现坐实),原 `dist/*` 通配把它一并挂上 Release(GitHub 存储名 `default.gitignore`、显示 `.gitignore`);收紧后发布物仅可能为 wheel + sdist,aio 产物清单同步收紧
-- **v0.32.0**:API 对齐批——(1)**FINS 节点号自动推导**:`destination_node`/`source_node`(TCP 另含 `local_node`)缺省 `None` 自动获取——UDP 从 IP 末段推导(目标 = PLC IP 末段,源 = 本机出口 IP 末段,UDP connect 探测取同一路由出口),TCP 经握手获取;显式传值原样使用(OmronFins UDP 读 0x2108 真机排查的配套改进);(2)**参数归位四分法成文**(architecture.md §2.1:构造 = 身份冻结/可写属性 = 行为调优/`configure_serial` = 物理链路/只读 = 运行态;判定测试"改了它是不是等于换了一个对端")并补齐只读属性:FINS 路由六参、MC `network_number`/`pc_number`、MC 串口 `self_station_number`/`module_station`(含 aio 镜像,内省守卫通过);(3)**双入口一律取消**:Modbus `station` 与 SR `scan_dwell` 属性转只读(校验移到构造期),全库不变量 = 构造参数一律冻结、可写属性一律不进构造(仅剩超时/重试/字序五件);(4)**S7 构造签名对齐**:`(ip, rack, slot, port, dll_path)` → `(ip, port, rack, slot, dll_path)`(破坏性:位置参数调用需调整,关键字调用不受影响)
-- **v0.31.4**:CI 修复批——`uv build` 显式指定 `--python 3.12`:仓库 `.python-version` 钉 3.7.9(本地开发用),GitHub runner 无此解释器且 uv 托管下载不支持 3.7(首跑报 "No interpreter found for Python 3.7.9");构建本身与运行版本无关(hatchling 纯 Python,产物 wheel 为 `py3-none-any`),setup-uv 预装 3.12 后构建恢复正常
-- **v0.31.3**:CI 发布流水线——新增 GitHub Actions 工作流(`.github/workflows/build-release.yml`),打标签推送(`v*`)自动触发:`uv build` 构建 sdist + wheel、挂到对应 GitHub Release,并经**可信发布(OIDC)**发布到 PyPI(工作流内无明文令牌;`fork` 守卫防误发;Gitee Go 流水线为企业付费服务,个人账号不可用故未配置)
-- **v0.31.2**:文档完善批——(1)**全库客户端类构造参数注释补全**:AST 审计 43 处缺口全部补齐(aio 异步包装 29 处"参数同 X"引用式改为显式 `:param`、同步客户端 9 处委托式改为显式参数块——`OmronFinsTcpClient` 补漏注的 6 个 FINS 路由字段、内部会话适配器 5 处补全),措辞与同步侧逐字一致防漂移;(2)**README 同步修正**:类继承图补 `MTConnectClient`/`SiemensS7Client` 节点与箭头、异步镜像清单补 `AMTConnectClient`/`ASiemensS7Client`、安装节补 `[ads]`/`[s7]` extra;(3)**使用范例修正**:`read_many` 返回逐点列表的语义错误解包修复(`ok, values = ...` 改为 `results = ...`),全部 7 个代码块经 AST+真实签名审计零问题;(4)路线图按版本号降序重排(新版本在前)
-- **v0.31.1**:MX Component 块读写原始 vtable 调用补第 4 参——`ReadDeviceBlock`/`WriteDeviceBlock`/`ReadDeviceRandom`/`WriteDeviceRandom` 的 raw 调用须按 vtable 全参收,尾参 `lplRetCode`(通信函数的返回值,[out,retval])也要自备 `ctypes.c_long` 缓冲传入(3 参调用真机报 "this function takes 4 arguments (3 given)",实机两轮联测核证);方法返回值为 COM 层 HRESULT,业务出错码以尾缓冲内容为准,新增 `_check_com_call` 双校验(HRESULT 失败 = COM 层问题,通信函数返回值非 0 = PLC 出错代码);`this` 由 comtypes 绑定自动提供、不占参数位——报错文案判别:raw 通道 "this function takes N (M given)" 的 N 是业务参数个数、高层包装 "call takes exactly N" 的 N 含 self;`get_cpu_type`/`get_clock` 高层双形态路径实机确认正常
-- **v0.31.0**:MX Component 真机联测批(真机两轮联测核证 COM 出参口径 + 查询能力扩充)——(1)**comtypes 出参约定逐方法修正**:`GetDevice` 出参收进返回值,单参调用直接返回数据(传 byref 缓冲报参数个数 TypeError);`ReadDeviceBlock`/`ReadDeviceRandom` 数组参数以 ctypes 缓冲传入原地填充(省略缓冲调用不报错但返回值是出错代码、数据被丢弃,症状 `int object is not iterable`),返回码照常校验;`SetDevice`/`WriteDeviceBlock` 纯入参;GetDevice 路径失败以 COMError 形态出现,翻译为 `OmniPLCInternalError` 走断线重连;(2)**新增方法**:`write_batch` 随机批量写(WriteDeviceRandom;位 + 16 位字混合单事务,拒绝位后缀挂字软元件、32 位类型、超 `MX_MAX_BLOCK_WORDS`)、`get_cpu_type`(GetCpuType)、`get_clock`/`set_clock`(Get·SetClockData,字段序 年/月/日/星期/时/分/秒)、`get_error_message`(GetErrorMessage,独立 ActSupportMsg 控件,ProgID 按命名惯例推定待真机核证);未核证方法防御性双形态(短参优先,TypeError 回退 byref VARIANT);均含 aio 异步镜像;(3)**类型化读→MX 方法映射**:`GetDevice` 单点=1 字 16 位,`read_int/uint/float` 走 ReadDeviceBlock 2 字(低字+高字×65536 小端拼合,INT 再转补码)、`read_long/ulong/double` 走 4 字、`read_string` 走 ⌈n/2⌉ 字拼字节;"2" 系列是 SHORT 型数据版而非 32 位
-- **v0.30.2**:安全修复(2026-09-23 三路安全审计收口)——(1)**网络长度域 recv 前上限快失败**:FINS/TCP 32 位长度域 ≤8192(握手与数据路径共用)、MC 3E/4E 应答数据长 ≤8192、MC 4C 串口长度域 ≤4096、TOYOPUC 帧长 ≤2048、AB ENIP 长度域 ≤8192,超限按坏帧断线——恶意设备/中间人声明的超长收包不再能导致内存耗尽或事务阻塞(原 FINS `0xFFFFFFFF` 长度域可灌 350MB+);(2)**逐字节收包改整事务 deadline**:MC 4C / KV Host Link / SR 扫码枪 / OpenTcp 的收包循环一次性起算 deadline、每轮下发剩余预算,滴流对端不再能逐字节重置超时长占事务锁(原 4C 最长 ~54 小时、KV ~3.4 小时),各协议超时/断线语义不变;(3)**MTConnect 响应体上限**:分块读取 + 16MB 上限(超限坏帧断线),数值文本 >64 字符快拒(py3.11 前 `int()/float()` 对超长数字串超线性);补 9 例安全回归测试
-- **v0.30.1**:修复合集——(1)MTConnect keep-alive 失效原位重建透明重试(Agent 空闲超时静默关连接后,下一次 GET 原位重建重试一次,轮询不再周期性断线;`urllib` 已裁决不采用:`urllib.request` 显式 `Connection: close` 每请求新建 TCP,轮询场景是退步);(2)点位表 `write_tag` 整数点位逆缩放还原 int(真除法恒产生 float,被底层整数校验拒收,整数点位写入必挂——默认 scale=1.0 也挂),`scale=0` 建表期拒绝,JSON 元素非对象/CSV 短行等导入异常契约收口;(3)OpenTcp 流式成帧改用 `recv_some`(修复真服务端短帧永远收不到——`TcpTransport.recv` 的"读满恰好 size"契约被当流式读误用,短帧凑不满卡到超时);(4)全协议收包语义收口:MC 1E 读错误响应按结束码分流(1E 帧无长度域,错误响应只有 2 字节头,原实现按成功长度继续收数据,阻塞到超时误判断线)、SR 扫码枪超时残留尽力清理防串帧(读超时不断线语义保留)、KV UDP 整包上限 2048→4096 对齐流式上限;测试基建新增 size 感知假 socket(`scripted.ChunkSocket` + `mount_real_tcp`),MC 1E/3E、Modbus、AB 真传输凑满语义回归
-- **v0.30.0**:工业场景可靠性与观测诊断收口——(A1)`receive_timeout` setter 下发到 live socket(TCP/UDP/串口);(A2)整事务 deadline 防涓流拖死(TCP/串口按 `monotonic()` 绝对 deadline 重设 `settimeout`);(A3)新增 `TransportTimeoutError(DeviceError)`,串口/UDP 超时按链路完好不断线,TCP 仍 OSError 拆连防串帧;(A4)`connect()`/`_after_connect()` 异常统一清理到干净状态(失败必 close+null+返回 False);(A5)AB connected 模式 CIP 状态 0x01(`Connection failure`)映射为 `ProtocolFrameError`,断开惰性重连重建 Forward Open;其余 CIP 状态(只读等)保持 DeviceError 不拆连;(A6)TCP 默认启用 SO_KEEPALIVE,Linux `TCP_KEEPIDLE/INTVL/CNT`(30s/5s/3 次),Windows `SIO_KEEPALIVE_VALS`,best-effort 静默降级;(A7)aio `close()` 幂等——先尽力断开同步客户端再 shutdown executor,关闭后协议调用抛 `RuntimeError`;(A8)UDP datagram 上限 2048→8192(`MC_MAX_DATAGRAM`/`FINS_MAX_DATAGRAM`);(A9)FINS/TCP 重连刷新自动节点号(构造期 `auto_*` 标志保留,握手结果在自动模式下每次覆盖);(A10)MX COM `Close()` 先于 `_com` 清空,失败也清引用,`CoUninitialize` 配对释放线程计数;(B1)`BaseClient.stats` 健康统计(connect/disconnect/transactions/error/device_error 计数 + last_error_at/last_connect_at/last_success_at/last_rtt 时间戳),aio 镜像转发,README 字段说明 + 真机联测待做汇总清单
-- **v0.29.2**:使用范例完善——逐客户端补读写与驱动特有扩展示例(MC/FINS/KV HostLink/MX 补完整读写,MX 补 ReadDeviceRandom 批量,AB 补 0x0A 批量与 Identity 服务),新增"批量读取(协议原生,单事务)"专节(五家原生能力与统一契约),异步节补多设备并发示例与性能提示(并发 ≈ 顺序 1/N 耗时)
-- **v0.29.1**:异步镜像完整性收口——全量内省审计补齐 9 处缺口(基恩士 MC ×2/汇川 MC/松下 MC 的 `read_batch` 经对称继承获得,AB/NJ 补 `generic_message`/`list_identity`/`get_plc_info`/`get_attribute_all`/`get_attribute_list`,NJ 补 `slot`,汇川 TCP/RTU 补 `station`/`word_order`/`write_mask_register`);aio 家族镜像改对称继承结构(Keyence/Inovance/Panasonic MC 继承 AMelsecMc*,汇川 Modbus 继承 AModbusBaseClient);新增内省守卫测试:同步扩展必须有异步镜像,防再漂移
-- **v0.29**:MX Component 批量读取——ActUtlType 原生 `ReadDeviceRandom`(`read_batch` 混软元件单事务、`read_many` 覆写;软元件列表换行分隔每条 1 字;仅 16 位类型 BOOL/SHORT/USHORT,32/64 位因地址编号原文透传无法安全拆字,逐点读取;手册 5.2.5 核证)
-- **v0.28**:CIP 与 OPC-UA 批量读取——AB 0x0A 多服务包(`read_batch` 混标签混类型单事务,BOOL 首次类型发现后入包,NJ/NX CIP 零改动继承;pylogix/cm_ethernetip 双参考核证,内嵌服务 32 条上限;HSL 模拟器不支持 0x0A,真机核证待做)+ OPC-UA UA Read 服务原生多节点(asyncua `read_values` 单请求,`read_many` 覆写)
-- **v0.27**:欧姆龙 FINS 批量读取,利用协议原生 0104 多存储区读(`read_many` 覆写为单事务、`read_batch` 混类型混软元件;W342 §5-3-5 核证:每条读 1 字、响应逐条区码回显、仅字码,以太网上限 167 条;BOOL 走包含字提位,T/C 完成标志不支持)
-- **v0.26**:MC 3E/4E 批量读取,利用协议原生 0406 多块批量读(`read_many` 覆写为单事务、`read_batch` 混类型混软元件;SH-080008 §8.4 逐字节核证,总块数 ≤120;汇川/基恩士 MC 兼容子类经地址换算钩子继承;1E/3C/4C 回退逐点/拒绝)
-- **v0.25**:OpenTcpClient 补定长成帧(`frame_length`,二进制固定帧设备;与 `delimiter` 互斥、构造期二选一校验,`frame_length` ≤ `max_frame`,`append_delimiter` 强制关;跨分片/多帧/残字节语义与分隔符模式一致,异步镜像同步)
-- **v0.24.1**:S7 依赖按 Python 版本自动二选一(3.7~3.9 → python-snap7 1.3,extra 带 setuptools 修 pkg_resources;3.10+ → 3.x 纯 Python 无需 DLL),并修复区码需转 snap7 `Areas` 枚举的兼容问题(1.x 裸 int 读抛 ValueError/写抛 AttributeError);错误边界适配 3.x `S7Error` 谱系
-- **v0.24**:西门子 S7(封装 python-snap7,rack/slot 路由 102;DB/I/Q/M 绝对寻址,尺寸由 DataType 决定大端序,位读改写,S7 String;64 位 Python 用捆绑 snap7 库,32 位经 dll_path 自备)
-- **v0.23**:CNC 机床数采 MTConnect(标准库 HTTP/XML 只读,Agent 默认 5000;数据项 id 即地址,类型化读 + 全量快照 + 报警条件项 + 设备信息;FANUC/三菱等控制器均可经 Agent 采集,零第三方依赖)
-- **v0.22**:内部性能与整洁度优化(全驱动地址解析 lru_cache 缓存,MC 事务提速约 12%;会话型调试日志惰性格式化;check_byte_field 归位 core/validation)
-- **v0.21**:全局报文调试开关(omniplc.set_debug;走线型在传输层统一输出请求/响应十六进制,会话型 OPC-UA/ADS/MX 输出操作级日志;logging 记录器 omniplc.debug,无日志配置时自动落 stderr)
-- **v0.20**:倍福 TwinCAT ADS(封装 pyads 3.5.1,AMS 端口 851;变量名读写,DataType→PLCTYPE 映射,ADSError→DeviceError 不断线;pyads 无 py37 语法障碍,Windows 需 TcAdsDll)
-- **v0.19**:通用自定义 TCP 客户端(OpenTcpClient;分隔符成帧 + 内部缓冲,重连/超时沿用 BaseClient 属性,receive/transact 支持 per-call timeout;超时不断线,坏帧/解码失败断线惰性重连,重连清空接收缓冲)
-- **v0.18**:欧姆龙 CIP / 连接型 CIP(NJ/NX 内置 EtherNet/IP,44818;继承 AB 客户端,unconnected 直发无背板路由 + connected 连接路径只剩消息路由对象,NJ 变量读写;pycomm3 1.2.16 交叉核证)
-- **v0.17**:AB connected CIP 消息(Forward Open 大/普通回落 + SendUnitData 序列号回显校验 + Forward Close,connected_messaging 参数启用)
-- **v0.16**:罗克韦尔 AB EtherNet/IP(CIP,44818;Logix 标签读写,unconnected 消息 + 槽号路由,标签自描述,位/BOOL 数组原子读-改-写,STRING 结构体)
-- **v0.15**:基恩士 KV MC 协议兼容 UDP 走线(继承 MelsecMcUdpClient,与 TCP 版共用码表覆写,端口 5000)
-- **v0.14**:三菱 MC 串口帧(C24;3C 帧 ASCII 格式 4 / 4C 帧二进制格式 5,帧格式按 SH-080008 Appendix 7 逐字节核证)
-- **v0.13**:松下 FP0H/FP7 MC 协议兼容(3E 帧)+ MEWTOCOL(TCP/UDP,1024;RCS/WCS/RD/WD,BCC 校验)
-- **v0.12**:汇川 MC 协议兼容(3E 帧,继承 MelsecMcTcpClient;S→L 码、R=D+8000 统一编址、X/Y 八进制换算)
-- **v0.11**:汇川 H3U/H5U(Modbus TCP/RTU,继承 Modbus 客户端换汇川地址映射)
-- **v0.10**:基恩士 KV MC 协议兼容(SLMP 3E 帧,继承 MelsecMcTcpClient 换码表)
-- **v0.9**:Modbus 协议对照强化(pymodbus 3.15 对照:RTU 广播写、FC22 掩码写、MBAP 长度上限)
-- **v0.8**:OPC-UA opc.tcp 会话(封装 asyncua 1.1.5,NodeId 读写)
-- **v0.7**:丰田 TOYOPUC 计算机链接(TCP/UDP,基础区字/字节/位访问)
-- **v0.6**:基恩士 SR 扫码枪(LON/LOFF 触发扫码,bank 预设)
-- **v0.5**:基恩士 KV Host Link(TCP/UDP,RD/RDS/WR/WRS)
-- **v0.4**:三菱 MX Component(comtypes,逻辑站号)+ MC float 解码修正
-- **v0.3**:三菱 MC 3E/4E/1E(TCP/UDP)+ 欧姆龙 FINS TCP/UDP(握手/节点分配)
-- **v0.2**:Modbus TCP/RTU 编解码 + 黄金报文样本 + 脚本化链路测试
-- **v0.1**:架构落地 + 公共层/传输层完整实现 + 协议客户端骨架 + 100 例测试
-
+按版本号降序的完整变更日志已迁出至 [`CHANGELOG.md`](CHANGELOG.md)(从 v0.34.0 到 v0.1 的详细说明);当前发布版本以 Git 标签为准(`git tag -l 'v*'`)。
 
 #### 开发
 
