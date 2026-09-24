@@ -198,7 +198,12 @@ class AllenBradleyEthIpClient(BaseClient):
             pass
 
     def _unregister_session(self) -> None:
-        """尽力发送 UnregisterSession(应答与异常一律忽略,内部方法)。"""
+        """尽力发送 UnregisterSession(内部方法)。
+
+        规范上该命令**无应答**——发完即收,不得等应答(等了会把关闭流程
+        卡到收包超时;agentthink/ipc-edge 参考实现注释同此教训,其干脆
+        不发直接断 TCP)。发送失败静默:会话随 TCP 关闭由 PLC 侧超时回收。
+        """
         transport = self._transport
         handle = self._session_handle
         self._session_handle = 0
@@ -206,7 +211,6 @@ class AllenBradleyEthIpClient(BaseClient):
             return
         try:
             transport.send(codec_cip.build_unregister_session(handle))
-            self._recv_frame()
         except (OSError, OmniPLCInternalError):
             pass
 
