@@ -1,9 +1,10 @@
-"""三菱 MC 串口客户端(3C/4C 帧)测试:手册 Appendix 7 黄金向量 + 全链路往返。
+"""三菱 MC 串口客户端(1C/3C/4C 帧)测试:手册黄金向量 + 全链路往返。
 
 黄金向量取自 SH-080008《MELSEC Communication Protocol Reference Manual》
-Appendix 7 设置示例(3C 格式 1 样例 + CR LF = 格式 4;4C 格式 5 原样),
-覆盖:组帧逐字节断言、DLE 附加码、和校验、错误代码 DeviceError 不断线、
-坏帧断线、字软元件位"读-改-写"。
+(3C 格式 1 样例 + CR LF = 格式 4;4C 格式 5 原样;1C 按 17 章命令明细
+与 4.3 节和校验算例),覆盖:组帧逐字节断言、DLE 附加码、和校验、
+错误代码 DeviceError 不断线、坏帧断线、字软元件位"读-改-写"、
+1C 专属 T/C 接点/线圈映射与点数上限。
 """
 from __future__ import annotations
 
@@ -14,7 +15,8 @@ import pytest
 
 from omniplc import MelsecMcSerialClient, MelsecMcTcpClient, MelsecMcUdpClient
 from omniplc.aio import AMelsecMcSerialClient
-from omniplc.plc.melsec import codec_serial
+from omniplc.core.errors import ProtocolFrameError
+from omniplc.plc.melsec import codec_serial, codec_serial_a
 from omniplc.plc.melsec.address import parse_mc_address
 from omniplc.types import McFrame
 from scripted import ScriptedTransport
@@ -57,6 +59,31 @@ def _ack_3c(route: str = _ROUTE) -> bytes:
 def _nak_3c(code: str, route: str = _ROUTE) -> bytes:
     """构造 3C 异常响应(NAK + 路由 + 错误代码 + CR LF)。"""
     return b"\x15F9" + route.encode("ascii") + code.encode("ascii") + b"\r\n"
+
+
+_ROUTE_1C = "00FF"
+"""1C 帧默认路由文本:站号 00 + PC 号 FF(连接站 CPU)。"""
+
+
+def _resp_1c(data_text: str, route: str = _ROUTE_1C) -> bytes:
+    """构造 1C 读响应(STX + 回显 + 数据 + ETX + 和校验 + CR LF)。"""
+    body = route.encode("ascii") + data_text.encode("ascii") + b"\x03"
+    return (
+        b"\x02"
+        + body
+        + "{:02X}".format(codec_serial.checksum(body)).encode("ascii")
+        + b"\r\n"
+    )
+
+
+def _ack_1c(route: str = _ROUTE_1C) -> bytes:
+    """构造 1C 写正常响应(ACK + 回显 + CR LF)。"""
+    return b"\x06" + route.encode("ascii") + b"\r\n"
+
+
+def _nak_1c(code: str, route: str = _ROUTE_1C) -> bytes:
+    """构造 1C 异常响应(NAK + 回显 + 错误代码 + CR LF,错误代码 2 位)。"""
+    return b"\x15" + route.encode("ascii") + code.encode("ascii") + b"\r\n"
 
 
 def _wire_4c(values: List[int], end_code: int = 0) -> bytes:
@@ -533,9 +560,11 @@ def test_4c_bad_frame_id_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_frame_walkline_constraints() -> None:
-    """帧型与走线约束:TCP/UDP 不接受 3C/4C,串口不接受 3E。"""
+    """帧型与走线约束:TCP/UDP 不接受串口帧,串口不接受 3E。"""
     with pytest.raises(ValueError):
         MelsecMcTcpClient("127.0.0.1", 2000, frame="3C")
+    with pytest.raises(ValueError):
+        MelsecMcTcpClient("127.0.0.1", 2000, frame="1C")
     with pytest.raises(ValueError):
         MelsecMcUdpClient("127.0.0.1", 2000, frame="4C")
     with pytest.raises(ValueError):
@@ -578,6 +607,253 @@ def test_string_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ----------------------------------------------------------------------
+# 1C 帧(A 兼容,命令 BR/WR/BW/WW)
+# ----------------------------------------------------------------------
+
+
+def test_1c_manual_checksum_example() -> None:
+    """1C 和校验:手册 4.3 节算例 ``"00FFBR3M0000"`` 之和 2C0H → ``C0``。"""
+    assert codec_serial.checksum(b"00FFBR3M0000") == 0xC0
+
+
+def test_1c_read_request_golden_vector() -> None:
+    """1C 帧:BR 读 M0 1 点(消息等待 3 = 30ms),逐字节断言。"""
+    request = codec_serial_a.build_1c_request(
+        0, 0xFF, 3, parse_mc_address("M0"), 1, True, False
+    )
+    assert request == b"\x05" + b"00FFBR3M000001" + b"21" + b"\r\n"
+
+
+def test_1c_write_word_request_golden_vector() -> None:
+    """1C 帧:WW 写 D100 起 2 字(2347H/AB96H),D100 → 4 位十进制 ``D0100``。"""
+    request = codec_serial_a.build_1c_request(
+        0, 0xFF, 0, parse_mc_address("D100"), 2, False, True, [0x2347, 0xAB96]
+    )
+    assert request == b"\x05" + b"00FFWW0D0100022347AB96" + b"F3" + b"\r\n"
+
+
+def test_1c_bit_write_request_golden_vector() -> None:
+    """1C 帧:BW 写 M10 起 3 点(101),写数据每点 1 字符。"""
+    request = codec_serial_a.build_1c_request(
+        0, 0xFF, 0, parse_mc_address("M10"), 3, True, True, [1, 0, 1]
+    )
+    assert request == b"\x05" + b"00FFBW0M001003101" + b"B8" + b"\r\n"
+
+
+def test_1c_read_response_golden_vector() -> None:
+    """1C 帧:STX 读响应(数据 + ETX + 和校验 + CR LF),和校验范围含 ETX。"""
+    response = b"\x02" + b"00FF" + b"12340002" + b"\x03" + b"7B" + b"\r\n"
+    assert codec_serial_a.parse_1c_response(response, 2, False, True, 0, 0xFF) == [
+        0x1234,
+        0x0002,
+    ]
+
+
+def test_1c_read_response_bit_units() -> None:
+    """1C 帧:BR 读响应每点 1 字符,非 0/1 按坏帧。"""
+    response = b"\x02" + b"00FF" + b"101" + b"\x03" + b"81" + b"\r\n"
+    assert codec_serial_a.parse_1c_response(response, 3, True, True, 0, 0xFF) == [
+        1,
+        0,
+        1,
+    ]
+    bad = b"\x02" + b"00FF" + b"1X0" + b"\x03" + b"\x00" + b"\r\n"
+    with pytest.raises(ProtocolFrameError):
+        codec_serial_a.parse_1c_response(bad, 3, True, True, 0, 0xFF)
+
+
+def test_1c_timer_counter_device_mapping() -> None:
+    """1C 帧:T/C 双性质映射:字=TN/CN、位读=TS/CS、位写=TC/CC(3 位编号)。"""
+    assert codec_serial_a.build_1c_request(0, 0xFF, 0, parse_mc_address("T10"), 1, False, False) == (
+        b"\x05" + b"00FFWR0TN01001" + b"59" + b"\r\n"
+    )
+    assert codec_serial_a.build_1c_request(0, 0xFF, 0, parse_mc_address("T10"), 1, True, False) == (
+        b"\x05" + b"00FFBR0TS01001" + b"49" + b"\r\n"
+    )
+    assert codec_serial_a.build_1c_request(0, 0xFF, 0, parse_mc_address("T10"), 1, True, True, [1]) == (
+        b"\x05" + b"00FFBW0TC010011" + b"6F" + b"\r\n"
+    )
+    assert codec_serial_a.build_1c_request(0, 0xFF, 0, parse_mc_address("C5"), 1, False, False) == (
+        b"\x05" + b"00FFWR0CN00501" + b"4C" + b"\r\n"
+    )
+    assert codec_serial_a.build_1c_request(0, 0xFF, 0, parse_mc_address("C5"), 1, True, True, [0]) == (
+        b"\x05" + b"00FFBW0CC005010" + b"61" + b"\r\n"
+    )
+
+
+def test_1c_hex_device_number_and_word_unit() -> None:
+    """1C 帧:十六进制软元件编号 4 位;位软元件按字访问须 16 的倍数。"""
+    # Y10(十六进制 0x10 = 16)按字单位读 → "Y0010"
+    assert codec_serial_a.build_1c_request(0, 0xFF, 0, parse_mc_address("Y10"), 1, False, False) == (
+        b"\x05" + b"00FFWR0Y001001" + b"40" + b"\r\n"
+    )
+    with pytest.raises(ValueError):
+        codec_serial_a.build_1c_request(0, 0xFF, 0, parse_mc_address("M1"), 1, False, False)
+    with pytest.raises(ValueError):
+        codec_serial_a.build_1c_request(0, 0xFF, 0, parse_mc_address("Y11"), 1, False, False)
+
+
+def test_1c_point_limits() -> None:
+    """1C 帧:点数上限——BR 256(BW 160/WR·WW 64 字,位软元件按字 32/10)。"""
+    # 256 点合法且传 "00"
+    request = codec_serial_a.build_1c_request(0, 0xFF, 0, parse_mc_address("M0"), 256, True, False)
+    assert b"00FFBR0M000000" in request
+    with pytest.raises(ValueError):
+        codec_serial_a.build_1c_request(0, 0xFF, 0, parse_mc_address("M0"), 257, True, False)
+    with pytest.raises(ValueError):
+        codec_serial_a.build_1c_request(0, 0xFF, 0, parse_mc_address("M0"), 161, True, True)
+    with pytest.raises(ValueError):
+        codec_serial_a.build_1c_request(0, 0xFF, 0, parse_mc_address("D0"), 65, False, False)
+    with pytest.raises(ValueError):
+        codec_serial_a.build_1c_request(0, 0xFF, 0, parse_mc_address("M16"), 33, False, False)
+    with pytest.raises(ValueError):
+        codec_serial_a.build_1c_request(0, 0xFF, 0, parse_mc_address("M16"), 11, False, True)
+
+
+def test_1c_read_ushort_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1C:读请求组帧正确,STX 响应按控制码分流后解析出字数据。"""
+    client = MelsecMcSerialClient(frame=McFrame.FRAME_1C)
+    response = _resp_1c("2710")
+    scripted = ScriptedTransport([response[:1], response[1:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_ushort("D100") == (True, 10000)
+    assert bytes(scripted.sent) == codec_serial_a.build_1c_request(
+        0, 0xFF, 0, parse_mc_address("D100"), 1, False, False
+    )
+
+
+def test_1c_write_short_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1C:字写请求与 ACK 回包校验。"""
+    client = MelsecMcSerialClient(frame=McFrame.FRAME_1C)
+    response = _ack_1c()
+    scripted = ScriptedTransport([response[:1], response[1:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.write_short("D100", 300) is True
+    assert bytes(scripted.sent) == codec_serial_a.build_1c_request(
+        0, 0xFF, 0, parse_mc_address("D100"), 1, False, True, [300]
+    )
+
+
+def test_1c_read_bool_bit_units(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1C:位软元件按位单位读(BR),ASCII 数据每点 1 字符。"""
+    client = MelsecMcSerialClient(frame=McFrame.FRAME_1C)
+    response = _resp_1c("1")
+    scripted = ScriptedTransport([response[:1], response[1:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_bool("M100") == (True, True)
+    assert bytes(scripted.sent) == codec_serial_a.build_1c_request(
+        0, 0xFF, 0, parse_mc_address("M100"), 1, True, False
+    )
+
+
+def test_1c_write_bool_bit_units(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1C:位软元件按位单位写(BW),数据 1 字符。"""
+    client = MelsecMcSerialClient(frame=McFrame.FRAME_1C)
+    response = _ack_1c()
+    scripted = ScriptedTransport([response[:1], response[1:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.write_bool("M100", False) is True
+    assert bytes(scripted.sent) == codec_serial_a.build_1c_request(
+        0, 0xFF, 0, parse_mc_address("M100"), 1, True, True, [0]
+    )
+
+
+def test_1c_timer_contact_and_coil_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1C:BOOL 读 T 走接点 TS、BOOL 写 T 走线圈 TC(经客户端原语)。"""
+    client = MelsecMcSerialClient(frame=McFrame.FRAME_1C)
+    read_response = _resp_1c("1")
+    write_response = _ack_1c()
+    scripted = ScriptedTransport(
+        [read_response[:1], read_response[1:], write_response[:1], write_response[1:]]
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_bool("T10") == (True, True)
+    assert b"TS010" in bytes(scripted.sent)
+    assert client.write_bool("T10", True) is True
+    assert b"TC010" in bytes(scripted.sent)
+
+
+def test_1c_nak_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1C:NAK 错误代码(2 位)→ DeviceError,不断线。"""
+    client = MelsecMcSerialClient(frame=McFrame.FRAME_1C)
+    response = _nak_1c("05")
+    scripted = ScriptedTransport([response[:1], response[1:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_ushort("D100") == (False, None)
+    assert client.connected is True
+    assert client.last_error is not None and "0x05" in client.last_error
+
+
+def test_1c_route_echo_mismatch_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1C:站号/PC 号回显不符按坏帧处理,标记断开。"""
+    client = MelsecMcSerialClient(frame=McFrame.FRAME_1C)
+    response = _resp_1c("2710", route="0101")  # 配置 00FF,回显 0101
+    scripted = ScriptedTransport([response[:1], response[1:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_ushort("D100") == (False, None)
+    assert client.connected is False
+    assert client.last_error is not None and "回显" in client.last_error
+
+
+def test_1c_bad_checksum_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1C:和校验不符按坏帧处理,标记断开。"""
+    client = MelsecMcSerialClient(frame=McFrame.FRAME_1C)
+    response = _resp_1c("2710")
+    corrupted = response[:-3] + b"XX" + b"\r\n"
+    scripted = ScriptedTransport([corrupted[:1], corrupted[1:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_ushort("D100") == (False, None)
+    assert client.connected is False
+
+
+def test_1c_bad_control_code_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1C:响应控制码非法(非 STX/ACK/NAK)按坏帧处理。"""
+    client = MelsecMcSerialClient(frame=McFrame.FRAME_1C)
+    scripted = ScriptedTransport([b"\x00"])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_ushort("D100") == (False, None)
+    assert client.connected is False
+    assert client.last_error is not None and "控制码" in client.last_error
+
+
+def test_1c_string_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1C:字符串读写按字软元件小端字序拼解码(WW/WR)。"""
+    client = MelsecMcSerialClient(frame=McFrame.FRAME_1C)
+    encoded = "AB".encode("ascii")
+    words = int.from_bytes(encoded, "little")
+    read_response = _resp_1c("{:04X}".format(words))
+    write_response = _ack_1c()
+    scripted = ScriptedTransport(
+        [write_response[:1], write_response[1:], read_response[:1], read_response[1:]]
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.write_string("D100", "AB") is True
+    assert client.read_string("D100", 2) == (True, "AB")
+
+
+def test_1c_message_wait_validation() -> None:
+    """1C 消息等待:0~15 合法、越界拒绝、属性只读暴露。"""
+    with pytest.raises(ValueError):
+        MelsecMcSerialClient(frame=McFrame.FRAME_1C, message_wait=16)
+    client = MelsecMcSerialClient(frame=McFrame.FRAME_1C, message_wait=15)
+    assert client.message_wait == 15
+    request = codec_serial_a.build_1c_request(
+        0, 0xFF, 15, parse_mc_address("D0"), 1, False, False
+    )
+    assert b"00FFWRFD000001" in request  # 消息等待 F(150ms)
+
+
+# ----------------------------------------------------------------------
 # 异步镜像
 # ----------------------------------------------------------------------
 
@@ -599,6 +875,28 @@ def test_async_mirror_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
         assert await client.connect() is True
         assert await client.read_ushort("D100") == (True, 10000)
         assert client.frame == McFrame.FRAME_4C
+        await client.close()
+
+    asyncio.run(scenario())
+
+
+def test_async_mirror_1c_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """异步镜像:1C 帧 + message_wait 转发与往返。"""
+
+    async def scenario() -> None:
+        client = AMelsecMcSerialClient(frame=McFrame.FRAME_1C, message_wait=2)
+        client.configure_serial("COM3", 9600)
+        sync = client._sync
+        if not isinstance(sync, MelsecMcSerialClient):
+            raise TypeError("内部错误:sync 实例不是 MelsecMcSerialClient")
+        assert sync.frame == McFrame.FRAME_1C
+        assert sync.message_wait == 2
+        response = _resp_1c("2710")
+        scripted = ScriptedTransport([response[:1], response[1:]])
+        monkeypatch.setattr(sync, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        assert await client.read_ushort("D100") == (True, 10000)
+        assert client.message_wait == 2
         await client.close()
 
     asyncio.run(scenario())

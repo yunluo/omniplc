@@ -1,15 +1,16 @@
-"""三菱 MELSEC MC 协议客户端(3E/4E/1E 帧 × TCP/UDP 走线 + 3C/4C 串口帧)。
+"""三菱 MELSEC MC 协议客户端(3E/4E/1E 帧 × TCP/UDP 走线 + 1C/3C/4C 串口帧)。
 
 类继承::
 
     BaseClient
     ├── MelsecMcTcpClient     3E/4E/1E 帧 over TCP(默认端口 2000)
     ├── MelsecMcUdpClient     3E/4E/1E 帧 over UDP(默认端口 2000)
-    └── MelsecMcSerialClient  3C/4C 帧 over 串口(C24,9600,需 pyserial)
+    └── MelsecMcSerialClient  1C/3C/4C 帧 over 串口(C24,9600,需 pyserial)
 
 以太网与串口走线共享同一套软元件码表与核心命令(:mod:`.codec_qna`),
 帧封装按帧型分发:1E → :mod:`.codec_a`,3E/4E → :mod:`.codec_qna`,
-3C/4C → :mod:`.codec_serial`;接收策略按走线区分:TCP 按响应头长度
+3C/4C → :mod:`.codec_serial`,1C(A 兼容,命令 BR/WR/BW/WW)→
+:mod:`.codec_serial_a`;接收策略按走线区分:TCP 按响应头长度
 分段收包,UDP 整包接收,串口按控制码与长度域逐段收包。
 """
 from __future__ import annotations
@@ -18,11 +19,12 @@ from abc import abstractmethod
 import time
 from typing import List, Optional, Sequence, Tuple, Union
 
-from . import codec_a, codec_qna, codec_serial
+from . import codec_a, codec_qna, codec_serial, codec_serial_a
 from .address import McAddress, parse_mc_address
 from ... import convert
 from ...core.base_client import BaseClient, validate_endpoint
 from ...core.constants import (
+    MC_1C_DEFAULT_MESSAGE_WAIT,
     MC_1E_ERROR_EXTRA,
     MC_1E_ERROR_EXTRA_SIZE,
     MC_1E_RESPONSE_HEAD_SIZE,
@@ -363,6 +365,8 @@ class _MelsecMcBase(BaseClient):
         """按当前帧型查软元件码表(内部方法)。"""
         if self._frame is McFrame.FRAME_1E:
             return codec_a.device_info(device)
+        if self._frame is McFrame.FRAME_1C:
+            return codec_serial_a.device_info(device)
         return codec_qna.device_info(device)
 
     def _translate_address(self, parsed: McAddress) -> McAddress:
@@ -515,6 +519,7 @@ class MelsecMcUdpClient(_MelsecMcBase):
 class MelsecMcSerialClient(_MelsecMcBase):
     """三菱 MC 客户端(串口走线,C24 等串口通信模块,需要 pyserial)。
 
+    - ``McFrame.FRAME_1C``:A 兼容 1C 帧,ASCII 通信格式 4(命令 BR/WR/BW/WW)
     - ``McFrame.FRAME_3C``:QnA 兼容 3C 帧,ASCII 通信格式 4(默认)
     - ``McFrame.FRAME_4C``:QnA 扩展 4C 帧,二进制通信格式 5
 
@@ -529,7 +534,11 @@ class MelsecMcSerialClient(_MelsecMcBase):
         client.connect()
     """
 
-    _SUPPORTED_FRAMES: Tuple[McFrame, ...] = (McFrame.FRAME_3C, McFrame.FRAME_4C)
+    _SUPPORTED_FRAMES: Tuple[McFrame, ...] = (
+        McFrame.FRAME_1C,
+        McFrame.FRAME_3C,
+        McFrame.FRAME_4C,
+    )
 
     def __init__(
         self,
@@ -540,17 +549,22 @@ class MelsecMcSerialClient(_MelsecMcBase):
         self_station_number: int = MC_SERIAL_DEFAULT_SELF_STATION,
         module_io: int = MC_SERIAL_DEFAULT_MODULE_IO,
         module_station: int = MC_SERIAL_DEFAULT_MODULE_STATION,
+        message_wait: int = MC_1C_DEFAULT_MESSAGE_WAIT,
     ) -> None:
         """初始化 MC 串口客户端(默认访问连接站 CPU)。
 
-        :param frame: 帧型,``McFrame.FRAME_3C``(ASCII 格式 4)或
-            ``McFrame.FRAME_4C``(二进制格式 5);也兼容 ``"3C"``/``"4C"`` 字符串
+        :param frame: 帧型,``McFrame.FRAME_1C``(A 兼容 ASCII 格式 4)、
+            ``McFrame.FRAME_3C``(QnA 兼容 ASCII 格式 4)或
+            ``McFrame.FRAME_4C``(QnA 扩展二进制格式 5);
+            也兼容 ``"1C"``/``"3C"``/``"4C"`` 字符串
         :param station_number: 站号 0~31(0 = 连接站/主机站)
-        :param network_number: 网络编号(0 = 本网络)
+        :param network_number: 网络编号(0 = 本网络;仅 3C/4C 使用)
         :param pc_number: PC 编号(0~3 或 0xFF;0xFF = 连接站 CPU)
-        :param self_station_number: 本站号(m:n 多点连接时外部设备自身站号)
+        :param self_station_number: 本站号(m:n 多点连接时外部设备自身站号;仅 3C/4C 使用)
         :param module_io: 请求目标模块 I/O 编号(4C 帧使用,CPU 直连 0x03FF)
         :param module_station: 请求目标模块局号(4C 帧使用,CPU 直连 0)
+        :param message_wait: 消息等待(仅 1C 帧,0~15,单位 10ms;
+            C24 收到请求后开始发送响应的最短延迟,慢速外设可调大)
         :raises ValueError: 参数非法
         """
         BaseClient.__init__(self, "", 0)
@@ -566,6 +580,7 @@ class MelsecMcSerialClient(_MelsecMcBase):
         self._module_station = check_byte_field(
             "目标模块局号", module_station
         )
+        self._message_wait = codec_serial_a.check_message_wait(message_wait)
         self._serial_config: Optional[SerialConfig] = None
 
     @property
@@ -587,6 +602,11 @@ class MelsecMcSerialClient(_MelsecMcBase):
     def module_station(self) -> int:
         """请求目标模块局号(仅 4C 帧)。"""
         return self._module_station
+
+    @property
+    def message_wait(self) -> int:
+        """消息等待(仅 1C 帧,0~15,单位 10ms)。"""
+        return self._message_wait
 
     def configure_serial(
         self,
@@ -627,7 +647,18 @@ class MelsecMcSerialClient(_MelsecMcBase):
         is_write: bool,
         data: Optional[List[int]] = None,
     ) -> bytes:
-        """按 3C/4C 帧型构造完整请求帧(内部方法)。"""
+        """按 1C/3C/4C 帧型构造完整请求帧(内部方法)。"""
+        if self._frame is McFrame.FRAME_1C:
+            return codec_serial_a.build_1c_request(
+                self._station_number,
+                self._pc_number,
+                self._message_wait,
+                parsed,
+                points,
+                is_bit,
+                is_write,
+                data,
+            )
         if self._frame is McFrame.FRAME_3C:
             return codec_serial.build_3c_request(
                 self._station_number,
@@ -666,21 +697,25 @@ class MelsecMcSerialClient(_MelsecMcBase):
         self, response: bytes, points: int, is_bit: bool, is_read: bool
     ) -> List[int]:
         """串口帧响应解析分发(内部方法)。"""
+        if self._frame is McFrame.FRAME_1C:
+            return codec_serial_a.parse_1c_response(
+                response, points, is_bit, is_read, self._station_number, self._pc_number
+            )
         if self._frame is McFrame.FRAME_3C:
             return codec_serial.parse_3c_response(response, points, is_bit, is_read)
         return codec_serial.parse_4c_response(response, points, is_bit, is_read)
 
     def _read_tail_size(self, points: int, is_bit: bool) -> int:
-        """3C 读响应 ETX 之前的数据字符数(4C 由长度域决定,传 0)。"""
-        if self._frame is McFrame.FRAME_3C:
+        """1C/3C 读响应 ETX 之前的数据字符数(4C 由长度域决定,传 0)。"""
+        if self._frame in (McFrame.FRAME_1C, McFrame.FRAME_3C):
             return points if is_bit else points * 4
         return 0
 
     def _transact(self, request: bytes, tail_size: int = 0) -> bytes:
         """发送请求并按串口帧格式接收完整响应(内部方法)。
 
-        3C:首字节分流控制码——STX 收正文+ETX+和校验+CR LF,
-        ACK 收帧识别码+路由+CR LF,NAK 另加错误代码;
+        1C/3C:首字节分流控制码——STX 收正文+ETX+和校验+CR LF,
+        ACK 收路由(+错误代码)+CR LF,NAK 另加错误代码;
         4C:DLE STX 起始,按长度域(处理附加码)收正文至 DLE ETX+和校验,
         并重组为未填充的逻辑帧交解析层。
         """
@@ -688,7 +723,26 @@ class MelsecMcSerialClient(_MelsecMcBase):
         transport.send(request)
         if self._frame is McFrame.FRAME_4C:
             return self._transact_4c(transport)
+        if self._frame is McFrame.FRAME_1C:
+            return self._transact_1c(transport, tail_size)
         return self._transact_3c(transport, tail_size)
+
+    @staticmethod
+    def _transact_1c(transport: BaseTransport, tail_size: int) -> bytes:
+        """1C 收包:控制码分流(内部方法)。
+
+        STX 后 = 站号/PC 号回显(4) + 数据 + ETX(1) + 和校验(2) + CR LF(2);
+        ACK 后 = 回显(4) + CR LF(2);NAK 后 = 回显(4) + 错误代码(2) + CR LF(2)。
+        """
+        head = transport.recv(1)
+        code = head[0]
+        if code == codec_serial.STX:
+            return head + transport.recv(4 + tail_size + 5)
+        if code == codec_serial.ACK:
+            return head + transport.recv(6)
+        if code == codec_serial.NAK:
+            return head + transport.recv(8)
+        raise ProtocolFrameError(f"1C 响应控制码非法:0x{code:02X}")
 
     @staticmethod
     def _transact_3c(transport: BaseTransport, tail_size: int) -> bytes:

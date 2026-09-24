@@ -25,6 +25,7 @@ from ..core.constants import (
     INOVANCE_MC_DEFAULT_PORT,
     KEYENCE_MC_DEFAULT_PORT,
     KV_DEFAULT_PORT,
+    MC_1C_DEFAULT_MESSAGE_WAIT,
     MC_DEFAULT_NETWORK_NUMBER,
     MC_DEFAULT_PC_NUMBER,
     MC_DEFAULT_PORT,
@@ -745,7 +746,7 @@ class APanasonicMcTcpClient(AMelsecMcTcpClient):
 
 
 class AMelsecMcSerialClient(ABaseClient):
-    """三菱 MC 异步客户端(串口,3C/4C 帧,需 pyserial)。
+    """三菱 MC 异步客户端(串口,1C/3C/4C 帧,需 pyserial)。
 
     串口参数需在 connect 前配置::
 
@@ -763,17 +764,21 @@ class AMelsecMcSerialClient(ABaseClient):
         self_station_number: int = MC_SERIAL_DEFAULT_SELF_STATION,
         module_io: int = MC_SERIAL_DEFAULT_MODULE_IO,
         module_station: int = MC_SERIAL_DEFAULT_MODULE_STATION,
+        message_wait: int = MC_1C_DEFAULT_MESSAGE_WAIT,
     ) -> None:
         """初始化 MC 串口异步客户端。
 
-        :param frame: 帧型,``McFrame.FRAME_3C``(ASCII 格式 4)或
-            ``McFrame.FRAME_4C``(二进制格式 5);也兼容 ``"3C"``/``"4C"`` 字符串
+        :param frame: 帧型,``McFrame.FRAME_1C``(A 兼容 ASCII 格式 4)、
+            ``McFrame.FRAME_3C``(QnA 兼容 ASCII 格式 4)或
+            ``McFrame.FRAME_4C``(QnA 扩展二进制格式 5);
+            也兼容 ``"1C"``/``"3C"``/``"4C"`` 字符串
         :param station_number: 站号 0~31(0 = 连接站/主机站)
-        :param network_number: 网络编号(0 = 本网络)
+        :param network_number: 网络编号(0 = 本网络;仅 3C/4C 使用)
         :param pc_number: PC 编号(0~3 或 0xFF;0xFF = 连接站 CPU)
-        :param self_station_number: 本站号(m:n 多点连接时外部设备自身站号)
+        :param self_station_number: 本站号(m:n 多点连接时外部设备自身站号;仅 3C/4C 使用)
         :param module_io: 请求目标模块 I/O 编号(4C 帧使用,CPU 直连 0x03FF)
         :param module_station: 请求目标模块局号(4C 帧使用,CPU 直连 0)
+        :param message_wait: 消息等待(仅 1C 帧,0~15,单位 10ms)
         :raises ValueError: 参数非法
         """
         super().__init__(
@@ -785,6 +790,7 @@ class AMelsecMcSerialClient(ABaseClient):
                 self_station_number,
                 module_io,
                 module_station,
+                message_wait,
             )
         )
 
@@ -840,6 +846,12 @@ class AMelsecMcSerialClient(ABaseClient):
         """请求目标模块局号(仅 4C 帧,转发同步实例)。"""
         sync = self._typed(MelsecMcSerialClient)
         return sync.module_station
+
+    @property
+    def message_wait(self) -> int:
+        """消息等待(仅 1C 帧,0~15,单位 10ms,转发同步实例)。"""
+        sync = self._typed(MelsecMcSerialClient)
+        return sync.message_wait
 
     async def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]

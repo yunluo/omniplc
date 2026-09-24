@@ -117,6 +117,8 @@ class McFrame(Enum):
     - ``FRAME_1E``:A 兼容帧(A 系列,以太网)
     - ``FRAME_3C``/``FRAME_4C``:QnA 兼容串口帧(C24 串口模块;
       3C 为 ASCII 帧(格式 4),4C 为二进制帧(格式 5),仅 :class:`~omniplc.plc.melsec.MelsecMcSerialClient` 使用)
+    - ``FRAME_1C``:A 兼容串口帧(C24 串口模块,ASCII 格式 4,
+      命令 BR/WR/BW/WW,仅 :class:`~omniplc.plc.melsec.MelsecMcSerialClient` 使用)
     """
 
     FRAME_3E = "3E"
@@ -124,3 +126,4 @@ class McFrame(Enum):
     FRAME_1E = "1E"
     FRAME_3C = "3C"
     FRAME_4C = "4C"
+    FRAME_1C = "1C"

@@ -1,6 +1,6 @@
 # omniplc 架构设计
 
-> 版本:v0.32.1 · 更新日期:2026-09-24 · 状态:Modbus / 三菱 MC(以太网 + 串口帧)/ FINS / NJ/NX CIP / KV / SR / TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / 西门子 S7 / OPC-UA / 通用自定义 TCP / CNC MTConnect 已全部落地,全局报文调试开关已上线;工业场景可靠性 + 观测诊断收口(per-call timeout 立即下发、整事务 deadline、超时分流、AB connected 重连、TCP keepalive、aio close 生命周期、UDP datagram 上限、FINS 重连节点刷新、MX COM 清理、连接健康统计);v0.30.1 修复批:MTConnect keep-alive 透明重试 / 点位表整数写入 / OpenTcp 流式收包 / 全协议收包语义收口;v0.30.2 安全修复批:网络长度域上限 / 整事务 deadline / MTConnect 响应体上限;v0.31.0 MX 真机批:COM 出参口径真机核证修正 / write_batch 随机批量写 / CPU 型号·时钟·出错文本查询;v0.31.1 MX 块读写 raw 调用补 lplRetCode 出参缓冲(4 参)修复;v0.31.2 文档完善批:全库客户端构造参数注释补全(43 处)/ README 类图·安装节·范例修正/ 路线图版本降序重排;v0.31.3 CI 发布流水线:GitHub Actions 标签触发 uv build → GitHub Release + PyPI 可信发布;v0.31.4 CI 修复批:uv build 显式指定 3.12 解释器(绕开 .python-version 钉 3.7.9);v0.32.0 API 对齐批:FINS 节点号自动推导(IP 末段/握手)/ 参数归位四分法成文 + 属性补齐 / 双入口取消 / S7 签名对齐;v0.32.1 CI 修复:Release 发布物收紧为 *.whl/*.tar.gz(排除 uv build 生成的 dist/.gitignore)
+> 版本:v0.33.0 · 更新日期:2026-09-24 · 状态:Modbus / 三菱 MC(以太网 + 串口 1C/3C/4C)/ FINS / NJ/NX CIP / KV / SR / TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / 西门子 S7 / OPC-UA / 通用自定义 TCP / CNC MTConnect 已全部落地,全局报文调试开关已上线;工业场景可靠性 + 观测诊断收口(per-call timeout 立即下发、整事务 deadline、超时分流、AB connected 重连、TCP keepalive、aio close 生命周期、UDP datagram 上限、FINS 重连节点刷新、MX COM 清理、连接健康统计);v0.30.1 修复批:MTConnect keep-alive 透明重试 / 点位表整数写入 / OpenTcp 流式收包 / 全协议收包语义收口;v0.30.2 安全修复批:网络长度域上限 / 整事务 deadline / MTConnect 响应体上限;v0.31.0 MX 真机批:COM 出参口径真机核证修正 / write_batch 随机批量写 / CPU 型号·时钟·出错文本查询;v0.31.1 MX 块读写 raw 调用补 lplRetCode 出参缓冲(4 参)修复;v0.31.2 文档完善批:全库客户端构造参数注释补全(43 处)/ README 类图·安装节·范例修正/ 路线图版本降序重排;v0.31.3 CI 发布流水线:GitHub Actions 标签触发 uv build → GitHub Release + PyPI 可信发布;v0.31.4 CI 修复批:uv build 显式指定 3.12 解释器(绕开 .python-version 钉 3.7.9);v0.32.0 API 对齐批:FINS 节点号自动推导(IP 末段/握手)/ 参数归位四分法成文 + 属性补齐 / 双入口取消 / S7 签名对齐;v0.32.1 CI 修复:Release 发布物收紧为 *.whl/*.tar.gz(排除 uv build 生成的 dist/.gitignore);v0.33.0 MC A 兼容 1C 帧落地 + 点位表 schema 破坏性变更(`Tag.name` → `tag_id` + `remark`)
 
 omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7+,uv 开发)。
 本文档描述 v1.0 的完整架构:分层、类设计、继承树、线程安全模型、类型标注纪律、
@@ -465,8 +465,8 @@ class BaseClient(ABC):
 | 协议 | TCP | UDP | RTU(串口) | MX Component |
 |---|---|---|---|---|
 | Modbus(FC 01/02/03/04/05/06/0F/10/16) | ✅ `ModbusTcpClient` | — | ✅ `ModbusRtuClient` | — |
-| 三菱 MC 3E/4E(QnA 兼容) | ✅ `MelsecMcTcpClient(frame="3E"/"4E")` | ✅ `MelsecMcUdpClient` | ✅ `MelsecMcSerialClient`(3C/4C 帧) | ✅ `MelsecMxClient` |
-| 三菱 MC 1E(A 兼容,A 系列) | ✅ `frame="1E"` | ✅ | v1.x | ✅ |
+| 三菱 MC 3E/4E(QnA 兼容) | ✅ `MelsecMcTcpClient(frame="3E"/"4E")` | ✅ `MelsecMcUdpClient` | ✅ `MelsecMcSerialClient`(1C/3C/4C 帧) | ✅ `MelsecMxClient` |
+| 三菱 MC 1E(A 兼容,A 系列) | ✅ `frame="1E"` | ✅ | ✅(1C 帧,A 兼容串口) | ✅ |
 | 欧姆龙 FINS | ✅ `OmronFinsTcpClient`(含握手) | ✅ `OmronFinsUdpClient` | v1.x(Host Link) | — |
 | 罗克韦尔 AB EtherNet/IP(Logix) | ✅ `AllenBradleyEthIpClient`(44818) | — | — | — |
 | 欧姆龙 CIP / 连接型 CIP(NJ/NX) | ✅ `OmronCipClient`(44818,继承 AB) | — | — | — |
@@ -508,7 +508,24 @@ COM 调用全部在客户端事务锁内串行;异步镜像经单工作线程执
 10H → 10H 10H)在收包层还原为逻辑帧后校验。默认参数 = 手册"连接站"示例
 (站号 0/网络号 0/PC 号 ``FF``/本站号 0/CPU 目标 I/O ``03FF``);
 点数上限沿用 900;NAK/结束代码按 DeviceError 处理不断线,和校验不符/
-帧识别码错按坏帧断线惰性重连。1C/2C 帧(A 兼容串口)留 v1.x。
+帧识别码错按坏帧断线惰性重连。
+
+A 兼容 **1C 帧**(v0.33,``codec_serial_a.py``,SH-080008 第 17 章):C24
+A 兼容通信的 ASCII 格式 4,命令为 **BR(位成批读)/WR(字成批读)/BW(位成批写)/
+WW(字成批写)**(ACPU 共通命令;JR/QR/JW/QW 与 BT/WT 测试、监视登录、
+扩展文件寄存器等与本库点位读写契约不符,未做)。请求 = ENQ + 站号(2)+
+PC号(2,``FF`` = 连接站 CPU)+ 命令(2)+ 消息等待(1,10ms 单位 0~F)+
+软元件区 + 和校验(2)+ CR LF,和校验范围 = 站号起至软元件区(手册 4.3 节
+算例逐字节核证);响应:读正常 = STX + 站号/PC号**回显**(4)+ 数据 + ETX
++ 和校验(2,范围含 ETX)+ CR LF,写正常 = ACK + 回显 + CR LF,
+异常 = NAK + 回显 + **错误代码 2 位**(1C 专属规格,3C/4C 为 4 位)+ CR LF。
+1C 帧**无帧识别码**(4.3 节帧识别码表 F8=4C/F9=3C/FB=2C/1C 不需要)。
+软元件规格:码 1 字符 + 编号 4 位 ASCII(X/Y/B/W 十六进制、
+M/L/S/F/D/R 十进制);T/C 双性质——字单位 **TN/CN**(当前值)、位读
+**TS/CS**(接点)、位写 **TC/CC**(线圈),编号 3 位;位软元件按字单位
+(16 点/字)访问时起始编号须为 16 的倍数。点数上限:BR 256(BW 160)、
+WR/WW 64 字(位软元件按字:WR 32 字、WW 10 字)。消息等待为构造参数
+``message_wait``(0~15,默认 0)。2C 帧(A 兼容,帧识别码 FB)仍留 v1.x。
 
 罗克韦尔 AB EtherNet/IP 说明(2026-09):ControlLogix/CompactLogix 的
 标签读写走 CIP 消息路由,``AllenBradleyEthIpClient`` TCP **44818**,连接即注册
@@ -520,7 +537,8 @@ Unconnected Send(0x52)包裹、背板路由到 ``slot`` 槽号——无 Forward 
 类型码,故写前必查。位访问:整型标签 ``Tag.3`` 读词提位、写走 0x4E 设备侧
 原子读-改-写;BOOL 数组(Logix 按 DWORD 32 位打包)按 ``下标//32`` 定词、
 ``%32`` 定位。STRING 走 0xA0 结构体(模板 0x0FCE,len(u32)+82 字符)。
-UDT 整体读取、批量多服务(0x0A)、分片读写(>480 字节应答)留 v1.x。
+UDT 整体读取与分片读写(0x52,>480 字节应答)留 v1.x;批量多服务包
+(0x0A)已于 v0.28 落地为 ``read_batch``(混标签混类型单事务,32 条上限)。
 帧格式经 pylogix 1.1.6 / cm_ethernetip 0.1.0 / aphyt 0.1.30 三份参考实现
 交叉核证(见 §8.1)。
 
@@ -926,6 +944,7 @@ FINS 与 fins-driver 0.3.1 对照(2026-09 复审):FINS 帧头 10 字节布局
 | v0.31.4 | CI 修复批:`uv build` 显式指定 `--python 3.12`——仓库 `.python-version` 钉 3.7.9 而 runner 无此解释器且 uv 托管下载不支持 3.7(v0.31.3 首跑报 "No interpreter found for Python 3.7.9");构建与运行版本无关(hatchling 纯 Python,wheel 为 py3-none-any),setup-uv 预装 3.12 后恢复正常 | ✅ 完成 |
 | v0.32.0 | API 对齐批:①FINS 节点号自动推导——`destination_node`/`source_node`(TCP 含 `local_node`)缺省 None 自动获取(UDP 从 IP 末段推导:目标 = PLC IP 末段、源 = 本机出口 IP 末段经 UDP connect 探测;TCP 经握手获取),显式传值原样使用;②参数归位四分法成文(§2.1:构造 = 身份冻结/属性 = 调优/configure = 物理链路/只读 = 运行态)+ 属性补齐(FINS 路由六参、MC network_number/pc_number、MC 串口 self_station_number/module_station,含 aio 镜像与内省守卫);③双入口一律取消(Modbus station 与 SR scan_dwell 属性转只读,校验移构造期;全库不变量 = 构造参数一律冻结、可写属性一律不进构造);④S7 构造签名对齐 (ip, port, rack, slot, dll_path)(破坏性:位置参数调用需调整) | ✅ 完成 |
 | v0.32.1 | CI 修复:Release 发布物收紧为显式 `dist/*.whl` + `dist/*.tar.gz`——`uv build` 自身会在 `dist/` 生成 `.gitignore`(内容 `*`,防构建产物污染 VCS,本地复现坐实),原 `dist/*` 通配把它一并挂上 Release(GitHub 存储名 default.gitignore/显示 .gitignore);收紧后发布物仅可能为 wheel + sdist | ✅ 完成 |
+| v0.33.0 | ①**MC A 兼容 1C 帧**(`MelsecMcSerialClient(frame="1C")`,命令 BR/WR/BW/WW,ASCII 格式 4,与 3C/4C 共享串口客户端;无帧识别码、路由缩站号+PC 号、错误代码 2 位,T/C 双性质 TN/TS/TC/CN/CS/CC,消息等待 `message_wait` 0~15 构造参数);以 SH-080008-AB 第 17 章逐字节核证,黄金向量 21 例入库;协议覆盖表 RTU 列更新、backlog 1C/2C → 2C;②**点位表 schema 破坏性变更**:`Tag.name` → `tag_id`(字母标识)+ 新增 `remark` 中文备注(`TagTable`/bind_tags/read_tag/write_tag 全文同步,manual 工具链 163 点同步);迁移指南见 README「点位表」节 | ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
-| v1.x | MC 1C/2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、通用 TCP 长度域成帧/空闲切块成帧、心跳保活、轮询器、连接池 | 规划 |
+| v1.x | MC 2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、通用 TCP 长度域成帧/空闲切块成帧、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 更多品牌/协议按需扩展(drivers 插槽沿用 BaseClient 原语模式) | 规划 |

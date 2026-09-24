@@ -223,6 +223,22 @@ MC_SERIAL_DEFAULT_MODULE_IO: int = 0x03FF
 MC_SERIAL_DEFAULT_MODULE_STATION: int = 0
 """4C 帧请求目标模块局号默认值(CPU 直连恒为 0)。"""
 
+# ---------------------------------------------------------------- 三菱 MC 串口帧(1C,A 兼容)
+MC_1C_DEFAULT_MESSAGE_WAIT: int = 0
+"""1C 帧默认消息等待(0 = 不延迟;C24 收到请求后响应发送的最短延迟)。"""
+MC_1C_MAX_MESSAGE_WAIT: int = 15
+"""1C 消息等待上限:0~F(×10ms,即 0~150ms;1 位十六进制 ASCII)。"""
+MC_1C_MAX_BIT_READ_POINTS: int = 256
+"""BR 位成批读点数上限;256 点按规格传 ``"00"``(SH-080008 17.4 节)。"""
+MC_1C_MAX_BIT_WRITE_POINTS: int = 160
+"""BW 位成批写点数上限。"""
+MC_1C_MAX_WORD_POINTS: int = 64
+"""WR/WW 字软元件字数上限。"""
+MC_1C_MAX_BITDEV_WORD_READ: int = 32
+"""WR 位软元件按字单位(16 点/字)访问的字数上限,起始编号须为 16 的倍数。"""
+MC_1C_MAX_BITDEV_WORD_WRITE: int = 10
+"""WW 位软元件按字单位(16 点/字)访问的字数上限,起始编号须为 16 的倍数。"""
+
 # ---------------------------------------------------------------- 基恩士 MC 协议兼容
 KEYENCE_MC_DEFAULT_PORT: int = 5000
 """基恩士 KV 系列 MC 协议兼容(SLMP)默认 TCP 端口(以太网单元设置默认值)。"""

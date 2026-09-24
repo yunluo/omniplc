@@ -1,7 +1,7 @@
 # omniplc
 
 #### 介绍
-omniplc:一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、汇川、松下、丰田、罗克韦尔(AB)、倍福(TwinCAT)、西门子(S7)等 PLC/扫码枪、OPC-UA 服务器与 CNC 机床(MTConnect),支持 Modbus、MC(3E/4E/1E 以太网帧、3C/4C 串口帧)、FINS、NJ/NX CIP(EtherNet/IP)、KV Host Link、KV MC 协议兼容(SLMP)、汇川 H3U/H5U(Modbus TCP/RTU、MC 协议兼容 3E)、松下 FP(MC 协议兼容 3E、MEWTOCOL)、SR、TOYOPUC 计算机链接、EtherNet/IP(Logix 标签读写)、TwinCAT ADS(封装 pyads)、西门子 S7(封装 python-snap7,DB/I/Q/M)、通用自定义 TCP(分隔符成帧)、OPC-UA、MTConnect 数采等协议。
+omniplc:一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、汇川、松下、丰田、罗克韦尔(AB)、倍福(TwinCAT)、西门子(S7)等 PLC/扫码枪、OPC-UA 服务器与 CNC 机床(MTConnect),支持 Modbus、MC(3E/4E/1E 以太网帧、1C/3C/4C 串口帧)、FINS、NJ/NX CIP(EtherNet/IP)、KV Host Link、KV MC 协议兼容(SLMP)、汇川 H3U/H5U(Modbus TCP/RTU、MC 协议兼容 3E)、松下 FP(MC 协议兼容 3E、MEWTOCOL)、SR、TOYOPUC 计算机链接、EtherNet/IP(Logix 标签读写)、TwinCAT ADS(封装 pyads)、西门子 S7(封装 python-snap7,DB/I/Q/M)、通用自定义 TCP(分隔符成帧)、OPC-UA、MTConnect 数采等协议。
 
 - **Python 3.7+**,uv 开发,核心零第三方依赖
 - 命名与使用习惯对齐,迁移成本极低
@@ -27,7 +27,7 @@ BaseClient(ABC,模板方法:连接状态机 / 事务锁 / 惰性重连 / 类型�
 │   └── PanasonicMcTcpClient —— 松下 FP0H/FP7 MC 兼容 3E,换码表 + 记号换算(字号×16+位号、R9000+→SM、D90000+→SD)
 ├── MelsecMcUdpClient —— 三菱 MC 同帧型 over UDP(2000)
 │   └── KeyenceMcUdpClient —— 基恩士 KV MC 兼容 SLMP 3E over UDP(5000),与 TCP 版共用码表覆写
-├── MelsecMcSerialClient —— 三菱 MC 串口帧(C24):3C ASCII 格式 4 / 4C 二进制格式 5,需 pyserial
+├── MelsecMcSerialClient —— 三菱 MC 串口帧(C24):1C A 兼容 ASCII 格式 4 / 3C ASCII 格式 4 / 4C 二进制格式 5,需 pyserial
 ├── MelsecMxClient —— 三菱 MX Component(Windows,comtypes,逻辑站号)
 │
 ├── OmronFinsTcpClient —— 欧姆龙 FINS + TCP 握手(9600)
@@ -113,7 +113,8 @@ ok, value = mc.read_ushort("D100")
 ok = mc.write_bool("M100", True)
 ok, values = mc.read_batch([("D100", "short"), ("M100", "bool")])  # 0406 多块批量读,单事务
 
-# 三菱 MC 串口帧(C24 串口模块,需 pyserial):3C=ASCII 格式 4,4C=二进制格式 5
+# 三菱 MC 串口帧(C24 串口模块,需 pyserial):1C=A 兼容 ASCII 格式 4(BR/WR/BW/WW),
+# 3C=QnA 兼容 ASCII 格式 4,4C=二进制格式 5
 # 软元件地址与 3E 帧一致;串口参数须与 C24"传送设定"一致,默认访问连接站 CPU(PC 号 FF)
 from omniplc import MelsecMcSerialClient
 mc_sio = MelsecMcSerialClient(frame=McFrame.FRAME_4C)
@@ -404,7 +405,7 @@ ok, value = client.read_tag("furnace_temp")   # 点位标识 → 地址+类型,�
 | 协议                                     | TCP                                                   | UDP     | RTU(串口)            | MX Component     |
 |----------------------------------------|-------------------------------------------------------|---------|--------------------|------------------|
 | Modbus(含 FC22 掩码写)                     | ✅                                                     | —       | ✅(广播写)             | —                |
-| 三菱 MC 3E/4E/1E                         | ✅                                                     | ✅       | ✅(3C/4C 串口帧)       | ✅(Windows + COM) |
+| 三菱 MC 3E/4E/1E                         | ✅                                                     | ✅       | ✅(1C/3C/4C 串口帧)     | ✅(Windows + COM) |
 | 欧姆龙 FINS                               | ✅                                                     | ✅       | v1.x(Host Link)    | —                |
 | 欧姆龙 CIP / 连接型 CIP(NJ/NX)               | ✅(44818,unconnected/connected)                        | —       | —                  | —                |
 | 倍福 TwinCAT(ADS)                        | ✅(封装 pyads,AMS 851)                                   | —       | —                  | —                |
@@ -424,7 +425,8 @@ ok, value = client.read_tag("furnace_temp")   # 点位标识 → 地址+类型,�
 
 #### 路线图
 
-- **v0.32.1(当前)**:CI 修复——Release 发布物收紧为显式 `dist/*.whl` + `dist/*.tar.gz`:`uv build` 会在 `dist/` 生成 `.gitignore`(内容 `*`,防构建产物污染 VCS,本地复现坐实),原 `dist/*` 通配把它一并挂上 Release(GitHub 存储名 `default.gitignore`、显示 `.gitignore`);收紧后发布物仅可能为 wheel + sdist,aio 产物清单同步收紧
+- **v0.33.0(当前)**:MC A 兼容 1C 帧落地(`MelsecMcSerialClient(frame="1C")`,命令 BR/WR/BW/WW)——C24 A 兼容通信,ASCII 格式 4(ENQ 起始、和校验后接 CR LF),与 3C/4C 共享同一串口客户端;软元件规格 X/Y/B/W 十六进制、M/L/S/F/D/R 十进制,T/C 双性质映射(字=TN/CN、位读=TS/CS、位写=TC/CC),位软元件按字访问起始编号须 16 的倍数;点数上限 BR 256/BW 160/WR·WW 64 字(位软元件按字 32/10);消息等待(`message_wait`,0~15,10ms 单位)构造期可配;与 3C 的差异——无帧识别码、路由缩为站号+PC 号、错误代码 2 位、命令字 BR/BR/WW/WW(ACPU 共通),JR/QR/BT/WT/监视登录/扩展文件寄存器/TT 等与点位读写契约不符未做;以本地 SH-080008-AB 第 17 章逐字节核证(`codec_serial_a.py`),黄金向量入库(21 例含 T/C 映射、点位上下限、回显/和校验/控制码坏帧、aio 镜像);`docs/architecture.md` MC 串口段补 1C 详解,协议覆盖表 RTU 列 3C/4C → 1C/3C/4C,backlog 行 1C/2C → 2C。**点位表 schema 破坏性变更**(随本期发布):`Tag.name` → `tag_id`(字母标识)+ 新增 `remark`(中文备注,可选);迁移指南见 README「点位表」节与 `tag.py` 文档。
+- **v0.32.1**:CI 修复——Release 发布物收紧为显式 `dist/*.whl` + `dist/*.tar.gz`:`uv build` 会在 `dist/` 生成 `.gitignore`(内容 `*`,防构建产物污染 VCS,本地复现坐实),原 `dist/*` 通配把它一并挂上 Release(GitHub 存储名 `default.gitignore`、显示 `.gitignore`);收紧后发布物仅可能为 wheel + sdist,aio 产物清单同步收紧
 - **v0.32.0**:API 对齐批——(1)**FINS 节点号自动推导**:`destination_node`/`source_node`(TCP 另含 `local_node`)缺省 `None` 自动获取——UDP 从 IP 末段推导(目标 = PLC IP 末段,源 = 本机出口 IP 末段,UDP connect 探测取同一路由出口),TCP 经握手获取;显式传值原样使用(OmronFins UDP 读 0x2108 真机排查的配套改进);(2)**参数归位四分法成文**(architecture.md §2.1:构造 = 身份冻结/可写属性 = 行为调优/`configure_serial` = 物理链路/只读 = 运行态;判定测试"改了它是不是等于换了一个对端")并补齐只读属性:FINS 路由六参、MC `network_number`/`pc_number`、MC 串口 `self_station_number`/`module_station`(含 aio 镜像,内省守卫通过);(3)**双入口一律取消**:Modbus `station` 与 SR `scan_dwell` 属性转只读(校验移到构造期),全库不变量 = 构造参数一律冻结、可写属性一律不进构造(仅剩超时/重试/字序五件);(4)**S7 构造签名对齐**:`(ip, rack, slot, port, dll_path)` → `(ip, port, rack, slot, dll_path)`(破坏性:位置参数调用需调整,关键字调用不受影响)
 - **v0.31.4**:CI 修复批——`uv build` 显式指定 `--python 3.12`:仓库 `.python-version` 钉 3.7.9(本地开发用),GitHub runner 无此解释器且 uv 托管下载不支持 3.7(首跑报 "No interpreter found for Python 3.7.9");构建本身与运行版本无关(hatchling 纯 Python,产物 wheel 为 `py3-none-any`),setup-uv 预装 3.12 后构建恢复正常
 - **v0.31.3**:CI 发布流水线——新增 GitHub Actions 工作流(`.github/workflows/build-release.yml`),打标签推送(`v*`)自动触发:`uv build` 构建 sdist + wheel、挂到对应 GitHub Release,并经**可信发布(OIDC)**发布到 PyPI(工作流内无明文令牌;`fork` 守卫防误发;Gitee Go 流水线为企业付费服务,个人账号不可用故未配置)
