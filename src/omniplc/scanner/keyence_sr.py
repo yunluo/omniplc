@@ -43,8 +43,7 @@ class KeyenceSrClient(BaseClient):
 
     :example::
 
-        client = KeyenceSrClient("192.168.0.10", 9004)
-        client.scan_dwell = 1.0
+        client = KeyenceSrClient("192.168.0.10", 9004, scan_dwell=1.0)
         client.connect()
         ok, code = client.scan()          # (True, "ABC123") 或 (False, None)
         ok, code = client.scan(bank=1)    # 使用预设 bank 1
@@ -67,18 +66,14 @@ class KeyenceSrClient(BaseClient):
         super().__init__()
         self._ip_address = ip_address
         self._port = int(port)
-        self.scan_dwell = scan_dwell
+        if scan_dwell <= 0:
+            raise ValueError(f"scan_dwell 必须大于 0,收到:{scan_dwell}")
+        self._scan_dwell = float(scan_dwell)
 
     @property
     def scan_dwell(self) -> float:
-        """扫码窗口时长(秒),LON 开窗到 LOFF 关窗的等待时间。"""
+        """扫码窗口时长(秒),LON 开窗到 LOFF 关窗的等待时间(构造期定,只读)。"""
         return self._scan_dwell
-
-    @scan_dwell.setter
-    def scan_dwell(self, seconds: float) -> None:
-        if seconds <= 0:
-            raise ValueError(f"scan_dwell 必须大于 0,收到:{seconds}")
-        self._scan_dwell = float(seconds)
 
     # ------------------------------------------------------------------
     # 扫码 API

@@ -12,6 +12,7 @@ FINS 多字数据为大端字序。
 """
 from __future__ import annotations
 
+import socket
 from abc import abstractmethod
 from typing import List, Optional, Sequence, Tuple, Union
 
@@ -22,7 +23,6 @@ from ...core.base_client import BaseClient, validate_endpoint
 from ...core.constants import (
     FINS_BIT_WRITABLE_AREAS,
     FINS_DEFAULT_DESTINATION_NETWORK,
-    FINS_DEFAULT_DESTINATION_NODE,
     FINS_DEFAULT_DESTINATION_UNIT,
     FINS_DEFAULT_PORT,
     FINS_MAX_DATAGRAM,
@@ -34,6 +34,29 @@ from ...transport import BaseTransport, TcpTransport, UdpTransport
 from ...types import ByteOrder, DataType, PrimitiveValue
 
 
+def _node_from_host(host: str) -> int:
+    """取 IPv4 地址末段作为 FINS 节点号;主机名先解析(内部函数)。
+
+    Omron 以太网 FINS 节点号惯例 = IP 地址最后一段(如
+    ``192.168.250.1`` → 节点 1)。
+    """
+    text = host
+    if not text.rsplit(".", 1)[-1].isdigit():
+        text = socket.gethostbyname(host)
+    return int(text.rsplit(".", 1)[-1])
+
+
+def _local_ip_for(host: str, port: int) -> str:
+    """取本机到目标地址实际出口 IP(UDP connect 探测,不发包,内部函数)。
+
+    UDP socket ``connect`` 只登记对端与选路,不产生网络报文;
+    ``getsockname`` 返回的即实际通信将使用的本机侧地址。
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        probe.connect((host, port))
+        return probe.getsockname()[0]
+
+
 class _OmronFinsBase(BaseClient):
     """FINS 客户端公共基类:节点地址、SID 与软元件分发(私有)。"""
 
@@ -42,10 +65,10 @@ class _OmronFinsBase(BaseClient):
         ip_address: str,
         port: int = FINS_DEFAULT_PORT,
         destination_network: int = FINS_DEFAULT_DESTINATION_NETWORK,
-        destination_node: int = FINS_DEFAULT_DESTINATION_NODE,
+        destination_node: Optional[int] = None,
         destination_unit: int = FINS_DEFAULT_DESTINATION_UNIT,
         source_network: int = 0,
-        source_node: int = 0,
+        source_node: Optional[int] = None,
         source_unit: int = 0,
     ) -> None:
         """初始化 FINS 客户端公共参数。
@@ -53,28 +76,60 @@ class _OmronFinsBase(BaseClient):
         :param ip_address: PLC 的 IP 或主机名
         :param port: 端口,FINS 默认 9600
         :param destination_network: 目标网络号(0 = 本网络)
-        :param destination_node: 目标节点号(0 = 握手自动获取;
-            手工配置常用 PLC IP 地址末位)
+        :param destination_node: 目标节点号;``None``/``0`` = 自动
+            (TCP 经握手获取,UDP 从 PLC IP 末段推导);显式传值原样使用
         :param destination_unit: 目标单元号(0 = CPU)
         :param source_network: 源网络号(上位机侧,一般 0)
-        :param source_node: 源节点号(0 = 握手自动获取;手工配置常用
-            本机 IP 地址末位)
+        :param source_node: 源节点号;``None``/``0`` = 自动
+            (TCP 经握手获取,UDP 从本机出口 IP 末段推导);显式传值原样使用
         :param source_unit: 源单元号(上位机为 0)
         :raises ValueError: 参数非法
         """
         validate_endpoint(ip_address, port)
         super().__init__(ip_address, port)
         self._destination_network = int(destination_network)
-        self._destination_node = int(destination_node)
+        self._destination_node = (
+            int(destination_node) if destination_node is not None else 0
+        )
         self._destination_unit = int(destination_unit)
         self._source_network = int(source_network)
-        self._source_node = int(source_node)
+        self._source_node = int(source_node) if source_node is not None else 0
         self._source_unit = int(source_unit)
-        # 记录节点号是否为自动模式(0 = 由握手分配):自动模式每次重连都
-        # 刷新为最新握手结果,显式配置的节点号不被覆盖
-        self._auto_destination_node = destination_node == 0
-        self._auto_source_node = source_node == 0
+        # 记录节点号是否为自动模式(None/0 = 握手或 IP 推导):自动模式每次
+        # 连接都刷新为最新推导/握手结果,显式配置的节点号不被覆盖
+        self._auto_destination_node = destination_node is None or destination_node == 0
+        self._auto_source_node = source_node is None or source_node == 0
         self._sid = 0
+
+    @property
+    def destination_network(self) -> int:
+        """目标网络号。"""
+        return self._destination_network
+
+    @property
+    def destination_node(self) -> int:
+        """目标节点号(自动模式为握手/推导后的最新值)。"""
+        return self._destination_node
+
+    @property
+    def destination_unit(self) -> int:
+        """目标单元号。"""
+        return self._destination_unit
+
+    @property
+    def source_network(self) -> int:
+        """源网络号。"""
+        return self._source_network
+
+    @property
+    def source_node(self) -> int:
+        """源节点号(自动模式为握手/推导后的最新值)。"""
+        return self._source_node
+
+    @property
+    def source_unit(self) -> int:
+        """源单元号。"""
+        return self._source_unit
 
     def _next_sid(self) -> int:
         """SID 递增(0~255 回绕,事务标识,内部方法)。"""
@@ -325,26 +380,27 @@ class OmronFinsTcpClient(_OmronFinsBase):
         self,
         ip_address: str = "192.168.250.1",
         port: int = FINS_DEFAULT_PORT,
-        local_node: int = 0,
+        local_node: Optional[int] = None,
         destination_network: int = FINS_DEFAULT_DESTINATION_NETWORK,
-        destination_node: int = FINS_DEFAULT_DESTINATION_NODE,
+        destination_node: Optional[int] = None,
         destination_unit: int = FINS_DEFAULT_DESTINATION_UNIT,
         source_network: int = 0,
-        source_node: int = 0,
+        source_node: Optional[int] = None,
         source_unit: int = 0,
     ) -> None:
         """初始化 FINS/TCP 客户端。
 
         :param ip_address: PLC 的 IP 或主机名
         :param port: 端口,默认 9600
-        :param local_node: 本地节点号,0 = 由 PLC 自动分配(握手时获取)
+        :param local_node: 本地节点号;``None``/``0`` = 由 PLC 自动分配
+            (握手时获取)
         :param destination_network: 目标网络号(0 = 本网络)
-        :param destination_node: 目标节点号(0 = 握手自动获取;
-            手工配置常用 PLC IP 地址末位)
+        :param destination_node: 目标节点号;``None``/``0`` = 握手自动获取;
+            手工配置常用 PLC IP 地址末位
         :param destination_unit: 目标单元号(0 = CPU)
         :param source_network: 源网络号(上位机侧,一般 0)
-        :param source_node: 源节点号(0 = 握手自动获取;手工配置常用
-            本机 IP 地址末位)
+        :param source_node: 源节点号;``None``/``0`` = 握手自动获取;
+            手工配置常用本机 IP 地址末位
         :param source_unit: 源单元号(上位机为 0)
         :raises ValueError: 参数非法
         """
@@ -358,8 +414,8 @@ class OmronFinsTcpClient(_OmronFinsBase):
             source_node,
             source_unit,
         )
-        self._local_node = int(local_node)
-        self._auto_local_node = local_node == 0
+        self._local_node = int(local_node) if local_node is not None else 0
+        self._auto_local_node = local_node is None or local_node == 0
 
     @property
     def local_node(self) -> int:
@@ -369,7 +425,7 @@ class OmronFinsTcpClient(_OmronFinsBase):
     def _after_connect(self) -> None:
         """FINS/TCP 握手:发送节点分配请求并解析响应(内部方法)。
 
-        自动模式(构造时节点号传 0)每次重连都刷新为最新握手分配值;
+        自动模式(构造时节点号传 None/0)每次重连都刷新为最新握手分配值;
         显式配置的节点号保持不被覆盖。
         """
         transport = self._require_transport()
@@ -398,17 +454,22 @@ class OmronFinsTcpClient(_OmronFinsBase):
 
 
 class OmronFinsUdpClient(_OmronFinsBase):
-    """欧姆龙 FINS/UDP 客户端,无握手,一问一答一数据报。"""
+    """欧姆龙 FINS/UDP 客户端,无握手,一问一答一数据报。
+
+    节点号缺省自动从 IP 推导(Omron 以太网惯例:节点号 = IP 末段):
+    目标节点 = PLC IP 末段,源节点 = 本机出口 IP 末段(连接时探测);
+    显式传 ``destination_node``/``source_node`` 则原样使用。
+    """
 
     def __init__(
         self,
         ip_address: str = "192.168.250.1",
         port: int = FINS_DEFAULT_PORT,
         destination_network: int = FINS_DEFAULT_DESTINATION_NETWORK,
-        destination_node: int = FINS_DEFAULT_DESTINATION_NODE,
+        destination_node: Optional[int] = None,
         destination_unit: int = FINS_DEFAULT_DESTINATION_UNIT,
         source_network: int = 0,
-        source_node: int = 0,
+        source_node: Optional[int] = None,
         source_unit: int = 0,
     ) -> None:
         """初始化 FINS/UDP 客户端。
@@ -416,12 +477,12 @@ class OmronFinsUdpClient(_OmronFinsBase):
         :param ip_address: PLC 的 IP 或主机名
         :param port: 端口,FINS 默认 9600
         :param destination_network: 目标网络号(0 = 本网络)
-        :param destination_node: 目标节点号(0 = 握手自动获取;
-            手工配置常用 PLC IP 地址末位)
+        :param destination_node: 目标节点号;``None``/``0`` = 自动从
+            PLC IP 末段推导;显式传值原样使用
         :param destination_unit: 目标单元号(0 = CPU)
         :param source_network: 源网络号(上位机侧,一般 0)
-        :param source_node: 源节点号(0 = 握手自动获取;手工配置常用
-            本机 IP 地址末位)
+        :param source_node: 源节点号;``None``/``0`` = 自动从本机出口
+            IP 末段推导;显式传值原样使用
         :param source_unit: 源单元号(上位机为 0)
         :raises ValueError: 参数非法
         """
@@ -435,6 +496,20 @@ class OmronFinsUdpClient(_OmronFinsBase):
             source_node,
             source_unit,
         )
+
+    def _after_connect(self) -> None:
+        """UDP 无握手:节点号自动模式在连接时从 IP 推导(内部方法)。
+
+        目标节点 = PLC IP 末段(主机名先解析);源节点 = 本机对 PLC
+        地址实际出口 IP 的末段(UDP connect 探测,与真实通信同一路由)。
+        自动模式每次连接都重新推导,显式配置的节点号不被覆盖。
+        """
+        if self._auto_destination_node:
+            self._destination_node = _node_from_host(self._ip_address)
+        if self._auto_source_node:
+            self._source_node = _node_from_host(
+                _local_ip_for(self._ip_address, self._port)
+            )
 
     def _transact(self, fins_frame: bytes) -> bytes:
         """FINS/UDP 事务:一帧一数据报,整包接收。"""

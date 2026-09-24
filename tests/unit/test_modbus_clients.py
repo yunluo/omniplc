@@ -258,3 +258,13 @@ def test_tcp_read_real_transport_semantics() -> None:
     frame = codec.build_mbap(1, 1, _RESPONSE_ONE_REGISTER)
     mount_real_tcp(client, [frame[:2], frame[2:5], frame[5:]])
     assert client.read_ushort("hr0") == (True, 20)
+
+
+def test_station_frozen_after_construction() -> None:
+    """站号构造期定:属性只读(双入口取消),构造传参生效。"""
+    client = ModbusTcpClient("127.0.0.1", station=2)
+    assert client.station == 2
+    with pytest.raises(AttributeError):
+        client.station = 5
+    with pytest.raises(ValueError):
+        ModbusTcpClient("127.0.0.1", station=248)

@@ -65,16 +65,17 @@ class ModbusBaseClient(BaseClient):
 
     @property
     def station(self) -> int:
-        """Modbus 站号(0~247,0 为广播,仅用于写)。"""
+        """Modbus 站号(0~247,0 为广播,仅用于写;构造期定,只读)。"""
         return self._station
 
-    @station.setter
-    def station(self, value: int) -> None:
+    @staticmethod
+    def _check_station(value: int) -> int:
+        """站号范围校验(内部方法)。"""
         if not MODBUS_STATION_MIN <= value <= MODBUS_STATION_MAX:
             raise ValueError(
                 f"站号必须在 {MODBUS_STATION_MIN}~{MODBUS_STATION_MAX} 之间,收到:{value}"
             )
-        self._station = int(value)
+        return int(value)
 
     @property
     def word_order(self) -> WordOrder:
@@ -272,7 +273,7 @@ class ModbusTcpClient(ModbusBaseClient):
         super().__init__()
         self._ip_address = ip_address
         self._port = int(port)
-        self.station = station
+        self._station = self._check_station(station)
 
     def _create_transport(self) -> BaseTransport:
         return TcpTransport(self._ip_address, self._port)
@@ -322,7 +323,7 @@ class ModbusRtuClient(ModbusBaseClient):
         :raises ValueError: 站号非法
         """
         super().__init__()
-        self.station = station
+        self._station = self._check_station(station)
         self._serial_config: Optional[SerialConfig] = None
 
     def configure_serial(

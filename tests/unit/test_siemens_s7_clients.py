@@ -467,3 +467,10 @@ def test_async_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
         await client.disconnect()
 
     asyncio.run(scenario())
+
+
+def test_signature_order_ip_port_first() -> None:
+    """构造签名对齐全库惯例:位置参数顺序 (ip, port, rack, slot, dll_path)。"""
+    client = SiemensS7Client("127.0.0.1", 102, 0, 1, "")
+    assert client.rack == 0
+    assert client.slot == 1

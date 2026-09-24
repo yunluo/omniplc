@@ -117,6 +117,16 @@ class _MelsecMcBase(BaseClient):
         """当前帧型(:class:`omniplc.types.McFrame` 枚举)。"""
         return self._frame
 
+    @property
+    def network_number(self) -> int:
+        """当前网络编号。"""
+        return self._network_number
+
+    @property
+    def pc_number(self) -> int:
+        """当前 PC 编号。"""
+        return self._pc_number
+
     # ------------------------------------------------------------------
     # 协议原语(BaseClient 类型化方法只调用 _read/_write)
     # ------------------------------------------------------------------
@@ -564,14 +574,19 @@ class MelsecMcSerialClient(_MelsecMcBase):
         return self._station_number
 
     @property
-    def pc_number(self) -> int:
-        """当前 PC 编号。"""
-        return self._pc_number
-
-    @property
     def module_io(self) -> int:
         """请求目标模块 I/O 编号(仅 4C 帧)。"""
         return self._module_io
+
+    @property
+    def self_station_number(self) -> int:
+        """本站号(m:n 多点连接时外部设备自身站号)。"""
+        return self._self_station_number
+
+    @property
+    def module_station(self) -> int:
+        """请求目标模块局号(仅 4C 帧)。"""
+        return self._module_station
 
     def configure_serial(
         self,

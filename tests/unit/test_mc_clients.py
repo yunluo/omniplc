@@ -9,7 +9,7 @@ import asyncio
 
 import pytest
 
-from omniplc import MelsecMcTcpClient, MelsecMcUdpClient
+from omniplc import MelsecMcSerialClient, MelsecMcTcpClient, MelsecMcUdpClient
 from omniplc.aio import AMelsecMcTcpClient
 from omniplc.core.constants import MC_DEFAULT_MONITOR_TIMER
 from omniplc.plc.melsec import codec_a, codec_qna
@@ -351,3 +351,16 @@ def test_tcp_3e_response_content_over_limit(monkeypatch: pytest.MonkeyPatch) -> 
     assert client.read_ushort("D100") == (False, None)
     assert client.connected is False
     assert client.last_error is not None and "超限" in client.last_error
+
+
+def test_mc_routing_properties_exposed() -> None:
+    """网络编号/PC 编号只读属性(TCP/UDP/串口共用基类);串口补齐本站号/模块局号。"""
+    client = MelsecMcTcpClient(
+        "192.168.3.39", frame="4E", network_number=7, pc_number=0x33
+    )
+    assert client.network_number == 7
+    assert client.pc_number == 0x33
+    serial = MelsecMcSerialClient(frame="4C", self_station_number=3, module_station=2)
+    assert serial.network_number == 0
+    assert serial.self_station_number == 3
+    assert serial.module_station == 2

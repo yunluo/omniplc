@@ -256,6 +256,20 @@ unconnected 消息),欧姆龙 NJ/NX CIP(继承 AB 客户端,三钩子覆写),
   `ip_address/port(+协议参数)`,串口为 `station + configure_serial()`;
   读返回 `(bool, Optional[值])`、写返回 `bool`、触发式 `scan()` 返回
   `(bool, Optional[str])`,失败原因一律进 `last_error`。
+- **参数归位四分法(2026-09-24 确立)**:判定测试——"改了这个参数,
+  是不是等于换了一个对端?"是 → **构造函数**(构造期冻结,只读属性
+  暴露,如 `frame`/`rack·slot`/`net_id`/FINS 路由参数;变更 = 换目标,
+  应新建实例,冻结保证线程安全与连接状态一致);否 → **可写属性**
+  (setter 校验 + 即时生效,如 `receive_timeout`(下发 live socket)/
+  `retries`/`write_retries`/`word_order`)。物理链路参数(串口五件套)
+  走独立 `configure_serial()`(构造时不连、connect 前必须定,未配置
+  就 connect 明确报错);运行态/派生值一律只读属性(`connected`/
+  `last_error`/`stats`/`local_node`(握手后)/`connection_size`
+  (Forward Open 后))。**双入口一律不设(2026-09-24 收紧)**:构造函数
+  参数一律构造期冻结(属性至多只读暴露),可写属性一律不进构造函数——
+  `station`(Modbus/MEWTOCOL/MC 串口)与 `scan_dwell` 均为构造期定
+  只读;Modbus TCP 的 Unit ID 虽是逐事务路由标签,统一按身份参数
+  处理,换站号即新建实例。
 
 ## 3. 线程安全设计
 

@@ -9,6 +9,7 @@ from omniplc import OmronFinsTcpClient, OmronFinsUdpClient
 from omniplc.aio import AOmronFinsUdpClient
 from omniplc.plc.omron import codec
 from omniplc.plc.omron.address import parse_fins_address
+from omniplc.plc.omron import omron as omron_module
 from scripted import ScriptedTransport
 
 _FINS_ECHO_HEAD = b"\xc0\x00\x02\x00\x0a\x00\x00\x05\x00"
@@ -46,6 +47,61 @@ def _tcp_wrap(fins_frame: bytes) -> bytes:
     """FINS/TCP 封帧(测试脚手架)。"""
     body = (2).to_bytes(4, "big") + (0).to_bytes(4, "big") + fins_frame
     return b"FINS" + len(body).to_bytes(4, "big") + body
+
+
+def test_udp_nodes_default_derived_from_ip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UDP 缺省节点号:目标 = PLC IP 末段,源 = 本机出口 IP 末段,进帧 DA1/SA1。"""
+    client = OmronFinsUdpClient("192.168.250.1")
+    monkeypatch.setattr(omron_module, "_local_ip_for", lambda host, port: "10.1.2.33")
+    scripted = ScriptedTransport([_fins_read_response([20])])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("D100") == (True, 20)
+    assert client._destination_node == 1  # 192.168.250.1 末段
+    assert client._source_node == 33  # 本机出口 IP 末段
+    sent = bytes(scripted.sent)
+    assert sent[4] == 1  # DA1
+    assert sent[7] == 33  # SA1
+
+
+def test_udp_nodes_explicit_not_overridden(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UDP 显式节点号:连接后原样保留,不被 IP 推导覆盖。"""
+    client = OmronFinsUdpClient("192.168.250.1", destination_node=5, source_node=10)
+    monkeypatch.setattr(omron_module, "_local_ip_for", lambda host, port: "10.1.2.33")
+    scripted = ScriptedTransport([_fins_read_response([20])])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("D100") == (True, 20)
+    assert (client._destination_node, client._source_node) == (5, 10)
+    sent = bytes(scripted.sent)
+    assert sent[4] == 5 and sent[7] == 10
+
+
+def test_udp_routing_properties_reflect_derivation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """路由参数只读属性:自动推导后反映最新节点号(属性面镜像同步侧)。"""
+    client = OmronFinsUdpClient("192.168.250.1")
+    monkeypatch.setattr(omron_module, "_local_ip_for", lambda host, port: "10.1.2.33")
+    scripted = ScriptedTransport([_fins_read_response([20])])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("D100") == (True, 20)
+    assert client.destination_network == 0
+    assert client.destination_node == 1
+    assert client.destination_unit == 0
+    assert client.source_network == 0
+    assert client.source_node == 33
+    assert client.source_unit == 0
+
+
+def test_node_from_host_resolves_hostname(monkeypatch: pytest.MonkeyPatch) -> None:
+    """节点号推导:IPv4 直接取末段;主机名先解析再取末段。"""
+    import socket
+
+    monkeypatch.setattr(socket, "gethostbyname", lambda host: "192.168.7.9")
+    assert omron_module._node_from_host("plc-omron") == 9
+    assert omron_module._node_from_host("192.168.250.1") == 1
 
 
 def test_udp_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -431,12 +431,8 @@ class AModbusBaseClient(ABaseClient):
 
     @property
     def station(self) -> int:
-        """Modbus 站号。"""
+        """Modbus 站号(构造期定,转发同步实例)。"""
         return self._modbus.station
-
-    @station.setter
-    def station(self, value: int) -> None:
-        self._modbus.station = value
 
     @property
     def word_order(self) -> str:
@@ -629,6 +625,16 @@ class AMelsecMcTcpClient(ABaseClient):
         """当前帧型(:class:`omniplc.types.McFrame` 枚举)。"""
         return self._typed(MelsecMcTcpClient).frame
 
+    @property
+    def network_number(self) -> int:
+        """当前网络编号(转发同步实例)。"""
+        return self._typed(MelsecMcTcpClient).network_number
+
+    @property
+    def pc_number(self) -> int:
+        """当前 PC 编号(转发同步实例)。"""
+        return self._typed(MelsecMcTcpClient).pc_number
+
     async def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
@@ -665,6 +671,16 @@ class AMelsecMcUdpClient(ABaseClient):
     def frame(self) -> McFrame:
         """当前帧型(:class:`omniplc.types.McFrame` 枚举)。"""
         return self._typed(MelsecMcUdpClient).frame
+
+    @property
+    def network_number(self) -> int:
+        """当前网络编号(转发同步实例)。"""
+        return self._typed(MelsecMcUdpClient).network_number
+
+    @property
+    def pc_number(self) -> int:
+        """当前 PC 编号(转发同步实例)。"""
+        return self._typed(MelsecMcUdpClient).pc_number
 
     async def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
@@ -806,6 +822,24 @@ class AMelsecMcSerialClient(ABaseClient):
         """请求目标模块 I/O 编号(仅 4C 帧,转发同步实例)。"""
         sync = self._typed(MelsecMcSerialClient)
         return sync.module_io
+
+    @property
+    def network_number(self) -> int:
+        """当前网络编号(转发同步实例)。"""
+        sync = self._typed(MelsecMcSerialClient)
+        return sync.network_number
+
+    @property
+    def self_station_number(self) -> int:
+        """本站号(m:n 多点连接时外部设备自身站号,转发同步实例)。"""
+        sync = self._typed(MelsecMcSerialClient)
+        return sync.self_station_number
+
+    @property
+    def module_station(self) -> int:
+        """请求目标模块局号(仅 4C 帧,转发同步实例)。"""
+        sync = self._typed(MelsecMcSerialClient)
+        return sync.module_station
 
     async def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
@@ -1012,12 +1046,8 @@ class AKeyenceSrClient(ABaseClient):
 
     @property
     def scan_dwell(self) -> float:
-        """扫码窗口时长(秒)。"""
+        """扫码窗口时长(秒),构造期定(转发同步实例)。"""
         return self._scanner().scan_dwell
-
-    @scan_dwell.setter
-    def scan_dwell(self, seconds: float) -> None:
-        self._scanner().scan_dwell = seconds
 
 
 class AToyopucTcpClient(ABaseClient):
@@ -1093,7 +1123,49 @@ class AOpcUaClient(ABaseClient):
         return await self._run(lambda: sync.read_batch(items))
 
 
-class AOmronFinsTcpClient(ABaseClient):
+class _AFinsRoutingClient(ABaseClient):
+    """FINS 路由参数只读镜像(TCP/UDP 共用,私有基类)。"""
+
+    @property
+    def _fins(self) -> Union[OmronFinsTcpClient, OmronFinsUdpClient]:
+        """取 FINS 同步实例并断言驱动类型(内部属性)。"""
+        sync = self._sync
+        if not isinstance(sync, (OmronFinsTcpClient, OmronFinsUdpClient)):
+            raise TypeError("内部错误:sync 实例不是 FINS 客户端")
+        return sync
+
+    @property
+    def destination_network(self) -> int:
+        """目标网络号(转发同步实例)。"""
+        return self._fins.destination_network
+
+    @property
+    def destination_node(self) -> int:
+        """目标节点号(自动模式为握手/推导后的最新值,转发同步实例)。"""
+        return self._fins.destination_node
+
+    @property
+    def destination_unit(self) -> int:
+        """目标单元号(转发同步实例)。"""
+        return self._fins.destination_unit
+
+    @property
+    def source_network(self) -> int:
+        """源网络号(转发同步实例)。"""
+        return self._fins.source_network
+
+    @property
+    def source_node(self) -> int:
+        """源节点号(自动模式为握手/推导后的最新值,转发同步实例)。"""
+        return self._fins.source_node
+
+    @property
+    def source_unit(self) -> int:
+        """源单元号(转发同步实例)。"""
+        return self._fins.source_unit
+
+
+class AOmronFinsTcpClient(_AFinsRoutingClient):
     """欧姆龙 FINS/TCP 异步客户端。"""
 
     def __init__(
@@ -1106,7 +1178,8 @@ class AOmronFinsTcpClient(ABaseClient):
 
         :param ip_address: PLC 的 IP
         :param port: 端口,默认 9600
-        :param local_node: 本地节点号,0 = 由 PLC 自动分配(握手时获取)
+        :param local_node: 本地节点号;``None``/``0`` = 由 PLC 自动分配
+            (握手时获取)
         :raises ValueError: 参数非法
         """
         super().__init__(OmronFinsTcpClient(ip_address, port, local_node))
@@ -1125,7 +1198,7 @@ class AOmronFinsTcpClient(ABaseClient):
         return await self._run(lambda: sync.read_batch(items))
 
 
-class AOmronFinsUdpClient(ABaseClient):
+class AOmronFinsUdpClient(_AFinsRoutingClient):
     """欧姆龙 FINS/UDP 异步客户端。"""
 
     def __init__(self, ip_address: str = "192.168.250.1", port: int = FINS_DEFAULT_PORT) -> None:
@@ -1487,23 +1560,23 @@ class ASiemensS7Client(ABaseClient):
     def __init__(
         self,
         ip_address: str = "192.168.0.1",
+        port: int = S7_DEFAULT_PORT,
         rack: int = S7_DEFAULT_RACK,
         slot: int = S7_DEFAULT_SLOT,
-        port: int = S7_DEFAULT_PORT,
         dll_path: str = "",
     ) -> None:
         """初始化 S7 异步客户端。
 
         :param ip_address: PLC 的 IP 或主机名
+        :param port: ISO-on-TCP 端口,标准 102
         :param rack: 机架号,S7_DEFAULT_RACK(0)
         :param slot: 槽位号,1200/1500 常用 1;300/400 的 CPU 常在 2
-        :param port: ISO-on-TCP 端口,标准 102
         :param dll_path: snap7 原生库路径显式覆盖,仅 1.x/2.x(C 封装线)
             生效——32 位 Python 需自备 32 位 snap7.dll;3.x 纯 Python 实现
             忽略此参数;留空用捆绑库
         :raises ValueError: 参数非法
         """
-        super().__init__(SiemensS7Client(ip_address, rack, slot, port, dll_path))
+        super().__init__(SiemensS7Client(ip_address, port, rack, slot, dll_path))
 
     def _client(self) -> SiemensS7Client:
         """取 S7 同步实例(内部属性)。"""

@@ -285,17 +285,17 @@ class SiemensS7Client(BaseClient):
     def __init__(
         self,
         ip_address: str = "192.168.0.1",
+        port: int = S7_DEFAULT_PORT,
         rack: int = S7_DEFAULT_RACK,
         slot: int = S7_DEFAULT_SLOT,
-        port: int = S7_DEFAULT_PORT,
         dll_path: str = "",
     ) -> None:
         """初始化 S7 客户端。
 
         :param ip_address: PLC 的 IP 或主机名
+        :param port: ISO-on-TCP 端口,标准 102
         :param rack: 机架号,S7_DEFAULT_RACK(0)
         :param slot: 槽位号,1200/1500 常用 1;300/400 的 CPU 常在 2
-        :param port: ISO-on-TCP 端口,标准 102
         :param dll_path: snap7 原生库路径显式覆盖,仅 1.x/2.x(C 封装线)
             生效——32 位 Python 需自备 32 位 snap7.dll;3.x 纯 Python 实现
             忽略此参数;留空用捆绑库

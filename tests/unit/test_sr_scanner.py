@@ -162,10 +162,10 @@ def test_constructor_validation() -> None:
 
 
 def test_scan_dwell_property(client: KeyenceSrClient) -> None:
-    client.scan_dwell = 2.5
-    assert client.scan_dwell == 2.5
-    with pytest.raises(ValueError):
-        client.scan_dwell = 0
+    """扫码窗口构造期定:构造传参生效,属性只读(双入口取消)。"""
+    assert client.scan_dwell == 0.01
+    with pytest.raises(AttributeError):
+        client.scan_dwell = 2.5
 
 
 def test_async_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
