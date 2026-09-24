@@ -150,4 +150,6 @@ cython_debug/
 
 # Mitsubishi copyrighted manuals stay local only
 docs/*.pdf
+docs/*.pptx
+docs/*.ppt
 
