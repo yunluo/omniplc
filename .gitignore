@@ -153,3 +153,8 @@ docs/*.pdf
 docs/*.pptx
 docs/*.ppt
 
+# 参考项目源码仅本地留档(tools/_ref_*)
+tools/_ref_*/
+# 手动联测草稿不入库(正式联测走每协议 manual_*.py 脚本)
+tools/manual_test.py
+
