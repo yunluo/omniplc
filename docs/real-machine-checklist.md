@@ -1,19 +1,19 @@
 # 真机联测核验清单
 
-在**真实 PLC 设备**上独立确认读/写能力的核验记录。每行一个测试(某协议 + 某操作);
-**读取与写入独立勾选**(读到了不代表写对了——尤其 Modbus 等含只读寄存器的协议)。
+在**真实 PLC 设备**上独立确认读/写能力的核验记录。**读取与写入独立勾选**(读到了
+不代表写对了——尤其 Modbus 等含只读寄存器的协议)。
 
 ## 填写约定
+
+**读/写单元格内容**:`<真机型号> <结果符号>`,留空或填 `—` 表示未测。
 
 | 字段 | 含义 |
 |---|---|
 | 真机型号 | 品牌 + 系列 + 型号(如"三菱 MELSEC iQ-R R04CPU");仿真环境写"PLCSIM Advanced / HSL / TwinCAT Simulator"等 |
-| 固件 | 设备固件版本号 |
-| omniplc 版本 | 测试时的 `omniplc.__version__` |
-| 日期 | `YYYY-MM-DD` |
-| 备注 | 任何异常、限制、注意事项(可用 `!` 标失败) |
+| omniplc 版本 | 测试时的 `omniplc.__version__`(同一协议下读/写同一版本,故作整列) |
+| 备注 | 任何异常、限制、注意事项(失败原因 / 限定条件) |
 
-**结果标记**(写在"结果"列):
+**结果标记**(写在读/写单元格内):
 - `✓` 通过
 - `✗` 失败(请在备注写原因)
 - `~` 部分通过(限定条件,见备注)
@@ -33,65 +33,37 @@
 
 ## 核验记录表
 
-按厂商 → 协议 → 操作(读取 / 写入)升序排列;同一协议下读取在上、写入在下。
+按厂商 → 协议 升序排列;读/写独立单元格。
 
-| 厂商 | 协议 | 操作 | 真机型号 | 固件 | omniplc 版本 | 日期 | 结果 | 备注 |
-|---|---|---|---|---|---|---|---|---|
-| 三菱 | MC 3E | 读取 | | | | | | |
-| 三菱 | MC 3E | 写入 | | | | | | |
-| 三菱 | MC 4E | 读取 | | | | | | |
-| 三菱 | MC 4E | 写入 | | | | | | |
-| 三菱 | MC 1E | 读取 | | | | | | |
-| 三菱 | MC 1E | 写入 | | | | | | |
-| 三菱 | MC 1C(串口) | 读取 | | | | | | |
-| 三菱 | MC 1C(串口) | 写入 | | | | | | |
-| 三菱 | MC 3C(串口) | 读取 | | | | | | |
-| 三菱 | MC 3C(串口) | 写入 | | | | | | |
-| 三菱 | MC 4C(串口) | 读取 | | | | | | |
-| 三菱 | MC 4C(串口) | 写入 | | | | | | |
-| 三菱 | MX Component | 读取 | | | | | | |
-| 三菱 | MX Component | 写入 | | | | | | |
-| 欧姆龙 | FINS TCP | 读取 | | | | | | |
-| 欧姆龙 | FINS TCP | 写入 | | | | | | |
-| 欧姆龙 | FINS UDP | 读取 | | | | | | |
-| 欧姆龙 | FINS UDP | 写入 | | | | | | |
-| 欧姆龙 | NJ/NX CIP(unconnected) | 读取 | | | | | | |
-| 欧姆龙 | NJ/NX CIP(unconnected) | 写入 | | | | | | |
-| 欧姆龙 | NJ/NX CIP(connected, Forward Open) | 读取 | | | | | | |
-| 欧姆龙 | NJ/NX CIP(connected, Forward Open) | 写入 | | | | | | |
-| 罗克韦尔 | EtherNet/IP(unconnected) | 读取 | | | | | | |
-| 罗克韦尔 | EtherNet/IP(unconnected) | 写入 | | | | | | |
-| 罗克韦尔 | EtherNet/IP(connected, Forward Open) | 读取 | | | | | | |
-| 罗克韦尔 | EtherNet/IP(connected, Forward Open) | 写入 | | | | | | |
-| 倍福 | TwinCAT ADS | 读取 | | | | | | |
-| 倍福 | TwinCAT ADS | 写入 | | | | | | |
-| 西门子 | S7-300/1200/1500 | 读取 | | | | | | |
-| 西门子 | S7-300/1200/1500 | 写入 | | | | | | |
-| 汇川 | H3U/H5U Modbus TCP | 读取 | | | | | | |
-| 汇川 | H3U/H5U Modbus TCP | 写入 | | | | | | |
-| 汇川 | H3U/H5U Modbus RTU | 读取 | | | | | | |
-| 汇川 | H3U/H5U Modbus RTU | 写入 | | | | | | |
-| 汇川 | H3U/H5U MC 协议兼容(3E) | 读取 | | | | | | |
-| 汇川 | H3U/H5U MC 协议兼容(3E) | 写入 | | | | | | |
-| 松下 | MEWTOCOL TCP/UDP | 读取 | | | | | | |
-| 松下 | MEWTOCOL TCP/UDP | 写入 | | | | | | |
-| 松下 | MC 协议兼容(3E) | 读取 | | | | | | |
-| 松下 | MC 协议兼容(3E) | 写入 | | | | | | |
-| 基恩士 | KV Host Link TCP | 读取 | | | | | | |
-| 基恩士 | KV Host Link TCP | 写入 | | | | | | |
-| 基恩士 | KV Host Link UDP | 读取 | | | | | | |
-| 基恩士 | KV Host Link UDP | 写入 | | | | | | |
-| 基恩士 | KV MC 协议兼容(SLMP 3E) | 读取 | | | | | | |
-| 基恩士 | KV MC 协议兼容(SLMP 3E) | 写入 | | | | | | |
-| 基恩士 | SR 扫码枪 | 扫码 | | | | | | |
-| 丰田 | TOYOPUC 计算机链接 TCP/UDP | 读取 | | | | | | |
-| 丰田 | TOYOPUC 计算机链接 TCP/UDP | 写入 | | | | | | |
-| Modbus | Modbus TCP | 读取 | | | | | | |
-| Modbus | Modbus TCP | 写入 | | | | | | |
-| Modbus | Modbus RTU | 读取 | | | | | | |
-| Modbus | Modbus RTU | 写入 | | | | | | |
-| OPC-UA | opc.tcp | 读取 | | | | | | |
-| OPC-UA | opc.tcp | 写入 | | | | | | |
-| CNC | MTConnect Agent HTTP/XML | 读取 | | | | | | |
-| 通用 | OpenTcp(分隔符 / 定长) | 读取 | | | | | | |
-| 通用 | OpenTcp(分隔符 / 定长) | 写入 | | | | | | |
+| 厂商 | 协议 | 读取 | 写入 | omniplc 版本 | 备注 |
+|---|---|---|---|---|---|
+| 三菱 | MC 3E | | | | |
+| 三菱 | MC 4E | | | | |
+| 三菱 | MC 1E | | | | |
+| 三菱 | MC 1C(串口) | | | | |
+| 三菱 | MC 3C(串口) | | | | |
+| 三菱 | MC 4C(串口) | | | | |
+| 三菱 | MX Component | | | | |
+| 欧姆龙 | FINS TCP | | | | |
+| 欧姆龙 | FINS UDP | | | | |
+| 欧姆龙 | NJ/NX CIP(unconnected) | | | | |
+| 欧姆龙 | NJ/NX CIP(connected, Forward Open) | | | | |
+| 罗克韦尔 | EtherNet/IP(unconnected) | | | | |
+| 罗克韦尔 | EtherNet/IP(connected, Forward Open) | | | | |
+| 倍福 | TwinCAT ADS | | | | |
+| 西门子 | S7-300/1200/1500 | | | | |
+| 汇川 | H3U/H5U Modbus TCP | | | | |
+| 汇川 | H3U/H5U Modbus RTU | | | | |
+| 汇川 | H3U/H5U MC 协议兼容(3E) | | | | |
+| 松下 | MEWTOCOL TCP/UDP | | | | |
+| 松下 | MC 协议兼容(3E) | | | | |
+| 基恩士 | KV Host Link TCP | | | | |
+| 基恩士 | KV Host Link UDP | | | | |
+| 基恩士 | KV MC 协议兼容(SLMP 3E) | | | | |
+| 基恩士 | SR 扫码枪 | (扫码) | — | | |
+| 丰田 | TOYOPUC 计算机链接 TCP/UDP | | | | |
+| Modbus | Modbus TCP | | | | |
+| Modbus | Modbus RTU | | | | |
+| OPC-UA | opc.tcp | | | | |
+| CNC | MTConnect Agent HTTP/XML | | | | |
+| 通用 | OpenTcp(分隔符 / 定长) | | | | |
