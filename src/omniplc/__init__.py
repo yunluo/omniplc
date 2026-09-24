@@ -42,6 +42,7 @@ from . import convert
 from .cnc import MTConnectClient
 from .core.base_client import BaseClient
 from .core.debug import set_debug
+from .core.errors import ErrorCategory
 from .modbus import ModbusArea, ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from .opcua import OpcUaClient
 from .plc.melsec import (
@@ -73,7 +74,7 @@ from .tag import Tag, TagTable
 from .transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport, UdpTransport
 from .types import ByteOrder, DataType, McFrame, SerialParity, WordOrder
 
-__version__ = "0.33.0"
+__version__ = "0.34.0"
 __author__ = "云落"
 __description__ = "多品牌多协议 PLC/扫码枪统一通信库(Modbus / 三菱 MC / 欧姆龙 FINS / 基恩士 KV Host Link / MC 兼容 / SR / 丰田 TOYOPUC)"
 
@@ -139,6 +140,8 @@ __all__ = [
     "SerialParity",
     "McFrame",
     "ModbusArea",
+    # ---- 错误分类 ----
+    "ErrorCategory",
     # ---- 纯帮助函数模块(转换/校验和) ----
     "convert",
     # ---- 全局调试 ----

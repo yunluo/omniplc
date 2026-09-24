@@ -366,6 +366,37 @@ ok, value = client.read_tag("furnace_temp")   # 点位标识 → 地址+类型,�
 失败原因记录在 `client.last_error`(含 PLC 原始错误码)。参数非法(地址/类型/
 范围错误)抛 `ValueError`。批量操作逐点独立容错,单点失败不影响其他点。
 
+**失败分类与原始码(v0.34.0 起)**:除 `last_error` 文本外,另有两个只读
+属性供上位系统分类告警——`client.last_error_category`(`ErrorCategory`
+枚举:`TRANSPORT`/`PROTOCOL`/`DEVICE`/`TIMEOUT`/`UNKNOWN`)与
+`client.last_error_code`(PLC 原始错误码,如 MC 结束码 `0xC059`、Modbus
+异常码 `2`、FINS 结束码 `0x2108`;传输类错误为 `errno`,无码为 `None`)。
+成功读写后三者一并清空::
+
+    from omniplc import ErrorCategory
+
+    ok, value = client.read_ushort("D100")
+    if not ok:
+        cat = client.last_error_category
+        if cat is ErrorCategory.DEVICE:
+            ...  # PLC 报错:看 last_error_code 区分地址越界/功能不支持
+        elif cat is ErrorCategory.TRANSPORT:
+            ...  # PLC 不可达:最高级告警
+        elif cat is ErrorCategory.TIMEOUT:
+            ...  # 链路完好但超时:查负载/串扰/超时配置
+
+#### 连接退避(v0.34.0 起)
+
+连接失败(建连或握手)后自动进入**指数退避门控**:第 n 次连续失败后,
+下一次 `connect()` 在 `uniform(0, min(0.5 × 2ⁿ, 30))` 秒内被直接拒绝
+(返回 `False`,`last_error` 提示"连接退避中")——时间戳比较,**不发包、
+不 sleep**,PLC 断电/网线松动时紧密轮询的调用方不再形成高频重连风暴。
+连接成功或显式 `disconnect()` 后门控与失败计数全部重置。
+
+- 默认开启;`client.reconnect_backoff = False` 一行恢复 v0.33 行为
+- `client.next_connect_in`:距下次允许连接的剩余秒数(`None` = 可立即连)
+- 门控拒绝不计入 `stats["error_count"]`(无真实网络动作)
+
 #### 连接健康统计(v0.30.0 起)
 
 所有 `BaseClient` 子类提供 `client.stats` 只读快照,字段:
@@ -425,7 +456,8 @@ ok, value = client.read_tag("furnace_temp")   # 点位标识 → 地址+类型,�
 
 #### 路线图
 
-- **v0.33.0(当前)**:MC A 兼容 1C 帧落地(`MelsecMcSerialClient(frame="1C")`,命令 BR/WR/BW/WW)——C24 A 兼容通信,ASCII 格式 4(ENQ 起始、和校验后接 CR LF),与 3C/4C 共享同一串口客户端;软元件规格 X/Y/B/W 十六进制、M/L/S/F/D/R 十进制,T/C 双性质映射(字=TN/CN、位读=TS/CS、位写=TC/CC),位软元件按字访问起始编号须 16 的倍数;点数上限 BR 256/BW 160/WR·WW 64 字(位软元件按字 32/10);消息等待(`message_wait`,0~15,10ms 单位)构造期可配;与 3C 的差异——无帧识别码、路由缩为站号+PC 号、错误代码 2 位、命令字 BR/BR/WW/WW(ACPU 共通),JR/QR/BT/WT/监视登录/扩展文件寄存器/TT 等与点位读写契约不符未做;以本地 SH-080008-AB 第 17 章逐字节核证(`codec_serial_a.py`),黄金向量入库(21 例含 T/C 映射、点位上下限、回显/和校验/控制码坏帧、aio 镜像);`docs/architecture.md` MC 串口段补 1C 详解,协议覆盖表 RTU 列 3C/4C → 1C/3C/4C,backlog 行 1C/2C → 2C。**点位表 schema 破坏性变更**(随本期发布):`Tag.name` → `tag_id`(字母标识)+ 新增 `remark`(中文备注,可选);迁移指南见 README「点位表」节与 `tag.py` 文档。
+- **v0.34.0(当前)**:可靠性 P0 双项——(1)**连接退避门控**:建连/握手失败后指数退避(full jitter,`uniform(0, min(0.5×2ⁿ, 30))` 秒,`monotonic()` 时间戳门控零 sleep),`reconnect_backoff` 可写属性(默认开,`retries` 同款)+ `next_connect_in` 只读属性;防 PLC 断电高频重连风暴,门控拒绝不计 `error_count`,连接成功/显式断开全重置;(2)**失败结构化**:`ErrorCategory` 五值枚举(TRANSPORT/PROTOCOL/DEVICE/TIMEOUT/UNKNOWN,TIMEOUT 独立——链路完好可重试,与坏帧区分)+ `last_error_category`/`last_error_code` 只读属性(`DeviceError.code` 协议原始码 / `OSError.errno` 直通),`last_error` 文本契约不变;失败写入统一收口 `_set_error`/`_clear_error`(SR 扫码枪 ×5、AB 解码 ×2 直写点迁移);aio 镜像全量转发,内省守卫通过。决策与依据:`docs/superpowers/specs/2026-09-22-v0.34-reliability-observability-design.md`。
+- **v0.33.0**:MC A 兼容 1C 帧落地(`MelsecMcSerialClient(frame="1C")`,命令 BR/WR/BW/WW)——C24 A 兼容通信,ASCII 格式 4(ENQ 起始、和校验后接 CR LF),与 3C/4C 共享同一串口客户端;软元件规格 X/Y/B/W 十六进制、M/L/S/F/D/R 十进制,T/C 双性质映射(字=TN/CN、位读=TS/CS、位写=TC/CC),位软元件按字访问起始编号须 16 的倍数;点数上限 BR 256/BW 160/WR·WW 64 字(位软元件按字 32/10);消息等待(`message_wait`,0~15,10ms 单位)构造期可配;与 3C 的差异——无帧识别码、路由缩为站号+PC 号、错误代码 2 位、命令字 BR/BR/WW/WW(ACPU 共通),JR/QR/BT/WT/监视登录/扩展文件寄存器/TT 等与点位读写契约不符未做;以本地 SH-080008-AB 第 17 章逐字节核证(`codec_serial_a.py`),黄金向量入库(21 例含 T/C 映射、点位上下限、回显/和校验/控制码坏帧、aio 镜像);`docs/architecture.md` MC 串口段补 1C 详解,协议覆盖表 RTU 列 3C/4C → 1C/3C/4C,backlog 行 1C/2C → 2C。**点位表 schema 破坏性变更**(随本期发布):`Tag.name` → `tag_id`(字母标识)+ 新增 `remark`(中文备注,可选);迁移指南见 README「点位表」节与 `tag.py` 文档。
 - **v0.32.1**:CI 修复——Release 发布物收紧为显式 `dist/*.whl` + `dist/*.tar.gz`:`uv build` 会在 `dist/` 生成 `.gitignore`(内容 `*`,防构建产物污染 VCS,本地复现坐实),原 `dist/*` 通配把它一并挂上 Release(GitHub 存储名 `default.gitignore`、显示 `.gitignore`);收紧后发布物仅可能为 wheel + sdist,aio 产物清单同步收紧
 - **v0.32.0**:API 对齐批——(1)**FINS 节点号自动推导**:`destination_node`/`source_node`(TCP 另含 `local_node`)缺省 `None` 自动获取——UDP 从 IP 末段推导(目标 = PLC IP 末段,源 = 本机出口 IP 末段,UDP connect 探测取同一路由出口),TCP 经握手获取;显式传值原样使用(OmronFins UDP 读 0x2108 真机排查的配套改进);(2)**参数归位四分法成文**(architecture.md §2.1:构造 = 身份冻结/可写属性 = 行为调优/`configure_serial` = 物理链路/只读 = 运行态;判定测试"改了它是不是等于换了一个对端")并补齐只读属性:FINS 路由六参、MC `network_number`/`pc_number`、MC 串口 `self_station_number`/`module_station`(含 aio 镜像,内省守卫通过);(3)**双入口一律取消**:Modbus `station` 与 SR `scan_dwell` 属性转只读(校验移到构造期),全库不变量 = 构造参数一律冻结、可写属性一律不进构造(仅剩超时/重试/字序五件);(4)**S7 构造签名对齐**:`(ip, rack, slot, port, dll_path)` → `(ip, port, rack, slot, dll_path)`(破坏性:位置参数调用需调整,关键字调用不受影响)
 - **v0.31.4**:CI 修复批——`uv build` 显式指定 `--python 3.12`:仓库 `.python-version` 钉 3.7.9(本地开发用),GitHub runner 无此解释器且 uv 托管下载不支持 3.7(首跑报 "No interpreter found for Python 3.7.9");构建本身与运行版本无关(hatchling 纯 Python,产物 wheel 为 `py3-none-any`),setup-uv 预装 3.12 后构建恢复正常

@@ -1,6 +1,6 @@
 # omniplc 架构设计
 
-> 版本:v0.33.0 · 更新日期:2026-09-24 · 状态:Modbus / 三菱 MC(以太网 + 串口 1C/3C/4C)/ FINS / NJ/NX CIP / KV / SR / TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / 西门子 S7 / OPC-UA / 通用自定义 TCP / CNC MTConnect 已全部落地,全局报文调试开关已上线;工业场景可靠性 + 观测诊断收口(per-call timeout 立即下发、整事务 deadline、超时分流、AB connected 重连、TCP keepalive、aio close 生命周期、UDP datagram 上限、FINS 重连节点刷新、MX COM 清理、连接健康统计);v0.30.1 修复批:MTConnect keep-alive 透明重试 / 点位表整数写入 / OpenTcp 流式收包 / 全协议收包语义收口;v0.30.2 安全修复批:网络长度域上限 / 整事务 deadline / MTConnect 响应体上限;v0.31.0 MX 真机批:COM 出参口径真机核证修正 / write_batch 随机批量写 / CPU 型号·时钟·出错文本查询;v0.31.1 MX 块读写 raw 调用补 lplRetCode 出参缓冲(4 参)修复;v0.31.2 文档完善批:全库客户端构造参数注释补全(43 处)/ README 类图·安装节·范例修正/ 路线图版本降序重排;v0.31.3 CI 发布流水线:GitHub Actions 标签触发 uv build → GitHub Release + PyPI 可信发布;v0.31.4 CI 修复批:uv build 显式指定 3.12 解释器(绕开 .python-version 钉 3.7.9);v0.32.0 API 对齐批:FINS 节点号自动推导(IP 末段/握手)/ 参数归位四分法成文 + 属性补齐 / 双入口取消 / S7 签名对齐;v0.32.1 CI 修复:Release 发布物收紧为 *.whl/*.tar.gz(排除 uv build 生成的 dist/.gitignore);v0.33.0 MC A 兼容 1C 帧落地 + 点位表 schema 破坏性变更(`Tag.name` → `tag_id` + `remark`)
+> 版本:v0.34.0 · 更新日期:2026-09-24 · 状态:Modbus / 三菱 MC(以太网 + 串口 1C/3C/4C)/ FINS / NJ/NX CIP / KV / SR / TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / 西门子 S7 / OPC-UA / 通用自定义 TCP / CNC MTConnect 已全部落地,全局报文调试开关已上线;工业场景可靠性 + 观测诊断收口(per-call timeout 立即下发、整事务 deadline、超时分流、AB connected 重连、TCP keepalive、aio close 生命周期、UDP datagram 上限、FINS 重连节点刷新、MX COM 清理、连接健康统计);v0.30.1 修复批:MTConnect keep-alive 透明重试 / 点位表整数写入 / OpenTcp 流式收包 / 全协议收包语义收口;v0.30.2 安全修复批:网络长度域上限 / 整事务 deadline / MTConnect 响应体上限;v0.31.0 MX 真机批:COM 出参口径真机核证修正 / write_batch 随机批量写 / CPU 型号·时钟·出错文本查询;v0.31.1 MX 块读写 raw 调用补 lplRetCode 出参缓冲(4 参)修复;v0.31.2 文档完善批:全库客户端构造参数注释补全(43 处)/ README 类图·安装节·范例修正/ 路线图版本降序重排;v0.31.3 CI 发布流水线:GitHub Actions 标签触发 uv build → GitHub Release + PyPI 可信发布;v0.31.4 CI 修复批:uv build 显式指定 3.12 解释器(绕开 .python-version 钉 3.7.9);v0.32.0 API 对齐批:FINS 节点号自动推导(IP 末段/握手)/ 参数归位四分法成文 + 属性补齐 / 双入口取消 / S7 签名对齐;v0.32.1 CI 修复:Release 发布物收紧为 *.whl/*.tar.gz(排除 uv build 生成的 dist/.gitignore);v0.33.0 MC A 兼容 1C 帧落地 + 点位表 schema 破坏性变更(`Tag.name` → `tag_id` + `remark`);v0.34.0 可靠性 P0 双项:连接退避门控(`reconnect_backoff`/`next_connect_in`)+ 失败结构化(`ErrorCategory`/`last_error_category`/`last_error_code`)
 
 omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7+,uv 开发)。
 本文档描述 v1.0 的完整架构:分层、类设计、继承树、线程安全模型、类型标注纪律、
@@ -261,11 +261,14 @@ unconnected 消息),欧姆龙 NJ/NX CIP(继承 AB 客户端,三钩子覆写),
   暴露,如 `frame`/`rack·slot`/`net_id`/FINS 路由参数;变更 = 换目标,
   应新建实例,冻结保证线程安全与连接状态一致);否 → **可写属性**
   (setter 校验 + 即时生效,如 `receive_timeout`(下发 live socket)/
-  `retries`/`write_retries`/`word_order`)。物理链路参数(串口五件套)
+  `retries`/`write_retries`/`word_order`/`reconnect_backoff`(v0.34,
+  连接退避开关,与 retries 同族))。物理链路参数(串口五件套)
   走独立 `configure_serial()`(构造时不连、connect 前必须定,未配置
   就 connect 明确报错);运行态/派生值一律只读属性(`connected`/
-  `last_error`/`stats`/`local_node`(握手后)/`connection_size`
-  (Forward Open 后))。**双入口一律不设(2026-09-24 收紧)**:构造函数
+  `last_error`/`last_error_category`/`last_error_code`(v0.34)/
+  `next_connect_in`(v0.34,退避剩余秒数)/`stats`/`local_node`
+  (握手后)/`connection_size`(Forward Open 后))。**双入口一律不设
+  (2026-09-24 收紧)**:构造函数
   参数一律构造期冻结(属性至多只读暴露),可写属性一律不进构造函数——
   `station`(Modbus/MEWTOCOL/MC 串口)与 `scan_dwell` 均为构造期定
   只读;Modbus TCP 的 Unit ID 虽是逐事务路由标签,统一按身份参数
@@ -307,6 +310,14 @@ stateDiagram-v2
   `async with AClient(...):` 同语义。
 - `_after_connect()` 钩子:连接建立后执行协议级初始化(FINS/TCP 节点分配握手)。
 
+**连接退避门控(v0.34.0)**:`connect()` 失败(建连或 `_after_connect`
+握手)后,下一次 `connect()` 在 `uniform(0, min(0.5 × 2ⁿ, 30))` 秒内
+(n = 连续失败次数)直接拒绝——`monotonic()` 时间戳比较,零 sleep、
+不占锁等待;连接成功或显式 `disconnect()` 全重置;
+`reconnect_backoff = False` 关闭;`next_connect_in` 暴露剩余秒数。
+门控拒绝不计 `error_count`(无网络动作)。状态机在
+"已断开 → connect()" 转移上多一个"退避中"前置判断,其余转移不变。
+
 ## 5. 错误处理约定
 
 公共 API **不抛自定义异常**(pyhsl 风格):
@@ -320,6 +331,22 @@ stateDiagram-v2
 
 - 失败原因一律记录在 `last_error` 属性(含 PLC 原始错误码,如 Modbus 异常码、
   MC 结束码、FINS 结束码);成功读写后清空。
+- **失败分类(v0.34.0)**:`last_error` 文本之外,`BaseClient` 另暴露
+  `last_error_category: Optional[ErrorCategory]` 与
+  `last_error_code: Optional[int]`,成功后与 `last_error` 一并清空。
+  分类规则(`base_client._categorize`,顺序敏感——`TransportTimeoutError`
+  是 `DeviceError` 子类必须先判):
+
+  | 异常 | category | code |
+  |---|---|---|
+  | `TransportTimeoutError` / `socket.timeout` | TIMEOUT | `errno` 或 None |
+  | `ProtocolFrameError` | PROTOCOL | None |
+  | `DeviceError`(其余) | DEVICE | `exc.code`(协议原始码) |
+  | `ConnectionRefused/Reset`、`gaierror`、其余 `OSError`、`TransportClosedError` | TRANSPORT | `errno` 或 None |
+  | 其他(含裸内部异常) | UNKNOWN | None |
+
+  写入统一经 `_set_error`/`_clear_error`(与 `_last_error` 同锁同步),
+  驱动直写点(SR 扫码枪、AB 解码)已全部迁移。**新增异常类型时必须同步规则表**。
 - **参数校验错误**(非法地址、未知类型、范围越界、未绑定点位名)直接抛
   `ValueError`——这是调用方编码错误,静默吞掉反而有害。
 - 内部异常(`omniplc.core.errors`,**错误类统一在 core 层定义**):
@@ -945,6 +972,7 @@ FINS 与 fins-driver 0.3.1 对照(2026-09 复审):FINS 帧头 10 字节布局
 | v0.32.0 | API 对齐批:①FINS 节点号自动推导——`destination_node`/`source_node`(TCP 含 `local_node`)缺省 None 自动获取(UDP 从 IP 末段推导:目标 = PLC IP 末段、源 = 本机出口 IP 末段经 UDP connect 探测;TCP 经握手获取),显式传值原样使用;②参数归位四分法成文(§2.1:构造 = 身份冻结/属性 = 调优/configure = 物理链路/只读 = 运行态)+ 属性补齐(FINS 路由六参、MC network_number/pc_number、MC 串口 self_station_number/module_station,含 aio 镜像与内省守卫);③双入口一律取消(Modbus station 与 SR scan_dwell 属性转只读,校验移构造期;全库不变量 = 构造参数一律冻结、可写属性一律不进构造);④S7 构造签名对齐 (ip, port, rack, slot, dll_path)(破坏性:位置参数调用需调整) | ✅ 完成 |
 | v0.32.1 | CI 修复:Release 发布物收紧为显式 `dist/*.whl` + `dist/*.tar.gz`——`uv build` 自身会在 `dist/` 生成 `.gitignore`(内容 `*`,防构建产物污染 VCS,本地复现坐实),原 `dist/*` 通配把它一并挂上 Release(GitHub 存储名 default.gitignore/显示 .gitignore);收紧后发布物仅可能为 wheel + sdist | ✅ 完成 |
 | v0.33.0 | ①**MC A 兼容 1C 帧**(`MelsecMcSerialClient(frame="1C")`,命令 BR/WR/BW/WW,ASCII 格式 4,与 3C/4C 共享串口客户端;无帧识别码、路由缩站号+PC 号、错误代码 2 位,T/C 双性质 TN/TS/TC/CN/CS/CC,消息等待 `message_wait` 0~15 构造参数);以 SH-080008-AB 第 17 章逐字节核证,黄金向量 21 例入库;协议覆盖表 RTU 列更新、backlog 1C/2C → 2C;②**点位表 schema 破坏性变更**:`Tag.name` → `tag_id`(字母标识)+ 新增 `remark` 中文备注(`TagTable`/bind_tags/read_tag/write_tag 全文同步,manual 工具链 163 点同步);迁移指南见 README「点位表」节 | ✅ 完成 |
+| v0.34.0 | 可靠性 P0 双项(docs/review.md 收口):①**连接退避门控**——建连/握手失败后指数退避(exponential + full jitter,`uniform(0, min(0.5×2ⁿ, 30))` 秒,`monotonic()` 时间戳门控零 sleep),`reconnect_backoff` 可写属性(默认开,`retries` 同款 bool 校验 setter)+ `next_connect_in` 只读属性;门控拒绝置 last_error 三件套但**不计 error_count**(无网络动作);连接成功/显式 disconnect 全重置;防 PLC 断电/网线松动高频重连风暴;②**失败结构化**——`ErrorCategory` 五值枚举(TRANSPORT/PROTOCOL/DEVICE/TIMEOUT/UNKNOWN,TIMEOUT 独立)+ `last_error_category`/`last_error_code` 只读属性,失败写入统一收口 `_set_error`/`_clear_error`(SR 扫码枪 ×5、AB 解码 ×2 直写点迁移),`last_error` 文本契约不变;两项均含 aio 镜像与内省守卫;设计文档 `docs/superpowers/specs/2026-09-22-v0.34-reliability-observability-design.md` | ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、通用 TCP 长度域成帧/空闲切块成帧、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 更多品牌/协议按需扩展(drivers 插槽沿用 BaseClient 原语模式) | 规划 |
