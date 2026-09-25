@@ -1,7 +1,7 @@
 """生成欧姆龙 FINS 黄金报文样本(tests/golden/fins_*.json)。
 
-独立最小实现(不复用 omniplc 代码)计算标准帧;帧布局对照
-HslCommunication ``OmronFinsNet``/``OmronFinsNetHelper``。
+独立最小实现(不复用 omniplc 代码)计算标准帧;帧布局按欧姆龙
+FINS 协议规范生成。
 
 用法::
 

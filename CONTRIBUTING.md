@@ -83,6 +83,6 @@ sdist + wheel、挂 GitHub Release、可信发布(OIDC)到 PyPI;PR 触发的是�
 
 - 自检清单勾选「真机联测」
 - 在 [`docs/real-machine-checklist.md`](docs/real-machine-checklist.md) 填写真机型号 / 固件 / 版本 / 日期 / 结果
-- 模拟器(PLCSIM Advanced / HSL / TwinCAT Simulator 等)需在备注里明确标注
+- 模拟器(PLCSIM Advanced / TwinCAT Simulator 等)需在备注里明确标注
 
 现有未真机项目清单:`README.md`「真机联测待做」表。

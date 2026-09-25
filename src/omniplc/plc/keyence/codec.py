@@ -1,6 +1,6 @@
 """基恩士 KV Host Link ASCII 帧编解码。
 
-帧格式(参考本地 KEYENCE KV Host Link 参考库,与官方手册一致):
+帧格式(KEYENCE KV Host Link 协议,与官方手册一致):
 
 - 命令帧:``"<命令> <参数...>\\r"``,纯 ASCII 可打印字符
 - 响应帧:一行 ASCII 文本,以 CR/LF 结束

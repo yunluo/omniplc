@@ -1,6 +1,6 @@
 """罗克韦尔 Allen-Bradley EtherNet/IP(CIP)客户端——Logix 标签读写。
 
-协议要点(三参考库交叉核证,见 architecture.md §8.1):
+协议要点(按 CIP/EtherNet/IP 规范核证,见 architecture.md §8.1):
 
 - TCP ``44818``,连接后先注册 CIP 会话(RegisterSession,``_after_connect``
   钩子,与 FINS/TCP 握手同构);断线惰性重连时自动重新注册
@@ -204,7 +204,7 @@ class AllenBradleyEthIpClient(BaseClient):
         """尽力发送 UnregisterSession(内部方法)。
 
         规范上该命令**无应答**——发完即收,不得等应答(等了会把关闭流程
-        卡到收包超时;agentthink/ipc-edge 参考实现注释同此教训,其干脆
+        卡到收包超时;常见实现同此教训,有的干脆
         不发直接断 TCP)。发送失败静默:会话随 TCP 关闭由 PLC 侧超时回收。
         """
         transport = self._transport

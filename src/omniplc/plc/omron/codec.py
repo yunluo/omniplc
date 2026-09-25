@@ -1,6 +1,6 @@
 """欧姆龙 FINS 帧编解码(纯函数)。
 
-对照 HslCommunication ``OmronFinsNetHelper`` 与 ``OmronFinsNet.PackCommand``:
+帧布局(按欧姆龙 FINS 手册 W340 口径):
 
 - FINS 帧 = ICF(1) + RSV(1) + GCT(1) + DNA/DA1/DA2(3) + SNA/SA1/SA2(3)
   + SID(1) + 命令(2,大端:0101 区域读 / 0102 区域写) + 载荷

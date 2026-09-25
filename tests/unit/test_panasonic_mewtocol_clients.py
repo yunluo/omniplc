@@ -1,6 +1,6 @@
 """松下 MEWTOCOL 客户端测试:ASCII 帧 + BCC,脚本化传输全链路。
 
-覆盖:BCC 金样本(MewtocolNet 向量 %01#RCSX0000→1D)、RCS/WCS 单接点、
+覆盖:BCC 金样本(MEWTOCOL 参考向量 %01#RCSX0000→1D)、RCS/WCS 单接点、
 RD/WD 数据区、低字在前+字内高字节在前的多字编解码、读-改-写、
 错误响应(!帧)不断线、BCC/站号错误按坏帧断开、UDP 整包、异步镜像。
 """
@@ -41,7 +41,7 @@ def _mount(monkeypatch: pytest.MonkeyPatch, client, scripted: ScriptedTransport)
 
 
 def test_bcc_golden_vector() -> None:
-    """BCC 金样本(MewtocolNet 单元测试向量):%01#RCSX0000 → 1D。"""
+    """BCC 金样本(MEWTOCOL 参考向量):%01#RCSX0000 → 1D。"""
     assert codec_mewtocol.bcc("%01#RCSX0000") == "1D"
     request = codec_mewtocol.build_read_contact("01", "X", 0, 0)
     assert request == b"%01#RCSX00001D\r"
@@ -217,7 +217,7 @@ def test_direct_station_reply_tolerated(monkeypatch: pytest.MonkeyPatch) -> None
     """直连口径应答(自报 EE)放行:请求站 01、应答站 EE 正常解析。
 
     现场存在不论请求站号一律以直连站号 EE 应答的设备/模拟器
-    (HSL PanasonicMewtocol 默认站号即 0xEE 且不校验应答站号)。
+    (部分模拟器默认站号即 0xEE 且不校验应答站号)。
     """
     client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
     frame = _resp("RD", "2710", station="EE")

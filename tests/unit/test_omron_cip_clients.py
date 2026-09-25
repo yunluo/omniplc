@@ -1,6 +1,6 @@
 """欧姆龙 NJ/NX CIP 客户端测试:直发 RRData、空路由 Forward Open、错误契约。
 
-走线差异按 pycomm3 1.2.16 交叉核证:unconnected 直发不包 UC Send
+走线差异按 CIP/EtherNet/IP 规范交叉核证:unconnected 直发不包 UC Send
 (0xB2 项直接承载服务请求/应答),connected 连接路径只剩消息路由对象
 (20 02 24 01)。继承面(类型发现/位访问/惰性重连)由 AB 测试覆盖,
 此处聚焦 NJ/NX 差异点与异步镜像。

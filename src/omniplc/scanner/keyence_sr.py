@@ -7,8 +7,7 @@
 3. 发送 ``LOFF\\r`` 关闭窗口——**应答在 LOFF 之后才发送**
 4. 读取一行应答:条码文本 / ``ERROR``(未读到)/ ``OK``(无读出)
 
-关键时序:应答在 LOFF 之后才发,LOFF 之前读会超时(参考本地
-vention_barcode_scanner 库的 SR 驱动口径)。
+关键时序:应答在 LOFF 之后才发,LOFF 之前读会超时。
 
 公共 API 沿用库约定:读码 ``scan()`` 返回 ``(是否读到条码, 条码文本)``,
 失败原因记入 :attr:`last_error`;``reset()`` 返回 ``bool``。

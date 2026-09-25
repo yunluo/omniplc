@@ -4,7 +4,7 @@
 
 ## 一、项目定位与价值判断
 
-omniplc 是一个面向中国工控市场(三菱/欧姆龙/基恩士/汇川/松下/丰田)兼及欧美主流(AB/倍福/西门子)的 **Python 统一 PLC 通信库**,v0.32.1,作者署名"云落"。其差异化定位在 **"国产 PLC 全栈 + 统一 API + 零核心依赖"**,这恰好是 pymodbus、python-snap7、asyncua 等单一协议库做不到的,也是 HslCommunication(.NET 商业)留下的生态位。
+omniplc 是一个面向中国工控市场(三菱/欧姆龙/基恩士/汇川/松下/丰田)兼及欧美主流(AB/倍福/西门子)的 **Python 统一 PLC 通信库**,v0.32.1,作者署名"云落"。其差异化定位在 **"国产 PLC 全栈 + 统一 API + 零核心依赖"**——这是单一协议栈的库覆盖不到、商业方案也未占据的细分生态位。
 
 ---
 
@@ -16,7 +16,7 @@ omniplc 是一个面向中国工控市场(三菱/欧姆龙/基恩士/汇川/松�
 |---|---|
 | `BaseClient` 模板方法 + 类型化方法只写一次 | 工业库常见但少有做得这么干净的——`_read/_write` 两个原语覆盖20+ 类型化方法,新增协议成本极低 |
 | `BaseTransport` 抽象 + 三走线实现 | 协议层不耦合 socket,新增 Modbus over TLS、Modbus over HTTP 不动 Modbus 实现 |
-| codec全部纯函数 | 黄金报文样本(`tests/golden/*.json`)可做无硬件测试,这是 pyhsl、pylogix 都缺乏的 |
+| codec全部纯函数 | 黄金报文样本(`tests/golden/*.json`)可做无硬件测试,这在同类实现中很少见 |
 | `RLock` 单锁 + 整事务原子化 | 简单且正确,符合工业现场"少并发、保正确" |
 | 协议原生批量 (`read_batch`) | MC 0406 / FINS 0104 / CIP 0x0A 真正"单事务",而不是循环单点——这比很多商用库都到位 |
 | 异步镜像用 `组合 + ThreadPoolExecutor` | 协议逻辑只写一份,显著降低维护成本;STA 模型下 MX Component 天然契合 |
@@ -94,7 +94,7 @@ omniplc 是一个面向中国工控市场(三菱/欧姆龙/基恩士/汇川/松�
 
 **欠缺:**
 
-- **缺少协议仿真服务器**:像 pycomm3 的 `logixdriver`、HslCommunication 的 DemoBox,无法在 CI 跑真机回归
+- **缺少协议仿真服务器**:没有自带的协议级仿真服务,无法在 CI 跑真机回归
 - **缺少 fuzz/模糊测试**:工业协议最怕"畸形报文导致 OOM/死锁",长度域限制已加但缺随机畸形流测试
 - **并发测试薄弱**:仅单线程 RLock 测试,没有"多线程同时读写同一客户端""100 客户端并发"压力测试
 - **MX Component 真机覆盖度低**——作者自述,MX 报头错误信息(ActSupportMsg)待核证
@@ -122,7 +122,7 @@ omniplc 是一个面向中国工控市场(三菱/欧姆龙/基恩士/汇川/松�
 
 **优点:**
 
-- `(bool, value)` 读返回 / `bool` 写返回 / `last_error` —— 与 pyhsl 一致,迁移成本低
+- `(bool, value)` 读返回 / `bool` 写返回 / `last_error` —— 语义直观,迁移成本低
 - `with client:` 上下文管理器
 - `read_batch` / `read_many` 全库统一契约,**单事务而非循环**
 - `DataType` / `McFrame` / `WordOrder` / `ByteOrder` 枚举,IDE 自动补全友好
@@ -134,7 +134,7 @@ omniplc 是一个面向中国工控市场(三菱/欧姆龙/基恩士/汇川/松�
 - `read_batch` 整批容错 vs `read_many` 逐点容错——命名差异(都是"批")容易混淆,README 第 273 行写了契约但实际仍可能误用
 - 失败时 `last_error` 是 str,丢失结构化信息——想做告警分类时只能 `str.contains`
 - 类型化方法20+ 个 + `read(addr, dtype)` 通用方法并存,有些冗余
-- 异步类用 `A` 前缀而非 `Async` 后缀,虽然与 pyhsl 一致,但与 Python 社区惯例(asyncio 协程、aiohttp、aiofiles)反向
+- 异步类用 `A` 前缀而非 `Async` 后缀,与 Python 社区惯例(asyncio 协程、aiohttp、aiofiles)反向
 
 ---
 
@@ -147,19 +147,16 @@ omniplc 是一个面向中国工控市场(三菱/欧姆龙/基恩士/汇川/松�
 
 ---
 
-## 九、与同类对比
+## 九、定位小结
 
-| 维度 | omniplc | HslCommunication | pylogix/pycomm3 | pymodbus |
-|---|---|---|---|---|
-| 语言 | Python | .NET | Python | Python |
-| 协议覆盖 | ★★★★★(国产强) | ★★★★★(国产最强) | ★(仅 AB) | ★(仅 Modbus) |
-| 商业授权 | MIT 自由 | 商业收费 | MIT | BSD |
-| 类型标注 | 100% + py.typed | N/A | 部分 | 无 |
-| 真机核证 | 部分(文档诚实标注) | 厂商背书 | 较全 | 全 |
-| 异步 | 镜像(线程) | .NET Task | 无 | 无 |
-| OPC-UA | 仅基本 | 含 | 无 | 无 |
+对 **国产 PLC 集成 + Python 场景**,omniplc 是当前完整度较高的开源选择,主要优势:
 
-**结论**:对 **国产 PLC 集成 + Python 场景**,omniplc 是当前最完整的开源选择,商业替代品仅有 HslCommunication。
+- **协议覆盖**(尤其国产 PLC 全栈)与统一 API;
+- **类型标注**(100% + `py.typed`)与双检查器门禁;
+- **黄金报文测试**带来的无硬件回归能力;
+- **MIT 授权**,商用无授权风险。
+
+短板集中在 OPC-UA 功能面、异步实现形态与安全能力(详见各章评分)。
 
 ---
 
@@ -197,7 +194,7 @@ omniplc 是一个面向中国工控市场(三菱/欧姆龙/基恩士/汇川/松�
 | 协议覆盖广度 | 9.0/10 | 国产 PLC 之王;OPC-UA/MTConnect 偏只读 |
 | 测试质量 | 7.5/10 | 黄金报文 + 脚本化 socket 优秀;缺真机仿真与模糊测试 |
 | 文档完整度 | 9.5/10 | 932 行 architecture.md + 详尽 README + 路线图 |
-| API 设计 | 8.0/10 | pyhsl 风格熟悉者无门槛;`last_error` 结构化可改进 |
+| API 设计 | 8.0/10 | 风格直观,上手无门槛;`last_error` 结构化可改进 |
 | 工程化 | 9.0/10 | hatchling + 双检查器 + OIDC 发布 |
 | 安全 | 6.0/10 | 长度上限有,TLS/凭据/OPC-UA 安全策略全缺 |
 | 可持续性 | 5.0/10 | 个人项目,企业接入需评估 |

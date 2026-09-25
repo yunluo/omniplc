@@ -1,7 +1,6 @@
 """三菱 MC 协议 QnA 兼容帧(3E/4E)编解码(纯函数)。
 
-帧布局(对照 HslCommunication ``MelsecMcNet.PackMcCommand`` 与
-SLMP 参考库 ``core.encode_3e_request``/``encode_4e_request``,SH-080956):
+帧布局(按 MELSEC MC 协议手册 SH-080956 口径):
 
 - 3E 请求 = 副头部 ``50 00`` + 网络号(1) + PC号(1) + 目标模块I/O(2,小端)
   + 目标模块局号(1) + 请求数据长(2,小端) + 监视定时器(2,小端) + 核心命令

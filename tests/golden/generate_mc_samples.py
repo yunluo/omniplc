@@ -1,7 +1,7 @@
 """生成三菱 MC 黄金报文样本(tests/golden/mc_*.json)。
 
 独立最小实现(不复用 omniplc 代码)计算标准帧;帧布局对照
-HslCommunication ``MelsecMcNet`` 与 SLMP 参考库(SH-080956)。
+SLMP 参考规范(SH-080956)。
 
 用法::
 

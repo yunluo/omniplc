@@ -1,8 +1,7 @@
 """松下 MEWTOCOL-COM 帧编解码(纯函数,ASCII 文本帧)。
 
-帧布局(对照 HSL ``PanasonicMewtocol``、MewtocolNet(OpenLogics)与
-Panasonic《MEWTOCOL Communication - User's Manual》口径,BCC 测试向量
-``%01#RCSX0000`` → ``1D`` 取自 MewtocolNet 单元测试):
+帧布局(按 Panasonic《MEWTOCOL Communication - User's Manual》口径,BCC
+测试向量 ``%01#RCSX0000`` → ``1D`` 按手册 BCC 算法验算):
 
 - 请求 = ``%`` + 站号(2 位,``EE`` 或十进制 01~99)+ ``#`` + 命令文本
   + BCC(2 位大写十六进制)+ CR(0x0D);**无 ETX**
@@ -11,8 +10,8 @@ Panasonic《MEWTOCOL Communication - User's Manual》口径,BCC 测试向量
 - 错误响应 = ``%`` + 站号(2)+ ``!`` + 错误码(2 字符)+ BCC(2)+ CR
 - BCC = 从 ``%`` 起至 BCC 前所有字符的异或
 - 应答站号按手册应为请求站号回显;但现场存在**直连口径**的应答方
-  (工具口直连单元、部分模拟器)不论请求站号一律自报 ``EE`` —— HSL
-  ``PanasonicMewtocol`` 默认站号即 0xEE 且不校验应答站号,故校验时放行 EE
+  (工具口直连单元、部分模拟器)不论请求站号一律自报 ``EE``,故校验时
+  对 EE 放行
 
 命令:RCS/WCS 单接点读/写(字号 3 位十进制 + 位号 1 位十六进制)、
 RD/WD 数据区读/写(起止编号各 5 位十进制,每字 4 位十六进制、高字节在前,
@@ -30,7 +29,7 @@ from ...core.errors import DeviceError, ProtocolFrameError
 _RESPONSE_DATA_OFFSET = 6
 _RESPONSE_MIN_SIZE = 9
 
-# 错误码 → 含义(来源:MEWTOCOL 手册错误码表,HSL English.cs 同口径)
+# 错误码 → 含义(来源:MEWTOCOL 手册错误码表)
 _ERROR_MESSAGES = {
     "20": "未定义错误(命令不能执行)",
     "21": "NACK 错误(远程单元未正确识别或数据错误)",

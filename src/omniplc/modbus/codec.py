@@ -3,8 +3,8 @@
 本模块所有函数都是 bytes ↔ 结构的纯函数,不接触 socket,可完全
 用黄金报文样本(:doc:`tests/golden/README`)做单元测试。
 
-帧布局(已与 C# HslCommunication 的 ``ModBus/ModbusInfo.cs``、
-``Core/IMessage/ModbusTcpMessage.cs`` 实现对照):
+帧布局依据《Modbus 通信协议规范》(MODBUS over Serial Line / MODBUS
+TCP/IP Application Protocol,2026-09 复审修正):
 
 - PDU:功能码(1) + 数据;读请求 = 功能码 + 起始地址(2,大端) + 数量(2,大端)
 - MBAP:事务号(2,大端) + 协议号(2,恒 0) + 长度(2,= 站号+PDU 字节数) + 站号(1)

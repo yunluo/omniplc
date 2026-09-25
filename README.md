@@ -425,7 +425,7 @@ ok, value = client.read_tag("furnace_temp")   # 点位标识 → 地址+类型,�
 
 | 项                | 驱动               | 现状态                            |
 |------------------|------------------|--------------------------------|
-| AB 0x0A 多服务包批量读  | AB Logix         | 已实现,HSL 模拟器不支持,待真机核证           |
+| AB 0x0A 多服务包批量读  | AB Logix         | 已实现,通用模拟器不支持,待真机核证           |
 | NJ CIP 0x0A 多服务包 | 欧姆龙 NJ/NX CIP    | 继承 AB,理论同,待真机核证                |
 | 倍福 ADS           | TwinCAT          | 封装 pyads,需 TwinCAT 运行时         |
 | 西门子 S7           | S7-300/1200/1500 | 封装 python-snap7,需 PLC 或 PLCSIM |

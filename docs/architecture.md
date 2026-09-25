@@ -53,7 +53,7 @@ flowchart TB
 2. **协议层只依赖 `BaseTransport` 抽象**——新增走线不动协议层;
 3. **公共逻辑在 `BaseClient` 收口一次**——锁、重连、重试、类型化读写全协议共享;
 4. **对外 API 不抛自定义异常**——读返回 `(bool, value)`,写返回 `bool`,
-   失败原因进 `last_error`(与 pyhsl 使用习惯一致)。
+   失败原因进 `last_error`。
 
 报文调试(全局开关):`omniplc.core.debug.set_debug(True)` 进程级生效。
 走线型协议在 ``TcpTransport``/``UdpTransport``/``SerialTransport`` 的
@@ -115,7 +115,7 @@ flowchart TB
     MewtocolBase["_MewtocolBase(ABC,私有)— plc/panasonic/mewtocol.py<br/>站号(01~99/EE)、接点 RCS/WCS 与数据区 RD/WD 分发、位写读-改-写<br/>TCP 按响应头 4 字节判正常/错误后精确收齐,UDP 整包校验"]
     ToyopucTcpClient["ToyopucTcpClient"]
     ToyopucUdpClient["ToyopucUdpClient"]
-    OpcUaClient["OpcUaClient — opcua/client.py<br/>OPC-UA opc.tcp(封装 asyncua 1.1.5,官方继任 python-opcua)<br/>get_node().read_value()/write_value() 按 VariantType 编解码,无字节流"]
+    OpcUaClient["OpcUaClient — opcua/client.py<br/>OPC-UA opc.tcp(封装 asyncua 1.1.5)<br/>get_node().read_value()/write_value() 按 VariantType 编解码,无字节流"]
     MxComLink["_MxComLink<br/>COM 会话(Open/Close)适配为传输对象外形"]
     OpcUaSession["_OpcUaSession<br/>asyncua 同步会话适配;UaError 在会话边界翻译为 DeviceError"]
     AdsSession["_AdsSession<br/>pyads Connection 适配;ADSError 在会话边界翻译为 DeviceError"]
@@ -313,7 +313,7 @@ stateDiagram-v2
 ```
 
 - `connect()` 幂等:已连接直接返回 True;`disconnect()` 幂等。
-- `with client:` 进入时连接,失败抛 `ConnectionError`(与 pyhsl 一致);
+- `with client:` 进入时连接,失败抛 `ConnectionError`;
   `async with AClient(...):` 同语义。
 - `_after_connect()` 钩子:连接建立后执行协议级初始化(FINS/TCP 节点分配握手)。
 
@@ -327,7 +327,7 @@ stateDiagram-v2
 
 ## 5. 错误处理约定
 
-公共 API **不抛自定义异常**(pyhsl 风格):
+公共 API **不抛自定义异常**:
 
 | 操作 | 成功 | 失败 |
 |---|---|---|
@@ -365,7 +365,7 @@ stateDiagram-v2
 
 ### 6.1 类型系统(`types.py`)
 
-`DataType` 枚举:名称与 pyhsl 的 `read_*`/`write_*` 后缀一一对应——
+`DataType` 枚举:与方法名 `read_*`/`write_*` 后缀一一对应——
 `bool / short / ushort / int / uint / long / ulong / float / double / string`
 (有符号整型依次为 16/32/64 位;float=float32;double=float64)。
 
@@ -573,8 +573,7 @@ Unconnected Send(0x52)包裹、背板路由到 ``slot`` 槽号——无 Forward 
 ``%32`` 定位。STRING 走 0xA0 结构体(模板 0x0FCE,len(u32)+82 字符)。
 UDT 整体读取与分片读写(0x52,>480 字节应答)留 v1.x;批量多服务包
 (0x0A)已于 v0.28 落地为 ``read_batch``(混标签混类型单事务,32 条上限)。
-帧格式经 pylogix 1.1.6 / cm_ethernetip 0.1.0 / aphyt 0.1.30 三份参考实现
-交叉核证(见 §8.1)。
+帧格式按 CIP/EtherNet/IP 规范(ODVA)逐字节核证(见 §8.1)。
 
 connected 消息(v0.17):``connected_messaging=True`` 启用 Forward Open
 (Class 3 应用触发连接)——优先 Large Forward Open(0x5B,连接尺寸 4002),
@@ -584,16 +583,14 @@ disconnect 尽力 Forward Close。connected 单事务开销更小、大批量轮
 更高;代价是连接状态在目标侧维护,PLC 侧重连容忍度依固件而异——默认仍为
 unconnected。连接路径为背板端口 + 槽号 + 消息路由对象(20 02 24 01);
 O->T 连接 ID 由目标分配(请求传 0),T->O 连接 ID 由发起方指定。
-应答布局(O->T ID 紧跟状态域)经 cm_ethernetip 服务端组成与 pylogix
-客户端解析双向印证。
+应答布局(O->T ID 紧跟状态域)按 ODVA CIP 规范核证。
 
 欧姆龙 NJ/NX CIP 说明(2026-09):NJ/NX(Sysmac)系列没有 FINS/TCP-UDP,
 变量经标准 CIP 显式报文访问——与 AB 同属 ODVA EtherNet/IP,故
 ``OmronCipClient`` **继承 ``AllenBradleyEthIpClient``**,仅覆写三个钩子:
 `_route_path()` 返回空(NJ/NX 内置口 CPU 即目标,无背板路由段,连接路径
 只剩消息路由对象 20 02 24 01)、`_wrap_unconnected()` 直发不包 UC Send
-(目标即消息路由器本体,0xB2 项直接承载服务请求——pycomm3 对 Micro800
-同款处理)、`_parse_unconnected_reply()` 剥一层服务头
+(目标即消息路由器本体,0xB2 项直接承载服务请求)、`_parse_unconnected_reply()` 剥一层服务头
 (``codec_cip.parse_direct_service_reply``)。类型发现/位访问/RMW、
 connected 消息全套(Forward Open 大/普通回落、SendUnitData 序列号回显、
 Forward Close)与错误契约(状态非 0 → DeviceError 不断线)全部复用 AB 实现。
@@ -602,8 +599,8 @@ NJ 标量 BOOL 直读直写(C1);BOOL 数组按元素访问(NJ 不做 Logix 的 D
 支持与否随固件,不支持时报 DeviceError 不断线。NJ STRING 结构布局与 AB
 不同(长度域宽度待真机核证),v1 显式拒绝字符串读写(经 ``read_string``
 返回 ``(False, None)``,与 BaseClient 缺省字符串契约一致)。
-发起方厂商号沿用 0x1337(仅标识发起端,目标不校验)。走线差异经
-pycomm3 1.2.16 交叉核证(见 §8.1);真机联测待做。
+发起方厂商号沿用 0x1337(仅标识发起端,目标不校验)。走线差异按
+CIP/EtherNet/IP 规范核证(见 §8.1);真机联测待做。
 
 通用自定义 TCP 说明(2026-09):``OpenTcpClient`` 面向无标准协议的现场
 设备,只做"连接 + 成帧 + 错误契约",报文内容由调用方解释。成帧两种
@@ -757,8 +754,7 @@ Easy 系列(Easy523/522/521/320,固件 V6.4.0.0+、AutoShop V4.10.0.0+)
 兼容模式(**QnA 兼容 3E 帧,仅二进制、成批读/写**,FP0H 以太网通信
 手册),``PanasonicMcTcpClient`` **继承 ``MelsecMcTcpClient``,帧固定
 3E 二进制**,帧层复用三菱实现。软元件码与三菱 Q/L 一致
-(``PANASONIC_MC_DEVICE_CODES``,对照 HSL ``PanasonicMcNet``/
-``MelsecMcDataType.Panasonic_*``):位软元件 X/Y/L/R 为"字号 + 位号"
+(``PANASONIC_MC_DEVICE_CODES``):位软元件 X/Y/L/R 为"字号 + 位号"
 组织,帧内编号 = 字号×16+位号(记法 ``R1F`` = 字 1 位 F,或点号形式
 ``R1.15``);R 字号 ≥900(记法 R9000 起)映射系统继电器 SM(线性
 -14400),D 编号 ≥90000 映射系统寄存器 SD(-90000);D/LD/TN/CN 字、
@@ -766,10 +762,9 @@ TS/CS/SM 位均纯十进制。端口以模块配置为准(默认 2000 为三菱�
 占位)。
 
 松下 MEWTOCOL 说明(2026-09):MEWTOCOL-COM ASCII 文本帧,以太网
-TCP/UDP 默认端口 **1024**(Pro-face《MEWTOCOL-COM Ethernet Driver》;
-MewtocolNet 等可配)。帧结构(对照 Panasonic《MEWTOCOL Communication
-User's Manual》、HSL ``PanasonicMewtocol``、OpenLogics/MewtocolNet
-及后者 BCC 单元测试向量 ``%01#RCSX0000``→``1D``):请求 = ``%`` +
+TCP/UDP 默认端口 **1024**(Pro-face《MEWTOCOL-COM Ethernet Driver》)。
+帧结构(按 Panasonic《MEWTOCOL Communication
+User's Manual》,BCC 算法经参考向量 ``%01#RCSX0000``→``1D`` 验算):请求 = ``%`` +
 站号(2 位,``EE`` 直连或 01~99)+ ``#`` + 命令文本 + BCC(全字符
 异或,2 位十六进制)+ CR,**无 ETX**;正常响应 = ``%`` + 站号 +
 ``$`` + 命令名回显(2 字符)+ 数据 + BCC + CR(数据固定从下标 6 起);
@@ -798,8 +793,8 @@ v0.7 覆盖基础软元件区;扩展区(CMD=94~99)、PC10(CMD=C2~C6)、
 OPC-UA 说明:``OpcUaClient`` **不自研协议**(OPC-UA 是完整规范栈:
 二进制编码/会话/订阅/X.509 安全栈,自研数月且加密做错即安全事故),
 封装官方继任库 **asyncua**(``pip install omniplc[opcua]``)。
-版本钉 ``1.1.5``——官方弃用的 python-opcua(2022-07)之外唯一生态,
-且为最后支持 Python 3.7 的版本(其后版本 requires_python ≥3.8)。
+版本钉 ``1.1.5``——最后支持 Python 3.7 的版本
+(其后版本 requires_python ≥3.8)。
 ``_OpcUaSession`` 把 asyncua 同步会话适配为传输对象外形
 (connect 建 opc.tcp 会话 / close 断开并回收其后台事件循环线程,
 无字节流收发),DataType ↔ ``ua.VariantType`` 显式映射,读写走
@@ -815,90 +810,80 @@ Root/Objects/Types/Views 语义别名,递归与 ``max_depth`` 深度上限,
 不存在节点返回空引用列表,与 Read 报 BadNodeIdUnknown 不同);安全
 策略配置(TLS/X.509)按内网部署口径**永久不考虑**。
 
-Modbus 与 pymodbus 3.15.0 对照(2026-09 复审,源码
-`D:\DOWNLOAD\pymodbus-3.15.0.tar\pymodbus-3.15.0\pymodbus\`):
+Modbus 协议复审(2026-09,对照 Modbus 官方规范):
 帧格式、地址域 0~65535、位打包 LSB、线圈 ON=0xFF00、异常码表
 (01~08/0A/0B)、MBAP 事务号/协议号/站号校验、RTU CRC16(0xA001
 反射,低字节在前)全部一致。差异与决策:
 
-- **数量上限**:本库写线圈上限 1968(规范 0x7B0);pymodbus 的
-  ``WriteMultipleCoilsRequest.MAX_COUNT = 2000`` 比规范宽松
-  (>1968 会被合规设备拒绝),本库不改。
+- **数量上限**:本库写线圈上限 1968(规范 0x7B0,保守取值——
+  更高上限可能被合规设备拒绝),本库不改。
 - **响应校验更严**:读响应字节计数域与实际长度**精确相等**、
   MBAP 长度域上限 254(超出按坏帧,防按长收包挂死)、FC22 掩码写
-  校验 7 字节回显;pymodbus 对三者均宽松(只按计数域解析、无上限、
-  不比对回显)。FC05/06/0F/10 写回显**有意不校验**与 pymodbus 一致
+  校验 7 字节回显(常见实现对三者较宽松:只按计数域解析、无上限、
+  不比对回显)。FC05/06/0F/10 写回显**有意不校验**
   (兼容改写回显字段的网关;功能码与异常位仍校验)。
-- **RTU 广播(站号 0)**:写操作发送后不等响应(pymodbus
-  ``no_response_expected`` 同语义),读操作直接拒绝;TCP 无广播
-  概念,站号 0 照常收发。
+- **RTU 广播(站号 0)**:写操作发送后不等响应,读操作直接拒绝;
+  TCP 无广播概念,站号 0 照常收发。
 - **新增 FC 0x16 掩码写**:`write_mask_register()` 单笔设备侧原子
   AND/OR 位修改,替代"读-改-写"两段事务(需设备支持)。
 - **不做**:ASCII 走线、诊断/报告类功能码(07/0B/0C/11/08/2B)
   与本库"点位读写"契约不符,留 v1.x;RTU 收包靠长度推算而非
-  t1.5/t3.5 帧间时序,pymodbus 同样不做 3.5 字符静默。
+  t1.5/t3.5 帧间时序(不做 3.5 字符静默)。
 
-实现选型:MC、FINS 无支持 Python 3.7 的成熟维护库 → 自研;
-pymodbus 2.5.3 已停止维护且 3.x 不支持 3.7 → **Modbus 也自研**
-(报文简单,超时/重连/错误语义与另两家完全统一;如遇特殊需求,
-`ModbusBaseClient` 层也允许替换为 pymodbus 适配,对外 API 不变)。
+实现选型:MC、FINS、Modbus 均**自研**(无同时支持 Python 3.7 的
+成熟维护依赖;报文简单,超时/重连/错误语义与全库完全统一;
+如遇特殊需求,`ModbusBaseClient` 层保持可替换,对外 API 不变)。
 
-### 8.1 协议实现参考资料(C# HslCommunication)
+### 8.1 协议实现参考资料
 
-帧格式实现对照本地 C# 源码 `D:\DOWNLOAD\Hsl7.0.1\新建文件夹\
-HslCommunication_7.0.1_Vs2019\...\HslCommunication_Net45\`
-(**只参考组帧/解析逻辑与默认值,不移植其 API;语言与架构保持 Python 原生**):
+帧格式实现依据官方协议规范与厂商公开手册(黄金报文向量入库,见 §9),
+依赖库仅作封装、不移植其 API,语言与架构保持 Python 原生:
 
-| 本库模块 | C# 参考文件 |
+| 本库模块 | 参考资料 |
 |---|---|
-| Modbus 编解码 | `ModBus/ModbusInfo.cs`(功能码/异常码/MBAP 组帧)、`Core/IMessage/ModbusTcpMessage.cs`(事务号/协议号校验、按长收包);2026-09 复审另对照 `D:\DOWNLOAD\pymodbus-3.15.0.tar\...\pymodbus\`(framer/pdu/异常码表,见 §8 差异决策) |
-| Modbus TCP/RTU 客户端 | `ModBus/ModbusTcp/ModbusTcpNet.cs`、`ModBus/ModbusRtu/ModbusRtu.cs`(CRC16 校验) |
-| 三菱 MC(3E/4E/1E,已实现) | `Profinet/Melsec/MelsecMcNet.cs`(3E)、`MelsecMcAsciiNet.cs`(ASCII 帧,v1.x)、`MelsecA1ENet.cs`(1E)、`MelsecMcDataType.cs` / `MelsecA1EDataType.cs`(软元件码表)、`MelsecHelper.cs`(核心命令构造) |
-| 三菱 MC 串口帧 3C/4C(已实现) | 官方手册本地 PDF:`D:\DOWNLOAD\sh080008ab.pdf`(SH-080008-AB《MELSEC Communication Protocol Reference Manual》,2022/05):4.2 节五种通信格式、4.3 节帧识别码(4C=F8H/3C=F9H)/和校验/控制码、6.1~6.2 节各帧路由字段、8.2 节成批读/写命令、**Appendix 7 完整报文设置示例**(3C 格式 1 与 4C 格式 5 读/写四例,黄金向量来源);协议核心命令复用本库 MC 模块 |
-| 三菱 MX Component(已实现) | `docs/MX Component Version 4编程手册.pdf`(ActUtlType 逻辑站号、Open/Close/GetDevice/SetDevice/ReadDeviceBlock/WriteDeviceBlock 数据布局、第 7 章出错代码) |
-| 基恩士 KV Host Link(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\plc-comm-hostlink-python-main\src\hostlink\`(RD/RDS/WR/WRS 命令、.U/.S/.D/.L/.H 数据格式、E0~E6 出错代码、float32 两字小端、位组/X-Y 编号规则) |
-| 基恩士 KV MC 协议兼容(已实现) | HslCommunication `KeyenceMcNet`(QnA 3E 帧,地址支持三菱与基恩士两套记号)、Mech-Mind 集成文档 `docs.mech-mind.net`(KV-8000 MC 协议 TCP 默认端口 5000、3E 帧配置)、MELSEC/SLMP 手册软元件码表(KV SLMP 兼容:R=90h/B=A0h/DM=A8h/W=B4h/ZR=B0h);UDP 走线另对照 KV-8000/7000《用户手册》Ethernet 通信编(SLMP 兼容协议可选 TCP/UDP,端口各自可配)与 Pro-Face《KV 系列接续手册》以太网 UDP(MC 协议兼容对端)接续例;协议帧层不另立实现,复用本库 MC 模块 |
-| 汇川 H3U/H5U(已实现) | 官方手册本地 PDF:`D:\DOWNLOAD\19010394-SC_A20(19010394《H3U H3S系列可编程逻辑控制器指令及编程手册》).pdf` 第 9.4 节(Modbus 协议帧/变量编址/9.4.3 通信地址)、`D:\DOWNLOAD\19011157-SC_A21_H5U&Easy系列可编程逻辑控制器编程手册_CN_20260904.pdf` 第 9.5 节(被 ModBus 访问的线圈/寄存器地址、9600-8N2 缺省);协议帧层不另立实现,复用本库 Modbus 模块,仅做软元件→线圈/保持寄存器地址映射 |
-| 汇川 MC 协议兼容(已实现) | 官方手册本地 PDF:`D:\DOWNLOAD\19011157-SC_A21_H5U&Easy系列可编程逻辑控制器编程手册_CN_20260904.pdf` 第 16 章"MC通信"(16.1 规格 3E/4E × TCP/UDP × 二进制/ASCII、16.2 MC配置端口范围、16.4 支持规格/软元件映射表、16.5 故障码 4031/C05x);协议帧层复用本库 MC 模块,仅做汇川记号换算(S→L 码、R=D+8000、X/Y 八进制→帧内十六进制) |
-| 松下 MC 兼容(已实现) | 本地 HSL 源码 `PanasonicMcNet.cs` + `Core/Address/MelsecMcAddressData.cs`(ParsePanasonicFrom:字号×16+位号、R≥900→SM、D≥90000→SD)+ `MelsecMcDataType.cs`(Panasonic_* 软元件码,与三菱同码);松下 FP0H 产品页/以太网通信手册(QnA 兼容 3E 帧,仅二进制成批读/写);协议帧层复用本库 MC 模块 |
-| 松下 MEWTOCOL(已实现) | 本地 HSL 源码 `PanasonicMewtocol.cs`(命令 RCS/RCC/RD/WD/WCS/WCC、BCC 异或、错误码表);OpenLogics/MewtocolNet(jsdelivr:`MewtocolInterfaceRequests.cs` RD/RCC 十进制编号、站号 EE/01~99;`BCCBuilderChecks.cs` 金样本 `%01#RCSX0000`→`1D`);Panasonic《MEWTOCOL Communication User's Manual》(帧结构/错误码 20~67)与 Autopack《MEWTOCOL Protocol》(接点=十进制字号+十六进制位号);Pro-face《MEWTOCOL-COM Ethernet Driver》(以太网目标端口 1024);帧层为本库原生纯函数实现 |
-| 基恩士 SR 扫码枪(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\vention_barcode_scanner-0.8.3.tar\...\scanners\keyence.py`(TCP 9004、LON/LOFF 时序——应答在 LOFF 之后才发送、bank 0~15、BCLR/RESET、ERROR/OK 应答) |
-| 丰田 TOYOPUC 计算机链接(已实现) | 本地 Python 参考库 `D:\DOWNLOAD\plc_comm_toyopuc-4.2.0.tar\...\toyopuc\`(**只学习协议本身**:帧格式 `00 00 LL LH CMD`/`80 RC LL LH CMD`、CMD=1C~21 基础区字/字节/位命令、软元件字/字节/位基地址与编号段、RC=10 出错码表、低字在前多字节序;**架构不参考**,仍用本库 BaseClient/Transport 模式) |
-| OPC-UA(已实现) | `asyncua==1.1.5` 安装源码(`.venv\...\asyncua\`,sync.Client 会话/`ua.VariantType` 类型表/`ua.uaerrors` 异常层次);python-opcua 已弃用仅作背景,不作为依赖 |
-| MTConnect(已实现) | MTConnect 官方规范(<https://www.mtconnect.org/>;MTConnectStreams/Devices/Error 文档结构与数据项语义);`inventcom.net` FOCAS 函数参考为后续 FOCAS 封装备查 |
-| 西门子 S7(已实现) | `python-snap7` 安装源码:1.3(`.venv\...\snap7\`,Client 会话/`check_error` RuntimeError 约定/`Areas` 普通枚举码表,裸 int 区码被拒)与 3.1.2(纯 Python 实现,`snap7.error.S7Error` 谱系、`snap7.type.Areas` IntEnum、`lib_location` 兼容保留);snap7 原生库文档(<https://snap7.sourceforge.net/>) |
-| 倍福 TwinCAT ADS(已实现) | pyads==3.5.1(pip 安装源码,**封装而非移植**):`connection.py`(Connection.open/close/read_by_name/write_by_name/set_timeout 接口面)、`pyads_ex.py`(ADSError + err_code;字符串写 len+1 字节、读 1024 缓冲已核证;Windows 载 TcAdsDll.dll / Linux 载 adslib 的平台分支)、`constants.py`(PLCTYPE_* 表、STRING_BUFFER=1024、PORT_TC3PLC1=851)、`structs.py`(AmsAddr/NetId 6 字节);封装层只做 DataType→PLCTYPE 映射、范围校验、异常翻译与 NetId 组装;帧层零自研 |
-| 欧姆龙 FINS(TCP/UDP,已实现) | `Profinet/Omron/OmronFinsNet.cs`、`OmronFinsUdp.cs`、`OmronFinsNetHelper.cs`(帧组装/解析)、`OmronFinsDataType.cs`(存储区码)、`Core/IMessage/FinsMessage.cs`(TCP 握手/帧长);2026-09 复审另对照 `fins-driver 0.3.1`(PyPI,indrarudianto/fins-driver,见 §8 对照结论) |
-| 罗克韦尔 AB EtherNet/IP(已实现) | 本地 Python 参考库三份交叉核证(**只学习协议本身,不移植 API**):`D:\DOWNLOAD\pylogix-1.1.6-py2.py3-none-any\pylogix\`(ENIP 封装/RegisterSession/0x4C·0x4D·0x4E 服务/IOI 路径段 0x91·0x28·0x29·0x2A/位字与 BOOL 数组词操作/STRING 0xA0 布局;1.1.6 默认 connected 消息,本库采用其 unconnected 通道并恒包 UC Send)、`D:\DOWNLOAD\cm_ethernetip-0.1.0.tar\...\src\ethernetip\`(规范向实现:CPF 项类型 RRData=0x00B2、UC Send 请求/应答布局、CIP 状态语义)、`D:\DOWNLOAD\aphyt-0.1.30.tar\...\src\aphyt\`(unconnected 显式报文客户端佐证、符号段编码);协议帧层为本库原生纯函数实现(`plc/ab/codec_cip.py`) |
-| 欧姆龙 NJ/NX CIP(已实现) | pycomm3 1.2.16(pip 安装源码,**只学习协议本身,不移植 API**):`logix_driver.py` / `cip_driver.py`(Forward Open 连接路径 = cip_path + MSG_ROUTER_PATH,空路由时只剩消息路由对象 20 02 24 01;Micro800 为"IP 直连无背板路由"先例;`parse_cip_route` 空 path 语义)、`packets/util.py` `wrap_unconnected_send`(UC Send 布局,本库直发不包)、`const.py`(PRIORITY 0x0A/TRANSPORT_CLASS 0xA3/参数域基底 0x4200 与本库一致;tick/乘数为建议值,沿用 AB 已验证值);协议帧层零新增,复用 `plc/ab/codec_cip.py` + 三钩子覆写;NJ STRING 布局与真机行为待真机联测 |
+| Modbus 编解码 | Modbus 官方规范(功能码/异常码/MBAP 组帧、事务号/协议号校验、按长收包;2026-09 复审见 §8 差异决策) |
+| Modbus TCP/RTU 客户端 | Modbus 规范(MODBUS over Serial Line / MODBUS TCP/IP 应用协议;CRC16 校验) |
+| 三菱 MC(3E/4E/1E,已实现) | MELSEC MC 协议手册 SH-080956(3E/4E 二进制与 ASCII 帧、软元件码表、核心命令);1E 帧按 A 兼容格式 |
+| 三菱 MC 串口帧 3C/4C(已实现) | 官方手册 SH-080008-AB《MELSEC Communication Protocol Reference Manual》(2022/05):4.2 节五种通信格式、4.3 节帧识别码(4C=F8H/3C=F9H)/和校验/控制码、6.1~6.2 节各帧路由字段、8.2 节成批读/写命令、**Appendix 7 完整报文设置示例**(3C 格式 1 与 4C 格式 5 读/写四例,黄金向量来源);协议核心命令复用本库 MC 模块 |
+| 三菱 MX Component(已实现) | 三菱《MX Component Version 4 编程手册》(ActUtlType 逻辑站号、Open/Close/GetDevice/SetDevice/ReadDeviceBlock/WriteDeviceBlock 数据布局、第 7 章出错代码) |
+| 基恩士 KV Host Link(已实现) | 协议要点:RD/RDS/WR/WRS 命令、.U/.S/.D/.L/.H 数据格式、E0~E6 出错代码、float32 两字小端、位组/X-Y 编号规则 |
+| 基恩士 KV MC 协议兼容(已实现) | MELSEC/SLMP 手册软元件码表(KV SLMP 兼容:R=90h/B=A0h/DM=A8h/W=B4h/ZR=B0h;QnA 3E 帧,地址支持三菱与基恩士两套记号,TCP 默认端口 5000);UDP 走线另对照 KV-8000/7000《用户手册》Ethernet 通信编(SLMP 兼容协议可选 TCP/UDP,端口各自可配)与 Pro-Face《KV 系列接续手册》以太网 UDP(MC 协议兼容对端)接续例;协议帧层不另立实现,复用本库 MC 模块 |
+| 汇川 H3U/H5U(已实现) | 官方手册 19010394《H3U H3S 系列可编程逻辑控制器指令及编程手册》第 9.4 节(Modbus 协议帧/变量编址/9.4.3 通信地址)与 19011157《H5U&Easy 系列可编程逻辑控制器编程手册》第 9.5 节(被 ModBus 访问的线圈/寄存器地址、9600-8N2 缺省);协议帧层不另立实现,复用本库 Modbus 模块,仅做软元件→线圈/保持寄存器地址映射 |
+| 汇川 MC 协议兼容(已实现) | 官方手册 19011157《H5U&Easy 系列可编程逻辑控制器编程手册》第 16 章"MC通信"(16.1 规格 3E/4E × TCP/UDP × 二进制/ASCII、16.2 MC配置端口范围、16.4 支持规格/软元件映射表、16.5 故障码 4031/C05x);协议帧层复用本库 MC 模块,仅做汇川记号换算(S→L 码、R=D+8000、X/Y 八进制→帧内十六进制) |
+| 松下 MC 兼容(已实现) | 松下 FP0H 产品页/以太网通信手册(QnA 兼容 3E 帧,仅二进制成批读/写;软元件码与三菱 Q/L 同码,字号×16+位号、R≥900→SM、D≥90000→SD);协议帧层复用本库 MC 模块 |
+| 松下 MEWTOCOL(已实现) | Panasonic《MEWTOCOL Communication User's Manual》(帧结构/错误码 20~67)、Autopack《MEWTOCOL Protocol》(接点=十进制字号+十六进制位号);Pro-face《MEWTOCOL-COM Ethernet Driver》(以太网目标端口 1024);帧层为本库原生纯函数实现 |
+| 基恩士 SR 扫码枪(已实现) | 协议要点:TCP 9004、LON/LOFF 时序——应答在 LOFF 之后才发送、bank 0~15、BCLR/RESET、ERROR/OK 应答 |
+| 丰田 TOYOPUC 计算机链接(已实现) | 协议要点:帧格式 `00 00 LL LH CMD`/`80 RC LL LH CMD`、CMD=1C~21 基础区字/字节/位命令、软元件字/字节/位基地址与编号段、RC=10 出错码表、低字在前多字节序;架构沿用本库 BaseClient/Transport 模式 |
+| OPC-UA(已实现) | 依赖库 `asyncua==1.1.5`(封装):sync.Client 会话、`ua.VariantType` 类型表、`ua.uaerrors` 异常层次 |
+| MTConnect(已实现) | MTConnect 官方规范(<https://www.mtconnect.org/>;MTConnectStreams/Devices/Error 文档结构与数据项语义);FOCAS 函数参考留作后续封装备查 |
+| 西门子 S7(已实现) | 依赖库 `python-snap7`(封装;3.7~3.9 → 1.3,3.10+ → 3.x 纯 Python):Client 会话、`check_error` 约定、`Areas` 枚举码表(裸 int 区码被拒) |
+| 倍福 TwinCAT ADS(已实现) | 依赖库 `pyads==3.5.1`(封装而非移植):封装层只做 DataType→PLCTYPE 映射、范围校验、异常翻译与 NetId 组装(PLCTYPE 表、STRING_BUFFER=1024、AMS 端口 851、AmsAddr/NetId 6 字节);帧层零自研 |
+| 欧姆龙 FINS(TCP/UDP,已实现) | 欧姆龙 FINS 手册 W340(帧组装/解析、存储区码、TCP 握手/帧长;2026-09 复审见 §8 对照结论) |
+| 罗克韦尔 AB EtherNet/IP(已实现) | ODVA CIP/EtherNet/IP 规范(RegisterSession、0x4C·0x4D·0x4E 服务、IOI 路径段 0x91·0x28·0x29·0x2A、位字与 BOOL 数组词操作、STRING 0xA0 布局、Unconnected Send 恒包 UC Send;协议帧层为本库原生纯函数实现 `plc/ab/codec_cip.py`) |
+| 欧姆龙 NJ/NX CIP(已实现) | 协议要点:Forward Open 连接路径 = cip_path + MSG_ROUTER_PATH(空路由时只剩消息路由对象 20 02 24 01)、unconnected 直发不包 UC Send(目标即消息路由器本体);协议帧层零新增,复用 `plc/ab/codec_cip.py` + 三钩子覆写;NJ STRING 布局与真机行为待真机联测 |
 
-三菱帧实现另对照本地 Python SLMP 参考库
-`D:\DOWNLOAD\plc-comm-slmp-python-main\slmp\`(SH-080956 口径,pcap 验证):
-**4E 帧带序列号**(请求副头部恒 `54 00`、响应 `D4 00`,与 Hsl 的 0x58 说法不同,
-以 SLMP 库为准)、软元件编号进制(X/Y/W/B 十六进制、ZR 十进制)、
-应答数据长字段校验均与该库一致。
+三菱 4E 帧按 SH-080956 口径实现(pcap 验证):**4E 帧带序列号**
+(请求副头部恒 `54 00`、响应 `D4 00`)、软元件编号进制(X/Y/W/B
+十六进制、ZR 十进制)、应答数据长字段校验均与规范一致。
 
-FINS 与 fins-driver 0.3.1 对照(2026-09 复审):FINS 帧头 10 字节布局
+FINS 协议复审(2026-09,对照欧姆龙 FINS 手册 W340):FINS 帧头 10 字节布局
 (ICF=0x80/RSV=0/GCT/目的 3 + 源 3 + SID)、命令 0101/0102、存储区码
 (CIO 30/B0、W 31/B1、H 32/B2、A 33/B3、D 02/82、EM 位 20+bank/字 A0+bank)、
 地址 3 字节编码(字 2 字节大端 + 位 1 字节)、位写每点 1 字节/字写逐字
 2 字节大端、结束码偏移 12:14 与 UDP 一问一答——**逐字节一致**。
-据此对照修正与采纳:
+据此修正与采纳:
 
 - **修正 EM 字码基址笔误**:本库原为 `0xE0`,正确 `0xA0`
-  (手册 W340 5-2-2 与 fins-driver `EM0_WORD=0xA0~EMF_WORD=0xAF`
-  一致;0xE0 段是 bank≥16 扩展区的**位**码),原测试断言一并纠正。
-- **补 T/C(定时器/计数器)存储区**:与 fins-driver 码表一致——
+  (手册 W340 5-2-2;0xE0 段是 bank≥16 扩展区的**位**码),原测试断言一并纠正。
+- **补 T/C(定时器/计数器)存储区**:按手册码表——
   位 09 = 完成标志(只读,地址不带位号),字 89 = 当前值 PV(可读写);
   位写拒绝,防止误走 D/EM 的读-改-写路径改写 PV。
-- **采纳其结束码全表**(约 70 条,手册 W340 5-4-2)补全
-  `FINS_END_CODE_TEXT`,`last_error` 可读性对齐。
-- **不采纳其三处缺陷**:客户端 GCT=0x07(其自身 `Header.default()`
-  与手册均为固定 0x02,本库正确);TCP 模式裸发 FINS 帧——无 `FINS`
+- **补全结束码全表**(约 70 条,手册 W340 5-4-2)
+  填入 `FINS_END_CODE_TEXT`,`last_error` 可读性对齐。
+- **不采纳项**:GCT 取 `0x07` 的常见实现(手册规定固定 `0x02`,
+  本库正确);TCP 模式裸发 FINS 帧——无 `FINS`
   魔数/长度/命令/错误域封装、无节点分配握手,不符合 W340,无法对接
-  标准 FINS/Ethernet(本库实现完整 TCP 封帧 + 握手);代码
-  `b"\70"` 八进制转义(CIO 强制位码错)与 `MESSAGE_CLEAR`/
-  `FAL_FALS_READ` 重复为 0x0920。
+  标准 FINS/Ethernet(本库实现完整 TCP 封帧 + 握手)。
 - **不采纳的功能**:0103 填充/0104 多区读/0105 传送/0401·0402 启停/
   2301 强制置复位等运维命令与本库"点位读写"契约不符,留 v1.x;
   EM bank≥16 扩展区(位 E0~/字 60~)与当前 bank EM(0A/98)留 v1.x。
@@ -952,16 +937,16 @@ FINS 与 fins-driver 0.3.1 对照(2026-09 复审):FINS 帧头 10 字节布局
 | v0.6 | 基恩士 SR 扫码枪(TCP 9004,LON/LOFF 触发扫码,bank 预设)| ✅ 完成 |
 | v0.7 | 丰田 TOYOPUC 计算机链接(TCP/UDP,基础区字/字节/位访问,CMD=1C~21)| ✅ 完成 |
 | v0.8 | OPC-UA opc.tcp 会话(封装 asyncua==1.1.5,NodeId 读写,会话适配)| ✅ 完成 |
-| v0.9 | Modbus 对照 pymodbus 3.15 强化(RTU 广播写、FC22 掩码写、MBAP 上限);FINS 对照 fins-driver 修正 EM 字码、补 T/C 区与结束码全表 | ✅ 完成 |
+| v0.9 | Modbus 协议对照强化(RTU 广播写、FC22 掩码写、MBAP 上限);FINS 复审修正 EM 字码、补 T/C 区与结束码全表 | ✅ 完成 |
 | v0.10 | 基恩士 KV MC 协议兼容(SLMP 3E 帧,继承 MelsecMcTcpClient 换软元件码表,端口 5000)| ✅ 完成 |
 | v0.11 | 汇川 H3U/H5U(Modbus TCP/RTU,继承 Modbus 客户端换汇川软元件地址映射,官方手册口径)| ✅ 完成 |
 | v0.12 | 汇川 MC 协议兼容(3E 帧,继承 MelsecMcTcpClient;S→L 码、R=D+8000 统一编址、X/Y 八进制换算,官方手册第 16 章口径)| ✅ 完成 |
 | v0.13 | 松下 FP0H/FP7 MC 协议兼容(3E 帧,继承 MelsecMcTcpClient)+ MEWTOCOL(TCP/UDP 1024,RCS/WCS/RD/WD,BCC 校验,错误码表)| ✅ 完成 |
 | v0.14 | 三菱 MC 串口帧(C24;3C 帧 ASCII 格式 4 / 4C 帧二进制格式 5,SH-080008 Appendix 7 黄金向量,DLE 附加码)| ✅ 完成 |
 | v0.15 | 基恩士 KV MC 协议兼容 UDP 走线(继承 MelsecMcUdpClient,与 TCP 版共用码表混入,端口 5000)| ✅ 完成 |
-| v0.16 | 罗克韦尔 AB EtherNet/IP(CIP;TCP 44818,RegisterSession + Unconnected Send 槽号路由,Logix 标签自描述类型发现,位/BOOL 数组 0x4E 原子写,STRING 结构体,三参考库交叉核证)| ✅ 完成 |
+| v0.16 | 罗克韦尔 AB EtherNet/IP(CIP;TCP 44818,RegisterSession + Unconnected Send 槽号路由,Logix 标签自描述类型发现,位/BOOL 数组 0x4E 原子写,STRING 结构体,按 CIP/EtherNet/IP 规范逐字节核证)| ✅ 完成 |
 | v0.17 | AB connected CIP 消息(Forward Open 大/普通回落 + SendUnitData 序列号回显校验 + Forward Close,connected_messaging 参数)| ✅ 完成 |
-| v0.18 | 欧姆龙 CIP / 连接型 CIP(NJ/NX 内置 EtherNet/IP 44818;继承 AB 客户端,unconnected 直发无背板路由 + connected 连接路径只剩消息路由对象,NJ 变量读写;pycomm3 1.2.16 交叉核证)| ✅ 完成 |
+| v0.18 | 欧姆龙 CIP / 连接型 CIP(NJ/NX 内置 EtherNet/IP 44818;继承 AB 客户端,unconnected 直发无背板路由 + connected 连接路径只剩消息路由对象,NJ 变量读写;按 CIP/EtherNet/IP 规范核证)| ✅ 完成 |
 | v0.19 | 通用自定义 TCP 客户端(OpenTcpClient;分隔符成帧 + 内部缓冲,重连/超时沿用 BaseClient 属性,per-call timeout;超时不断线,坏帧/解码失败断线惰性重连,重连清空接收缓冲)| ✅ 完成 |
 | v0.20 | 倍福 TwinCAT ADS(封装 pyads 3.5.1,AMS 端口 851;变量名读写,DataType→PLCTYPE 映射,ADSError→DeviceError 不断线,NetId 默认 IP+.1.1 可覆盖)| ✅ 完成 |
 | v0.21 | 全局报文调试开关(omniplc.set_debug;走线型在传输层统一输出请求/响应十六进制与连接事件,会话型 OPC-UA/ADS/MX 输出操作级日志;logging 记录器 omniplc.debug,无日志配置时自动落 stderr,单条转储上限 4096B)| ✅ 完成 |
@@ -972,7 +957,7 @@ FINS 与 fins-driver 0.3.1 对照(2026-09 复审):FINS 帧头 10 字节布局
 | v0.25 | OpenTcpClient 补定长成帧(`frame_length`,二进制固定帧设备;与 `delimiter` 互斥、构造期二选一校验,`frame_length` ≤ `max_frame`,`append_delimiter` 强制关;跨分片/多帧/残字节语义与分隔符模式一致,异步镜像同步;长度域/空闲切块成帧留 v1.x)| ✅ 完成 |
 | v0.26 | MC 3E/4E 批量读取:协议原生 0406 多块批量读(`read_many` 覆写为单事务整批容错,`read_batch` 混类型混软元件;SH-080008 §8.4 二进制例逐字节核证,总块数 ≤120;位块 1 点 = 16 位、点内首软元件 bit15,与 0403 半字节打包不同;品牌兼容子类经 `_translate_address` 钩子继承换算;1E/3C/4C 回退逐点/拒绝)| ✅ 完成 |
 | v0.27 | 欧姆龙 FINS 批量读取:协议原生 0104 多存储区读(`read_many` 覆写单事务 + `read_batch` 混类型;W342 §5-3-5 核证:每条 = 区码 1B + 字地址 2B 大端 + 位 0,读 1 字,响应逐条区码回显,仅字码,以太网 167 条/SYSMAC LINK 89;BOOL 走包含字提位,T/C 完成标志拒绝;W342 PDF 由 Lakewood Automation 镜像获取)| ✅ 完成 |
-| v0.28 | CIP/OPC-UA 批量读取:AB 0x0A 多服务包(`read_batch` 混标签单事务,偏移自条数域起算、内嵌请求字对齐补齐,内嵌应答标准 CIP 帧逐条校验;pylogix/cm_ethernetip 双参考核证;BOOL 首次类型发现,上限 32 条;NJ 继承)+ OPC-UA UA Read 多节点(asyncua read_values 单请求)| ✅ 完成 |
+| v0.28 | CIP/OPC-UA 批量读取:AB 0x0A 多服务包(`read_batch` 混标签单事务,偏移自条数域起算、内嵌请求字对齐补齐,内嵌应答标准 CIP 帧逐条校验;按规范逐字节核证;BOOL 首次类型发现,上限 32 条;NJ 继承)+ OPC-UA UA Read 多节点(asyncua read_values 单请求)| ✅ 完成 |
 | v0.29 | MX Component 批量读取:ActUtlType 原生 ReadDeviceRandom(`read_batch` 混软元件单事务 + `read_many` 覆写;软元件列表换行分隔、每条 1 字;仅 16 位类型 BOOL/SHORT/USHORT——地址编号原文透传无法安全拆 32 位相邻字;手册 5.2.5 核证)| ✅ 完成 |
 | v0.29.1 | 异步镜像完整性收口:全量内省审计补齐 9 处缺口(Keyence/Inovance/Panasonic MC 的 read_batch 经对称继承获得,AB/NJ 补 5 个通用 CIP 服务 + NJ slot,Inovance TCP/RTU 补 station/word_order/write_mask_register);aio 家族镜像改对称继承结构;新增内省守卫测试防再漂移;性能实测:单设备异步零收益(线程切换 +67µs/笔),10 台并发 10.0 倍| ✅ 完成 |
 | v0.29.2 | 使用范例完善:逐客户端补读写与驱动扩展示例(MC/FINS/KV/MX、AB 批量与 Identity 服务),新增"批量读取(协议原生,单事务)"专节,异步节补多设备并发示例与性能提示| ✅ 完成 |

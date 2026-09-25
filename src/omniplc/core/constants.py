@@ -126,7 +126,7 @@ MODBUS_EXCEPTION_TEXT: Dict[int, str] = {
 MC_DEFAULT_NETWORK_NUMBER: int = 0
 """默认网络编号(本网络)。"""
 MC_DEFAULT_PC_NUMBER: int = 0xFF
-"""默认 PC 编号;0xFF = 本局 CPU 直连约定值(与 HslCommunication 一致)。"""
+"""默认 PC 编号;0xFF = 本局 CPU 直连约定值。"""
 MC_DEFAULT_MONITOR_TIMER: int = 10
 """CPU 监视定时器默认值,单位 250ms(10 = 等待 PLC 约 2.5 秒)。"""
 MC_DEST_MODULE_IO: int = 0x03FF
@@ -134,7 +134,7 @@ MC_DEST_MODULE_IO: int = 0x03FF
 MC_DEST_MODULE_STATION: int = 0
 """目标模块局号(CPU 直连恒为 0)。"""
 MC_MAX_TRANSFER_POINTS: int = 900
-"""3E/4E 单事务读/写点数上限(与 HslCommunication 分块大小一致)。"""
+"""3E/4E 单事务读/写点数上限(保守分块取值,实际以模块处理能力为准)。"""
 MC_RESPONSE_HEAD_SIZE: int = 9
 """3E/4E 响应头长度:副头部2+网络1+PC1+IO2+局1+应答数据长2。"""
 MC_RESPONSE_SUBHEADER_3E: int = 0xD0
@@ -195,8 +195,7 @@ MC_DEVICE_CODES: Dict[str, Tuple[int, int, int]] = {
 }
 """3E/4E 软元件码表:软元件 → (二进制码, 位软元件?, 地址进制)。
 
-来源:HslCommunication ``MelsecMcDataType`` 与 SLMP 库 ``constants.DEVICE_CODES``
-(SH-080956 手册二进制码列)一致:X/Y/W/B 十六进制,ZR 十进制;
+来源:SH-080956 手册二进制码列:X/Y/W/B 十六进制,ZR 十进制;
 仅 iQ-F(FX5U)的 X/Y 为八进制,v1 按 Q/L/R 口径处理。
 """
 MC_1E_DEVICE_CODES: Dict[str, Tuple[int, int, int]] = {
@@ -207,7 +206,7 @@ MC_1E_DEVICE_CODES: Dict[str, Tuple[int, int, int]] = {
     "D": (0x4420, 0, 10),
     "R": (0x5220, 0, 10),
 }
-"""1E 软元件码表:软元件 → (两字节码, 位软元件?, 地址进制)。来源 ``MelsecA1EDataType``。"""
+"""1E 软元件码表:软元件 → (两字节码, 位软元件?, 地址进制)(A 兼容帧协议约定)。"""
 
 # ---------------------------------------------------------------- 三菱 MC 串口帧(3C/4C)
 MC_SERIAL_FRAME_ID_3C: int = 0xF9
@@ -343,7 +342,7 @@ PANASONIC_MC_DEFAULT_PORT: int = 2000
 
 FP0H/FP7 以太网口的 MC 协议(QnA 兼容 3E 帧,仅二进制、成批读/写)
 端口在模块配置中设置,手册未规定出厂默认;此默认沿用三菱 MC 惯例
-端口(HSL ``PanasonicMcNet`` 亦继承 2000),实际以现场配置为准。
+端口 2000(行业常见取值),实际以现场配置为准。
 """
 PANASONIC_MC_DEVICE_CODES: Dict[str, Tuple[int, int, int]] = {
     "X": (0x9C, 1, 10),
@@ -361,8 +360,7 @@ PANASONIC_MC_DEVICE_CODES: Dict[str, Tuple[int, int, int]] = {
 }
 """松下 MC 兼容(3E 帧)软元件码表:软元件 → (二进制码, 位软元件?, 帧内进制)。
 
-来源:HSL ``PanasonicMcNet``/``MelsecMcDataType.Panasonic_*``(与三菱
-Q/L 系列同码):X/Y/L/R 为"字号 + 位号"组织的位软元件(D/T/C 类似三菱
+码值与三菱 Q/L 系列相同:X/Y/L/R 为"字号 + 位号"组织的位软元件(D/T/C 类似三菱
 TS/TC 记号),帧内编号 = 字号×16+位号,由客户端层换算;D/LD/TN/CN 为
 字软元件(纯十进制)。R 字号 ≥900 映射系统继电器 SM(见
 :data:`PANASONIC_MC_SM_LINEAR_BASE`),D 编号 ≥90000 映射系统寄存器 SD
@@ -379,13 +377,12 @@ MEWTOCOL_DEFAULT_PORT: int = 1024
 """MEWTOCOL 以太网默认端口(TCP/UDP,PLC 为服务器)。
 
 来源:Pro-face《MEWTOCOL-COM Ethernet Driver》目标端口号 1024;
-MewtocolNet 等实现可配,实际以 PLC 以太网模块设置为准。
+实际以 PLC 以太网模块设置为准。
 """
 MEWTOCOL_DEFAULT_STATION: int = 1
 """MEWTOCOL 默认站号(01~99;编程口直连场景用 :data:`MEWTOCOL_STATION_DIRECT`)。"""
 MEWTOCOL_STATION_DIRECT: int = 0xEE
-"""MEWTOCOL 直连站号(EE):经编程口/无需站号寻址的场景使用(HSL 与
-MewtocolNet 默认)。"""
+"""MEWTOCOL 直连站号(EE):经编程口/无需站号寻址的场景使用(常见约定)。"""
 MEWTOCOL_CONTACT_AREAS: Tuple[str, ...] = ("X", "Y", "R", "T", "C", "L")
 """MEWTOCOL 接点(位)区代码:X/Y 外部输入输出、R 内部继电器、
 T/C 定时器计数器接点、L 链接继电器。"""
@@ -513,8 +510,8 @@ FINS_END_CODE_TEXT: Dict[int, str] = {
     0x3001: "访问权被其他设备持有",
     0x4001: "命令被 ABORT 命令中止",
 }
-"""FINS 结束码 → 可读描述(全表,与手册 W340 5-4-2 及 fins-driver
-参考实现一致;2026-09 对照补全);未收录的提示查阅手册。"""
+"""FINS 结束码 → 可读描述(全表,依据手册 W340 5-4-2;2026-09 复审补全);
+未收录的提示查阅手册。"""
 FINS_MAX_DATAGRAM: int = 8192
 """UDP 整包接收缓冲上限(8192 覆盖长字符串/大批量响应;UDP 单包上限 65507)。"""
 FINS_MAX_TCP_FRAME: int = 8192
@@ -535,7 +532,7 @@ FINS_EM_BANK_MAX: int = 15
 """EM 区 bank 号上限(E0~EF)。"""
 FINS_EM_WORD_CODE_BASE: int = 0xA0
 """EM 区字操作码基址(bank 0 → 0xA0;手册 W340 5-2-2:字 A0~AF、位 20~2F。
-2026-09 对照 fins-driver 修正:原 0xE0 为 bank≥16 扩展区的位码,系笔误)。"""
+2026-09 复审修正:原 0xE0 为 bank≥16 扩展区的位码,系笔误)。"""
 FINS_EM_BIT_CODE_BASE: int = 0x20
 """EM 区位操作码基址(bank 0 → 0x20)。"""
 FINS_MEMORY_CODES: Dict[str, Tuple[int, int]] = {
@@ -547,8 +544,7 @@ FINS_MEMORY_CODES: Dict[str, Tuple[int, int]] = {
     "T": (0x09, 0x89),
     "C": (0x09, 0x89),
 }
-"""FINS 存储区码:区名 → (位操作码, 字操作码)。来源 ``OmronFinsDataType``
-与手册 W340 5-2-2;EM 区按 bank 换算(位 0x20/字 0xA0 + bank,bank 0~15)。
+"""FINS 存储区码:区名 → (位操作码, 字操作码)。来源:手册 W340 5-2-2;EM 区按 bank 换算(位 0x20/字 0xA0 + bank,bank 0~15)。
 T/C(定时器/计数器)共享码表(按地址区分):位 = 完成标志(09,只读),
 字 = 当前值 PV(89,可读写)。"""
 FINS_TIMER_COUNTER_AREAS: Tuple[str, ...] = ("T", "C")
@@ -630,7 +626,7 @@ SR_RESP_ERROR: str = "ERROR"
 
 # ---------------------------------------------------------------- 丰田 TOYOPUC
 TOYOPUC_DEFAULT_PORT: int = 1025
-"""TOYOPUC 计算机链接以太网默认端口(参考库示例值,可在 PLC 侧修改)。"""
+"""TOYOPUC 计算机链接以太网默认端口(默认约定值,可在 PLC 侧修改)。"""
 TOYOPUC_FRAME_HEADER_SIZE: int = 4
 """帧头长度:FT(1) + RC(1) + 帧长(2,小端);帧长 = CMD(1) + 数据字节数。"""
 TOYOPUC_MAX_DATAGRAM: int = 2048
@@ -710,7 +706,7 @@ AB_EIP_SLOT_MAX: int = 31
 AB_EIP_MAX_FRAME: int = 8192
 """ENIP 长度域上限(24 字节头之后的字节数;合法最大约 2KB,防恶意声明拖长收包)。"""
 AB_EIP_ORIGINATOR_VENDOR_ID: int = 0x1337
-"""Forward Open 的发起方厂商号(目标侧不校验,任意非冲突值即可;沿用参考库惯例)。"""
+"""Forward Open 的发起方厂商号(目标侧不校验,任意非冲突值即可)。"""
 AB_EIP_STRING_STRUCT_ID: int = 0x0FCE
 """Logix 标准 STRING 结构体模板实例号(写入类型域携带)。"""
 AB_EIP_STRING_MAX_CHARS: int = 82
@@ -779,8 +775,8 @@ AB_CIP_STATUS_TEXT: dict = {
 """CIP 通用状态码 → 可读描述(last_error 用;未收录的提示十六进制原文)。"""
 
 # CIP 子状态码(扩展码)二级映射:general_status -> {extended_status: 文本}
-# 源:pycomm3 1.2.16 ``cip/status_info.py`` EXTEND_CODES;Rockwell KB 28917 +
-# ODVA CIP Vol 1 §5-4.4.2 交叉核证。DeviceError 抛出时若状态码有扩展子状态,
+# 源:Rockwell KB 28917 + ODVA CIP Vol 1 §5-4.4.2(2026-09 复审交叉核证)。
+# DeviceError 抛出时若状态码有扩展子状态,
 # 自动拼到 message 末尾便于排错;扩展码不进 ``DeviceError.code``(仍仅 8 位
 # 通用状态),以免破坏既有错误契约。
 AB_CIP_EXTENDED_STATUS_TEXT: dict = {

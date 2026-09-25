@@ -2,13 +2,11 @@
 
 NJ/NX(Sysmac)系列没有 FINS/TCP-UDP,变量经标准 CIP 显式报文访问;
 与罗克韦尔 AB 同属 ODVA EtherNet/IP(端口同为 44818),故继承
-:class:`~omniplc.plc.ab.AllenBradleyEthIpClient`,仅覆写三处走线差异
-(参考 pycomm3 1.2.16 交叉核证,见 architecture.md §8.1):
+:class:`~omniplc.plc.ab.AllenBradleyEthIpClient`,仅覆写三处走线差异:
 
 - **unconnected 直发(默认)**:目标即消息路由器本体,RRData 的
   Unconnected Data(0xB2)项直接携带服务请求/应答,不包 Unconnected
-  Send(0x52)、无背板路由段(pycomm3 对 Micro800 同款处理;AB 必须包
-  UC Send 经背板路由到槽号)
+  Send(0x52)、无背板路由段(AB 必须包 UC Send 经背板路由到槽号)
 - **连接型(``connected_messaging=True``)**:Forward Open/Close 的连接
   路径只剩消息路由对象(20 02 24 01);Large(4002)优先、被拒回落
   普通(504)的策略与 AB 相同

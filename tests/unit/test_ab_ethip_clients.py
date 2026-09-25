@@ -832,7 +832,7 @@ def test_cip_extended_status_surfaces_in_last_error(
 def test_write_roundtrip_with_zero_echo_reply(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """写应答回显省略(HSL 服务端实帧形态):write_int 贯通。
+    """写应答回显省略(个别服务端实帧形态):write_int 贯通。
 
     帧形态:类型发现读应答(0xCC 回显)+ 写应答(CIP 体 00 00 00 00)。
     """

@@ -1,7 +1,6 @@
 """AB EtherNet/IP(CIP)编解码黄金向量测试:ENIP 封装 + UC Send + 标签服务。
 
-字面字节向量按 CIP/EtherNet/IP 规范与 pylogix/cm_ethernetip/aphyt
-三份参考实现交叉核证手工推得(见 architecture.md §8.1)。
+字面字节向量按 CIP/EtherNet/IP 规范推得(见 architecture.md §8.1)。
 """
 from __future__ import annotations
 
@@ -220,7 +219,7 @@ def test_parse_service_reply_tolerates_0x66_reply() -> None:
 
 
 def test_parse_service_reply_bare_body_without_d2() -> None:
-    """偏差模拟器(HSL/pylogix 服务端)剥掉 0xD2 路由信封:应答体即内嵌服务应答。"""
+    """偏差模拟器(个别服务端)剥掉 0xD2 路由信封:应答体即内嵌服务应答。"""
     payload = bytes.fromhex("c400" "39050000")
     cip = bytes((codec_cip.CIP_SERVICE_READ_TAG | 0x80, 0, 0, 0)) + payload
     header = struct.pack("<HHIIQI", 0x66, 22 + len(cip), _SESSION, 0, 0, 0)
@@ -569,7 +568,7 @@ def test_extended_status_unknown_omitted() -> None:
 
 
 def test_parse_service_reply_tolerates_zero_echo_write_reply() -> None:
-    """HSL 服务端写应答回显省略(首字节 0x00):放行;非零错回显仍拒。
+    """个别服务端写应答回显省略(首字节 0x00):放行;非零错回显仍拒。
 
     写应答 CIP 体 = 00 00 00 00(回显省略 + 保留 0 + 状态 0 + 附加长 0)。
     """

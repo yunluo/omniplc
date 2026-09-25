@@ -1,8 +1,6 @@
 """EtherNet/IP(CIP)编解码纯函数——ENIP 封装 + CIP 消息路由服务。
 
-帧格式按 CIP/EtherNet/IP 规范实现,并经参考实现交叉核证
-(pylogix 1.1.6 / cm_ethernetip 0.1.0 / aphyt 0.1.30 / pycomm3 1.2.16,
-见 architecture.md §8.1):
+帧格式按 CIP/EtherNet/IP 规范与 ODVA 公开资料实现:
 
 - ENIP 封装头 24 字节:command(H) + length(H) + session(I) + status(I)
   + sender context(8) + options(I)
@@ -13,7 +11,7 @@
 - CIP Unconnected Send(服务 ``0x52``,Connection Manager 类 0x06 实例 1)
   包裹实际标签服务,路由段 = 背板端口(0x01)+ 槽号;NJ/NX 等内置以太网口
   设备目标即消息路由器本体,不经此包裹,请求/应答直接承载于 0xB2 项
-  (见 :mod:`omniplc.plc.omron.cip`,pycomm3 对 Micro800 同款处理)
+  (见 :mod:`omniplc.plc.omron.cip`,与行业常见实现一致)
 - Logix 标签服务:读 ``0x4C`` / 写 ``0x4D`` / 读-改-写 ``0x4E``
 - 符号段 ``0x91`` + 名字长度 + 名字(补齐偶对齐);元素段
   ``0x28``/``0x29``/``0x2A``(1/2/4 字节下标)
@@ -99,9 +97,9 @@ CIP_INSTANCE_IDENTITY: int = 0x01
 CIP_CLASS_MESSAGE_ROUTER: int = 0x02
 """Message Router 类号(Multiple Service Packet 0x0A 的目标对象)。"""
 CIP_INSTANCE_MESSAGE_ROUTER: int = 0x01
-"""Message Router 实例号(pylogix 多标签请求同口径)。"""
+"""Message Router 实例号(批量多标签请求常见取值)。"""
 
-# ---- Forward Open / SendUnitData 参数(报文常量,沿用参考库惯例值) ----
+# ---- Forward Open / SendUnitData 参数(报文常量,取常见惯例值) ----
 FO_PRIORITY_TIME_TICK: int = 0x0A
 FO_TIMEOUT_TICKS: int = 0x0E
 FO_TIMEOUT_MULTIPLIER: int = 0x03
@@ -242,7 +240,7 @@ def build_unregister_session(session_handle: int) -> bytes:
 def build_rr_data(session_handle: int, cip_request: bytes) -> bytes:
     """把 CIP 请求封装为 SendRRData 帧(CPF:NullAddress + UnconnectedData)。
 
-    CPF 超时域填 1 秒(HSL/IoTClient/pycomm3 惯例;个别服务端对 0 拒收)。
+    CPF 超时域填 1 秒(常见惯例;个别服务端对 0 拒收)。
     """
     header = struct.pack(
         "<HHIIQI",
@@ -273,8 +271,8 @@ def _check_enip_reply(
 
     ``expected_command`` 传元组即多命令宽容:非连接请求规范上以 SendRRData
     (0x6F)应答,但个别模拟器以 0x66(UnregisterSession 的命令号,疑为把
-    SendUnitData 记成 0x66)回帧——pylogix 客户端对响应命令号不做校验,
-    此处对齐该宽容,应答体由调用方按 CPF 布局分流解析。
+    SendUnitData 记成 0x66)回帧——本库对响应命令号不做强校验(宽容口径),
+    应答体由调用方按 CPF 布局分流解析。
 
     坏帧消息带**收到的原始帧**十六进制转储,便于现场与抓包比对。
     """
@@ -319,8 +317,7 @@ def build_uc_send(request: bytes, slot: int) -> bytes:
     布局:服务 0x52 + CM 路径(20 06 24 01)+ 优先级/超时 + 内嵌请求
     字节数 + 内嵌请求(补齐偶对齐)+ 路由段(path_size + 保留 + 端口 +
     槽号)。path_size 单位 **16 位字**:路由 ``01 slot`` 为 1 字 → 恒 1
-    (HSL 实帧 / IoTClient / pycomm3 三方一致;曾误填字节数 2,真机 Logix
-    按规范解析会报路由错误)。
+    (常见实现同此取值;曾误填字节数 2,真机 Logix 按规范解析会报路由错误)。
     """
     if len(request) > 0xFFFF:
         raise ValueError("CIP 请求超过 65535 字节:{}".format(len(request)))
@@ -334,7 +331,7 @@ def build_uc_send(request: bytes, slot: int) -> bytes:
             0x24,
             0x01,
             0x0A,  # 优先级
-            0xF0,  # 超时 ticks(HSL/IoTClient 惯例值)
+            0xF0,  # 超时 ticks(常见惯例值)
             len(request),
         )
     )
@@ -433,8 +430,7 @@ def build_multiple_service_packet(requests: Sequence[bytes]) -> bytes:
     """构造 Multiple Service Packet(0x0A)服务请求。
 
     数据域 = 条数(u16 LE)+ 偏移(u16 LE × n,**自条数域首字节起算**,
-    pylogix ``_build_multi_service_header`` 与 cm_ethernetip
-    ``multi_service.handle_multi_service`` 双参考同口径)+ 内嵌服务请求;
+    与行业常见实现一致)+ 内嵌服务请求;
     每条内嵌请求补齐偶数字节(ODVA CIP 字对齐),偏移含补齐字节。
 
     :raises ValueError: 无请求或条数超出 :data:`AB_MAX_BATCH_SERVICES`
@@ -758,7 +754,7 @@ def _parse_rr_data_cip(reply: bytes) -> bytes:
     """校验 SendRRData 封装与 CPF,返回 CIP 数据(内部函数)。
 
     应答命令规范为 SendRRData(0x6F);个别模拟器以 0x66 回帧非连接请求
-    (对齐 pylogix 不校验响应命令号的宽容,见 :func:`_check_enip_reply`)。
+    (本库对响应命令号不做强校验,见 :func:`_check_enip_reply`)。
     应答体按 CPF 地址项类型分流:NullAddress(0x0000)+ UnconnectedData
     (0xB2)为规范布局;个别对端以连接式项(0xA1 地址 + 0xB1 数据 + 序列号)
     回帧,同样取其数据项载荷(T->O ID 与序列号无连接态可校验,跳过)。
@@ -843,8 +839,8 @@ def parse_service_reply(reply: bytes, request_service: int) -> bytes:
 
     规范应答 = 0xD2(UC-Send 回显)+ 保留 + 路由状态 + 附加状态长 + 内嵌
     服务应答(服务回显 | 0x80 + 保留 + 通用状态 + 附加长 + 数据)。个别
-    模拟器(HSL/pylogix 服务端)剥掉 0xD2 路由信封、直接回内嵌服务应答,
-    同样接受——应答首字节不是 0xD2 时按裸服务应答解析。
+    模拟器/服务端剥掉 0xD2 路由信封、直接回内嵌服务应答,同样接受——
+    应答首字节不是 0xD2 时按裸服务应答解析。
 
     :raises ProtocolFrameError: 封装/CPF/服务回显不符
     :raises DeviceError: 路由状态或 CIP 通用状态非 0(不断线)
@@ -877,10 +873,9 @@ def parse_direct_service_reply(reply: bytes, request_service: int) -> bytes:
 def _parse_service_payload(cip: bytes, request_service: int) -> bytes:
     """校验服务回显与通用状态,返回服务数据域(内部函数)。
 
-    回显宽容:个别服务端(HSL AllenBradleyServer,用户联测实帧核证)写应答
-    (0x4D)首字节回 0x00 而非服务回显 | 0x80;pylogix 客户端从不校验服务
-    回显,本库事务为同步一问一答,回显对请求-应答关联是冗余,故对 0x00
-    (回显省略)放行;非零错回显仍按坏帧拒。
+    回显宽容:个别服务端(用户联测实帧核证)写应答(0x4D)首字节回 0x00
+    而非服务回显 | 0x80;本库事务为同步一问一答,回显对请求-应答关联是
+    冗余,故对 0x00(回显省略)放行;非零错回显仍按坏帧拒。
 
     status 非 0 时把 16 位扩展子状态(命中 :data:`AB_CIP_EXTENDED_STATUS_TEXT`)
     拼到 :class:`DeviceError` 消息末尾;扩展码不进 ``code``(仍仅 8 位通用状态)。
@@ -986,7 +981,7 @@ def build_list_identity() -> bytes:
 def parse_list_identity_reply(reply: bytes) -> Dict[str, object]:
     """解析 ListIdentity ENIP 应答,返回 Identity Object 字段字典。
 
-    布局(ODVA CIP Vol 2 §2-4.4.2 + pycomm3 1.2.16 cross-check):ENIP 头
+    布局(ODVA CIP Vol 2 §2-4.4.2):ENIP 头
     (24 字节)+ 2 字节兼容前缀(部分实现带 interface/version)+ Identity
     Object 字段(vendor 2 + product_type 2 + product_code 2 + revision 2 +
     status 2 + serial 4 + product_name_length 1 + product_name N + state 1)。

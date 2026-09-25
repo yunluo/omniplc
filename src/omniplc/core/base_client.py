@@ -684,7 +684,7 @@ class BaseClient(ABC):
     # ------------------------------------------------------------------
 
     def __enter__(self: _C) -> _C:
-        """进入 with 时自动连接,失败抛 ConnectionError(与 pyhsl 一致)。"""
+        """进入 with 时自动连接,失败抛 ConnectionError(常见约定)。"""
         if not self.connect():
             raise ConnectionError(f"连接失败:{self._last_error}")
         return self
