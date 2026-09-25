@@ -135,6 +135,12 @@ def test_native_async_methods_are_coroutines() -> None:
                 )
 
 
+def test_after_connect_failure_hook_mirrored() -> None:
+    """失败清理钩子两层同名同义:同步侧普通函数、原生侧协程(漏一层 = 泄漏面重现)。"""
+    assert not inspect.iscoroutinefunction(pkg.BaseClient._after_connect_failure)
+    assert inspect.iscoroutinefunction(native.AsyncBaseClient._after_connect_failure)
+
+
 def test_typed_signatures_match_sync_twin() -> None:
     """类型化读写的方法签名(参数名与默认值)与同步基类逐一对齐。"""
     checked = [

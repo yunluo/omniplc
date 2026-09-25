@@ -201,6 +201,11 @@ class AsyncBaseClient(ABC):
                 _categorize(exc),
                 _extract_code(exc),
             )
+            # 清理钩子须在关传输**之前**(注销帧要发得出去)
+            try:
+                await self._after_connect_failure()
+            except Exception:
+                pass
             try:
                 transport.close()
             except Exception:
@@ -736,6 +741,14 @@ class AsyncBaseClient(ABC):
 
     async def _after_connect(self) -> None:
         """连接建立后的**异步**钩子,默认无操作(如 FINS/TCP 握手)。"""
+
+    async def _after_connect_failure(self) -> None:
+        """连接初始化失败后的尽力清理钩子,默认无操作(协程;内部方法)。
+
+        与同步基类同名同义:持有 PLC 侧会话等资源的驱动覆写,调用点在
+        :meth:`_connect_locked` 的 :meth:`_after_connect` 失败分支、**传输关闭
+        之前**;取消分支不调用(取消路径不能再 await)。
+        """
 
     @abstractmethod
     async def _read(self, address: str, data_type: DataType) -> PrimitiveValue:

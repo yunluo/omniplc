@@ -97,6 +97,48 @@ def _client(transport: AsyncBaseTransport, **kwargs: Any) -> AsyncModbusTcpClien
     return client
 
 
+class _RecordingTransport(FakeTransport):
+    """记录是否已关闭的假传输(守"清理钩子在关传输之前")。"""
+
+    def __init__(self) -> None:
+        super().__init__([])
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _HandshakeFailClient(AsyncModbusTcpClient):
+    """握手必失败的原生客户端替身:记录清理钩子的调用时机。"""
+
+    def __init__(self, transport: _RecordingTransport) -> None:
+        super().__init__("127.0.0.1", 502, 1)
+        self._create_transport = lambda: transport  # type: ignore[method-assign]
+        self.hook_calls = 0
+        self.closed_at_hook: Optional[bool] = None
+
+    async def _after_connect(self) -> None:
+        raise ConnectionResetError("模拟握手失败")
+
+    async def _after_connect_failure(self) -> None:
+        self.hook_calls += 1
+        self.closed_at_hook = bool(getattr(self._transport, "closed", False))
+
+
+def test_after_connect_failure_hook_runs_before_transport_close() -> None:
+    """握手失败:清理钩子在**关传输之前**跑(注销帧才发得出去),随后照常关闭。"""
+    transport = _RecordingTransport()
+    client = _HandshakeFailClient(transport)
+
+    assert asyncio.run(client.connect()) is False
+
+    assert client.hook_calls == 1
+    assert client.closed_at_hook is False  # 钩子执行时传输仍可用
+    assert transport.closed is True  # 钩子之后照常关闭
+    assert client.last_error is not None
+    assert "连接初始化失败" in client.last_error
+
+
 def test_read_retry_reconnects_and_resends() -> None:
     """读失败 → 重连 + 重发,成功后 ``last_error`` 清空、``transactions`` 只计 1 次。"""
     transport = FakeTransport(["reset"] + _chunks(_RESP_TID2))

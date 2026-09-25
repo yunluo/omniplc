@@ -127,6 +127,18 @@ class AllenBradleyEthIpClient(BaseClient):
         if self._connected_messaging:
             self._forward_open()
 
+    def _after_connect_failure(self) -> None:
+        """连接初始化失败清理:尽力 Forward Close + 注销 CIP 会话(内部方法)。
+
+        基类清理路径只关传输,注册过的会话要等 PLC 侧超时才回收;反复失败
+        重连会耗尽 PLC 会话表(ControlLogix 典型 ≤16)。失败路径下
+        ``_ot_connection_id`` 必为 None(Forward Open 未成功),
+        :meth:`_forward_close` 自然空转;注销发送失败静默(同
+        :meth:`_unregister_session` 口径:发不出去就随 TCP 关闭由 PLC 回收)。
+        """
+        self._forward_close()
+        self._unregister_session()
+
     def disconnect(self) -> bool:
         """断开连接:尽力 Forward Close(connected)并注销会话后关闭传输(幂等)。"""
         with self._lock:

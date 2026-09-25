@@ -206,6 +206,11 @@ class BaseClient(ABC):
                     _categorize(exc),
                     _extract_code(exc),
                 )
+                # 清理钩子须在关传输**之前**(注销帧要发得出去)
+                try:
+                    self._after_connect_failure()
+                except Exception:
+                    pass
                 try:
                     transport.close()
                 except Exception:
@@ -771,6 +776,15 @@ class BaseClient(ABC):
 
     def _after_connect(self) -> None:
         """连接建立后的钩子,默认无操作(FINS/TCP 用它做握手)。"""
+
+    def _after_connect_failure(self) -> None:
+        """连接初始化失败后的尽力清理钩子,默认无操作(内部方法)。
+
+        持有 PLC 侧会话等资源的驱动覆写(如 AB 注销 CIP 会话)。调用点在
+        :meth:`connect` 的 :meth:`_after_connect` 失败分支、**传输关闭之前**
+        ——传输此时仍可用,注销帧才发得出去;本方法抛出的异常由调用方吞掉
+        (清理失败不得掩盖原始连接失败)。
+        """
 
     @abstractmethod
     def _read(self, address: str, data_type: DataType) -> PrimitiveValue:

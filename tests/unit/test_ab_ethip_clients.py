@@ -17,6 +17,7 @@ from omniplc.core.constants import (
     AB_EIP_DEFAULT_PORT,
     AB_EIP_ORIGINATOR_VENDOR_ID,
 )
+from omniplc.core.errors import TransportClosedError
 from omniplc.plc.ab import codec_cip
 from omniplc.transport import TcpTransport
 from omniplc.types import McFrame  # noqa: F401  (保持与其他测试一致的导入面)
@@ -294,6 +295,102 @@ def test_disconnect_unregisters(monkeypatch: pytest.MonkeyPatch) -> None:
     client.connect()
     assert client.disconnect() is True
     assert bytes(scripted.sent)[-24:-22] == b"\x66\x00"
+
+
+class _ClosingTransport(ScriptedTransport):
+    """复刻真传输语义:关闭后拒绝发送(守"先注销、后关传输"的顺序)。
+
+    真 :class:`BaseTransport.send` 未连接时抛
+    :class:`~omniplc.core.errors.TransportClosedError``;清理钩子若被放在
+    ``transport.close()`` 之后,注销帧就发不出去且异常被静默吞掉——
+    该假传输让这种顺序错误在测试里直接暴露为"线上没有 0x0066"。
+    """
+
+    def __init__(self, chunks: List[bytes]) -> None:
+        super().__init__(chunks)
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+    def send(self, data: bytes) -> None:
+        if self.closed:
+            raise TransportClosedError("连接未建立")
+        super().send(data)
+
+
+def _failed_forward_open_transport() -> _ClosingTransport:
+    """会话注册成功、两次 Forward Open 均被拒的假传输。"""
+    return _ClosingTransport(
+        _session_chunks()
+        + _forward_open_chunks(codec_cip.CIP_SERVICE_LARGE_FORWARD_OPEN, status=0x01)
+        + _forward_open_chunks(codec_cip.CIP_SERVICE_FORWARD_OPEN, status=0x01)
+    )
+
+
+def test_forward_open_failure_unregisters_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Forward Open 全失败:关传输**之前**注销会话,PLC 侧不残留(会话表不泄漏)。"""
+    client = _connected_client()
+    scripted = _failed_forward_open_transport()
+    _mount(monkeypatch, client, scripted)
+    assert client.connect() is False
+    assert client.connected is False
+    sent = bytes(scripted.sent)
+    assert sent.count(codec_cip.build_register_session()) == 1
+    assert sent.count(codec_cip.build_unregister_session(_SESSION)) == 1
+    assert sent[-24:-22] == b"\x66\x00"  # 关闭前最后一帧是 UnregisterSession
+    assert scripted.closed is True  # 清理之后传输仍照常关闭
+    assert client._session_handle == 0  # 句柄清零,不留陈旧值
+
+
+def test_forward_open_transport_fault_still_cleans_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Forward Open 期间传输故障(分片耗尽):清理静默完成,不掩盖原始错误。"""
+    client = _connected_client()
+    scripted = _ClosingTransport(_session_chunks())
+    _mount(monkeypatch, client, scripted)
+    assert client.connect() is False
+    assert client.last_error is not None
+    assert "连接初始化失败" in client.last_error
+    assert bytes(scripted.sent).count(codec_cip.build_unregister_session(_SESSION)) == 1
+
+
+def test_connected_success_sends_no_extra_unregister(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """成功路径不被清理钩子污染:只有注册,无注销。"""
+    monkeypatch.setattr("omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID)
+    client = _connected_client()
+    scripted = _ClosingTransport(
+        _session_chunks()
+        + _forward_open_chunks(codec_cip.CIP_SERVICE_LARGE_FORWARD_OPEN)
+        + _connected_reply_chunks(
+            _atomic_payload(0xC4, b"\x0B\x00\x00\x00"),
+            codec_cip.CIP_SERVICE_READ_TAG,
+            1,
+        )
+    )
+    _mount(monkeypatch, client, scripted)
+    assert client.connect() is True
+    assert client.read_int("MyDint") == (True, 11)
+    assert bytes(scripted.sent).count(codec_cip.build_unregister_session(_SESSION)) == 0
+
+
+def test_repeated_connect_failures_do_not_accumulate_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """反复失败重连 20 次:注册与注销帧数相等(模拟 PLC 会话表不累积)。"""
+    leaked = 0
+    for _ in range(20):
+        client = _connected_client()
+        scripted = _failed_forward_open_transport()
+        _mount(monkeypatch, client, scripted)
+        assert client.connect() is False
+        sent = bytes(scripted.sent)
+        leaked += sent.count(codec_cip.build_register_session())
+        leaked -= sent.count(codec_cip.build_unregister_session(_SESSION))
+    assert leaked == 0
 
 
 def test_read_string_via_typed_read(monkeypatch: pytest.MonkeyPatch) -> None:
