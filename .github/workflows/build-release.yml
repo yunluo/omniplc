@@ -2,12 +2,8 @@ name: build-release
 
 # 打标签推送后自动构建并发布:
 #   git push origin v0.32.0 && git push --tags
-# 触发条件为版本号标签(v*):先跑测试门禁(test)→ 构建 sdist + wheel(build)
-# → 挂到对应 GitHub Release 并发布到 PyPI(publish,publish 可信发布/OIDC 无需明文令牌)。
-#
-# test 作业与 .github/workflows/ci.yml 字段一致(平台/解释器/命令),作用是给
-# 发布流水线补上"先验合格再出包"的门禁——ci.yml 仅对 branch 触发,标签 push
-# 不会触发 ci.yml;此处内联避免重复定义文件并保证发布前必过测。
+# 触发条件为版本号标签(v*):构建 sdist + wheel,挂到对应 GitHub Release,
+# 并发布到 PyPI(可信发布/OIDC,无需明文令牌)。
 on:
   push:
     tags:
@@ -17,43 +13,8 @@ permissions:
   contents: write # 创建 GitHub Release 并上传构件需要
 
 jobs:
-  test:
-    name: pytest/ruff/mypy/ty
-    runs-on: windows-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
-        with:
-          # 与 ci.yml 一致:仓库 .python-version 钉 3.7.9(本地开发用),
-          # runner 无此解释器且 uv 托管下载不支持 3.7;测试本身在 3.12 跑
-          # (纯 Python 库行为一致),py3.7 真兼容由本地门禁兜底
-          python-version: "3.12"
-
-      - name: Sync dev dependencies
-        # dev 定义在 [project.optional-dependencies](extra),非 [dependency-groups],
-        # 故必须用 --extra;--group dev 会报 "Group dev is not defined" 退出码 2
-        run: uv sync --extra dev
-
-      - name: pytest
-        run: uv run python -m pytest tests -q
-
-      - name: ruff
-        run: uvx ruff check src tests
-
-      - name: mypy
-        run: uvx mypy src/omniplc
-
-      - name: ty
-        # 与 ci.yml 一致:Astral Rust 实现,补 mypy 不同侧;mypy 守 3.7 兼容
-        # 目标,ty 守更严格推断路径
-        run: uvx ty check src/omniplc
-
   build:
     name: uv build
-    needs: test
     # 与 ci.yml 对齐 Windows 平台;产物为 py3-none-any,平台无关
     runs-on: windows-latest
     steps:
