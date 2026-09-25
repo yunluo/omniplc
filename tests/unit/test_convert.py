@@ -137,7 +137,7 @@ class TestString:
 
 
 class TestWordsValue:
-    """字序列 ↔ 值的通用转换(数值类型限定,非数值类型同步拒绝)。"""
+    """字序列 ↔ 值的通用转换(数值类型)。"""
 
     def test_roundtrip_16(self) -> None:
         assert convert.words_to_value([0xFFFE], DataType.SHORT) == -2
@@ -147,10 +147,73 @@ class TestWordsValue:
         with pytest.raises(ValueError):
             convert.words_to_value([1], DataType.FLOAT)
 
-    @pytest.mark.parametrize("data_type", [DataType.BOOL, DataType.STRING])
-    def test_non_numeric_type_rejected(self, data_type: DataType) -> None:
-        """非数值类型(无字节尺寸)与 value_to_words 同口径抛 ValueError,不抛 KeyError。"""
+    def test_unknown_type_rejected(self) -> None:
+        """非 DataType 入参显式 ValueError(不抛 KeyError,不静默解码)。"""
         with pytest.raises(ValueError):
-            convert.words_to_value([1], data_type)
+            convert.words_to_value([1], "float")  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("data_type", [DataType.BOOL, DataType.STRING])
+    def test_non_numeric_type_rejected_by_value_to_words(self, data_type: DataType) -> None:
+        """编码方向需外部给定目标长度,故 BOOL/STRING 显式 ValueError(不抛 KeyError)。"""
         with pytest.raises(ValueError):
             convert.value_to_words(1, data_type)
+
+
+class TestWordsToValueBool:
+    """BOOL 解码:1 个字,字值非 0 即 True。"""
+
+    @pytest.mark.parametrize(
+        "word,expected", [(0, False), (1, True), (2, True), (0xFFFF, True)]
+    )
+    def test_nonzero_is_true(self, word: int, expected: bool) -> None:
+        assert convert.words_to_value([word], DataType.BOOL) is expected
+
+    def test_word_count_mismatch(self) -> None:
+        with pytest.raises(ValueError):
+            convert.words_to_value([1, 0], DataType.BOOL)
+        with pytest.raises(ValueError):
+            convert.words_to_value([], DataType.BOOL)
+
+    def test_byteorder_ignored(self) -> None:
+        """单字只看数值:两种字节序同解。"""
+        assert convert.words_to_value([1], DataType.BOOL, ByteOrder.BIG) is True
+        assert convert.words_to_value([1], DataType.BOOL, ByteOrder.LITTLE) is True
+
+
+class TestWordsToValueString:
+    """STRING 解码:字数由入参长度决定(不固定 1/2/4),编码与截断可配。"""
+
+    def test_big_endian_ascii(self) -> None:
+        assert convert.words_to_value([0x4F4D, 0x4E49], DataType.STRING, ByteOrder.BIG) == "OMNI"
+
+    def test_roundtrip_with_encode_string(self) -> None:
+        """与 write_string 一路(encode_string → 大端拆字)互逆。"""
+        raw = convert.encode_string("OMNI", 8)
+        words = [int.from_bytes(raw[i:i + 2], "big") for i in range(0, len(raw), 2)]
+        assert convert.words_to_value(words, DataType.STRING, ByteOrder.BIG) == "OMNI"
+
+    def test_little_endian_default(self) -> None:
+        """默认字内小端:同一批字按字节序不同解出不同文本(read_string 走大端)。"""
+        assert convert.words_to_value([0x4F4D], DataType.STRING) == "MO"
+
+    def test_nul_truncated(self) -> None:
+        assert convert.words_to_value([0x4142, 0x0000], DataType.STRING, ByteOrder.BIG) == "AB"
+
+    def test_empty_words(self) -> None:
+        """0 个字得空串(不视为错误:读取长度本就由调用方给出)。"""
+        assert convert.words_to_value([], DataType.STRING, ByteOrder.BIG) == ""
+
+    def test_utf8_encoding(self) -> None:
+        words = [0xE782, 0x89E6, 0xB8A9]
+        assert (
+            convert.words_to_value(words, DataType.STRING, ByteOrder.BIG, encoding="utf-8")
+            == "炉温"
+        )
+
+    def test_reverse_words(self) -> None:
+        """reverse_words 对文本同样生效(低字在前协议,如 MEWTOCOL)。"""
+        words = [0x4E49, 0x4F4D]  # "NI" + "OM"
+        assert (
+            convert.words_to_value(words, DataType.STRING, ByteOrder.BIG, reverse_words=True)
+            == "OMNI"
+        )

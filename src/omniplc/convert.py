@@ -324,22 +324,39 @@ def words_to_value(
     data_type: DataType,
     byteorder: Union[ByteOrder, str] = ByteOrder.LITTLE,
     reverse_words: bool = False,
+    encoding: str = "ascii",
 ) -> PrimitiveValue:
-    """把 1/2/4 个原始字按数据类型解码为 Python 值。
+    """把原始字按数据类型解码为 Python 值。
 
     各字协议 16/32/64 位解码的统一实现:先按 ``reverse_words`` 决定是否
     反转子序(MEWTOCOL 等低字在前协议传 True),再按 ``byteorder`` 拼字节
     并解释。Modbus 的 ABCD/CDAB 字序请用 :func:`registers_to_int32` 等字序族。
 
-    :param words: 0~65535 原始字序列,字数必须与类型尺寸匹配(1/2/4)
-    :param data_type: 数值类型(SHORT/USHORT/INT/UINT/LONG/ULONG/FLOAT/DOUBLE)
-    :param byteorder: 字内字节序
+    :param words: 0~65535 原始字序列,字数要求见 ``data_type``
+    :param data_type: 数据类型。数值类型(SHORT/USHORT/INT/UINT/LONG/
+        ULONG/FLOAT/DOUBLE)要求字数与尺寸严格匹配(1/2/4 字);
+        ``BOOL`` 要求 1 个字,按"字值非 0 即 True"解码,``byteorder``
+        不参与;``STRING`` **不限字数**——入参几个字就解几个字
+        (0 个字得空串),遇 ``\\x00`` 截断
+    :param byteorder: 字内字节序。寄存器字符串通常按**大端**存放(每字高字节
+        在前,同 Modbus ``read_string``),读文本请显式传 ``ByteOrder.BIG``
     :param reverse_words: True = 先反转子序(低字在前、字内大端协议用)
-    :raises ValueError: 类型非数值类型(如 BOOL/STRING),或字数与类型尺寸不符
+    :param encoding: ``STRING`` 的字符编码(默认 ascii,同各 ``read_string``)
+    :raises ValueError: ``data_type`` 不是 :class:`~omniplc.types.DataType`
+        成员,或字数与类型尺寸不符
+
+    :example: ``words_to_value([0x4F4D, 0x4E49], DataType.STRING,
+        ByteOrder.BIG)`` 得 ``"OMNI"``
     """
-    if data_type not in _TYPE_BYTE_SIZES:
-        raise ValueError(f"不支持的数值类型:{data_type}")
     seq = list(reversed(words)) if reverse_words else list(words)
+    if data_type is DataType.BOOL:
+        if len(seq) != 1:
+            raise ValueError(f"BOOL 需要 1 个字,收到 {len(seq)} 个")
+        return bool(int(seq[0]) & 0xFFFF)
+    if data_type is DataType.STRING:
+        return decode_string(words_to_bytes(seq, byteorder), encoding)
+    if data_type not in _TYPE_BYTE_SIZES:
+        raise ValueError(f"不支持的数据类型:{data_type!r}")
     size = _TYPE_BYTE_SIZES[data_type]
     if len(seq) * 2 != size:
         raise ValueError(f"{data_type.name} 需要 {size // 2} 个字,收到 {len(seq)} 个")
@@ -361,11 +378,16 @@ def value_to_words(
 ) -> List[int]:
     """按数据类型把值编码为原始字序列(:func:`words_to_value` 的逆变换)。
 
+    与解码方向不对称是**有意**的:编码必须由调用方给出目标长度(寄存器
+    个数由设备侧约定决定),故 ``STRING``/``BOOL`` 不在此函数支持范围内——
+    字符串请用 :func:`encode_string` 编码到目标字节长度再拆字
+    (``read_string``/``write_string`` 即如此),布尔量直接写字值 0/1。
+
     :param value: 待编码值
     :param data_type: 数值类型(同 :func:`words_to_value`)
     :param byteorder: 字内字节序
     :param reverse_words: True = 输出反转为低字在前(低字在前协议用)
-    :raises ValueError: 值超出该类型范围
+    :raises ValueError: 值超出该类型范围,或类型非数值类型
     """
     order = _byteorder(byteorder)
     if data_type is DataType.SHORT:
@@ -390,7 +412,7 @@ def value_to_words(
     elif data_type is DataType.DOUBLE:
         raw = struct.pack(("<d" if order == "little" else ">d"), require_float(value))
     else:
-        raise ValueError(f"不支持的数值类型:{data_type}")
+        raise ValueError(f"value_to_words 只支持数值类型,收到:{data_type!r}")
     words = bytes_to_words(raw, byteorder)
     return list(reversed(words)) if reverse_words else words
 
