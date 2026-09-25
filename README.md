@@ -1,5 +1,5 @@
-# omniplc
-
+# Omniplc
+![](docs/assets/omniplc_banner.png)
 #### 介绍
 omniplc:一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、汇川、松下、丰田、罗克韦尔(AB)、倍福(TwinCAT)、西门子(S7)等 PLC/扫码枪、OPC-UA 服务器与 CNC 机床(MTConnect),支持 Modbus、MC(3E/4E/1E 以太网帧、1C/3C/4C 串口帧)、FINS、NJ/NX CIP(EtherNet/IP)、KV Host Link、KV MC 协议兼容(SLMP)、汇川 H3U/H5U(Modbus TCP/RTU、MC 协议兼容 3E)、松下 FP(MC 协议兼容 3E、MEWTOCOL)、SR、TOYOPUC 计算机链接、EtherNet/IP(Logix 标签读写)、TwinCAT ADS(封装 pyads)、西门子 S7(封装 python-snap7,DB/I/Q/M)、通用自定义 TCP(分隔符成帧)、OPC-UA、MTConnect 数采等协议。
 
