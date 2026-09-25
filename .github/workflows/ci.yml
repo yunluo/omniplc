@@ -1,6 +1,6 @@
 name: ci
 
-# 每次提交强制三件套门禁:pytest 全量 / ruff / mypy
+# 每次提交强制门禁:pytest 全量 / ruff / mypy / ty
 # 与 build-release.yml 互补(本工作流 push+PR 触发,发布仍走 tag 触发的 build-release.yml)
 on:
   push:
@@ -28,7 +28,9 @@ jobs:
           python-version: "3.12"
 
       - name: Sync dev dependencies
-        run: uv sync --group dev
+        # dev 定义在 [project.optional-dependencies](extra),非 [dependency-groups],
+        # 故必须用 --extra;--group dev 会报 "Group dev is not defined" 退出码 2(历史爆红根因)
+        run: uv sync --extra dev
 
       - name: pytest
         run: uv run python -m pytest tests -q
