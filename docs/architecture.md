@@ -351,19 +351,28 @@ stateDiagram-v2
 
   | 异常 | category | code |
   |---|---|---|
-  | `TransportTimeoutError` / `socket.timeout` | TIMEOUT | `errno` 或 None |
+  | `TransportTimeoutError`(串口/UDP 超时) | TIMEOUT | None(传输超时无协议码) |
+  | `socket.timeout`(TCP 超时) | TIMEOUT | `errno` 或 None |
   | `ProtocolFrameError` | PROTOCOL | None |
-  | `DeviceError`(其余) | DEVICE | `exc.code`(协议原始码) |
-  | `ConnectionRefused/Reset`、`gaierror`、其余 `OSError`、`TransportClosedError` | TRANSPORT | `errno` 或 None |
+  | `DeviceError`(其余) | DEVICE | `exc.code`(协议原始码;`code=0` = 无具体错误码,归 None) |
+  | `OSError`(含 `ConnectionRefused/Reset`、`gaierror`)、`TransportClosedError` | TRANSPORT | `errno` 或 None |
   | 其他(含裸内部异常) | UNKNOWN | None |
 
   写入统一经 `_set_error`/`_clear_error`(与 `_last_error` 同锁同步),
   驱动直写点(SR 扫码枪、AB 解码)已全部迁移。**新增异常类型时必须同步规则表**。
+
+  **超时的两种走线语义**:TCP 接收超时抛 `socket.timeout`(OSError 语义),
+  按"连接可能已死 + 迟到响应残留在 socket 缓冲"**拆连**重连;串口/UDP 抛
+  `TransportTimeoutError`(**0 字节已读**,链路无残渣;串口帧截断另有
+  `TransportClosedError` 拆连重同步),**不拆连**、不计 `device_error_count`
+  (它不是设备返回的错误码),但与其他传输失败一样按
+  `retries`/`write_retries` 重试——两种走线的重试语义一致。
 - **参数校验错误**(非法地址、未知类型、范围越界、未绑定点位名)直接抛
   `ValueError`——这是调用方编码错误,静默吞掉反而有害。
 - 内部异常(`omniplc.core.errors`,**错误类统一在 core 层定义**):
   `TransportClosedError` /
-  `ProtocolFrameError` / `DeviceError(code)`,只用于库内控制流,
+  `ProtocolFrameError` / `DeviceError(code)` /
+  `TransportTimeoutError`(DeviceError 子类,链路完好),只用于库内控制流,
   由 `_execute()` 统一转换为元组语义,不逃逸到调用方。
 
 ## 6. 数据类型与类型标注
@@ -489,7 +498,7 @@ class BaseClient(ABC):
 | 丰田 TOYOPUC | `D0100` / `D0100L` / `D0100H` / `M0201` / `M0201W` / `X0010H` | 已实现(`plc/toyopuc/`);编号一律十六进制(手册口径);字区 S/N/R/D/B,位区 P/K/V/T/C/L/X/Y/M;L/H=低/高字节(字节访问),W=位软元件打包字 |
 | 基恩士 KV MC 兼容 | `R5` / `B1F` / `W10` / `DM100` / `ZR100` / `DM100.3` | 已实现(`plc/keyence/mc.py`,继承 MC);编号进制:R/DM/ZR 十进制、B/W 十六进制;仅基恩士记号(无三菱 D/M/X/Y) |
 | 基恩士 KV Host Link | `R515` / `B1F` / `W100` / `X0F` / `M100` / `DM100` / `DM100.5` | 已实现(`plc/keyence/hostlink.py`,TCP/UDP 8000,ASCII 行式 RD/RDS/WR/WRS);位软元件 R=组号+两位位号、B/W 十六进制、X=组号十进制+位号十六进制;字软元件 DM 十进制,16/32 位整型经 `.S/.U/.L/.D` 后缀由 PLC 原生解析;字软元件位访问(`DM100.5`,位号十进制)走读-改-写 |
-| 基恩士 SR 扫码枪 | —(无地址概念,触发式访问) | 已实现(`scanner/keyence_sr.py`,TCP 9004);`scan(bank=0~15)` 返回 `(是否读到, 条码文本)`,bank 预设不同窗口/触发/回读参数;不实现 `_read`/`_write` |
+| 基恩士 SR 扫码枪 | —(无地址概念,触发式访问) | 已实现(`scanner/keyence_sr.py`,TCP 9004);`scan(bank=0~15)` 返回 `(是否读到, 条码文本)`,bank 预设不同窗口/触发/回读参数;`_read`/`_write` 为能力缺失桩(抛 `DeviceError` 不断线,调 `read_*`/`write_*` 不拆线) |
 | 汇川 H3U/H5U(Modbus) | `D100` / `R100` / `M10` / `SM10` / `SD10` / `S10` / `B10` / `T10` / `C10` / `X17` / `Y17` / `D100.3` | 已实现(`plc/inovance/`,继承 Modbus);位软元件→线圈区(基址按手册:M=编号、SM/SD=0x2400、S=0xE000、T=0xF000、C=0xF400、X=0xF800、Y=0xFC00、B=0x3000),字软元件→保持寄存器区(D=编号、R=0x3000);X/Y 八进制;T/C 位=接点、字=当前值(C 字仅 C0~C199,C200+ 为 32 位双寄存器不支持) |
 | 汇川 MC 兼容 | `D100` / `M10` / `S10` / `B1F` / `W10` / `R100` / `X17` / `Y7` / `D100.3` | 已实现(`plc/inovance/mc.py`,继承 MC);帧按三菱口径编码,S 按三菱 L 码、R≡D+8000 统一编址、X/Y 八进制命名换算为帧内十六进制;范围 M0~7999/S0~4095/B、D0~7999/R0~32767/W、X/Y0~1777(越界由 PLC 返回 4031);SM/SD/ZR 不在 MC 范围 |
 | 松下 MC 兼容(FP0H/FP7) | `R000F` / `R1.15` / `X0000` / `Y000F` / `L001F` / `SM10` / `TS0` / `CS0` / `D100` / `LD10` / `SD10` / `TN0` / `CN0` / `D100.3` | 已实现(`plc/panasonic/mc.py`,继承 MC);帧与三菱同码;位软元件 X/Y/L/R 按"字号(十进制)+位号(十六进制一位)"→ 帧内字号×16+位号,R 字号 ≥900(R9000 起)映射 SM、D 编号 ≥90000 映射 SD;D/LD/TN/CN 字、TS/CS/SM 位(十进制);仅二进制 3E(松下仅提供成批读/写) |

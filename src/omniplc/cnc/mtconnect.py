@@ -373,7 +373,13 @@ class MTConnectClient(BaseClient):
     # ------------------------------------------------------------------
 
     def _read(self, address: str, data_type: DataType) -> PrimitiveValue:
-        """读数据项并按数据类型收窄(值不可用时抛 DeviceError,不断线)。"""
+        """读数据项并按数据类型收窄(值不可用时抛 DeviceError,不断线)。
+
+        :raises ValueError: 数据类型不在 :data:`_SUPPORTED_TYPES` 内——
+            属**参数错误**,按库约定直接抛给调用方(与"设备侧条件"的
+            DeviceError 区分;正常调用经 ``DataType.coerce`` 后不会走到)
+        :raises DeviceError: 数据项不存在或当前不可用(设备侧条件,不断线)
+        """
         if data_type not in _SUPPORTED_TYPES:
             raise ValueError(f"MTConnect 不支持的数据类型:{data_type}")
         text = _check_address(address)

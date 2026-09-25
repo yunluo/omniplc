@@ -6,7 +6,7 @@ import struct
 import pytest
 
 from omniplc import convert
-from omniplc.types import ByteOrder, WordOrder
+from omniplc.types import ByteOrder, DataType, WordOrder
 
 
 class TestChecksum:
@@ -134,3 +134,23 @@ class TestString:
     def test_utf8(self) -> None:
         raw = convert.encode_string("炉温", 8, encoding="utf-8")
         assert convert.decode_string(raw, encoding="utf-8") == "炉温"
+
+
+class TestWordsValue:
+    """字序列 ↔ 值的通用转换(数值类型限定,非数值类型同步拒绝)。"""
+
+    def test_roundtrip_16(self) -> None:
+        assert convert.words_to_value([0xFFFE], DataType.SHORT) == -2
+        assert convert.value_to_words(-2, DataType.SHORT) == [0xFFFE]
+
+    def test_word_count_mismatch(self) -> None:
+        with pytest.raises(ValueError):
+            convert.words_to_value([1], DataType.FLOAT)
+
+    @pytest.mark.parametrize("data_type", [DataType.BOOL, DataType.STRING])
+    def test_non_numeric_type_rejected(self, data_type: DataType) -> None:
+        """非数值类型(无字节尺寸)与 value_to_words 同口径抛 ValueError,不抛 KeyError。"""
+        with pytest.raises(ValueError):
+            convert.words_to_value([1], data_type)
+        with pytest.raises(ValueError):
+            convert.value_to_words(1, data_type)

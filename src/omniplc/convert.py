@@ -335,8 +335,10 @@ def words_to_value(
     :param data_type: 数值类型(SHORT/USHORT/INT/UINT/LONG/ULONG/FLOAT/DOUBLE)
     :param byteorder: 字内字节序
     :param reverse_words: True = 先反转子序(低字在前、字内大端协议用)
-    :raises ValueError: 字数与类型尺寸不符
+    :raises ValueError: 类型非数值类型(如 BOOL/STRING),或字数与类型尺寸不符
     """
+    if data_type not in _TYPE_BYTE_SIZES:
+        raise ValueError(f"不支持的数值类型:{data_type}")
     seq = list(reversed(words)) if reverse_words else list(words)
     size = _TYPE_BYTE_SIZES[data_type]
     if len(seq) * 2 != size:

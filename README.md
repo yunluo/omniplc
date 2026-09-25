@@ -440,7 +440,9 @@ OPC-UA 除拉模式读写外,还支持服务端**推**数据与事件:
 所有 `BaseClient` 子类提供 `client.stats` 只读快照,字段:
 
 - `connect_count` / `disconnect_count` / `transactions` / `error_count` /
-  `device_error_count`:计数器(锁内更新)
+  `device_error_count`:计数器(锁内更新);`device_error_count` 只计 PLC
+  明确返回错误码的次数,接收超时(链路完好,归 `last_error_category`
+  = `timeout`)不计入
 - `last_error_at` / `last_connect_at` / `last_success_at`:`time.monotonic()`
   时间戳(秒);成功/失败/建连时刷新;**跨重启无意义**,用于现场判断
   "多久没成功/多久前出错"
