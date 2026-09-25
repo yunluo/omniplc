@@ -14,7 +14,9 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Windows 与本地门禁/真机环境对齐:MX Component(comtypes)等仅 Windows 可用,
+    # 34 个 mx 测试实跑而非跳过;纯 Python 库在 win/linux 行为一致
+    runs-on: windows-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
