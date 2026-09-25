@@ -150,7 +150,7 @@ def parse_response(response: bytes, station: str, command: str) -> str:
         code = text[4:6]
         message = _ERROR_MESSAGES.get(code, "未知错误")
         raise DeviceError(
-            f"MEWTOCOL 错误码 {code}:{message}", int(code)
+            f"MEWTOCOL 错误码 {code}:{message}", _error_code_value(code)
         )
     echo = text[4:6]
     if echo != command:
@@ -160,6 +160,21 @@ def parse_response(response: bytes, station: str, command: str) -> str:
             )
         )
     return text[_RESPONSE_DATA_OFFSET:-3]
+
+
+def _error_code_value(code: str) -> int:
+    """把 MEWTOCOL 错误码文本转成 ``DeviceError.code``(内部函数)。
+
+    错误码是两字符 ASCII 文本,表内条目均为十进制数字(``"21"`` 等);若设备回
+    了非数字码(未知/厂商扩展),``int(code)`` 会抛**裸 ValueError** 逃出
+    ``read``/``write`` 的 ``(bool, value)`` 契约。这里统一兜底为 ``0`` =
+    "无具体错误码"(与 ``DeviceError(code=0)`` 的既有口径一致,``last_error_code``
+    归 ``None``),原文仍完整保留在 ``last_error`` 文本里供现场排查。
+    """
+    try:
+        return int(code)
+    except ValueError:
+        return 0
 
 
 def parse_expected_size(data_chars: int) -> int:

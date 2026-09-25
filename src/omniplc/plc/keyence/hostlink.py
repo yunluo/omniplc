@@ -36,7 +36,8 @@ from ...core.constants import (
     UINT32_MAX,
     UINT64_MAX,
 )
-from ...core.errors import OmniPLCInternalError
+from ...core.debug import format_hex
+from ...core.errors import ProtocolFrameError
 from ...core.validation import (
     check_int16,
     check_range,
@@ -61,7 +62,8 @@ class _KeyenceHostLinkBase(BaseClient):
     def _transact(self, body: bytes) -> str:
         """发送命令帧并返回一行响应文本(已去除 CR/LF,内部方法)。
 
-        :raises ProtocolFrameError: 响应无效
+        :raises ProtocolFrameError: 响应无效(结束符/行长/令牌形状不符;
+            消息带**收到的原始数据**十六进制转储,便于现场与抓包比对)
         :raises DeviceError: PLC 返回出错代码(E0~E9)
         """
         transport = self._require_transport()
@@ -69,7 +71,11 @@ class _KeyenceHostLinkBase(BaseClient):
         if transport.datagram:
             raw = transport.recv(KV_MAX_DATAGRAM)
             if not raw or raw[-1] not in (10, 13):
-                raise OmniPLCInternalError("UDP 响应缺少 CR/LF 结束符")
+                raise ProtocolFrameError(
+                    "UDP 响应缺少 CR/LF 结束符(收到的原始数据:{})".format(
+                        format_hex(raw)
+                    )
+                )
             text = codec.parse_response(raw)
         else:
             chunks: List[bytes] = []
@@ -94,8 +100,12 @@ class _KeyenceHostLinkBase(BaseClient):
                     chunks.append(byte)
                     received += 1
                     if received > KV_MAX_LINE:
-                        raise OmniPLCInternalError(
-                            f"KV Host Link 响应行超过 {KV_MAX_LINE} 字节上限"
+                        raise ProtocolFrameError(
+                            "KV Host Link 响应行超过 {} 字节上限(前 {} 字节:{})".format(
+                                KV_MAX_LINE,
+                                KV_MAX_LINE,
+                                format_hex(b"".join(chunks[:KV_MAX_LINE])),
+                            )
                         )
             finally:
                 transport.receive_timeout = previous_timeout
@@ -172,7 +182,11 @@ class _KeyenceHostLinkBase(BaseClient):
             response = self._transact(codec.build_read(parsed.to_text()))
             tokens = codec.split_tokens(response)
             if len(tokens) != 1:
-                raise OmniPLCInternalError("位读响应应为 1 个令牌,收到 {}".format(len(tokens)))
+                raise ProtocolFrameError(
+                    "位读响应应为 1 个令牌,收到 {}:{}(收到的原始响应:{!r})".format(
+                        len(tokens), response, response
+                    )
+                )
             return codec.parse_bit_token(tokens[0])
         if parsed.bit is None:
             raise ValueError("位软元件布尔读取需要位软元件或字软元件位访问,如 DM100.5")
@@ -261,8 +275,10 @@ class _KeyenceHostLinkBase(BaseClient):
         response = self._transact(codec.build_read(_token(parsed, data_format)))
         tokens = codec.split_tokens(response)
         if len(tokens) != 1:
-            raise OmniPLCInternalError(
-                "字读响应应为 1 个令牌,收到 {}:{}".format(len(tokens), response)
+            raise ProtocolFrameError(
+                "字读响应应为 1 个令牌,收到 {}:{}(收到的原始响应:{!r})".format(
+                    len(tokens), response, response
+                )
             )
         return codec.parse_word_token(tokens[0], data_format)
 
@@ -277,8 +293,10 @@ class _KeyenceHostLinkBase(BaseClient):
         )
         tokens = codec.split_tokens(response)
         if len(tokens) != count:
-            raise OmniPLCInternalError(
-                "连续读响应令牌数不符:期望 {},收到 {}:{}".format(count, len(tokens), response)
+            raise ProtocolFrameError(
+                "连续读响应令牌数不符:期望 {},收到 {}:{}(收到的原始响应:{!r})".format(
+                    count, len(tokens), response, response
+                )
             )
         return [codec.parse_word_token(token, ".U") for token in tokens]
 
@@ -358,8 +376,13 @@ def _require_word(address: str) -> KvAddress:
 
 
 def _expect_ok(response: str) -> None:
-    """校验写命令应答为 OK(内部函数)。"""
+    """校验写命令应答为 OK(内部函数)。
+
+    :raises ProtocolFrameError: 应答既不是 OK、也不是 :func:`codec.check_error_code`
+        已处理的 E0~E9 出错码(命令回显/形状不符 → 归 PROTOCOL,与 ``_transact``
+        docstring 的承诺一致)
+    """
     if response.strip().upper() != "OK":
-        raise OmniPLCInternalError(
+        raise ProtocolFrameError(
             f"写命令应答异常:期望 OK,收到 {response!r}"
         )

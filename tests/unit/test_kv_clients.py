@@ -16,7 +16,7 @@ import time
 import pytest
 
 from omniplc import KeyenceHostLinkTcpClient, KeyenceHostLinkUdpClient
-from omniplc.core.errors import DeviceError, ProtocolFrameError
+from omniplc.core.errors import DeviceError, ErrorCategory, ProtocolFrameError
 from omniplc.plc.keyence import codec
 from omniplc.plc.keyence.address import parse_kv_address
 from scripted import ScriptedTransport
@@ -151,6 +151,39 @@ def test_tcp_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bytes(scripted.sent) == b"WR DM100.U 1234\r"
 
 
+def test_tcp_unexpected_write_response_is_protocol_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """写应答既非 OK 也非 E0~E9 出错码 → 分类 PROTOCOL(不是 UNKNOWN)。
+
+    回归护栏:此前抛 ``OmniPLCInternalError`` → ``last_error_category`` 归
+    UNKNOWN,与 ``_transact`` docstring 承诺的"响应无效 → ProtocolFrameError"
+    不符(坏帧与未知错误在现场是两个完全不同的处置方向)。
+    """
+    client = KeyenceHostLinkTcpClient("127.0.0.1", 8000)
+    scripted = ScriptedTransport(_chunks(b"??\r\n"))  # 命令回显不符
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.write_ushort("DM100", 1234) is False
+    assert client.last_error_category is ErrorCategory.PROTOCOL
+    assert client.last_error is not None and "期望 OK" in client.last_error
+    assert client.connected is False  # 坏帧同分支:拆连重同步
+    assert client.last_error_code is None  # 不是设备返回的错误码
+
+
+def test_tcp_token_shape_mismatch_is_protocol_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """读响应令牌数与请求不符 → 分类 PROTOCOL,且消息带收到的原始响应。"""
+    client = KeyenceHostLinkTcpClient("127.0.0.1", 8000)
+    scripted = ScriptedTransport(_chunks(b"1 2\r\n"))  # 单字读却回两个令牌
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("DM100") == (False, None)
+    assert client.last_error_category is ErrorCategory.PROTOCOL
+    assert client.last_error is not None and "1 2" in client.last_error
+
+
 def test_tcp_write_word_bit_read_modify_write(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP:字软元件位写 = RD .U → WR .U 两段事务。"""
     client = KeyenceHostLinkTcpClient("127.0.0.1", 8000)
@@ -203,6 +236,18 @@ def test_udp_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     client.connect()
     assert client.read_ushort("DM100") == (True, 20)
     assert bytes(scripted.sent) == b"RD DM100.U\r"
+
+
+def test_udp_missing_terminator_is_protocol_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UDP 数据报缺 CR/LF → 分类 PROTOCOL,消息带收到的原始数据。"""
+    client = KeyenceHostLinkUdpClient("127.0.0.1", 8000)
+    scripted = ScriptedTransport([b"20"], datagram=True)  # 少了结束符
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("DM100") == (False, None)
+    assert client.last_error_category is ErrorCategory.PROTOCOL
+    assert client.last_error is not None and "结束符" in client.last_error
+    assert client.connected is False  # 坏帧拆连重同步
 
 
 def test_async_mirror_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:

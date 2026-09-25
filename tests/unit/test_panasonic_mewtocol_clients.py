@@ -17,6 +17,7 @@ from omniplc.core.constants import (
     MEWTOCOL_STATION_DIRECT,
 )
 from omniplc.core.debug import format_hex
+from omniplc.core.errors import ErrorCategory
 from omniplc.plc.panasonic import codec_mewtocol
 from scripted import ScriptedTransport
 
@@ -181,6 +182,28 @@ def test_error_response_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> Non
     assert client.read_ushort("D99999") == (False, None)
     assert client.connected is True
     assert client.last_error is not None and "21" in client.last_error and "NACK" in client.last_error
+
+
+def test_error_code_non_numeric_keeps_return_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """非数字错误码(! 帧)→ 仍走 ``(False, None)`` 契约,不得抛裸 ValueError。
+
+    回归护栏:曾用 ``int(code)`` 解析错误码,遇到 ``E1`` 这类非数字码会抛裸
+    ``ValueError`` 直接穿透 ``read()`` 的返回约定(``_execute`` 只转换内部异常与
+    OSError)。现在兜底为 ``code=0`` = 无具体错误码(``last_error_code`` 归 None),
+    原文完整保留在 ``last_error`` 文本里供现场排查。
+    """
+    client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
+    frame = _err("E1")
+    scripted = ScriptedTransport([frame[:4], frame[4:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_ushort("D100") == (False, None)  # 不抛异常
+    assert client.connected is True  # ! 帧是设备错误,不断线
+    assert client.last_error_category is ErrorCategory.DEVICE
+    assert client.last_error_code is None  # 无具体错误码
+    assert client.last_error is not None and "E1" in client.last_error
 
 
 def test_bcc_mismatch_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
