@@ -10,8 +10,9 @@ from typing import List, Optional
 
 import pytest
 
-from omniplc.core.errors import DeviceError
-from omniplc.core.base_client import BaseClient
+from omniplc.core.errors import DeviceError, ErrorCategory, TransportClosedError
+from omniplc.core.errors import OmniPLCInternalError, ProtocolFrameError, TransportTimeoutError
+from omniplc.core.base_client import BaseClient, _categorize
 from omniplc.tag import Tag, TagTable
 from omniplc.transport import BaseTransport
 from omniplc.types import DataType, PrimitiveValue
@@ -275,3 +276,63 @@ class TestTagScaling:
         ok, value = client.read_tag(Tag("温度", "hr0", "float"))
         assert ok is True
         assert value == pytest.approx(3.14)
+
+
+class TestCategorizeOrder:
+    """_categorize 判断顺序覆盖测试。
+
+    通过直接实例化各类异常验证分类结果,不依赖真实协议错误。
+    继承关系::
+
+      TransportTimeoutError → DeviceError → OmniPLCInternalError
+      TransportClosedError  → OmniPLCInternalError
+      ProtocolFrameError    → OmniPLCInternalError
+      socket.timeout        → OSError
+      ConnectionRefusedError/ResetError/gaierror → OSError
+    """
+
+    def test_transport_timeout_is_timeout_not_device(self) -> None:
+        exc = TransportTimeoutError("超时", 0)
+        assert _categorize(exc) == ErrorCategory.TIMEOUT
+
+    def test_socket_timeout_is_timeout(self) -> None:
+        import socket
+        exc = socket.timeout("timed out")
+        assert _categorize(exc) == ErrorCategory.TIMEOUT
+
+    def test_device_error_is_device(self) -> None:
+        exc = DeviceError("PLC 拒绝", 0x02)
+        assert _categorize(exc) == ErrorCategory.DEVICE
+
+    def test_protocol_frame_error_is_protocol(self) -> None:
+        exc = ProtocolFrameError("bad crc")
+        assert _categorize(exc) == ErrorCategory.PROTOCOL
+
+    def test_connection_refused_is_transport(self) -> None:
+        exc = ConnectionRefusedError()
+        assert _categorize(exc) == ErrorCategory.TRANSPORT
+
+    def test_connection_reset_is_transport(self) -> None:
+        exc = ConnectionResetError()
+        assert _categorize(exc) == ErrorCategory.TRANSPORT
+
+    def test_gaierror_is_transport(self) -> None:
+        import socket
+        exc = socket.gaierror()
+        assert _categorize(exc) == ErrorCategory.TRANSPORT
+
+    def test_oserror_is_transport(self) -> None:
+        exc = OSError("read failed")
+        assert _categorize(exc) == ErrorCategory.TRANSPORT
+
+    def test_transport_closed_is_transport(self) -> None:
+        exc = TransportClosedError("not connected")
+        assert _categorize(exc) == ErrorCategory.TRANSPORT
+
+    def test_omniplc_internal_error_is_unknown(self) -> None:
+        exc = OmniPLCInternalError("内部错误")
+        assert _categorize(exc) == ErrorCategory.UNKNOWN
+
+    def test_totally_unrelated_exception_is_unknown(self) -> None:
+        exc = ValueError("bad param")
+        assert _categorize(exc) == ErrorCategory.UNKNOWN
