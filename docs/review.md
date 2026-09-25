@@ -1,7 +1,7 @@
 # omniplc 评价审核报告(资深工控视角)
 
-> **基准**:v0.36.0 + **11 个修复提交** → **v0.37.0**(tag `a1564b6`,v0.36.0 后同日 19:00–19:40 落地;快照时间 2026-09-25 晚),缺陷状态详见 §三、§7.4。
-> **方法**:架构 / 协议 / 测试-CI-文档 三路并行深度代码走查 + v0.36.0 增量 diff 走查 + **缺陷修复逐项复验与修复批次代码级复核**(门禁四轮实跑 + 24 点主复现脚本 + 6 点 `last_error` 终态补充断言 + 11 提交逐 diff 走查);关键结论经 `file:line` 实测复核;实测数据(行数、用例数、断言数、git 时间线、门禁实跑)来自仓库直接统计,不采信文档自述。
+> **基准**:v0.36.0 + **11 个修复提交** → **v0.37.0**(tag `a1564b6`)→ **v0.38.0**(`9c0d2ff`)+ **v0.39.0**(`94e1328`,2026-09-25 22:00 落地);v0.37→v0.39 期间 **14 个新提交**(`eca6e78`/`f48bb70`/`d8e2a0c`/`e23c787` + `9c0d2ff` + `6db7a9b`/`1c45545`/`148d3fa`/`6e828b5`/`4429fd9`/`9fd0111`/`c904809`/`2e152df` + `94e1328`),覆盖 convert BOOL/STRING + ClientStats TypedDict + 原生 asyncio 首批(异步核心 + 传输 + Modbus/MC/FINS)+ 审核修复 + 契约矛盾批 2 + P3 收口 + MEWTOCOL 错误码 + Host Link 分类口径,缺陷状态详见 §三、§7.4、§7.8。
+> **方法**:架构 / 协议 / 测试-CI-文档 三路并行深度代码走查 + v0.36.0 增量 diff 走查 + **v0.37→v0.39 增量复审** + 缺陷修复逐项复验与修复批次代码级复核(门禁五轮实跑 + 24 点主复现脚本 + 6 点 `last_error` 终态补充断言 + 11 提交逐 diff 走查);关键结论经 `file:line` 实测复核;实测数据(行数、用例数、断言数、git 时间线、门禁实跑)来自仓库直接统计,不采信文档自述。
 > **口径**:本报告为**评价审核**(技术评审),不含核价/商务评估。
 
 ---
@@ -10,19 +10,19 @@
 
 **综合评分:7.2 / 10**(八项分项评分等权算术均值,57.5/8 = 7.19)。项目自我定位 `Development Status :: 3 - Alpha`(`pyproject.toml:48`),诚实。
 
-一句话定性:**协议自研深度与测试质量罕见地高,文档深度达商用水准;但真机验证闭环仅约 7%,CI 版本矩阵单薄与异步层正确性存在实质性缺口。v0.36.0 增量(FINS 加固/XXE 防御/FC23/FC43)质量扎实,交付时带出的 2 个 Modbus 批量 P1 与第一轮 5 个 P1/P2 缺陷,当日已被 11 个修复提交(随 v0.37.0 发布)收口 6/8、文档化部分收口 1 项(aio),仅余 OPC-UA 回调竞态;另由多角度自查额外发现并修复 6 处本报告未覆盖的缺陷(含 1 处静默读错数据);评审侧复核再发现 K1(Keyence MC 位组地址错位,高置信待核,§7.7)。** 属于"工程自律极强、验证闭环未完成、评审响应极快"的个人冲刺型项目(171 commits / 8 天 / 47 版本)。
+一句话定性:**协议自研深度与测试质量罕见地高,文档深度达商用水准;但真机验证闭环仅约 7%,CI 版本矩阵单薄与异步层正确性存在实质性缺口。v0.36.0 增量(FINS 加固/XXE 防御/FC23/FC43)质量扎实,交付时带出的 2 个 Modbus 批量 P1 与第一轮 5 个 P1/P2 缺陷,当日已被 11 个修复提交(随 v0.37.0 发布)收口 6/8、文档化部分收口 1 项(aio),仅余 OPC-UA 回调竞态;另由多角度自查额外发现并修复 6 处本报告未覆盖的缺陷(含 1 处静默读错数据);评审侧复核再发现 K1(Keyence MC 位组地址错位,高置信待核,§7.7)。** v0.37→v0.39 期间:convert BOOL/STRING 解码 + ClientStats TypedDict + 原生 asyncio 首批 5 客户端(异步核心 + 传输 + Modbus/MC 1E+3E/FINS)+ P3 全收口(write_bool/aio close/offset_device)+ 契约矛盾批 2(MEWTOCOL 错误码 + Host Link 分类口径 + UDP AF_INET 钉死)+ 自查 P0/P1 修复合入;K1 仍未修,K2 新发现(AB CIP session 漏注销,§7.8);门禁五轮全绿(806→826→842→861→1072)。** 属于"工程自律极强、验证闭环未完成、评审响应极快"的个人冲刺型项目(**185 commits / 8 天 / 49 版本**)。
 
 ### 规模画像(实测)
 
 | 维度 | 实测值 |
 |---|---|
-| 源码 | 70 文件 / **17,053 行**(`src/omniplc`) |
-| 测试 | 41 文件 / **12,277+ 行** / **842 例, 0 skipped(本轮实跑全过;原 3 例平台互斥跳过已改写为跨平台假 socket 验证,`4ca1df7`)** / 断言 1,877+(v0.35 口径) / 形式主义用例 **0** |
-| 协议覆盖 | **15 家品牌/协议**;28 同步 + 28 异步 = **56 个客户端类** |
-| 黄金报文 | **30 个 JSON**(v0.36 新增 7 个:FC23 / FC43 翻页·异常·私有对象)+ 独立实现生成器 |
-| 文档 | `architecture.md` **94KB+**、README 30KB、CHANGELOG 18KB;267 个公开定义 docstring 缺失 = **0** |
-| 依赖 | 核心**零第三方依赖**;可选 pyserial / comtypes / asyncua / pyads / python-snap7 |
-| 迭代 | **171 commits**、47 个版本,**8 天**(2026-09-18 → 09-25) |
+| 源码 | **76 文件** / ≈**18,800+ 行**(`src/omniplc`;v0.39.0 较 v0.37.0 +6 文件:`native/` 模块五个——base/transport/modbus/melsec/omron,累计 ~1,750+ 行) |
+| 测试 | **49 文件** / ≈**14,400+ 行** / **1,072 例, 0 skipped(v0.39.0 实跑全过;较 v0.37.0 842 例 +230;v0.38 +19、v0.39 +211)** / 形式主义用例 **0** |
+| 协议覆盖 | **15 家品牌/协议**;28 同步 + 28 异步(thread-pool `aio`) + 5 原生异步(`native`) = **61 个客户端类** |
+| 黄金报文 | **30 个 JSON**(v0.36 新增 7 个:FC23 / FC43 翻页·异常·私有对象)+ 独立实现生成器;v0.39 对拍表扩到全 10 种数据类型 + MC/FINS 字符串 + 三协议 `read_tag`/`write_tag` |
+| 文档 | `architecture.md` 新增 **§12 原生异步层**(复用边界 / 超时与取消行为表 / 3.7 实测依据)+ §3 8 条 + §9 同步 × 异步对拍 + §10 asyncio 可用性;README 新增"两套异步"选型表与原生命中层用例边界;CHANGELOG 显著增厚 |
+| 依赖 | 核心**零第三方依赖**(`native` 模块仍纯 stdlib asyncio);可选 pyserial / comtypes / asyncua / pyads / python-snap7;测试脚手架零新增(`asyncio.run` 包同步测试,无 pytest-asyncio) |
+| 迭代 | **185 commits**、**49 个版本**(**5 个版本/天**;v0.36→v0.37→v0.38→v0.39,**8 天**(2026-09-18 → 09-25)) |
 | 类型与门禁 | 1013+ 个 `def` 全标注、`py.typed`;CI 四门禁(pytest + ruff + mypy + ty)——**本轮独立实跑全部通过** |
 | 真机验证 | 30 行清单仅 2 项通过 ≈ **7%**(v0.36 已在 Modbus 行补注 FC22/23/43 待真机) |
 
@@ -32,8 +32,8 @@
 |---|---|---|
 | 分层设计 / API 抽象 | **8** | 模板方法教科书级,异步是包装器不是复制 |
 | 线程安全 | **7** | 无死锁回路,`scan` 旁路与 `close` 竞态已修,余 OPC-UA 回调竞态 |
-| 错误处理 | **7.5** | 三层语义清晰;超时计数/`code=0`/SR 口径/`write_many` 终态已修并复验,余 OPC-UA |
-| 协议栈深度(自研组) | **9** | 四大栈达生产级;Modbus 批量合并缺陷已修复并复验(§7.4) |
+| 错误处理 | **7.5** | 三层语义清晰;超时计数/`code=0`/SR 口径/`write_many` 终态已修并复验,余 OPC-UA;v0.39 原生层把"分类口径"作为内部契约双层一致(sync × native 守卫用例) |
+| 协议栈深度(自研组) | **9** | 四大栈达生产级;Modbus 批量合并缺陷已修复并复验(§7.4);v0.39 原生 asyncio 层 5 客户端落地,同步/异步共用同一份编解码(`_transact` 边界),见 §7.8 |
 | 测试质量 | **8** | 字节级断言、0 形式主义 |
 | CI/CD | **7** | push/PR 四门禁 + tag 独立构建的互补触发设计合理;扣:矩阵单薄、lint 规则弱、无覆盖率 |
 | 文档 | **8** | 深度超额、呈现不足 |
@@ -69,7 +69,7 @@
 
 ### 2.4 测试是真测试
 
-- 842 例, 0 skipped(本轮独立实跑全过)/ 断言 1,877+ / `pytest.raises` 299+ / 形式主义用例 **0** / `unittest.mock` 使用 **0**(全部手写 fake)。**边界与失败可见性回归已补齐**(`11828ae` +10 例:FC 读写上限切片 ×4、设备异常留痕、chunk 独立、写重试口径、越界零字节、整批失败留痕等;其中 7 例在旧实现上实测 FAILED,确认为真回归),另有 aio `close` +2、`write_bool` +6、4C 截断 +1、panasonic 换算 +1 等自查回归;原 3 例平台互斥跳过(MSG_TRUNC 截断分支从未执行)已改写为跨平台假 socket 验证(`4ca1df7`)。
+- 1,072 例, 0 skipped(本轮独立实跑全过,v0.39.0 tag `94e1328`)/ `pytest.raises` 300+ / 形式主义用例 **0** / `unittest.mock` 使用 **0**(全部手写 fake)。**边界与失败可见性回归已补齐**(`11828ae` +10 例:FC 读写上限切片 ×4、设备异常留痕、chunk 独立、写重试口径、越界零字节、整批失败留痕等;其中 7 例在旧实现上实测 FAILED,确认为真回归),另有 aio `close` +2、`write_bool` +6、4C 截断 +1、panasonic 换算 +1 等自查回归;原 3 例平台互斥跳过(MSG_TRUNC 截断分支从未执行)已改写为跨平台假 socket 验证(`4ca1df7`);v0.38 +19(convert BOOL/STRING + TypedDict)、v0.39 +211(原生 asyncio + 契约矛盾批 2 + 双事件循环对拍)。
 - 发帧**逐字节比对**(`test_modbus_clients.py:33`、`test_fins_clients.py:117`);**五重状态断言**——返回值 + 连接状态 + `last_error_code` + `last_error_category` + `stats` 计数(`test_modbus_clients.py:60-65`)。
 - 黄金样本由**独立实现生成器**算 CRC/组帧,规避"实现生成测试"的同源偏差(`tests/golden/generate_modbus_samples.py:21-28`,README 亦明示)。
 - 三层假传输(`tests/unit/scripted.py:11-80`):`ScriptedTransport`(分片/粘包)、`ChunkSocket`(size 感知,专防"读满恰好 size"假阳性)、`mount_real_tcp`(真 `TcpTransport` + 假 socket,只 mock 一层)。
@@ -204,7 +204,7 @@
 | 线程安全 | 7 | 单 RLock 整事务原子 + full-jitter 门控(`:667-680`)+ 8 线程并发回归;**无死锁回路** | OPC-UA 回调无锁、`scan` 旁路、`retries` 锁外读、无法打断进行中 I/O |
 | 错误处理 | **7.5** | 三层语义文档与实现一致;`_categorize` 顺序正确且有 10 例专项测试;**超时计数/`code=0`/SR 能力缺失三项口径缺陷已修**(`f40da18`/`c05b392`) | OPC-UA 回调无锁、`write_many` 失败 `last_error` 终态恒空(§7.4 残留)、`_categorize` 冗余分支 |
 | 协议栈深度 | **9** | 四大栈全自研 + 黄金样本 30 个 + 长度域/回显/序列号全校验;v0.36 新增 FC23/FC43/FINS 加固/XXE 防御;**Modbus 批量合并 P1 已修复并复验通过** | 真机 7%;4/15 为薄封装;BCD/结构体缺失 |
-| 测试质量 | 8 | 842 例字节级断言(本轮实跑全过,含 0 skipped)、三层假传输、独立生成器、28/28 覆盖;**FC 上限边界与失败可见性回归已补 +10** | 无覆盖率实测、无 fuzz、无并发压测、黄金样本仅 3/15 协议 |
+| 测试质量 | 8 | 1,072 例字节级断言(本轮实跑全过,含 0 skipped)、三层假传输、独立生成器、**61/61** 覆盖(含 5 原生客户端);**FC 上限边界与失败可见性回归已补 +10**;v0.39 原生用例双事件循环(Selector + Proactor)对拍 | 无覆盖率实测、无 fuzz、无并发压测、黄金样本仅 3/15 协议 |
 | CI/CD | 7 | push/PR 四门禁 + tag 纯构建的互补触发(标签取自已过门禁的 master 提交,无"未测即发布")+ 双类型检查器 + OIDC 发布 + fork 守卫 | 单 OS 单 Python、ruff 规则集弱、无 coverage/SAST |
 | 文档 | 8 | 94KB 架构文档逐协议列手册章节、267/267 docstring、诚实公示待核证 | 纯中文、无 API 站、无 badge、CHANGELOG 无日期、数字漂移 |
 | 真机验证 | 3 | 清单专业 + 待做项诚实 + 36 个联测脚本 + MX 两轮真机根因记录 | 29 项适用协议仅 2 项通过 |
@@ -279,7 +279,8 @@ v0.36.0 发布后同日 19:00 起出现修复批次:**11 个提交全部落地**
 | P3 | `_execute` docstring 过度承诺 | ✅ 已修 | 现文案区分"传输/设备异常转换 vs 调用方/编程错误直接抛"(`base_client.py:628-630`) |
 | P3 | 能力缺失三套口径 | 🟡 部分 | SR 侧已修;opcua/ads 原样;mtconnect 仅补文档理由,行为未改 |
 | P3 | TCP 陈旧超时 / `_categorize` 冗余 / 会话型 LSP / `disconnect` 不可打断 | 🔴 仍开放 | 本批次未涉及 |
-| **K1**(§7.7 新发现) | Keyence MC 位组地址静默错位(R 组号≥1) | 🟠 **高置信,待手册/真机终核** | `keyence/mc.py` 单点+批量两路均透传(既有缺陷,非修复批次引入) |
+| **K1**(§7.7 新发现) | Keyence MC 位组地址静默错位(R 组号≥1) | 🟠 **复核更正:反证不成立,现状不改(2026-09-26,§7.7-B-8)** | `keyence/mc.py` 未覆写 `_translate_address`(按记号数字原样发帧);项目侧复核:第 4 条"3E 设备号装不下 199915"不成立(该字段实为 **3 字节**),且 Mitsubishi SH081257ENG 明文支持"上位字号 + 低 2 位位号",故按"证据不足不改"处置,终核判据入真机清单 |
+| **K2**(§7.8 新发现) | AB EtherNet/IP `_after_connect` 失败时 CIP session 在 PLC 侧泄漏 | 🟢 **已修(2026-09-26)** | 基类新增 `_after_connect_failure` 钩子(同步 `core/base_client.py` + 原生 `native/base.py`),AB 覆写为尽力 Forward Close + UnregisterSession;**调用点在 `transport.close()` 之前**(放之后 = 注销帧发不出去且异常被静默吞掉,实测线上零字节);+5 例(含"关闭后拒发"假传输、20 次失败重连注册/注销帧数相等),旧实现上 3 例实测 FAILED |
 
 **修复引入的残留(复验中发现,已闭环)**:`write_many` 失败的 `last_error` 曾**终态恒为 `None`**——内层每 chunk `_execute` 记录后,外层包裹的 `_execute` 成功返回时 `_clear_error()`(`base_client.py:651`)必然清掉它(`error_count`/`device_error_count` 有留痕但读不到原因)。**`11828ae` 已修**:去掉外层 `_execute` 壳,单 chunk 失败时 `last_error` 保留(实测 `[False]` + `last_error=DeviceError…异常码 0x02` + `category=DEVICE` + `transactions=1`);多 chunk 场景按 `last_error` "成功即清空"契约,以返回值列表为准。docstring 已把两种入口的语义写清(`modbus.py:334-337`)。
 
@@ -287,15 +288,15 @@ v0.36.0 发布后同日 19:00 起出现修复批次:**11 个提交全部落地**
 
 | 验证项 | 结果 |
 |---|---|
-| `pytest tests -q` | v0.36.0 基线 **806 passed** → 修复批次提交后 **826 passed, 2 skipped** → 全批次落地后 **842 passed, 0 skipped**(原 3 例平台互斥跳过改写为跨平台假 socket 验证),3 轮均全绿 |
-| `ruff check src tests` | All checks passed(三轮) |
-| `mypy src/omniplc` | Success: 70 source files(三轮) |
-| `ty check src/omniplc` | All checks passed(三轮) |
+| `pytest tests -q` | v0.36.0 基线 **806 passed** → 修复批次提交后 **826 passed, 2 skipped** → 全批次落地后 **842 passed, 0 skipped**(原 3 例平台互斥跳过改写为跨平台假 socket 验证),3 轮均全绿 → v0.38.0 `861 passed`(+19:convert BOOL/STRING + TypedDict)→ v0.39.0 **1,072 passed**(+211:原生 asyncio + 双事件循环对拍 + 契约矛盾批 2) |
+| `ruff check src tests` | All checks passed(五轮) |
+| `mypy src/omniplc` | Success: **76** source files(五轮) |
+| `ty check src/omniplc` | All checks passed(五轮) |
 | 缺陷复现(修复前) | 7.2/7.3 表格 8 场景全部独立复现(复现脚本,非仓库测试) |
 | 修复复验(修复后) | **24/24 断言全过**:读侧 126 字/2001 线圈/64 FLOAT 正确切 2 笔且全成功、125 字仍 1 笔不过度拆分;写侧 124 字/1969 线圈切 2 笔且全 True;`write_batch` 设备异常 → `last_error`+`DEVICE`+`device_error_count=1`;`write_many` chunk1 失败 → `[False×123, True]`、`sum()==1`、chunk2 照常发出、计数器留痕 |
 | 黄金样本 | 23 → **30**(+FC23 规范示例、FC43 翻页/异常/私有对象、RTU 变长) |
-| 文档漂移 | `CONTRIBUTING.md:36` 的 "721 例"已修(`347fb94`,现写"842 例,随批次增长") |
-| 最终轮门禁(v0.37.0 tag `a1564b6`) | `pytest` **842 passed** / `ruff` / `mypy`(70 files)/ `ty` 全零(评审侧独立复跑) |
+| 文档漂移 | `CONTRIBUTING.md:36` 的 "721 例"已修(`347fb94`,现写"842 例,随批次增长");v0.39.0 `1,072 passed` 已在 §一 同步标注 |
+| 最终轮门禁(v0.39.0 tag `94e1328`) | `pytest` **1,072 passed** / `ruff` / `mypy`(**76** files)/ `ty` 全零(评审侧独立复跑) |
 
 ### 7.6 复审结论
 
@@ -317,7 +318,7 @@ v0.36.0 发布后同日 19:00 起出现修复批次:**11 个提交全部落地**
 | `1ceab51` | 非 bool/int 显式拒绝;`device_error_count` 有码才计 | ✅(备忘 P3-1) |
 | `cba5d43` `cc15693` `e19021d` `347fb94` `fd13a42` `512a86e` `4ca1df7` | 4C 截断重同步;松下换算覆写;ValueError 契约;文档漂移;aio 边界公示;close 三步;UDP 假 socket 跨平台 | ✅(备忘 P3-2/P3-3) |
 
-独立验证:`verify_modbus_v036.py` **24/24** + `verify_wm_last_error.py` **6/6**;v0.37.0 tag(`a1564b6`,仅版本/CHANGELOG/README,无行为变更)下门禁四件套复跑全绿(842 / ruff / mypy / ty)。CHANGELOG v0.37.0 条目与提交事实逐一相符,行为变更提示(`device_error_count` 口径、`write_many` 事务粒度、`write_bool` 拒绝范围)披露完整。
+独立验证:`verify_modbus_v036.py` **24/24** + `verify_wm_last_error.py` **6/6**;v0.37.0 tag(`a1564b6`,仅版本/CHANGELOG/README,无行为变更)与 v0.39.0 tag(`94e1328`,原生异步 + 契约矛盾批 2)下门禁四件套复跑全绿(842→1,072 / ruff / mypy / ty)。CHANGELOG v0.37.0 条目与提交事实逐一相符,行为变更提示(`device_error_count` 口径、`write_many` 事务粒度、`write_bool` 拒绝范围)披露完整;v0.39.0 CHANGELOG 条目详尽,但因 `e23c787` 入库本报告 `docs/review.md` 的过程被同期 `9c0d2ff` v0.38.0 release 覆盖,故本报告头部基准逐版本回溯为 a1564b6 → 9c0d2ff → 94e1328。
 
 **复核中的 P3 备忘**(不阻塞发布):
 
@@ -334,14 +335,47 @@ v0.36.0 发布后同日 19:00 起出现修复批次:**11 个提交全部落地**
 5. **测试盲区**:Keyence MC 测试仅 `R5`(`test_keyence_mc_clients.py:120-123`,组0,两种解释重合)、B1F/W10/DM100/ZR100(线性/十六进制,无组位换算需求),**无任何组号≥1 的 R 用例**——与 v0.36.0 合并切片、松下错址同型的"记号/边界盲区"。
 6. **影响面**:R 组号≥1 的全部地址静默读写错位(如 `R100` → 应发 16 实发 100、`R515` → 应 95 实 515,读到/写错别的继电器);MC 路径还不校验低两位 00~15——`"R16"` 可发帧(= 线性 16),恰等于 HostLink 的 `R100`,而 HostLink 按记号拒收 `"R16"`:`address.py:83`,**同一字符串在两条传输上语义分裂**。MR/CR 属同类记号(`KV_BIT_BANK_DEVICES`),但 `KEYENCE_MC_DEVICE_CODES` 仅含 R/B/W/DM/ZR,MR/CR 在 MC 路径查不到码会抛错(非静默),故静默影响限于 R。
 7. **建议**(评审侧不改代码):参照 `cc15693`/`11828ae` 模式在 `_KeyenceMcCodeMixin` 覆写 `_translate_address`——对 `KV_BIT_BANK_DEVICES` 校验低两位 00~15 并换算 `组×16+位`;补帧断言(`R100` → `10 00 00`、`R515` → `5F 00 00`)与"HostLink 同字符串对照"用例;KV 用户手册 MC 章设备编号表核对与真机对照列入 `docs/real-machine-checklist.md`(KV MC 条目已在清单,需点名组号≥1 用例)。
+8. **复核更正(项目侧 2026-09-26,后续勿再引第 4 条当反证)**:第 4 条的"决定性反证"**不成立**——3E 二进制的设备号(head device)字段是 **3 字节小端**(`plc/melsec/codec_qna.py:125,407` 的 `number.to_bytes(3, "little")`),199915 = 0x030CEB 装得下,不能据此断定线上必为线性编号。反向证据同时存在:三菱 SLMP 手册 SH081257ENG 对"通信对象为 KEYENCE(KV 系列)"明文规定"除 B 设备外,设备格式由上位字号 + 低 2 位位号构成"(即线上编号 = 记号数字原样,`R515` → 515 = 本库现状);KV 公布的点数范围亦按该记号书写(`R00000~R199915`),未见线性 `0~31999` 的写法;本库码表 `B=十六进制 / R=十进制` 的分工正对应该条的"B 设备例外"。**处置:现状不改**——按线性改会让组号≥1 的 R 静默读写到别的继电器(风险不对称),"两条传输语义分裂"(第 6 条)在线性读法下**依然存在**(那时 `R16` 反而合法),不能当换算理由。终核判据已写入 `docs/real-machine-checklist.md`:写 `R100`,看 KV Studio 里 `R100`(组 1 位 0)还是 `R604`(组 6 位 4 = 线性 100)变化。MC 路径是否补"位号低两位 00~15"校验,待真机终核后一并决定。
 
-**C. 评分影响**:K1 属**既有缺陷**(非本轮修复引入)。按 §一评分口径,若经手册/真机坐实,协议深度 9 → 8.5、综合 7.2 → 7.1;终核完成前按"高置信待核"计入 §7.4/§7.6 与附录局限,评分暂不调整。
+**C. 评分影响**:K1 属**既有缺陷**(非本轮修复引入)。按 §一评分口径,若经手册/真机坐实,协议深度 9 → 8.5、综合 7.2 → 7.1;终核完成前按"高置信待核"计入 §7.4/§7.6 与附录局限,评分暂不调整。**2026-09-26 项目侧复核更正**:第 4 条反证不成立(设备号字段实为 3 字节)且存在反向外部证据(§7.7-B-8),K1 降级为"证据不足、现状不改",上述评分回调暂不适用。
+
+### 7.8 v0.37→v0.39 增量复审(2026-09-25 晚,锚点 v0.39.0 tag `94e1328`)
+
+**A. 锚点与基线**:`a1564b6` (v0.37.0) → `9c0d2ff` (v0.38.0) → `94e1328` (v0.39.0),14 个提交,**76 文件 / 18,800+ 行 / 49 测试文件 / 1,072 passed**;门禁五轮全绿(842→861→1,072 / ruff / mypy / ty)。
+
+**B. v0.37→v0.39 期间 4 大类变更落地核验**
+
+1. **原生 asyncio 首批(5 提交)**:`6db7a9b`/`1c45545`/`148d3fa`/`4429fd9`/`9fd0111` —— 评审此前给原生异步化提的 6 条路径中,实际落地为 **TCP `open_connection` 流式(我推荐 1A,不是 1B)+ UDP `loop.sock_recv_into/sock_sendall`(`setblocking(False)`,接近推荐 2B 但用 `_into` 变体)+ 自建 `_await_with_timeout` 替代 `asyncio.wait_for`(规避 3.7→3.11 `TimeoutError` 类变动 + 显式取消内层 task)**。文档 `transport.py:7-37` 把选型依据写到位:3.7 `ProactorEventLoop` 无数据报端点(仅 selector 路径)、无 `sock_recvfrom`(3.11+)→ 此两条路径在本机复现过,定位精确。**第一批 5 客户端**:`AsyncModbusTcpClient` / `AsyncMelsecMcTcpClient`(兼容 1E+3E)/ `AsyncMelsecMcUdpClient` / `AsyncOmronFinsTcpClient` / `AsyncOmronFinsUdpClient`,**只重写薄分发层,协议逻辑与传输边界仅 `_transact`**,编解码/地址/字序/`_describe`/`_categorize`/`_extract_code`/`ClientStats` 全部复用同步侧同一实现——架构干净,不与实现漂移。**与同步层的语义差异**(也是评审重点关注):① 属性直接读字段、不取锁(单线程事件循环原子快照);② `asyncio.Lock` 非重入 → 只有公开入口取锁;③ 按首次使用时的事件循环惰性创建(3.7+ `Lock` 构造即绑循环);④ **真取消**:按"请求是否已发出"分流——已发出保守拆连重同步、未发出仅排空保持连接,`CancelledError` 原样传播——直击 aio P1-1 取消语义不真的根因。**串口/OPC-UA/MX 走线**按既定口径不动(thread-pool / asyncua 第三方 / COM-STA 不可异步)。**批量与各家扩展方法留后续批次,缺口由守卫测试的表项锁定**(白名单测试)— 工程克制,避免一次性铺面引入未对拍风险。
+2. **契约矛盾批 2**:`2e152df` —— `write_bool` 三层一致收紧(仅接 `bool` 或 `int 0/1`,此前 `bool(5)=True` 静默写真;`core/base_client.py:535-546`、`native/base.py:467-476`、`aio/__init__.py:368` 委托同步侧守卫——隐式 ✅);`MEWTOCOL` 非数字错误码不再抛裸 `ValueError`(`int(code)` 遇表外码如 `E1` 会穿破 `read()` 契约,现兜底 `code=0` 并保留原文);**Keyence Host Link 分类口径** 6 处响应形状不符由 `OmniPLCInternalError`(UNKNOWN)改 `ProtocolFrameError`(PROTOCOL),与 `_transact` docstring 承诺一致,见 `hostlink.py:65,74,103,185,278,296,386` 与 `codec.py:46,48,52,89,92,100,133,141,145,148,153`。`Keyence Host Link` 整体由 `UNKNOWN` 升 `PROTOCOL` 分类,**与 `_categorize` 文档承诺对齐**——此前本报告 P1-2 SR 能力缺失分类问题在 Host Link 这一支同样存在,本次同批修复。
+3. **审核修复(自审本轮代码 P0/P1)**:`4429fd9` —— **UDP 走线主机名解析钉 `AF_INET`**(原用 `getaddrinfo` 首个结果,本机 `localhost` 首个是 `AF_INET6` → 同步侧通 IPv4、原生侧 `::1` 报 `ConnectionResetError`,两层行为分裂,**已复现并修复**);`_clear_stale_selector` 同时 `remove_writer`(覆盖"发送缓冲打满"路径);3.7 取消 `sock_recv_into`/`sock_sendall` 时 selector 注册不会立即摘除、关套接字触发 Windows `WSAENOTSOCK`(10038)带崩事件循环——超时路径显式摘 reader+writer。**这三个 fix 的工程价值** ≥ 同期任一对外功能——原生的"3.7 平台差异实测"为后续真机清单 §10 提供证据。
+4. **测试与文档**:`9fd0111` 对拍表扩到**全 10 种数据类型** + MC/FINS 字符串 + 三协议 `read_tag`/`write_tag`,新增 7 个核心语义用例("读失败重连重发"/"`write_retries=0` 时写失败只发 1 次"/退避门控不污染 `error_count`/`TransportTimeoutError` 不拆连/连接期取消干净清场/`close()` 等锁不锯断在途事务);**原生用例在 Selector 与 Proactor 两种事件循环上各跑一遍**——3.7 Proactor 不支持数据报端点,必须双跑才能证明 UDP 选型正确(也即 §B-1 transport.py:7-37 的"自验"代码即来自此测试)。测试脚手架零新增依赖(`asyncio.run` 包同步测试,无 `pytest-asyncio`)。文档:README 新增"两套异步"选型表 + 原生层用户边界;`architecture.md` 新增 §3(8 条)+ **§12 原生异步层**(复用边界、超时与取消行为表、3.7 实测依据)+ §9 同步 × 异步对拍 + §10 asyncio 可用性;`docs/real-machine-checklist.md` 把原生层标为**独立代码路径**待真机核证。**CHANGELOG v0.39.0 条目详尽**(含 UDP AF_INET 钉死的复现过程、`_await_with_timeout` 与 `wait_for` 的差异理由)。
+
+**C. v0.38.0 增量(转换助手与类型面收口)**:convert `words_to_value` 新增 BOOL/STRING 解码(BOOL 按"非 0 字 → True",不参 `byteorder`;STRING 不限字数、`byteorder` 拼字节后走 `decode_string`,NUL 截断;新 `encoding` 参数默认 ascii,与各 `read_string` 同口径——寄存器文本默认**大端**,读文本需显式 `ByteOrder.BIG`);反向 `value_to_words` 维持只收数值类型(不对称理由写进 docstring,报错文案改为"value_to_words 只支持数值类型")。`stats` 返回 `ClientStats`(TypedDict),9 字段与 `BaseClient.stats` docstring 一一对应,异步镜像同型;**3.7 与 3.8+ 条件分支导出真类型 vs `dict` 子类**——不引 `typing_extensions` 运行期依赖、核心零依赖不动;两套检查器口径不一(mypy 收窄、ty 不认 `TypedDict.copy()`)用 `cast(ClientStats, ...)` 兼容,**零 `# type: ignore`**。`docs/review.md` 入库 v0.37.0 复审修订(`e23c787`)即我此前提交,被 v0.38.0 release 覆盖后本报告按当前 HEAD `94e1328` 重新定位。
+
+**D. K1 / K2 / aio P1-1 / OPC-UA P2-7 状态收口**
+
+| 编号 | v0.37.0 状态 | v0.39.0 状态 | 差异 |
+|---|---|---|---|
+| **K1** Keyence MC 位组错位 | 🟠 待终核 | 🟠 **复核后现状不改** | `keyence/mc.py` 未覆写 `_translate_address`(记号数字原样发帧,`R515` → 515);项目侧 2026-09-26 复核:第 4 条反证不成立(设备号字段是 **3 字节**,199915 装得下),Mitsubishi SH081257ENG 明文"针对 KEYENCE 除 B 设备外 = 上位字号 + 低 2 位位号",故按"证据不足不改";真机判据(写 `R100` 看 `R100` 还是 `R604` 变)入 `real-machine-checklist.md`(§7.7-B-8) |
+| **K2** AB CIP session 泄漏 | — | 🟢 **已修(2026-09-26)** | 原缺陷:`ab.py:119-128` 注册 session 后 Forward Open 失败,base `connect()` 的 `_after_connect` 失败分支只关 transport 不调 `_unregister_session` → PLC session 表残留至超时回收(ControlLogix 典型 ≤16,反复失败重连可耗尽)。修法:基类提供 `_after_connect_failure` 钩子(默认 no-op,**关传输之前**调用;原生基类同名镜像),AB 覆写"尽力 Forward Close + UnregisterSession";+5 例守卫(假传输关闭后拒发 `TransportClosedError`、失败路径注销帧数 == 注册帧数、20 次失败重连零泄漏、成功路径不污染),旧实现上 3 例 FAILED |
+| **aio P1-1** 取消语义不真 | 🔴 开放 | 🟢 **结构性解决** | 原生 asyncio 层 `native/base.py:163-167` 通过 `_await_with_timeout` + 取消时按"是否已发出请求"分流(已发 → 保守拆连;未发 → 排空保连接,`CancelledError` 原样传播);**aio 旧 wrapper 仍存在,作为兼容过渡**,新用户走 `native` 即可;若开发者有计划在 v0.40+ 移除 `aio` 包装,建议列入 `real-machine-checklist.md` 标记弃用 |
+| **OPC-UA P2-7** 回调竞态 | 🔴 开放 | 🔴 **仍开放** | `opcua/client.py` v0.37→v0.39 零改动 |
+| **真机清单 7%** | 30 项 2 通过 ≈ 7% | 仍 7%(清单同步原生层标注独立路径待核证) | `real-machine-checklist.md` 把 `native` 模块标为独立代码路径,需真机核证;清单未新增条目 |
+
+**E. 新增 P3 备忘(不阻塞,留待 v0.40+ 决定)**
+
+- **P3-5** 原生层与 `aio` 包装双轨过渡期:`aio/__init__.py:368-370` 委托同步侧守卫,与同步层和原生层隐式一致——但 `aio` 文档(README "异步"节)未明示"新用户应使用 `native` 包,`aio` 仅为兼容保留";补一句 README 即可。
+- **P3-6** `native/transport.py:_await_with_timeout` 自建等待器绕开 `wait_for` 的 3.7→3.11 `TimeoutError` 类变动——但代价是每条 I/O 都新建 `task + wait` 两层;在数千并发场景下有微小开销;3.11+ 可用 `asyncio.timeout` 上下文管理器简化(仍保留显式取消内层 task 的语义)。建议:在 `native/transport.py` 顶部加版本分支(3.7~3.10 用自建、3.11+ 用 `asyncio.timeout`),并加注释引用本备忘。
+- **P3-7** `_categorize` 在原生层也走同一份函数(`base_client.py:833`);但原生层抛 `socket.timeout`(TCP recv/send)、`TransportTimeoutError`(UDP recv)与同步层口径**逐字相同**——这是同步 × 异步对拍能成立的核心保证,但**没有任何测试断言 `_categorize` 对同一异常在两层产生同一枚举值**;建议新增 1-2 个 `test_native_*.py` 用例。
+
+**F. 评分影响**:K1 维持高置信待核;K2 新发现 P2(协议服务端会话表耗尽 → 服务端 DoS,**与 K1 同类"既有缺陷"性质**);aio P1-1 由原生层结构性解决。按 §一评分口径:**综合 7.2 维持**;K1+K2 终核前按"高置信待核"计入 §7.4/§7.8 与附录局限。若 K1+K2 双双坐实,协议深度 9 → 8、综合 7.2 → 6.9(0.3 = -0.1 × 2);若仅 K1 坐实,综合 7.2 → 7.1。
 
 ---
 
 ## 附:评审方法与局限
 
 - **v0.35 轮**:三路并行代码走查(架构 / 协议 / 测试-CI-文档),`file:line` 级引用复核;`pytest --collect-only` 实测用例数;git 时间线与 tag 溯源;黄金报文与关键缺陷的源码核对。
-- **v0.36 轮(本轮)**:增量 diff 走查(`af6d7b7..5cceca6`)+ 独立复现脚本实测 8 个缺陷场景 + 修复批次(`f40da18`/`c05b392`/`e19021d`/`11828ae`/`1ceab51`/`cba5d43`/`cc15693`/`347fb94`/`fd13a42`/`512a86e`/`4ca1df7`)逐 diff 走查与 24 断言复验(§7.7-A)+ **门禁四件套四轮实跑**(806 → 826 → 842 → v0.37.0 tag `a1564b6` 复跑,全绿 / ruff / mypy / ty)。
-- **没做**:未跑 coverage(工具链不存在);未接真机;未做协议 fuzz;FC23/FC43/FINS 加固与本轮修复未在真实 PLC 上验证;K1(Keyence MC 位组错位)未取得 KV 用户手册 MC 章设备编号表与真机对照,仅完成代码链路推演与 16 位字段反证(§7.7-B)。
-- **局限**:§4 覆盖率为静态推断而非实测;P1/P2 状态基于复验当日代码,全部修复已随 v0.37.0 发布(tag `a1564b6`);aio 属性阻塞事件循环(P1-1)与 OPC-UA 回调竞态(P2-7)仍开放;K1 为高置信待核,坐实则评分回调(§7.7-C)。
+- **v0.36 轮**:增量 diff 走查(`af6d7b7..5cceca6`)+ 独立复现脚本实测 8 个缺陷场景 + 修复批次(`f40da18`/`c05b392`/`e19021d`/`11828ae`/`1ceab51`/`cba5d43`/`cc15693`/`347fb94`/`fd13a42`/`512a86e`/`4ca1df7`)逐 diff 走查与 24 断言复验(§7.7-A)+ **门禁四件套四轮实跑**(806 → 826 → 842 → v0.37.0 tag `a1564b6` 复跑,全绿 / ruff / mypy / ty)。
+- **v0.37→v0.39 增量复审轮(本轮 §7.8)**:HEAD 锚点 `94e1328` (v0.39.0,2026-09-25 22:00 落地),14 提交覆盖 4 大类变更(原生 asyncio 首批 + 契约矛盾批 2 + 审核修复 P0/P1 + 测试/文档);仅 §7.8 追加报告,不改动既有 §7.1-§7.7;K2(AB CIP session 漏注销,P2 高置信待核)纳入 §7.4 状态表;门禁第五轮实跑(`a1564b6` → `9c0d2ff` → `94e1328`,842 → 861 → 1,072 全绿 / ruff / mypy / ty)。
+- **没做**:未跑 coverage(工具链不存在);未接真机;未做协议 fuzz;FC23/FC43/FINS 加固、原生 asyncio 层(`native/` 模块,5 客户端)、CIP session 漏注销(`K2`)均未在真实 PLC 上验证;K1(Keyence MC 位组错位)未取得 KV 用户手册 MC 章设备编号表与真机对照,仅完成代码链路推演与 16 位字段反证(§7.7-B);`docs/review.md` 在 v0.39.0 期间被 `9c0d2ff` v0.38.0 release 覆盖过我此前 `e23c787` 入库的修订,本报告已按当前 HEAD 重定位。
+- **局限**:§4 覆盖率为静态推断而非实测;P1/P2 状态基于复验当日代码(v0.39.0 tag `94e1328`);**v0.36 轮修复**已随 v0.37.0 发布,**v0.38/v0.39 增量修复**(原生 asyncio + 契约矛盾批 2 + P3 全收口)分别随对应版本发布;aio P1-1 由原生 asyncio 层(`native/`)结构性解决(§7.8-D),旧 `aio/` wrapper 仍保留为兼容过渡;OPC-UA P2-7 仍开放;**K1(Keyence MC 位组)+ K2(AB CIP session 漏注销)** 双双高置信待核(§7.7-B / §7.8-D),双双坐实则协议深度 9 → 8、综合 7.2 → 6.9,任一坐实则 7.2 → 7.1。[2026-09-26 项目侧复核与修复:K2 已修(先注销后关传输,含 5 例守卫);K1 反证不成立(设备号字段 3 字节)且存在反向外部证据,按"证据不足不改"处置——上述评分回调暂不适用。]

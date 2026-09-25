@@ -238,7 +238,8 @@ unconnected 消息),欧姆龙 NJ/NX CIP(继承 AB 客户端,三钩子覆写),
 ### 2.1 继承设计要点(模板方法模式)
 
 - `BaseClient` 定义抽象原语:**`_create_transport()` / `_read()` / `_write()`**,
-  外加可选钩子 `_after_connect()`(FINS/TCP 握手)、`_read_string/_write_string`。
+  外加可选钩子 `_after_connect()`(FINS/TCP 握手)、`_after_connect_failure()`
+  (连接初始化失败时清理 PLC 侧资源,如 AB 注销 CIP 会话)、`_read_string/_write_string`。
 - 类型化方法 `read_float(addr)` 的实现只有一份:
   `read_float → read(addr, FLOAT) → _execute(锁内) → _read(addr, FLOAT)(驱动)`;
   新增协议只需实现 2 个原语,自动获得全部 20+ 个类型化方法。
@@ -334,6 +335,12 @@ stateDiagram-v2
 - `with client:` 进入时连接,失败抛 `ConnectionError`;
   `async with AClient(...):` 同语义。
 - `_after_connect()` 钩子:连接建立后执行协议级初始化(FINS/TCP 节点分配握手)。
+- `_after_connect_failure()` 钩子(v0.40 候选,2026-09-26):`_after_connect()`
+  抛异常时尽力清理 PLC 侧资源(**传输关闭之前**调用——传输此时仍可用,注销帧
+  才发得出去;钩子自身抛出的异常被吞掉,不掩盖原始连接失败)。同步与原生两层
+  基类同名同义(原生侧为协程;取消分支不调用)。现由 AB 覆写:注册 CIP 会话后
+  Forward Open 失败时**注销会话**,否则会话留到 PLC 侧超时回收,反复失败重连
+  可耗尽会话表(ControlLogix 典型 ≤16)。
 
 **连接退避门控(v0.34.0)**:`connect()` 失败(建连或 `_after_connect`
 握手)后,下一次 `connect()` 在 `uniform(0, min(0.5 × 2ⁿ, 30))` 秒内
@@ -520,6 +527,7 @@ class BaseClient(ABC):
     @abstractmethod
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None: ...
     def _after_connect(self) -> None: ...            # 可选钩子(FINS/TCP 握手)
+    def _after_connect_failure(self) -> None: ...    # 可选钩子(失败时清理会话)
 ```
 
 ## 7. 地址语法
@@ -622,7 +630,8 @@ WR/WW 64 字(位软元件按字:WR 32 字、WW 10 字)。消息等待为构造�
 罗克韦尔 AB EtherNet/IP 说明(2026-09):ControlLogix/CompactLogix 的
 标签读写走 CIP 消息路由,``AllenBradleyEthIpClient`` TCP **44818**,连接即注册
 CIP 会话(RegisterSession,``_after_connect`` 钩子,断线重连自动重新注册;
-disconnect 尽力注销)。标签读写走 **unconnected 消息**:SendRRData 内以
+disconnect 尽力注销,**连接初始化失败也走 `_after_connect_failure` 注销**——
+注册成功而 Forward Open 失败时不留残会话)。标签读写走 **unconnected 消息**:SendRRData 内以
 Unconnected Send(0x52)包裹、背板路由到 ``slot`` 槽号——无 Forward Open
 连接状态,惰性重连零恢复。Logix 标签**自描述**:首次访问先读 1 个元素获取
 实际类型(按基名缓存),请求类型与实际类型不符抛 ValueError;写请求须携带
