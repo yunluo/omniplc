@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from types import TracebackType
-from typing import Callable, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
 
 from ..core.base_client import BaseClient
 from ..core.errors import ErrorCategory
@@ -66,7 +66,7 @@ from ..plc.ab import AllenBradleyEthIpClient
 from ..plc.beckhoff import BeckhoffAdsClient
 from ..plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
 from ..plc.siemens import SiemensS7Client
-from ..opcua import OpcUaClient
+from ..opcua import OpcUaClient, OpcUaSubscription
 from ..plc.panasonic import (
     PanasonicMcTcpClient,
     PanasonicMewtocolTcpClient,
@@ -1152,12 +1152,84 @@ class AOpcUaClient(ABaseClient):
         sync = self._typed(OpcUaClient)
         return sync.endpoint
 
+    @property
+    def active_subscriptions(self) -> Dict[int, OpcUaSubscription]:
+        """活跃订阅快照(``subscription_id`` → :class:`OpcUaSubscription`);只读。"""
+        sync = self._typed(OpcUaClient)
+        return sync.active_subscriptions
+
+    async def browse(
+        self,
+        node_text: str = "Root",
+        *,
+        recursive: bool = True,
+        max_depth: Optional[int] = None,
+    ) -> Tuple[bool, Optional[dict]]:
+        """枚举节点树(语义同同步版 :meth:`OpcUaClient.browse`)。"""
+        sync = self._typed(OpcUaClient)
+        return await self._run(
+            lambda: sync.browse(node_text, recursive=recursive, max_depth=max_depth)
+        )
+
     async def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """多节点批量读取(UA Read 单请求;语义同同步版)。"""
         sync = self._typed(OpcUaClient)
         return await self._run(lambda: sync.read_batch(items))
+
+    async def subscribe_data_change(
+        self,
+        node_text: str,
+        on_change: Callable[[Any, str, Optional[float]], None],
+        *,
+        sampling_interval_ms: int = 1000,
+    ) -> Tuple[bool, Optional[OpcUaSubscription]]:
+        """订阅节点值变化(DataChange)。
+
+        用户回调 ``on_change`` 是普通同步函数,但实际在 asyncua 内部线程触发;
+        本方法捕获当前 aio loop 后,用 ``loop.call_soon_threadsafe`` 把
+        调用调度到 aio loop 线程执行——回调内可安全做 asyncio 操作
+        (queue.put_nowait、asyncio.Event.set 等)。
+
+        :return: ``(成功, 订阅句柄)``;同步实例的句柄对象(同一引用)
+        """
+        sync = self._typed(OpcUaClient)
+        loop = asyncio.get_running_loop()
+
+        def _bridge(value: Any, node_id_str: str, ts: Optional[float]) -> None:
+            try:
+                loop.call_soon_threadsafe(on_change, value, node_id_str, ts)
+            except RuntimeError:
+                # loop 已关闭(典型:客户端 disconnect 后)
+                pass
+
+        return await self._run(
+            lambda: sync.subscribe_data_change(
+                node_text, _bridge, sampling_interval_ms=sampling_interval_ms
+            )
+        )
+
+    async def subscribe_event(
+        self,
+        node_text: str,
+        on_event: Callable[[dict, str, Optional[float]], None],
+        *,
+        event_filter: Optional[Any] = None,
+    ) -> Tuple[bool, Optional[OpcUaSubscription]]:
+        """订阅事件(Event);回调调度到 aio loop,语义同 :meth:`subscribe_data_change`。"""
+        sync = self._typed(OpcUaClient)
+        loop = asyncio.get_running_loop()
+
+        def _bridge(fields: dict, node_id_str: str, ts: Optional[float]) -> None:
+            try:
+                loop.call_soon_threadsafe(on_event, fields, node_id_str, ts)
+            except RuntimeError:
+                pass
+
+        return await self._run(
+            lambda: sync.subscribe_event(node_text, _bridge, event_filter=event_filter)
+        )
 
 
 class _AFinsRoutingClient(ABaseClient):

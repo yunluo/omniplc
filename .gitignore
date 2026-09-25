@@ -158,3 +158,7 @@ tools/_ref_*/
 # 手动联测草稿不入库(正式联测走每协议 manual_*.py 脚本)
 tools/manual_test.py
 
+# 会话临时文件(命令输出/临时脚本,根目录锚定不误伤包内 __init__.py)
+/_*.txt
+/_*.py
+

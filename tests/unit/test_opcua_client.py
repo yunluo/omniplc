@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading as _threading
+import time as _time
 import types
 from typing import Any
 
@@ -23,6 +25,7 @@ from omniplc.aio import AOpcUaClient
 from omniplc.core.errors import DeviceError, OmniPLCInternalError
 from omniplc.opcua.address import parse_opcua_nodeid
 from omniplc.opcua.client import (
+    OpcUaSubscription,
     _OpcUaSession,
     _translate_ua_error,
     _validate_endpoint_url,
@@ -345,3 +348,410 @@ def test_async_mirror_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
         await client.close()
 
     asyncio.run(scenario())
+
+
+# ----------------------------------------------------------------------
+# v0.35 真实 OPC-UA 服务端测试(临时启停 asyncua.sync.Server)
+# ----------------------------------------------------------------------
+
+try:
+    import asyncua.sync as _asyncua_sync  # type: ignore
+    _HAVE_ASYNCUA = True
+except ImportError:  # pragma: no cover
+    _HAVE_ASYNCUA = False
+
+if _HAVE_ASYNCUA:
+    import socket as _socket
+    _tmp_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    _tmp_sock.bind(("127.0.0.1", 0))
+    _OPCUA_TEST_PORT = _tmp_sock.getsockname()[1]
+    _tmp_sock.close()
+    _TEST_ENDPOINT = "opc.tcp://127.0.0.1:{}/test/".format(_OPCUA_TEST_PORT)
+
+    @pytest.fixture(scope="module")
+    def _opcua_server_module():
+        """module 级 OPC-UA 服务端;只起一次,所有 v0.35 测试复用。"""
+        server = _asyncua_sync.Server()
+        server.set_endpoint(_TEST_ENDPOINT)
+        server.start()
+        idx = server.register_namespace("http://omniplc.test")
+        try:
+            yield server, idx
+        finally:
+            server.stop()
+
+    def _make_variable(server, idx, name, value=42):
+        """在服务端 Objects 下加 Variable 节点,返回 (SyncNode, node_id 文本)。
+
+        注意:服务端 add_variable 自动分配**数值 NodeId**(``ns=<idx>;i=<n>``),
+        测试地址必须用返回节点的实际 NodeId,不能按 ``s=`` 字符串名猜。
+        """
+        node = server.nodes.objects.add_variable(idx, name, value)
+        return node, str(node)
+
+    def _node_id_text(node) -> str:
+        """从 SyncNode 取 NodeId 文本(内部测试助手)。"""
+        return str(node)
+
+    @pytest.fixture
+    def opcua_client(_opcua_server_module):
+        server, idx = _opcua_server_module
+        client = OpcUaClient(
+            "127.0.0.1",
+            _OPCUA_TEST_PORT,
+            endpoint=_TEST_ENDPOINT,
+        )
+        client.connect()
+        yield client
+        client.disconnect()
+else:  # pragma: no cover
+
+    @pytest.fixture
+    def opcua_client():
+        pytest.skip("asyncua 未安装,跳过 v0.35 真实服务端测试")
+
+
+# ----------------------------------------------------------------------
+# v0.35 Browse
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_browse_root_top_level(opcua_client: OpcUaClient) -> None:
+    """browse(Root, recursive=False):顶层枚举(Objects 节点应在其中)。"""
+    ok, tree = opcua_client.browse("Root", recursive=False)
+    assert ok is True
+    assert isinstance(tree, dict)
+    # Objects 节点(服务端必有)在树中,以 browse_name 标识
+    names = [v["browse_name"] for v in tree.values()]
+    assert "Objects" in names, (names, list(tree.keys()))
+    for k, v in tree.items():
+        assert "browse_name" in v
+        assert "node_class" in v
+        assert "children" in v
+        # 顶层时 children 必为 None(非递归)
+        assert v["children"] is None
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_browse_recursive_finds_variable(_opcua_server_module) -> None:
+    """browse 递归能走到我添加的 Variable 节点。"""
+    server, idx = _opcua_server_module
+    name = "BrowseRecursive_{}".format(_time.time_ns())
+    node, node_id = _make_variable(server, idx, name, 100)
+
+    client = OpcUaClient(
+        "127.0.0.1",
+        _OPCUA_TEST_PORT,
+        endpoint=_TEST_ENDPOINT,
+    )
+    client.connect()
+    try:
+        ok, tree = client.browse("Root", recursive=True)
+        assert ok is True
+        # 在 Objects 节点递归子树中找到刚加的变量
+        # tree[Root] -> children[Objects ns idx] -> ... -> 我们添加的变量
+        # 简化路径:用扁平搜索
+        flat = []
+        def _flatten(d):
+            for k, v in d.items():
+                flat.append(k)
+                if isinstance(v.get("children"), dict):
+                    _flatten(v["children"])
+        _flatten(tree)
+        assert node_id in flat, "变量 {} 未在递归树中找到, 树:{}".format(node_id, flat[:10])
+    finally:
+        client.disconnect()
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_browse_max_depth_limits_recursion(_opcua_server_module) -> None:
+    """max_depth 边界:depth=0 仅顶层。"""
+    server, idx = _opcua_server_module
+    client = OpcUaClient(
+        "127.0.0.1",
+        _OPCUA_TEST_PORT,
+        endpoint=_TEST_ENDPOINT,
+    )
+    client.connect()
+    try:
+        ok, tree = client.browse("Root", recursive=True, max_depth=0)
+        assert ok is True
+        for k, v in tree.items():
+            assert v["children"] is None  # max_depth=0 → 无下钻
+    finally:
+        client.disconnect()
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_browse_rejects_negative_max_depth(opcua_client: OpcUaClient) -> None:
+    """max_depth 负数 → ValueError(参数校验)。"""
+    with pytest.raises(ValueError):
+        opcua_client.browse("Root", max_depth=-1)
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_browse_nonexistent_node_returns_empty_tree(opcua_client: OpcUaClient) -> None:
+    """OPC-UA Browse 语义:不存在的节点不报错,返回空引用列表(与 Read 不同)。"""
+    ok, tree = opcua_client.browse("ns=99;s=NoSuchNode")
+    assert ok is True
+    assert tree == {}
+
+
+# ----------------------------------------------------------------------
+# v0.35 Subscribe DataChange
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_subscribe_data_change_receives_update(_opcua_server_module) -> None:
+    """订阅成功 + 服务端写入触发回调。"""
+    server, idx = _opcua_server_module
+    name = "SubDC_{}".format(_time.time_ns())
+    node, node_id = _make_variable(server, idx, name, 0)
+
+    received: list = []
+    event = _threading.Event()
+
+    def on_change(value, nid, ts):
+        received.append((value, nid, ts))
+        if value == 99:
+            event.set()
+
+    client = OpcUaClient(
+        "127.0.0.1",
+        _OPCUA_TEST_PORT,
+        endpoint=_TEST_ENDPOINT,
+    )
+    client.connect()
+    try:
+        ok, sub = client.subscribe_data_change(node_id, on_change, sampling_interval_ms=50)
+        assert ok is True
+        assert isinstance(sub, OpcUaSubscription)
+        assert sub.node_id == node_id
+        # 给订阅一点时间建立
+        _time.sleep(0.2)
+        # 服务端写入(直接用建节点时拿到的节点对象;裸名 get_child 匹配不上带 ns 前缀的 browse name)
+        node.write_value(99)
+        # 等待回调触发(<=2s)
+        assert event.wait(timeout=3.0), "DataChange 回调未触发, received={}".format(received)
+        # 检查收到的回调
+        assert any(v == 99 for v, _, _ in received)
+    finally:
+        client.disconnect()
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_subscribe_data_change_unsubscribe_idempotent(_opcua_server_module) -> None:
+    """unsubscribe 幂等:二次返回 False。"""
+    server, idx = _opcua_server_module
+    name = "SubUnsub_{}".format(_time.time_ns())
+    _, node_id = _make_variable(server, idx, name, 0)
+
+    received: list = []
+    client = OpcUaClient(
+        "127.0.0.1",
+        _OPCUA_TEST_PORT,
+        endpoint=_TEST_ENDPOINT,
+    )
+    client.connect()
+    try:
+        ok, sub = client.subscribe_data_change(node_id, lambda *a: received.append(a))
+        assert ok is True
+        assert sub.unsubscribe() is True
+        assert sub.unsubscribe() is False  # 第二次幂等
+    finally:
+        client.disconnect()
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_subscribe_data_change_callback_exception_logged(_opcua_server_module) -> None:
+    """用户回调抛异常 → last_error 记录,订阅继续(不杀订阅)。"""
+    server, idx = _opcua_server_module
+    name = "SubBoom_{}".format(_time.time_ns())
+    node, node_id = _make_variable(server, idx, name, 0)
+
+    boom_count = [0]
+
+    def on_change(value, nid, ts):
+        boom_count[0] += 1
+        raise RuntimeError("user callback boom")
+
+    client = OpcUaClient(
+        "127.0.0.1",
+        _OPCUA_TEST_PORT,
+        endpoint=_TEST_ENDPOINT,
+    )
+    client.connect()
+    try:
+        ok, sub = client.subscribe_data_change(node_id, on_change, sampling_interval_ms=50)
+        assert ok is True
+        _time.sleep(0.2)
+        # 触发若干次值变化(直接用建节点时拿到的节点对象)
+        node.write_value(1)
+        _time.sleep(0.2)
+        node.write_value(2)
+        _time.sleep(0.3)
+        # 回调被调用了至少 1 次(异常吞掉不挂订阅)
+        assert boom_count[0] >= 1
+        # last_error 应记了回调异常(UNKNOWN,不杀订阅)
+        assert client.last_error is not None
+        assert "回调" in (client.last_error or "")
+        # 订阅句柄未消亡
+        assert sub.unsubscribe() is True
+    finally:
+        client.disconnect()
+
+
+# ----------------------------------------------------------------------
+# v0.35 Lifecycle
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_disconnect_clears_active_subscriptions(_opcua_server_module) -> None:
+    """disconnect() 清空活跃订阅(服务端资源释放)。"""
+    server, idx = _opcua_server_module
+    name = "SubDisconnect_{}".format(_time.time_ns())
+    _, node_id = _make_variable(server, idx, name, 0)
+
+    client = OpcUaClient(
+        "127.0.0.1",
+        _OPCUA_TEST_PORT,
+        endpoint=_TEST_ENDPOINT,
+    )
+    client.connect()
+    ok, _ = client.subscribe_data_change(node_id, lambda *a: None)
+    assert ok is True
+    assert len(client.active_subscriptions) == 1
+    client.disconnect()
+    # disconnect 后 active_subscriptions 快照应为空
+    assert client.active_subscriptions == {}
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_multiple_subscribes_same_node_get_separate_handles(_opcua_server_module) -> None:
+    """同一节点多次订阅 → 多个独立 handle。"""
+    server, idx = _opcua_server_module
+    name = "SubMulti_{}".format(_time.time_ns())
+    _, node_id = _make_variable(server, idx, name, 0)
+
+    client = OpcUaClient(
+        "127.0.0.1",
+        _OPCUA_TEST_PORT,
+        endpoint=_TEST_ENDPOINT,
+    )
+    client.connect()
+    try:
+        ok1, sub1 = client.subscribe_data_change(node_id, lambda *a: None)
+        ok2, sub2 = client.subscribe_data_change(node_id, lambda *a: None)
+        assert ok1 and ok2
+        assert sub1 is not sub2
+        assert len(client.active_subscriptions) == 2
+        # 各 unsubscribe 独立
+        assert sub1.unsubscribe() is True
+        assert sub2.unsubscribe() is True
+    finally:
+        client.disconnect()
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_reconnect_does_not_auto_resubscribe(_opcua_server_module) -> None:
+    """断开重连后订阅句柄不再 active(不自动重订)。"""
+    server, idx = _opcua_server_module
+    name = "SubReconnect_{}".format(_time.time_ns())
+    _, node_id = _make_variable(server, idx, name, 0)
+
+    client = OpcUaClient(
+        "127.0.0.1",
+        _OPCUA_TEST_PORT,
+        endpoint=_TEST_ENDPOINT,
+    )
+    client.connect()
+    ok, sub = client.subscribe_data_change(node_id, lambda *a: None)
+    assert ok is True
+    sub_id_before = sub.subscription_id
+    client.disconnect()
+    # 重连
+    client.connect()
+    try:
+        # 订阅表空,不自动重订
+        assert client.active_subscriptions == {}
+        # 旧句柄 unsubscribe 静默返回 False
+        assert sub.unsubscribe() is False
+        assert sub.subscription_id == sub_id_before  # ID 不变,只是服务端已无
+    finally:
+        # 收尾必须断开:残留连接的 asyncua ThreadLoop 是非守护线程,
+        # 会卡死解释器退出(pytest 跑完进程不结束)
+        client.disconnect()
+
+
+# ----------------------------------------------------------------------
+# v0.35 aio 镜像
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_aio_subscribe_data_change_callback_on_loop(_opcua_server_module) -> None:
+    """aio subscribe_data_change:回调被 call_soon_threadsafe 桥接到 aio loop 线程。"""
+    import asyncio as _asyncio
+    server, idx = _opcua_server_module
+    name = "AioDC_{}".format(_time.time_ns())
+    node, node_id = _make_variable(server, idx, name, 0)
+
+    async def scenario() -> None:
+        aclient = AOpcUaClient(
+            "127.0.0.1",
+            _OPCUA_TEST_PORT,
+            endpoint=_TEST_ENDPOINT,
+        )
+        await aclient.connect()
+        loop = _asyncio.get_running_loop()
+        loop_tid = _threading.get_ident()
+        aev = _asyncio.Event()
+        cb_tids: list = []
+
+        def on_change(value, nid, ts):
+            # 经 call_soon_threadsafe 桥接 → 必在 aio loop 线程执行
+            cb_tids.append(_threading.get_ident())
+            aev.set()
+
+        ok, sub = await aclient.subscribe_data_change(
+            node_id, on_change, sampling_interval_ms=50
+        )
+        assert ok is True
+        # 等 loop(不用 time.sleep 堵 loop 线程,否则桥接回调无法执行)
+        await _asyncio.sleep(0.2)
+        # 服务端写入放 executor,同样不阻塞 loop
+        await loop.run_in_executor(None, node.write_value, 7)
+        await _asyncio.wait_for(aev.wait(), timeout=5.0)
+        assert cb_tids, "回调未被调用"
+        assert cb_tids[0] == loop_tid, "回调未在 aio loop 线程执行"
+        assert sub.unsubscribe() is True
+        # close 收尾(disconnect 只断同步侧;close 才释放工作线程,
+        # py3.9+ executor 线程非守护,不关会卡死解释器退出)
+        await aclient.close()
+
+    _asyncio.run(scenario())
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_aio_browse_returns_dict(opcua_client: AOpcUaClient) -> None:
+    """aio browse:返回嵌套 dict。"""
+    import asyncio as _asyncio
+
+    async def scenario() -> None:
+        aclient = AOpcUaClient(
+            "127.0.0.1",
+            _OPCUA_TEST_PORT,
+            endpoint=_TEST_ENDPOINT,
+        )
+        await aclient.connect()
+        ok, tree = await aclient.browse("Root", recursive=False)
+        assert ok is True
+        assert isinstance(tree, dict)
+        assert "Objects" in [v["browse_name"] for v in tree.values()]
+        # close 收尾(理由同上:释放 aio 工作线程)
+        await aclient.close()
+
+    _asyncio.run(scenario())

@@ -1,6 +1,6 @@
 # omniplc 架构设计
 
-> 版本:v0.34.0 · 更新日期:2026-09-24 · 状态:Modbus / 三菱 MC(以太网 + 串口 1C/3C/4C)/ FINS / NJ/NX CIP / KV / SR / TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / 西门子 S7 / OPC-UA / 通用自定义 TCP / CNC MTConnect 已全部落地,全局报文调试开关已上线;工业场景可靠性 + 观测诊断收口(per-call timeout 立即下发、整事务 deadline、超时分流、AB connected 重连、TCP keepalive、aio close 生命周期、UDP datagram 上限、FINS 重连节点刷新、MX COM 清理、连接健康统计);v0.30.1 修复批:MTConnect keep-alive 透明重试 / 点位表整数写入 / OpenTcp 流式收包 / 全协议收包语义收口;v0.30.2 安全修复批:网络长度域上限 / 整事务 deadline / MTConnect 响应体上限;v0.31.0 MX 真机批:COM 出参口径真机核证修正 / write_batch 随机批量写 / CPU 型号·时钟·出错文本查询;v0.31.1 MX 块读写 raw 调用补 lplRetCode 出参缓冲(4 参)修复;v0.31.2 文档完善批:全库客户端构造参数注释补全(43 处)/ README 类图·安装节·范例修正/ 路线图版本降序重排;v0.31.3 CI 发布流水线:GitHub Actions 标签触发 uv build → GitHub Release + PyPI 可信发布;v0.31.4 CI 修复批:uv build 显式指定 3.12 解释器(绕开 .python-version 钉 3.7.9);v0.32.0 API 对齐批:FINS 节点号自动推导(IP 末段/握手)/ 参数归位四分法成文 + 属性补齐 / 双入口取消 / S7 签名对齐;v0.32.1 CI 修复:Release 发布物收紧为 *.whl/*.tar.gz(排除 uv build 生成的 dist/.gitignore);v0.33.0 MC A 兼容 1C 帧落地 + 点位表 schema 破坏性变更(`Tag.name` → `tag_id` + `remark`);v0.34.0 可靠性 P0 双项:连接退避门控(`reconnect_backoff`/`next_connect_in`)+ 失败结构化(`ErrorCategory`/`last_error_category`/`last_error_code`)
+> 版本:v0.35.0 · 更新日期:2026-09-24 · 状态:Modbus / 三菱 MC(以太网 + 串口 1C/3C/4C)/ FINS / NJ/NX CIP / KV / SR / TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / 西门子 S7 / OPC-UA / 通用自定义 TCP / CNC MTConnect 已全部落地,全局报文调试开关已上线;工业场景可靠性 + 观测诊断收口(per-call timeout 立即下发、整事务 deadline、超时分流、AB connected 重连、TCP keepalive、aio close 生命周期、UDP datagram 上限、FINS 重连节点刷新、MX COM 清理、连接健康统计);v0.30.1 修复批:MTConnect keep-alive 透明重试 / 点位表整数写入 / OpenTcp 流式收包 / 全协议收包语义收口;v0.30.2 安全修复批:网络长度域上限 / 整事务 deadline / MTConnect 响应体上限;v0.31.0 MX 真机批:COM 出参口径真机核证修正 / write_batch 随机批量写 / CPU 型号·时钟·出错文本查询;v0.31.1 MX 块读写 raw 调用补 lplRetCode 出参缓冲(4 参)修复;v0.31.2 文档完善批:全库客户端构造参数注释补全(43 处)/ README 类图·安装节·范例修正/ 路线图版本降序重排;v0.31.3 CI 发布流水线:GitHub Actions 标签触发 uv build → GitHub Release + PyPI 可信发布;v0.31.4 CI 修复批:uv build 显式指定 3.12 解释器(绕开 .python-version 钉 3.7.9);v0.32.0 API 对齐批:FINS 节点号自动推导(IP 末段/握手)/ 参数归位四分法成文 + 属性补齐 / 双入口取消 / S7 签名对齐;v0.32.1 CI 修复:Release 发布物收紧为 *.whl/*.tar.gz(排除 uv build 生成的 dist/.gitignore);v0.33.0 MC A 兼容 1C 帧落地 + 点位表 schema 破坏性变更(`Tag.name` → `tag_id` + `remark`);v0.34.0 可靠性 P0 双项:连接退避门控(`reconnect_backoff`/`next_connect_in`)+ 失败结构化(`ErrorCategory`/`last_error_category`/`last_error_code`);v0.35.0 OPC-UA 推模式补齐:DataChange/Event 订阅(`OpcUaSubscription` 句柄、回调异常吞掉不杀订阅)+ 地址树 Browse(语义别名/递归/深度上限)
 
 omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7+,uv 开发)。
 本文档描述 v1.0 的完整架构:分层、类设计、继承树、线程安全模型、类型标注纪律、
@@ -267,7 +267,8 @@ unconnected 消息),欧姆龙 NJ/NX CIP(继承 AB 客户端,三钩子覆写),
   就 connect 明确报错);运行态/派生值一律只读属性(`connected`/
   `last_error`/`last_error_category`/`last_error_code`(v0.34)/
   `next_connect_in`(v0.34,退避剩余秒数)/`stats`/`local_node`
-  (握手后)/`connection_size`(Forward Open 后))。**双入口一律不设
+  (握手后)/`connection_size`(Forward Open 后)/`active_subscriptions`
+  (v0.35,OPC-UA 活跃订阅句柄快照))。**双入口一律不设
   (2026-09-24 收紧)**:构造函数
   参数一律构造期冻结(属性至多只读暴露),可写属性一律不进构造函数——
   `station`(Modbus/MEWTOCOL/MC 串口)与 `scan_dwell` 均为构造期定
@@ -289,6 +290,12 @@ unconnected 消息),欧姆龙 NJ/NX CIP(继承 AB 客户端,三钩子覆写),
    故障(OSError / 坏帧)才标记断开。
 6. **Transport 自身非线程安全**,只由持有事务锁的客户端串行访问;
    异步侧所有调用经**单线程 executor** 串行执行,与同步侧同一把 RLock,双保险且保序。
+7. **订阅回调线程(v0.35,OPC-UA)**:DataChange/Event 回调在 asyncua
+   内部线程触发,不经事务锁——同步版直接执行用户回调(异常吞掉记
+   `last_error`,category=UNKNOWN,不杀订阅);aio 版经
+   `loop.call_soon_threadsafe` 桥接到调用方事件循环线程(回调内可安全
+   做 asyncio 操作,loop 已关闭则静默丢弃)。`disconnect()` 先退订清
+   `active_subscriptions` 索引再走基类断开;断线不自动重订。
 
 ## 4. 连接状态机与惰性重连
 
@@ -798,7 +805,15 @@ OPC-UA 说明:``OpcUaClient`` **不自研协议**(OPC-UA 是完整规范栈:
 无字节流收发),DataType ↔ ``ua.VariantType`` 显式映射,读写走
 服务端原生编解码;``UaError``(Bad 状态码)翻译为 ``DeviceError``
 不断线,连接故障标记断开惰性重连。v0.8 为匿名/NoSecurity 连接下的
-节点读写;安全策略配置、订阅/浏览(不符合本库拉模式)留 v1.x。
+节点读写;v0.35 补齐**订阅与浏览**(review.md P1 收口):DataChange/
+Event 订阅(``subscribe_data_change``/``subscribe_event``,
+``OpcUaSubscription`` 句柄幂等退订,用户回调异常吞掉记 ``last_error``
+不杀订阅,``active_subscriptions`` 快照,``disconnect()`` 先退订再断开,
+断线不自动重订——重订策略留调用端)+ 地址树 Browse(``browse()``,
+Root/Objects/Types/Views 语义别名,递归与 ``max_depth`` 深度上限,
+返回 ``{node_id: {browse_name, node_class, children}}``;OPC-UA 语义:
+不存在节点返回空引用列表,与 Read 报 BadNodeIdUnknown 不同);安全
+策略配置(TLS/X.509)按内网部署口径**永久不考虑**。
 
 Modbus 与 pymodbus 3.15.0 对照(2026-09 复审,源码
 `D:\DOWNLOAD\pymodbus-3.15.0.tar\pymodbus-3.15.0\pymodbus\`):
@@ -973,6 +988,7 @@ FINS 与 fins-driver 0.3.1 对照(2026-09 复审):FINS 帧头 10 字节布局
 | v0.32.1 | CI 修复:Release 发布物收紧为显式 `dist/*.whl` + `dist/*.tar.gz`——`uv build` 自身会在 `dist/` 生成 `.gitignore`(内容 `*`,防构建产物污染 VCS,本地复现坐实),原 `dist/*` 通配把它一并挂上 Release(GitHub 存储名 default.gitignore/显示 .gitignore);收紧后发布物仅可能为 wheel + sdist | ✅ 完成 |
 | v0.33.0 | ①**MC A 兼容 1C 帧**(`MelsecMcSerialClient(frame="1C")`,命令 BR/WR/BW/WW,ASCII 格式 4,与 3C/4C 共享串口客户端;无帧识别码、路由缩站号+PC 号、错误代码 2 位,T/C 双性质 TN/TS/TC/CN/CS/CC,消息等待 `message_wait` 0~15 构造参数);以 SH-080008-AB 第 17 章逐字节核证,黄金向量 21 例入库;协议覆盖表 RTU 列更新、backlog 1C/2C → 2C;②**点位表 schema 破坏性变更**:`Tag.name` → `tag_id`(字母标识)+ 新增 `remark` 中文备注(`TagTable`/bind_tags/read_tag/write_tag 全文同步,manual 工具链 163 点同步);迁移指南见 README「点位表」节 | ✅ 完成 |
 | v0.34.0 | 可靠性 P0 双项(docs/review.md 收口):①**连接退避门控**——建连/握手失败后指数退避(exponential + full jitter,`uniform(0, min(0.5×2ⁿ, 30))` 秒,`monotonic()` 时间戳门控零 sleep),`reconnect_backoff` 可写属性(默认开,`retries` 同款 bool 校验 setter)+ `next_connect_in` 只读属性;门控拒绝置 last_error 三件套但**不计 error_count**(无网络动作);连接成功/显式 disconnect 全重置;防 PLC 断电/网线松动高频重连风暴;②**失败结构化**——`ErrorCategory` 五值枚举(TRANSPORT/PROTOCOL/DEVICE/TIMEOUT/UNKNOWN,TIMEOUT 独立)+ `last_error_category`/`last_error_code` 只读属性,失败写入统一收口 `_set_error`/`_clear_error`(SR 扫码枪 ×5、AB 解码 ×2 直写点迁移),`last_error` 文本契约不变;两项均含 aio 镜像与内省守卫;设计文档 `docs/superpowers/specs/2026-09-22-v0.34-reliability-observability-design.md` | ✅ 完成 |
+| v0.35.0 | OPC-UA 推模式补齐(docs/review.md P1 收口):①**DataChange/Event 订阅**——`subscribe_data_change`(采样间隔 ms,回调 `(value, node_id, source_timestamp)`,用户回调异常吞掉记 `last_error` category=UNKNOWN 不杀订阅)/`subscribe_event`(EventFilter 可选透传);`OpcUaSubscription` 订阅句柄(`node_id`/`subscription_id` 只读 + `unsubscribe()` 幂等),`active_subscriptions` 活跃订阅快照,`disconnect()` 先退订清索引再走基类断开,**断线不自动重订**(重订策略留调用端);②**地址树 Browse**——`browse()` 顶层/递归枚举(`max_depth` 深度上限,Root/Objects/Types/Views 语义别名),返回 `{node_id: {browse_name, node_class, children}}`,不存在节点按 OPC-UA 语义返回空引用列表不报错;均含 aio 镜像(回调经 `call_soon_threadsafe` 桥接到事件循环线程)与内省守卫;13 例真实 asyncua 服务端测试(`asyncua.sync.Server` 动态端口临时启停);TLS/X.509 安全栈按内网口径**永久不考虑**;设计文档 `docs/superpowers/specs/2026-09-24-v0.35-opcua-subscribe-browse-design.md` | ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 2C 帧(A 兼容串口)、FINS Host Link、TOYOPUC 扩展区/PC10/中继/时钟、OPC-UA 安全策略/订阅、通用 TCP 长度域成帧/空闲切块成帧、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 更多品牌/协议按需扩展(drivers 插槽沿用 BaseClient 原语模式) | 规划 |

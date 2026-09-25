@@ -64,6 +64,6 @@
 | 丰田 | TOYOPUC 计算机链接 TCP/UDP | | | | |
 | Modbus | Modbus TCP | | | | |
 | Modbus | Modbus RTU | | | | |
-| OPC-UA | opc.tcp | | | | |
+| OPC-UA | opc.tcp | | | | 订阅/Browse 为 v0.35 新增,待真机验证 |
 | CNC | MTConnect Agent HTTP/XML | | | | |
 | 通用 | OpenTcp(分隔符 / 定长) | | | | |

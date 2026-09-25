@@ -2,9 +2,13 @@
 
 OPC-UA 是完整规范栈(二进制编码、会话/订阅、X.509 安全栈),
 **不自研协议**,封装成熟库 `asyncua`(python-opcua 的官方继任者;
-1.1.5 为最后支持 Python 3.7 的版本)。本驱动只做两件事:
-NodeId 寻址 + 读写值映射到本库的统一契约
-(读 ``(bool, value)``、写 ``bool``、失败进 :attr:`last_error`)。
+1.1.5 为最后支持 Python 3.7 的版本)。本驱动在统一契约
+(读 ``(bool, value)``、写 ``bool``、失败进 :attr:`last_error`)上做四件事:
+
+- NodeId 寻址 + 读写值映射
+- :meth:`OpcUaClient.browse` 递归枚举节点树
+- :meth:`OpcUaClient.subscribe_data_change` 数据变化订阅(DataChange)
+- :meth:`OpcUaClient.subscribe_event` 事件订阅(Event)
 
 类继承::
 
@@ -16,19 +20,20 @@ BOOL→Boolean、SHORT→Int16、USHORT→UInt16、INT→Int32、UINT→UInt32�
 LONG→Int64、ULONG→UInt64、FLOAT→Float、DOUBLE→Double、STRING→String。
 读写均走服务端原生类型编解码,无字序/字节序问题。
 
-v0.8 范围:匿名/NoSecurity 连接下的节点读写;安全策略配置、
-订阅/浏览(不符合本库拉模式)留后续版本。
+v0.8 范围:匿名/NoSecurity 连接下的节点读写;v0.35 新增 Browse +
+订阅(数据变化 + 事件)。安全策略配置 / 聚合采样订阅留后续。
 """
 from __future__ import annotations
 
+import logging
 import re
 import struct
-from typing import Any, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from ..core.base_client import BaseClient, validate_endpoint
 from ..core.constants import OPCUA_DEFAULT_PORT
 from ..core.debug import log_op
-from ..core.errors import DeviceError, OmniPLCInternalError, TransportClosedError
+from ..core.errors import DeviceError, ErrorCategory, OmniPLCInternalError, TransportClosedError
 from ..core.validation import require_bool, require_float, require_int
 from ..types import DataType, PrimitiveValue
 from ..transport.base import BaseTransport
@@ -192,6 +197,159 @@ def _safe_disconnect(client: Any) -> None:
         pass
 
 
+# ----------------------------------------------------------------------
+# 订阅句柄与回调桥(v0.35 新增)
+# ----------------------------------------------------------------------
+
+_UA_LOGGER = logging.getLogger("omniplc.opcua")
+"""异步回调内出错日志出口(用户回调异常不杀订阅,记日志 + last_error)。"""
+
+
+class _DataChangeHandler:
+    """asyncua DataChange 回调适配器:把内部通知翻译为 ``(value, node_id, ts)`` 三元组。
+
+    asyncua 期望 handler 是有 ``datachange_notification`` 方法的对象;
+    我们的公共 API 是 ``Callable[[Any, str, Optional[float]], None]``,
+    故此处包一层。**用户回调异常被吞掉**(log + 写 last_error),不杀订阅。
+    """
+
+    def __init__(
+        self,
+        client: "OpcUaClient",
+        on_change: Callable[[Any, str, Optional[float]], None],
+    ) -> None:
+        self._client = client
+        self._on_change = on_change
+
+    def datachange_notification(self, node: Any, val: Any, data: Any) -> None:
+        try:
+            ts = None
+            try:
+                src = data.monitored_item.Value.SourceTimestamp
+                # asyncua DateTime 支持 Python int/float 直接;若返回 datetime 再调 timestamp()
+                if hasattr(src, "timestamp"):
+                    ts = float(src.timestamp())
+                elif src is not None:
+                    ts = float(src)
+            except Exception:
+                ts = None
+            self._on_change(val, str(node), ts)
+        except Exception as exc:
+            # 用户回调异常:不杀订阅,走 _set_error 三件套(category=UNKNOWN)
+            try:
+                self._client._set_error(  # noqa: SLF001
+                    "OPC-UA DataChange 回调异常:{}:{}".format(
+                        type(exc).__name__, exc
+                    ),
+                    ErrorCategory.UNKNOWN,
+                    None,
+                )
+            except Exception:
+                pass
+            _UA_LOGGER.exception("OPC-UA DataChange 回调异常")
+
+    def status_change_notification(self, status: Any) -> None:
+        """连接断开时 asyncua 逐订阅通知状态(静默:资源由 disconnect 统一清理)。"""
+        _UA_LOGGER.debug("OPC-UA 订阅状态变化:%s", status)
+
+
+class _EventHandler:
+    """asyncua Event 回调适配器:把内部通知翻译为 ``(fields_dict, node_id, ts)``。"""
+
+    def __init__(
+        self,
+        client: "OpcUaClient",
+        on_event: Callable[[dict, str, Optional[float]], None],
+    ) -> None:
+        self._client = client
+        self._on_event = on_event
+
+    def event(self, event: Any) -> None:
+        try:
+            # asyncua event 对象:dict-like via _fields;安全兜底 dict()
+            try:
+                fields = {key: event[key] for key in event.keys()}
+            except Exception:
+                fields = {"raw": str(event)}
+            node_id = ""
+            try:
+                node_id = str(event.SourceNode)
+            except Exception:
+                pass
+            ts = None
+            try:
+                src = event.Time
+                if hasattr(src, "timestamp"):
+                    ts = float(src.timestamp())
+                elif src is not None:
+                    ts = float(src)
+            except Exception:
+                ts = None
+            self._on_event(fields, node_id, ts)
+        except Exception as exc:
+            try:
+                self._client._set_error(  # noqa: SLF001
+                    "OPC-UA Event 回调异常:{}:{}".format(
+                        type(exc).__name__, exc
+                    ),
+                    ErrorCategory.UNKNOWN,
+                    None,
+                )
+            except Exception:
+                pass
+            _UA_LOGGER.exception("OPC-UA Event 回调异常")
+
+    def status_change_notification(self, status: Any) -> None:
+        """连接断开时 asyncua 逐订阅通知状态(静默:资源由 disconnect 统一清理)。"""
+        _UA_LOGGER.debug("OPC-UA 订阅状态变化:%s", status)
+
+
+class OpcUaSubscription:
+    """OPC-UA 订阅句柄(由 :meth:`OpcUaClient.subscribe_data_change` /
+    :meth:`OpcUaClient.subscribe_event` 返回,v0.35 新增)。
+
+    唯一公开方法 :meth:`unsubscribe` —— **幂等**,线程安全,失败返回 False
+    (已断开 / 已取消)。订阅是 transient 状态:客户端断开后所有未显式
+    unsubscribe 的句柄自动失效;不提供重连后自动重订(简化生命周期)。
+    """
+
+    def __init__(
+        self,
+        *,
+        node_id: str,
+        subscription_id: int,
+        unsub: Callable[[], bool],
+        _asyncua_subscription: Any,
+        _monitored_items: List[Any],
+    ) -> None:
+        self._node_id = node_id
+        self._subscription_id = subscription_id
+        self._unsub = unsub
+        self._asyncua_subscription = _asyncua_subscription
+        self._monitored_items = _monitored_items
+        self._unsub_done = False
+
+    @property
+    def node_id(self) -> str:
+        """订阅的 NodeId 字符串(订阅时传入)。"""
+        return self._node_id
+
+    @property
+    def subscription_id(self) -> int:
+        """asyncua 内部 Subscription id(debug / trace 用)。"""
+        return self._subscription_id
+
+    def unsubscribe(self) -> bool:
+        """取消订阅(幂等)。
+
+        :return: ``True`` 此次调用真正执行了取消;``False`` 已取消 / 已断开。
+        """
+        if self._unsub_done:
+            return False
+        self._unsub_done = True
+        return self._unsub()
+
+
 class OpcUaClient(BaseClient):
     """OPC-UA 客户端(封装 asyncua,opc.tcp 会话,默认端口 4840)。
 
@@ -235,11 +393,35 @@ class OpcUaClient(BaseClient):
             self._endpoint = endpoint.strip()
         else:
             self._endpoint = _build_endpoint(ip_address, int(port), path)
+        # 活跃订阅句柄(由 subscribe_* 加入;disconnect 清空)
+        self._active_subscriptions: Dict[int, OpcUaSubscription] = {}
 
     @property
     def endpoint(self) -> str:
         """opc.tcp 端点 URL(由 ip_address/port/path 组装或显式覆盖)。"""
         return self._endpoint
+
+    @property
+    def active_subscriptions(self) -> Dict[int, OpcUaSubscription]:
+        """活跃订阅快照(``subscription_id`` → :class:`OpcUaSubscription`)。只读。"""
+        with self._lock:
+            return dict(self._active_subscriptions)
+
+    def disconnect(self) -> bool:
+        """断开 opc.tcp 会话;同时清空所有活跃订阅(幂等)。
+
+        重写基类:在父类释放传输之前先清订阅,服务端 MonitoredItem
+        与 Subscription 立即释放;句柄 mark 为 unsub_done,后续再调
+        ``unsubscribe()`` 静默返回 False。
+        """
+        with self._lock:
+            for handle in list(self._active_subscriptions.values()):
+                try:
+                    handle.unsubscribe()
+                except Exception:
+                    pass
+            self._active_subscriptions.clear()
+        return super().disconnect()
 
     # ------------------------------------------------------------------
     # 会话访问(仅事务锁内)
@@ -342,6 +524,241 @@ class OpcUaClient(BaseClient):
 
     def _create_transport(self) -> BaseTransport:
         return _OpcUaSession(self._endpoint)
+
+    # ------------------------------------------------------------------
+    # Browse(v0.35 新增)
+    # ------------------------------------------------------------------
+
+    def browse(
+        self,
+        node_text: str = "Root",
+        *,
+        recursive: bool = True,
+        max_depth: Optional[int] = None,
+    ) -> Tuple[bool, Optional[dict]]:
+        """枚举节点树。
+
+        :param node_text: 起始 NodeId 字符串(默认 ``"Root"`` 即服务端根节点)
+        :param recursive: True 递归到叶子;False 仅顶层
+        :param max_depth: 递归深度上限(``None`` = 无限制);防服务端巨大树爆栈
+        :return: ``(成功, 嵌套 dict)``;嵌套结构::
+
+            {node_id_str: {
+                "browse_name": str,
+                "node_class": str,           # "Object"/"Variable"/"Method"/...
+                "children": dict | None,     # recursive=False 或到达 max_depth 时 None
+            }}
+
+        单个子节点无权限/超时 → 跳过该节点,**不中断**整树;若起始节点本身
+        失败,整次返回 ``(False, None)``,错误三件套进 :attr:`last_error`。
+        :raises ValueError: ``max_depth`` 为负
+        """
+        if max_depth is not None and max_depth < 0:
+            raise ValueError(f"max_depth 不能为负,收到:{max_depth}")
+        if not node_text:
+            raise ValueError("node_text 不能为空")
+        node_text_resolved = _resolve_browse_alias(node_text)
+
+        def operation() -> dict:
+            session = self._session()
+            ua_client = session.client
+            try:
+                start_node = ua_client.get_node(node_text_resolved)
+            except Exception as exc:
+                raise _translate_ua_error(exc) from exc
+            return self._browse_node(start_node, recursive, 0, max_depth)
+
+        return self._execute(operation)
+
+    def _browse_node(
+        self,
+        node: Any,
+        recursive: bool,
+        current_depth: int,
+        max_depth: Optional[int],
+    ) -> dict:
+        """递归枚举单层;子节点失败跳过,不影响父级(内部方法)。"""
+        try:
+            children = node.get_children()
+        except Exception:
+            return {}
+        out: Dict[str, dict] = {}
+        for child in children:
+            try:
+                # asyncua.sync.SyncNode 的 get_* 是缓存(刚枚举无缓存值);
+                # read_* 才是真的服务端读。browse_name 是 QualifiedName,取 .Name
+                qn = child.read_browse_name()
+                bn = str(getattr(qn, "Name", qn))
+            except Exception:
+                bn = ""
+            try:
+                nc = child.read_node_class()
+                nc_name = nc.name if hasattr(nc, "name") else str(nc)
+            except Exception:
+                nc_name = "Unknown"
+            entry: dict = {"browse_name": bn, "node_class": nc_name}
+            if recursive and (max_depth is None or current_depth < max_depth):
+                try:
+                    entry["children"] = self._browse_node(
+                        child, recursive, current_depth + 1, max_depth
+                    )
+                except Exception:
+                    entry["children"] = {}  # 子层失败 → 空 dict,不挂外层
+            else:
+                entry["children"] = None
+            out[str(child)] = entry
+        return out
+
+    # ------------------------------------------------------------------
+    # Subscribe — DataChange(v0.35 新增)
+    # ------------------------------------------------------------------
+
+    def subscribe_data_change(
+        self,
+        node_text: str,
+        on_change: Callable[[Any, str, Optional[float]], None],
+        *,
+        sampling_interval_ms: int = 1000,
+    ) -> Tuple[bool, Optional[OpcUaSubscription]]:
+        """订阅节点值变化(DataChange)。
+
+        :param node_text: 节点 NodeId 字符串
+        :param on_change: 回调签名 ``(value, node_id_str, source_timestamp)``;
+            **回调异常被吞掉**(log + 写 last_error,category=UNKNOWN),
+            **不杀订阅**
+        :param sampling_interval_ms: 采样间隔(毫秒,默认 1000)
+        :return: ``(成功, 订阅句柄)``;失败时 ``(False, None)``
+        :raises ValueError: ``sampling_interval_ms <= 0``
+        """
+        if sampling_interval_ms <= 0:
+            raise ValueError(
+                f"sampling_interval_ms 必须大于 0,收到:{sampling_interval_ms}"
+            )
+        if not node_text:
+            raise ValueError("node_text 不能为空")
+        if not callable(on_change):
+            raise ValueError(f"on_change 必须是可调用对象,收到:{type(on_change)!r}")
+
+        def operation() -> OpcUaSubscription:
+            session = self._session()
+            ua_client = session.client
+            handler = _DataChangeHandler(self, on_change)
+            try:
+                # asyncua 1.1.5:sync.Client 直接暴露 create_subscription(非 uaclient);
+                # handler 在订阅级传入,subscribe_data_change 只收节点 + 采样间隔
+                ua_sub = ua_client.create_subscription(
+                    sampling_interval_ms / 1000.0, handler
+                )
+            except Exception as exc:
+                raise _translate_ua_error(exc) from exc
+            try:
+                handles = ua_sub.subscribe_data_change(
+                    [ua_client.get_node(parse_opcua_nodeid(node_text).text)],
+                    sampling_interval=sampling_interval_ms / 1000.0,
+                )
+                monitored = list(handles) if isinstance(handles, (list, tuple)) else [handles]
+            except Exception as exc:
+                try:
+                    ua_sub.delete()
+                except Exception:
+                    pass
+                raise _translate_ua_error(exc) from exc
+            sub_id = int(getattr(ua_sub, "subscription_id", id(ua_sub)))
+
+            def _do_unsubscribe() -> bool:
+                ok = True
+                try:
+                    ua_sub.delete()  # 删除订阅即取消其全部 monitored item
+                except Exception:
+                    ok = False
+                # 从 client 索引中移除
+                with self._lock:
+                    self._active_subscriptions.pop(sub_id, None)
+                return ok
+
+            handle = OpcUaSubscription(
+                node_id=node_text,
+                subscription_id=sub_id,
+                unsub=_do_unsubscribe,
+                _asyncua_subscription=ua_sub,
+                _monitored_items=monitored,
+            )
+            with self._lock:
+                self._active_subscriptions[sub_id] = handle
+            return handle
+
+        return self._execute(operation)
+
+    # ------------------------------------------------------------------
+    # Subscribe — Event(v0.35 新增)
+    # ------------------------------------------------------------------
+
+    def subscribe_event(
+        self,
+        node_text: str,
+        on_event: Callable[[dict, str, Optional[float]], None],
+        *,
+        event_filter: Optional[Any] = None,
+    ) -> Tuple[bool, Optional[OpcUaSubscription]]:
+        """订阅事件(Event)。
+
+        :param node_text: 节点 NodeId 字符串(节点须 EventNotifier = SubscribeToEvents;
+            否则服务端拒订阅)
+        :param on_event: 回调签名 ``(event_fields_dict, node_id_str, source_timestamp)``
+        :param event_filter: 透传 asyncua 的 EventFilter(``None`` = 不过滤)
+        :return: ``(成功, 订阅句柄)``
+        :raises ValueError: 参数非法
+        """
+        if not node_text:
+            raise ValueError("node_text 不能为空")
+        if not callable(on_event):
+            raise ValueError(f"on_event 必须是可调用对象,收到:{type(on_event)!r}")
+
+        def operation() -> OpcUaSubscription:
+            session = self._session()
+            ua_client = session.client
+            handler = _EventHandler(self, on_event)
+            try:
+                # asyncua 1.1.5:sync.Client 直接暴露 create_subscription(非 uaclient)
+                ua_sub = ua_client.create_subscription(0, handler)
+            except Exception as exc:
+                raise _translate_ua_error(exc) from exc
+            try:
+                # subscribe_events(sourcenode, evtypes, evfilter, ...):
+                # handler 已在 create_subscription 订阅级传入;这里只给源节点与过滤
+                node = ua_client.get_node(parse_opcua_nodeid(node_text).text)
+                handle_ev = ua_sub.subscribe_events(node, evfilter=event_filter)
+                monitored = [handle_ev]
+            except Exception as exc:
+                try:
+                    ua_sub.delete()
+                except Exception:
+                    pass
+                raise _translate_ua_error(exc) from exc
+            sub_id = int(getattr(ua_sub, "subscription_id", id(ua_sub)))
+
+            def _do_unsubscribe() -> bool:
+                ok = True
+                try:
+                    ua_sub.delete()  # 删除订阅即取消其全部 monitored item
+                except Exception:
+                    ok = False
+                with self._lock:
+                    self._active_subscriptions.pop(sub_id, None)
+                return ok
+
+            handle = OpcUaSubscription(
+                node_id=node_text,
+                subscription_id=sub_id,
+                unsub=_do_unsubscribe,
+                _asyncua_subscription=ua_sub,
+                _monitored_items=monitored,
+            )
+            with self._lock:
+                self._active_subscriptions[sub_id] = handle
+            return handle
+
+        return self._execute(operation)
 
 
 # ----------------------------------------------------------------------
@@ -461,3 +878,26 @@ def _require_int_range(number: int, data_type: DataType) -> None:
     low, high = _INT_RANGES[data_type]
     if not low <= number <= high:
         raise ValueError(f"{data_type.name} 超出范围 {low}~{high}:{number}")
+
+
+_BROWSE_ALIASES = {
+    "Root": "i=84",       # OPC-UA RootFolder
+    "Objects": "i=85",     # ObjectsFolder
+    "Types": "i=86",       # TypesFolder
+    "Views": "i=87",       # ViewsFolder
+}
+"""OPC-UA 顶层语义别名 → 标准 NodeId(供 :meth:`OpcUaClient.browse` 用;
+``parse_opcua_nodeid`` 不识别非 ``ns=X;...`` 格式,翻译后才能拿到 Node)。"""
+
+
+def _resolve_browse_alias(node_text: str) -> str:
+    """将 browse 接受的别名/NodeId 文本解析为 asyncua ``get_node`` 接受的字符串。
+
+    - 命中别名表(``Root``/``Objects``/``Types``/``Views``)→ 返回对应标准 NodeId
+    - 已是标准 NodeId 格式(``ns=X;...``/``i=...``/``s=...``)→ 通过 :func:`parse_opcua_nodeid` 校验后返回
+    - 都不是 → 让 :func:`parse_opcua_nodeid` 抛出 ValueError(原契约)
+    """
+    if node_text in _BROWSE_ALIASES:
+        return _BROWSE_ALIASES[node_text]
+    # 标准 NodeId 格式:经校验后返回 .text
+    return parse_opcua_nodeid(node_text).text
