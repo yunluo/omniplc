@@ -25,7 +25,7 @@ from concurrent.futures import CancelledError, ThreadPoolExecutor
 from types import TracebackType
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
 
-from ..core.base_client import BaseClient
+from ..core.base_client import BaseClient, ClientStats
 from ..core.errors import ErrorCategory
 from ..cnc import MTConnectClient
 from ..core.constants import (
@@ -238,7 +238,7 @@ class ABaseClient:
         return self._sync.last_error_code
 
     @property
-    def stats(self) -> dict:
+    def stats(self) -> ClientStats:
         """连接健康统计快照(转发同步实例,字段说明见同步版)。"""
         return self._sync.stats
 

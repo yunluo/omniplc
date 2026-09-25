@@ -14,11 +14,12 @@ from __future__ import annotations
 
 import random
 import socket
+import sys
 import threading
 import time
 from abc import ABC, abstractmethod
 from types import TracebackType
-from typing import Callable, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union, cast
 
 from .constants import (
     DEFAULT_CONNECT_TIMEOUT,
@@ -45,6 +46,34 @@ from ..types import DataType, PrimitiveValue
 
 _T = TypeVar("_T")
 _C = TypeVar("_C", bound="BaseClient")
+
+if sys.version_info >= (3, 8):
+    from typing import TypedDict
+else:  # pragma: no cover - Python 3.7 无 typing.TypedDict,退化为 dict 子类
+    TypedDict = dict
+
+
+class ClientStats(TypedDict):
+    """连接健康统计快照(:attr:`BaseClient.stats` 的返回类型)。
+
+    字段语义见 :attr:`BaseClient.stats`。运行期**就是普通 dict**
+    (Python 3.7 无 ``typing.TypedDict``,退化为 dict 子类),声明字段只为
+    类型检查与 IDE 补全服务;下游项目可直接::
+
+        from omniplc import ClientStats
+
+        def dump(s: ClientStats) -> None: ...
+    """
+
+    connect_count: int
+    disconnect_count: int
+    transactions: int
+    error_count: int
+    device_error_count: int
+    last_error_at: Optional[float]
+    last_connect_at: Optional[float]
+    last_success_at: Optional[float]
+    last_rtt: Optional[float]
 
 
 def validate_endpoint(ip_address: str, port: int) -> None:
@@ -101,7 +130,7 @@ class BaseClient(ABC):
         self._tag_table: Optional[TagTable] = None
         # 连接健康统计:计数器(int)与时间戳(float)分两组,避免 mypy 在
         # `Dict[str, Union[int, float, None]]` 上把 `+= 1` 误判为非法运算;
-        # 公开 stats 属性再合并为单 dict 快照。
+        # 键集即公开契约 ClientStats,由 :attr:`stats` 合并为只读快照。
         self._counters: Dict[str, int] = {
             "connect_count": 0,
             "disconnect_count": 0,
@@ -115,7 +144,6 @@ class BaseClient(ABC):
             "last_success_at": None,
             "last_rtt": None,
         }
-        """连接健康统计(锁内更新;公开只读快照见 :attr:`stats`)。"""
 
     # ------------------------------------------------------------------
     # 连接管理
@@ -329,10 +357,11 @@ class BaseClient(ABC):
             return self._last_error_code
 
     @property
-    def stats(self) -> dict:
-        """连接健康统计快照(只读 dict,锁内取)。
+    def stats(self) -> ClientStats:
+        """连接健康统计快照(:class:`ClientStats`,锁内取)。
 
-        字段:
+        返回的是 ``ClientStats``(TypedDict,运行期即普通 dict;字段见下),
+        每次拷贝一份,改动返回值不影响内部计数。
 
         - ``connect_count``:成功建连次数(含惰性重连)
         - ``disconnect_count``:关闭的连接数(显式 disconnect 与
@@ -349,7 +378,7 @@ class BaseClient(ABC):
         出错/多久没成功"。
         """
         with self._lock:
-            return dict(self._counters, **self._timestamps)
+            return cast(ClientStats, dict(self._counters, **self._timestamps))
 
     def _record_error(self) -> None:
         """登记一次失败(错误计数 + 时间戳,内部方法,须锁内调用)。"""

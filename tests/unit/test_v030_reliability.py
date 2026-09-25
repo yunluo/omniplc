@@ -26,7 +26,7 @@ import pytest
 
 from omniplc import aio
 from omniplc.core import errors
-from omniplc.core.base_client import BaseClient
+from omniplc.core.base_client import BaseClient, ClientStats
 from omniplc.core.constants import (
     FINS_MAX_DATAGRAM,
     MC_MAX_DATAGRAM,
@@ -750,6 +750,54 @@ class TestAioStatsForwarding:
             assert s["transactions"] == 1
         finally:
             asyncio.run(async_client.close())
+
+    def test_async_stats_keys_match_typed_dict(self) -> None:
+        """异步镜像转发同一份快照,键集与 ``ClientStats`` 声明一致。"""
+        sync = _ScriptedSyncForAio()
+        async_client = aio.AModbusTcpClient.__new__(aio.AModbusTcpClient)
+        aio.ABaseClient.__init__(async_client, sync)
+        try:
+            assert set(async_client.stats) == set(ClientStats.__annotations__)
+        finally:
+            asyncio.run(async_client.close())
+
+
+# ----------------------------------------------------------------------
+# B1.b stats 返回类型(ClientStats / TypedDict)
+# ----------------------------------------------------------------------
+
+
+class TestClientStatsType:
+    """``stats`` 的类型契约:声明字段 = 运行期快照键集,且为隔离拷贝。"""
+
+    def test_snapshot_keys_match_declared_fields(self) -> None:
+        """快照键集 == ``ClientStats`` 声明字段(新增计数漏声明/漏快照即红)。"""
+        client = _ScriptedSyncForAio()
+        client.connect()
+        client.read_short("hr0")
+        assert set(client.stats) == set(ClientStats.__annotations__)
+
+    def test_runtime_snapshot_is_plain_dict(self) -> None:
+        """声明只为类型检查与 IDE 补全服务:运行期就是普通 dict。"""
+        client = _ScriptedSyncForAio()
+        assert type(client.stats) is dict
+
+    def test_snapshot_is_isolated_copy(self) -> None:
+        """改返回值不影响内部计数(每次返回拷贝)。"""
+        client = _ScriptedSyncForAio()
+        client.connect()
+        client.read_short("hr0")
+        snapshot = client.stats
+        snapshot["transactions"] = 99
+        assert client.stats["transactions"] == 1
+
+    def test_exported_from_package_and_core(self) -> None:
+        """下游可从包顶层与 ``omniplc.core`` 取到同一类型。"""
+        import omniplc
+        import omniplc.core
+
+        assert omniplc.ClientStats is ClientStats
+        assert omniplc.core.ClientStats is ClientStats
 
 
 # ----------------------------------------------------------------------

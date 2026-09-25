@@ -40,7 +40,7 @@ from __future__ import annotations
 
 from . import convert
 from .cnc import MTConnectClient
-from .core.base_client import BaseClient
+from .core.base_client import BaseClient, ClientStats
 from .core.debug import set_debug
 from .core.errors import ErrorCategory
 from .modbus import ModbusArea, ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
@@ -81,6 +81,8 @@ __description__ = "多品牌多协议 PLC/扫码枪统一通信库(Modbus / 三�
 __all__ = [
     # ---- 客户端基类 ----
     "BaseClient",
+    # ---- 连接健康统计快照类型 ----
+    "ClientStats",
     # ---- Modbus 客户端 ----
     "ModbusBaseClient",
     "ModbusTcpClient",
