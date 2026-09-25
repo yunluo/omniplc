@@ -400,7 +400,16 @@ stateDiagram-v2
 
 `convert.py` 提供全部转换纯函数:`crc16 / lrc / get_bit / set_bit`、
 `bytes ↔ int16/uint16`、`registers ↔ int32/uint32/float32/float64(四字序)`、
-`encode_string / decode_string`。字序变换为对合变换,编解码共用一套实现。
+`encode_string / decode_string`、`words_to_value / value_to_words`
+(统一的多字解码/编码入口)。字序变换为对合变换,编解码共用一套实现。
+
+`words_to_value` 按数据类型解码:数值类型(SHORT/USHORT/INT/UINT/LONG/
+ULONG/FLOAT/DOUBLE)要求字数与尺寸严格匹配;`BOOL` 取 1 个字、按"字值非 0
+即 True"(字节序不参与);`STRING` **不限字数**——入参几个字就解几个字,
+按 `byteorder` 拼字节后 `\x00` 截断、按 `encoding`(默认 ascii)解码,
+寄存器文本通常按大端存放故读文本要显式传 `ByteOrder.BIG`。反方向
+`value_to_words` **只收数值类型**:编码的目标长度(寄存器个数)必须由调用方
+给出,字符串请走 `encode_string` 编码到目标字节长度——这个不对称是有意的。
 
 ### 6.1.1 字符串参数枚举化(类型检查与 IDE 补全)
 
@@ -436,7 +445,15 @@ stateDiagram-v2
 - 追加 **ty**(Astral)作为第二类型检查器(`uvx ty check`,配置见
   `pyproject.toml` 的 `[tool.ty.src]`),双检查器交叉验证;
   不使用 `# type: ignore[...]` 工具特定抑制码,可空传输引用一律用
-  局部变量 + 断言收窄(两种检查器通用)。
+  局部变量 + 断言收窄(两种检查器通用);
+- 结构化返回用 **`TypedDict`** 声明公开契约:`ClientStats`(`BaseClient.stats`
+  的快照类型,字段表见该属性 docstring)从包顶层导出供下游标注;
+  3.7 无 `typing.TypedDict`——按 `sys.version_info >= (3, 8)` 分支导真类型、
+  低版本退化为 `dict` 子类(类体只有注解,运行期取值方式零变化),
+  **不引入 `typing_extensions` 运行期依赖**(核心零依赖不变);
+  两套检查器对 TypedDict 的收窄口径不一致(ty 不认 dict 字面量赋值与
+  `TypedDict.copy()`,mypy 可以),故快照行用一处 `cast(ClientStats, ...)`
+  兼容,并在测试里锁"快照键集 == 声明字段"防漂移。
 
 ### 6.3 核心接口签名(完整版见源码 docstring)
 
@@ -456,6 +473,8 @@ class BaseClient(ABC):
     def retries(self) -> int: ...                    # 读重试次数
     @property
     def write_retries(self) -> int: ...              # 写重试次数,默认 0
+    @property
+    def stats(self) -> ClientStats: ...              # TypedDict 快照(键集即契约)
 
     def read(self, address: str, data_type: str) -> Tuple[bool, Optional[PrimitiveValue]]: ...
     def write(self, address: str, data_type: str, value: PrimitiveValue) -> bool: ...

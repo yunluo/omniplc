@@ -452,7 +452,11 @@ OPC-UA 除拉模式读写外,还支持服务端**推**数据与事件:
 
 #### 连接健康统计(v0.30.0 起)
 
-所有 `BaseClient` 子类提供 `client.stats` 只读快照,字段:
+所有 `BaseClient` 子类提供 `client.stats` 只读快照,返回类型
+`omniplc.ClientStats`——`TypedDict`,字段名可被 IDE 与类型检查补全
+(运行期**就是普通 dict**:3.7 无 `typing.TypedDict`,退化为 dict 子类,
+取值方式与既有行为完全不变),且每次返回**拷贝**,改返回值不影响内部计数。
+字段:
 
 - `connect_count` / `disconnect_count` / `transactions` / `error_count` /
   `device_error_count`:计数器(锁内更新);`device_error_count` 只计 PLC
@@ -470,6 +474,17 @@ s = client.stats
 if s["error_count"] > 10 and (s["last_success_at"] or 0) < (time.monotonic() - 60):
     # 错误多且一分钟没成功过:报警/触发诊断
     ...
+```
+
+需要静态检查/补全时标注返回类型即可:
+
+```python
+from omniplc import ClientStats
+
+def dump(s: ClientStats) -> None:
+    print(s["transactions"], s["last_rtt"])
+
+dump(client.stats)   # 键名拼错、字段用错类型在 mypy/pyright 阶段即报
 ```
 
 #### 真机联测待做(v0.30.0 整理)
