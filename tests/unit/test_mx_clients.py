@@ -13,8 +13,17 @@ import asyncio
 import re
 from typing import Any
 
-import comtypes
 import pytest
+
+try:
+    import comtypes
+except ImportError:
+    # 非 Windows 平台:comtypes 安装成功但导入期即抛(COM 仅限 Windows),
+    # 模块级跳过,避免 pytest 收集期中断整轮门禁(ubuntu CI)
+    pytest.skip(
+        "comtypes(MX Component)仅限 Windows 平台",
+        allow_module_level=True,
+    )
 
 from omniplc import MelsecMxClient
 from omniplc.aio import AMelsecMxClient
