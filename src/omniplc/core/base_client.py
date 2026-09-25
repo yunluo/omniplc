@@ -340,7 +340,7 @@ class BaseClient(ABC):
         - ``transactions``:已执行的协议事务数(含失败尝试)
         - ``error_count``:失败总数(设备错误 + 传输错误 + 建连失败)
         - ``device_error_count``:PLC 明确返回错误码的次数(链路完好;
-          接收超时不计入——它不是设备返回的码)
+          接收超时与无码失败——能力缺失、设备侧条件——不计入)
         - ``last_error_at`` / ``last_connect_at`` / ``last_success_at``:
           ``time.monotonic()`` 时间戳(秒)
         - ``last_rtt``:最近一次成功事务的往返耗时(秒,含 PLC 等待)
@@ -504,7 +504,14 @@ class BaseClient(ABC):
         return True, str(value)
 
     def write_bool(self, address: str, value: bool) -> bool:
-        """写入布尔量(位)。"""
+        """写入布尔量(位)。
+
+        :param value: 真值(``bool``;兼容 ``int`` 0/1)
+        :raises ValueError: value 不是 bool/int——``"0"``/``"false"`` 这类非空
+            字符串会被 ``bool()`` 吞成 ``True`` 而写反,显式拒绝而不是静默写错
+        """
+        if isinstance(value, str) or not isinstance(value, int):
+            raise ValueError(f"布尔量必须是 bool,收到:{type(value).__name__}")
         return self.write(address, DataType.BOOL, bool(value))
 
     def write_short(self, address: str, value: int) -> bool:
@@ -658,8 +665,12 @@ class BaseClient(ABC):
                     self._set_error(_describe(exc), _categorize(exc), _extract_code(exc))
                     continue
                 except DeviceError as exc:
-                    self._set_error(_describe(exc), _categorize(exc), _extract_code(exc))
-                    self._counters["device_error_count"] += 1
+                    code = _extract_code(exc)
+                    self._set_error(_describe(exc), _categorize(exc), code)
+                    if code is not None:
+                        # 只计"PLC 明确返回错误码"的次数:code=0 的无码失败
+                        # (能力缺失、设备侧条件、超时)不计入
+                        self._counters["device_error_count"] += 1
                     return False, None
                 except (OSError, OmniPLCInternalError) as exc:
                     self._set_error(_describe(exc), _categorize(exc), _extract_code(exc))

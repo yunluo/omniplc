@@ -751,7 +751,11 @@ class TestTimeoutAndCodeSemantics:
         assert client.stats["error_count"] == 2  # 每次尝试各记一次失败
 
     def test_device_error_without_code_maps_to_none(self) -> None:
-        """``DeviceError(code=0)`` = 无具体错误码,不写进 ``last_error_code``。"""
+        """``DeviceError(code=0)`` = 无具体错误码:不写 ``last_error_code``,也不计数。
+
+        ``device_error_count`` 只计"PLC 明确返回错误码"的次数——能力缺失、
+        设备侧条件(如 MTConnect 数据项不存在)这类无码失败不计入。
+        """
         client = _ScriptedSyncForAio()
         client.connect()
 
@@ -763,10 +767,11 @@ class TestTimeoutAndCodeSemantics:
         assert client.last_error_code is None
         assert client.last_error_category is errors.ErrorCategory.DEVICE
         assert client.connected is True  # 能力缺失不断线
-        assert client.stats["device_error_count"] == 1
+        assert client.stats["device_error_count"] == 0  # 无码不计入
+        assert client.stats["error_count"] == 1  # 但仍算一次失败
 
     def test_device_error_code_preserved(self) -> None:
-        """有码的 ``DeviceError`` 照原样写进 ``last_error_code``。"""
+        """有码的 ``DeviceError`` 照原样写进 ``last_error_code`` 并计入设备错误。"""
         client = _ScriptedSyncForAio()
         client.connect()
 
@@ -799,3 +804,22 @@ class TestTimeoutAndCodeSemantics:
         assert client.last_error_category is errors.ErrorCategory.TRANSPORT
         assert client.connected is False
         assert client.stats["device_error_count"] == 0
+
+
+class TestWriteBoolValueValidation:
+    """``write_bool`` 的值校验:非 bool/int 直接拒绝,不静默写反。"""
+
+    @pytest.mark.parametrize("bad", ["0", "false", "True", 1.0, None])
+    def test_non_bool_values_rejected(self, bad: object) -> None:
+        """``"0"`` 这类非空字符串曾被 ``bool()`` 吞成 ``True``(写反)。"""
+        client = _ScriptedSyncForAio()
+        client.connect()
+        with pytest.raises(ValueError):
+            client.write_bool("m0", bad)  # type: ignore[arg-type]
+
+    def test_bool_and_int_still_accepted(self) -> None:
+        """bool 与 int 0/1(现场习惯写法)照常写入。"""
+        client = _ScriptedSyncForAio()
+        client.connect()
+        for value in (True, False, 1, 0):
+            assert client.write_bool("m0", value) is True

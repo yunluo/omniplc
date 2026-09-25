@@ -360,6 +360,8 @@ stateDiagram-v2
 
   写入统一经 `_set_error`/`_clear_error`(与 `_last_error` 同锁同步),
   驱动直写点(SR 扫码枪、AB 解码)已全部迁移。**新增异常类型时必须同步规则表**。
+  `device_error_count` 只计"PLC 明确返回错误码"的次数:`code=0` 的无码失败
+  (能力缺失、设备侧条件)与接收超时都不计入,但仍计入 `error_count`。
 
   **超时的两种走线语义**:TCP 接收超时抛 `socket.timeout`(OSError 语义),
   按"连接可能已死 + 迟到响应残留在 socket 缓冲"**拆连**重连;串口/UDP 抛
