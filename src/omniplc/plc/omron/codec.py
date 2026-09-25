@@ -43,6 +43,7 @@ from ...core.constants import (
     FINS_TCP_HEADER_SIZE,
     FINS_TCP_MAGIC,
 )
+from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
 
 
@@ -196,12 +197,13 @@ def parse_multiple_area_read(frame: bytes, codes: Sequence[int]) -> List[int]:
 
     :raises omniplc.core.errors.DeviceError: 结束码非 0
     :raises omniplc.core.errors.ProtocolFrameError: 帧结构/区码回显不符
+        (消息带**收到的原始帧**十六进制转储,便于现场与抓包比对)
     """
     prefix = FINS_HEADER_SIZE + 2
     if len(frame) < prefix + FINS_END_CODE_SIZE:
         raise ProtocolFrameError(
-            "FINS 响应不完整:至少 {} 字节,实际 {}".format(
-                prefix + FINS_END_CODE_SIZE, len(frame)
+            "FINS 响应不完整:至少 {} 字节,实际 {}(收到的原始帧:{})".format(
+                prefix + FINS_END_CODE_SIZE, len(frame), format_hex(frame)
             )
         )
     end_code = int.from_bytes(frame[12:14], "big")
@@ -212,8 +214,8 @@ def parse_multiple_area_read(frame: bytes, codes: Sequence[int]) -> List[int]:
     data = frame[14:14 + expected]
     if len(data) != expected:
         raise ProtocolFrameError(
-            "FINS 多存储区读响应数据不足:期望 {} 字节,实际 {}".format(
-                expected, len(data)
+            "FINS 多存储区读响应数据不足:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+                expected, len(data), format_hex(frame)
             )
         )
     words: List[int] = []
@@ -222,8 +224,8 @@ def parse_multiple_area_read(frame: bytes, codes: Sequence[int]) -> List[int]:
         echo = data[base]
         if echo != code:
             raise ProtocolFrameError(
-                "FINS 多存储区读区码回显不符:期望 0x{:02X},收到 0x{:02X}".format(
-                    code, echo
+                "FINS 多存储区读区码回显不符:期望 0x{:02X},收到 0x{:02X}(收到的原始帧:{})".format(
+                    code, echo, format_hex(frame)
                 )
             )
         words.append(int.from_bytes(data[base + 1:base + 3], "big"))
@@ -240,12 +242,13 @@ def parse_response(frame: bytes, count: int, is_bit: bool, is_read: bool) -> Lis
     :return: 读为逐点数据(位 0/1,字 0~65535);写恒为空列表
     :raises omniplc.core.errors.DeviceError: 结束码非 0
     :raises omniplc.core.errors.ProtocolFrameError: 帧结构不符
+        (消息带**收到的原始帧**十六进制转储,便于现场与抓包比对)
     """
     prefix = FINS_HEADER_SIZE + 2
     if len(frame) < prefix + FINS_END_CODE_SIZE:
         raise ProtocolFrameError(
-            "FINS 响应不完整:至少 {} 字节,实际 {}".format(
-                prefix + FINS_END_CODE_SIZE, len(frame)
+            "FINS 响应不完整:至少 {} 字节,实际 {}(收到的原始帧:{})".format(
+                prefix + FINS_END_CODE_SIZE, len(frame), format_hex(frame)
             )
         )
     end_code = int.from_bytes(frame[12:14], "big")
@@ -258,7 +261,9 @@ def parse_response(frame: bytes, count: int, is_bit: bool, is_read: bool) -> Lis
     data = frame[14:14 + expected]
     if len(data) != expected:
         raise ProtocolFrameError(
-            "FINS 响应数据不足:期望 {} 字节,实际 {}".format(expected, len(data))
+            "FINS 响应数据不足:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+                expected, len(data), format_hex(frame)
+            )
         )
     if is_bit:
         return [int(byte) for byte in data]
@@ -291,13 +296,20 @@ def parse_tcp_head(head: bytes) -> int:
     """校验 FINS/TCP 帧头(8 字节)并返回长度域(后续字节数)。
 
     :raises ProtocolFrameError: 魔数不符、帧头过短或长度域超限
+        (消息带**收到的原始帧头**十六进制转储,便于现场与抓包比对)
     """
     if len(head) < FINS_TCP_HEADER_SIZE or head[:4] != FINS_TCP_MAGIC:
-        raise ProtocolFrameError("FINS/TCP 帧头非法:{}".format(head.hex()))
+        raise ProtocolFrameError(
+            "FINS/TCP 帧头非法:{}(收到的原始数据:{})".format(
+                head.hex(), format_hex(head)
+            )
+        )
     length = int.from_bytes(head[4:8], "big")
     if length > FINS_MAX_TCP_FRAME:
         raise ProtocolFrameError(
-            f"FINS/TCP 长度域超限:{length} > {FINS_MAX_TCP_FRAME}"
+            "FINS/TCP 长度域超限:{} > {}(收到的原始帧头:{})".format(
+                length, FINS_MAX_TCP_FRAME, format_hex(head)
+            )
         )
     return length
 
@@ -306,16 +318,21 @@ def parse_handshake_response(frame: bytes) -> Tuple[int, int]:
     """解析握手响应,返回 ``(本地节点号, PLC 节点号)``。
 
     :raises ProtocolFrameError: 帧不完整或握手错误码非 0
+        (消息带**收到的原始帧**十六进制转储,便于现场与抓包比对)
     """
     if len(frame) < FINS_HANDSHAKE_RESPONSE_SIZE:
         raise ProtocolFrameError(
-            "FINS/TCP 握手响应不完整:期望 {} 字节,实际 {}".format(
-                FINS_HANDSHAKE_RESPONSE_SIZE, len(frame)
+            "FINS/TCP 握手响应不完整:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+                FINS_HANDSHAKE_RESPONSE_SIZE, len(frame), format_hex(frame)
             )
         )
     error = int.from_bytes(frame[12:16], "big")
     if error != 0:
-        raise ProtocolFrameError(f"FINS/TCP 握手失败,错误码 0x{error:08X}")
+        raise ProtocolFrameError(
+            "FINS/TCP 握手失败,错误码 0x{:08X}(收到的原始帧:{})".format(
+                error, format_hex(frame)
+            )
+        )
     return frame[19], frame[23]
 
 
@@ -332,22 +349,34 @@ def build_tcp_frame(fins_frame: bytes) -> bytes:
 def extract_tcp_error(content: bytes) -> None:
     """校验 FINS/TCP 数据帧的错误域(帧内偏移 4~8,大端 4 字节)。
 
-    :raises ProtocolFrameError: 错误码非 0
+    :raises ProtocolFrameError: 错误码非 0(消息带收到的原始数据转储)
     """
     if len(content) < 8:
-        raise ProtocolFrameError("FINS/TCP 数据帧过短:{}".format(len(content)))
+        raise ProtocolFrameError(
+            "FINS/TCP 数据帧过短:{} 字节(收到的原始数据:{})".format(
+                len(content), format_hex(content)
+            )
+        )
     error = int.from_bytes(content[4:8], "big")
     if error != 0:
-        raise ProtocolFrameError(f"FINS/TCP 错误码 0x{error:08X}")
+        raise ProtocolFrameError(
+            "FINS/TCP 错误码 0x{:08X}(收到的原始数据:{})".format(
+                error, format_hex(content)
+            )
+        )
 
 
 def extract_tcp_payload(content: bytes) -> bytes:
     """取 FINS/TCP 数据帧中的 FINS 帧(偏移 8 起)。
 
-    :raises ProtocolFrameError: 内容过短
+    :raises ProtocolFrameError: 内容过短(消息带收到的原始数据转储)
     """
     if len(content) < 8:
-        raise ProtocolFrameError("FINS/TCP 数据帧过短:{}".format(len(content)))
+        raise ProtocolFrameError(
+            "FINS/TCP 数据帧过短:{} 字节(收到的原始数据:{})".format(
+                len(content), format_hex(content)
+            )
+        )
     return content[8:]
 
 

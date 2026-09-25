@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from typing import List
 
 import pytest
 
@@ -152,6 +153,102 @@ class TestUdpTransport:
             assert "1024" in str(excinfo.value)
             # code 字段承载原 WSAEMSGSIZE errno(10040)便于应用层判定
             assert excinfo.value.code == 10040
+        finally:
+            transport.close()
+
+
+class _FakeSerialPort:
+    """可编程假串口:read 按脚本逐项吐字节,脚本耗尽回空字节(模拟超时)。"""
+
+    def __init__(self, script: List[bytes]) -> None:
+        self.script = list(script)
+        self.timeout = 0.0
+        self.write_timeout = 0.0
+        self.closed = False
+
+    def open(self) -> None:
+        pass
+
+    def close(self) -> None:
+        self.closed = True
+
+    def write(self, data: bytes) -> int:
+        return len(data)
+
+    def read(self, size: int) -> bytes:
+        if not self.script:
+            return b""
+        chunk = self.script.pop(0)
+        return chunk[:size]
+
+
+class TestSerialTransportRecv:
+    """串口 recv 超时三分支(0 字节不断线 / 帧截断断线重同步 / 正常读满)。
+
+    用假 pyserial 模块替换 ``sys.modules["serial"]``——SerialTransport
+    在 connect() 里才延迟导入,无需真实串口。
+    """
+
+    @staticmethod
+    def _make_transport(monkeypatch: pytest.MonkeyPatch, script: List[bytes]):
+        import sys
+        import types
+
+        port = _FakeSerialPort(script)
+        fake = types.ModuleType("serial")
+        fake.Serial = lambda: port  # type: ignore[attr-defined]
+        fake.PARITY_NONE = "N"  # type: ignore[attr-defined]
+        fake.PARITY_EVEN = "E"  # type: ignore[attr-defined]
+        fake.PARITY_ODD = "O"  # type: ignore[attr-defined]
+        fake.FIVEBITS = 5  # type: ignore[attr-defined]
+        fake.SIXBITS = 6  # type: ignore[attr-defined]
+        fake.SEVENBITS = 7  # type: ignore[attr-defined]
+        fake.EIGHTBITS = 8  # type: ignore[attr-defined]
+        fake.STOPBITS_ONE = 1  # type: ignore[attr-defined]
+        fake.STOPBITS_ONE_POINT_FIVE = 1.5  # type: ignore[attr-defined]
+        fake.STOPBITS_TWO = 2  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "serial", fake)
+
+        from omniplc.transport.serial import SerialTransport
+
+        transport = SerialTransport(SerialConfig(port_name="COM3"))
+        transport.receive_timeout = 0.1
+        transport.connect()
+        return transport, port
+
+    def test_recv_exact(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        transport, port = self._make_transport(monkeypatch, [b"AB", b"CD"])
+        try:
+            assert transport.recv(4) == b"ABCD"
+            assert port.closed is False
+        finally:
+            transport.close()
+
+    def test_recv_timeout_zero_bytes_keeps_link(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """0 字节已读超时:TransportTimeoutError(不断线),串口保持打开。"""
+        from omniplc.core.errors import TransportTimeoutError
+
+        transport, port = self._make_transport(monkeypatch, [])
+        try:
+            with pytest.raises(TransportTimeoutError):
+                transport.recv(4)
+            assert port.closed is False  # 线上安静,无残渣,不断线
+        finally:
+            transport.close()
+
+    def test_recv_partial_truncation_closes_port(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """部分字节已读后超时(帧截断):TransportClosedError + 串口已主动关闭
+        ——残渣已被消费、无法回退,下一帧开头必然错位,断线重开是唯一
+        重新同步手段(与 RTU CRC 校验失败后的断线恢复同一逻辑)。
+        """
+        from omniplc.core.errors import TransportClosedError
+
+        transport, port = self._make_transport(monkeypatch, [b"AB"])
+        try:
+            with pytest.raises(TransportClosedError) as excinfo:
+                transport.recv(4)
+            assert port.closed is True
+            assert "2/4" in str(excinfo.value)  # 消息带已收/期望字节数
         finally:
             transport.close()
 

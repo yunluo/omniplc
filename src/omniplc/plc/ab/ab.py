@@ -45,6 +45,7 @@ from ...core.constants import (
     INT32_MAX,
     UINT16_MAX,
 )
+from ...core.debug import format_hex
 from ...core.errors import DeviceError, OmniPLCInternalError, ProtocolFrameError
 from ...core.validation import require_bool
 from ...transport import BaseTransport, TcpTransport
@@ -225,7 +226,11 @@ class AllenBradleyEthIpClient(BaseClient):
         head = transport.recv(codec_cip.EIP_HEADER_SIZE)
         length = int.from_bytes(head[2:4], "little")
         if length > AB_EIP_MAX_FRAME:
-            raise ProtocolFrameError(f"ENIP 长度域超限:{length} > {AB_EIP_MAX_FRAME}")
+            raise ProtocolFrameError(
+                "ENIP 长度域超限:{} > {}(收到的原始帧头:{})".format(
+                    length, AB_EIP_MAX_FRAME, format_hex(head)
+                )
+            )
         return head + transport.recv(length)
 
     def _next_sequence(self) -> int:

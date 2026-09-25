@@ -36,6 +36,7 @@ from ..core.constants import (
     UINT32_MAX,
     UINT64_MAX,
 )
+from ..core.debug import format_hex
 from ..core.errors import ProtocolFrameError
 from ..core.validation import (
     check_int16,
@@ -288,20 +289,27 @@ class ModbusTcpClient(ModbusBaseClient):
         """MBAP 事务:组帧→发送→按长度收→校验事务号/站号→返回 PDU。
 
         TCP 无广播语义(Unit ID 为路由字段),站号 0 照常等待响应。
+        事务号/站号不匹配属坏帧,异常文本带收到的原始帧(便于判断是
+       迟到的上一条响应、串口/网关错配还是对端语义不符)。
         """
         transport = self._require_transport()
         sent_id = self._bump_id("_transaction_id", 16)
         transport.send(codec.build_mbap(sent_id, self.station, pdu))
         header = transport.recv(MBAP_HEADER_SIZE)
         transaction_id, length = codec.parse_mbap_header(header)
-        received_id, station, response_pdu = codec.parse_mbap(header + transport.recv(length - 1))
+        frame = header + transport.recv(length - 1)
+        received_id, station, response_pdu = codec.parse_mbap(frame)
         if received_id != sent_id:
             raise ProtocolFrameError(
-                f"MBAP 事务号不匹配:期望 {sent_id},收到 {received_id}"
+                "MBAP 事务号不匹配:期望 {},收到 {}(收到的原始帧:{})".format(
+                    sent_id, received_id, format_hex(frame)
+                )
             )
         if station != self.station:
             raise ProtocolFrameError(
-                f"MBAP 站号不匹配:期望 {self.station},收到 {station}"
+                "MBAP 站号不匹配:期望 {},收到 {}(收到的原始帧:{})".format(
+                    self.station, station, format_hex(frame)
+                )
             )
         codec.check_response_exception(response_pdu, pdu[0])
         return response_pdu
@@ -368,6 +376,8 @@ class ModbusRtuClient(ModbusBaseClient):
 
         异常响应(功能码 | 0x80)恒为 2 字节 PDU,读到功能码后先行分支;
         广播写(expect_response=False)发送后不等响应,设备不回包。
+        站号不匹配属坏帧(多为总线上其他从站的迟到响应),异常文本带
+        收到的原始帧。
         """
         transport = self._require_transport()
         station = self.station
@@ -376,14 +386,15 @@ class ModbusRtuClient(ModbusBaseClient):
             return b""
         head = transport.recv(2)
         if head[1] & MODBUS_EXCEPTION_FLAG:
-            received_station, response_pdu = codec.parse_rtu_frame(head + transport.recv(3))
+            frame = head + transport.recv(3)
         else:
-            received_station, response_pdu = codec.parse_rtu_frame(
-                head + transport.recv(codec.expected_response_length(pdu) + 1)
-            )
+            frame = head + transport.recv(codec.expected_response_length(pdu) + 1)
+        received_station, response_pdu = codec.parse_rtu_frame(frame)
         if received_station != station:
             raise ProtocolFrameError(
-                f"RTU 站号不匹配:期望 {station},收到 {received_station}"
+                "RTU 站号不匹配:期望 {},收到 {}(收到的原始帧:{})".format(
+                    station, received_station, format_hex(frame)
+                )
             )
         codec.check_response_exception(response_pdu, pdu[0])
         return response_pdu

@@ -16,6 +16,7 @@ from omniplc.core.constants import (
     MEWTOCOL_DEFAULT_PORT,
     MEWTOCOL_STATION_DIRECT,
 )
+from omniplc.core.debug import format_hex
 from omniplc.plc.panasonic import codec_mewtocol
 from scripted import ScriptedTransport
 
@@ -183,16 +184,20 @@ def test_error_response_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_bcc_mismatch_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
-    """BCC 校验失败按坏帧处理:标记断开等待惰性重连。"""
+    """BCC 校验失败按坏帧处理:标记断开等待惰性重连;错误信息带收到的原始帧。"""
     client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
     frame = _resp("RD", "2710")
     corrupted = bytearray(frame)
     corrupted[-2] ^= 0x01
-    scripted = ScriptedTransport([bytes(corrupted[:4]), bytes(corrupted[4:])])
+    corrupted = bytes(corrupted)
+    scripted = ScriptedTransport([corrupted[:4], corrupted[4:]])
     _mount(monkeypatch, client, scripted)
     client.connect()
     assert client.read_ushort("D100") == (False, None)
     assert client.connected is False
+    assert client.last_error is not None and "BCC" in client.last_error
+    # 现场排查需要原始字节:噪声误码 vs 收发错位靠帧内容区分
+    assert format_hex(corrupted) in client.last_error
 
 
 def test_station_echo_mismatch_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:

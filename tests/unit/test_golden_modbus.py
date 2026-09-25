@@ -12,7 +12,8 @@ from typing import Any, Dict, List, Tuple
 
 import pytest
 
-from omniplc.core.errors import DeviceError
+from omniplc.core.debug import format_hex
+from omniplc.core.errors import DeviceError, ProtocolFrameError
 from omniplc.modbus import codec
 
 GOLDEN_DIR = Path(__file__).resolve().parent.parent / "golden"
@@ -122,3 +123,64 @@ def test_mbap_header_and_response_length_helpers() -> None:
     assert codec.expected_response_length(bytes([6, 0, 5, 0, 3])) == 5
     with pytest.raises(DeviceError):
         codec.check_response_exception(bytes([0x83, 0x02]), 3)
+
+
+class TestFrameErrorMessageCarriesRawData:
+    """坏帧/校验失败的异常文本必须带**收到的原始数据**(十六进制转储)。
+
+    现场排查(线路噪声 / 收发错位 / 站号错配 / 网关语义不符)需要原始字节
+    与抓包逐字节比对;只报"CRC 不符"无法区分成因。转储口径统一走
+    :func:`omniplc.core.debug.format_hex`(大写、空格分隔)。
+    """
+
+    def test_rtu_crc_failure_message_has_raw_frame(self) -> None:
+        frame = bytearray(codec.build_rtu_frame(1, bytes([3, 2, 0x00, 0x14])))
+        frame[-1] ^= 0xFF  # 篡改 CRC 制造校验失败
+        frame = bytes(frame)
+        with pytest.raises(ProtocolFrameError) as excinfo:
+            codec.parse_rtu_frame(frame)
+        message = str(excinfo.value)
+        assert "CRC 校验失败" in message
+        assert format_hex(frame) in message  # 原始帧逐字节可见
+        assert "计算 0x" in message and "收到 0x" in message  # 双 CRC 值仍在
+
+    def test_rtu_short_frame_message_has_raw_data(self) -> None:
+        with pytest.raises(ProtocolFrameError) as excinfo:
+            codec.parse_rtu_frame(b"\x01\x03")
+        message = str(excinfo.value)
+        assert "帧过短" in message
+        assert format_hex(b"\x01\x03") in message
+
+    def test_mbap_protocol_id_message_has_raw_header(self) -> None:
+        header = bytearray(codec.build_mbap(1, 1, bytes([3, 2, 0x00, 0x14]))[:7])
+        header[2:4] = b"\x00\x01"  # 协议标识符非 0
+        header = bytes(header)
+        with pytest.raises(ProtocolFrameError) as excinfo:
+            codec.parse_mbap_header(header)
+        message = str(excinfo.value)
+        assert "协议标识符" in message
+        assert format_hex(header) in message
+
+    def test_mbap_length_over_frame_message_has_raw_data(self) -> None:
+        full = codec.build_mbap(1, 1, bytes([3, 2, 0x00, 0x14]))
+        with pytest.raises(ProtocolFrameError) as excinfo:
+            codec.parse_mbap(full[:7])  # 只有帧头,长度字段声明的数据缺失
+        message = str(excinfo.value)
+        assert "超出实际帧长" in message
+        assert format_hex(full[:7]) in message
+
+    def test_response_function_code_mismatch_has_raw_pdu(self) -> None:
+        pdu = bytes([4, 2, 0x00, 0x14])  # 请求 FC03,响应回 FC04
+        with pytest.raises(ProtocolFrameError) as excinfo:
+            codec.check_response_exception(pdu, 3)
+        message = str(excinfo.value)
+        assert "功能码不符" in message
+        assert format_hex(pdu) in message
+
+    def test_read_response_length_mismatch_has_raw_pdu(self) -> None:
+        pdu = bytes([3, 4, 0x00, 0x14, 0x00, 0x0A])  # 字节计数域谎报 4
+        with pytest.raises(ProtocolFrameError) as excinfo:
+            codec.parse_read_response(pdu, 3, 1)
+        message = str(excinfo.value)
+        assert "长度不符" in message
+        assert format_hex(pdu) in message

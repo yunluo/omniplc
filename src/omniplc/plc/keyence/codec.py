@@ -15,6 +15,7 @@ import re
 from typing import List, Sequence
 
 from ...core.constants import KV_ERROR_TEXT
+from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
 
 _CR = b"\r"
@@ -78,17 +79,29 @@ def build_write_consecutive(device_text: str, values: Sequence[str]) -> bytes:
 def parse_response(raw: bytes) -> str:
     """解码一行 ASCII 响应(去除结尾 CR/LF)。
 
-    :raises ProtocolFrameError: 空响应或非 ASCII
+    KV Host Link 响应是 ASCII 行文本,失败消息同时给出**可读文本**与
+    **原始字节**十六进制转储:前者便于快速判读,后者是线路实际字节
+    (含被 rstrip 掉的分隔符、非 ASCII 噪声),便于与抓包逐字节比对。
+
+    :raises ProtocolFrameError: 空响应或非 ASCII(消息含原始数据)
     """
     if not raw:
-        raise ProtocolFrameError("KV Host Link 响应为空")
+        raise ProtocolFrameError("KV Host Link 响应为空(未收到任何字节)")
     body = raw.rstrip(b"\r\n")
     if not body:
-        raise ProtocolFrameError(f"KV Host Link 响应行无效:{raw!r}")
+        raise ProtocolFrameError(
+            "KV Host Link 响应行无效(仅含分隔符):{!r}(收到的原始数据:{})".format(
+                raw, format_hex(raw)
+            )
+        )
     try:
         return body.decode("ascii")
     except UnicodeDecodeError as exc:
-        raise ProtocolFrameError(f"KV Host Link 响应不是 ASCII:{raw!r}") from exc
+        raise ProtocolFrameError(
+            "KV Host Link 响应不是 ASCII:{!r}(收到的原始数据:{})".format(
+                raw, format_hex(raw)
+            )
+        ) from exc
 
 
 def check_error_code(text: str) -> None:

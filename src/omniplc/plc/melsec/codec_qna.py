@@ -47,6 +47,7 @@ from ...core.constants import (
     MC_SUBHEADER_3E,
     MC_SUBHEADER_4E,
 )
+from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
 
 _FRAME_NAMES = ("3E", "4E")
@@ -227,27 +228,36 @@ def parse_response_head(head: bytes, frame: str) -> int:
     :param head: 已读取的响应头(3E 为 9 字节,4E 为 13 字节)
     :param frame: ``"3E"`` 或 ``"4E"``
     :raises ProtocolFrameError: 帧头过短/副头部非法/长度域非法
+        (消息带**收到的原始字节**十六进制转储,便于现场与抓包比对)
     """
     frame_name = _check_frame(frame)
     expected_size = MC_4E_RESPONSE_HEAD_SIZE if frame_name == "4E" else MC_RESPONSE_HEAD_SIZE
     if len(head) < expected_size:
         raise ProtocolFrameError(
-            "MC 响应头不足 {} 字节:{}".format(expected_size, len(head))
+            "MC 响应头不足 {} 字节,实收 {}(收到的原始数据:{})".format(
+                expected_size, len(head), format_hex(head)
+            )
         )
     wanted = MC_RESPONSE_SUBHEADER_4E if frame_name == "4E" else MC_RESPONSE_SUBHEADER_3E
     if head[0] != wanted or head[1] != 0x00:
         raise ProtocolFrameError(
-            "MC 响应副头部非法:0x{:02X} 0x{:02X}".format(head[0], head[1])
+            "MC 响应副头部非法:0x{:02X} 0x{:02X}(收到的原始数据:{})".format(
+                head[0], head[1], format_hex(head)
+            )
         )
     offset = 11 if frame_name == "4E" else 7
     length = int.from_bytes(head[offset:offset + 2], "little")
     if length < 2:
         raise ProtocolFrameError(
-            f"MC 应答数据长非法(至少含结束码 2 字节):{length}"
+            "MC 应答数据长非法(至少含结束码 2 字节):{}(收到的原始数据:{})".format(
+                length, format_hex(head)
+            )
         )
     if length > MC_MAX_RESPONSE_CONTENT:
         raise ProtocolFrameError(
-            f"MC 应答数据长超限:{length} > {MC_MAX_RESPONSE_CONTENT}"
+            "MC 应答数据长超限:{} > {}(收到的原始数据:{})".format(
+                length, MC_MAX_RESPONSE_CONTENT, format_hex(head)
+            )
         )
     return length
 
@@ -271,6 +281,7 @@ def parse_response(
     :return: 读为逐点数据(位 0/1,字 0~65535);写恒为空列表
     :raises omniplc.core.errors.DeviceError: 结束代码非 0
     :raises omniplc.core.errors.ProtocolFrameError: 帧结构/序列号不符
+        (消息带**收到的原始帧**十六进制转储,便于现场与抓包比对)
     """
     frame_name = _check_frame(frame_type)
     data_offset = _locate_data(frame, frame_name, expected_serial)
@@ -280,7 +291,9 @@ def parse_response(
     data = frame[data_offset:data_offset + expected]
     if len(data) != expected:
         raise ProtocolFrameError(
-            "MC 响应数据不足:期望 {} 字节,实际 {}".format(expected, len(data))
+            "MC 响应数据不足:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+                expected, len(data), format_hex(frame)
+            )
         )
     return parse_data(data, points, is_bit)
 
@@ -334,15 +347,17 @@ def _locate_data(
     head_size = MC_4E_RESPONSE_HEAD_SIZE if is_4e else MC_RESPONSE_HEAD_SIZE
     if len(frame) < head_size + content_length:
         raise ProtocolFrameError(
-            "MC 响应帧不完整:期望 {} 字节,实际 {}".format(
-                head_size + content_length, len(frame)
+            "MC 响应帧不完整:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+                head_size + content_length, len(frame), format_hex(frame)
             )
         )
     if is_4e and expected_serial is not None:
         serial = int.from_bytes(frame[2:4], "little")
         if serial != expected_serial:
             raise ProtocolFrameError(
-                f"MC 序列号不匹配:期望 {expected_serial},收到 {serial}"
+                "MC 序列号不匹配:期望 {},收到 {}(收到的原始帧:{})".format(
+                    expected_serial, serial, format_hex(frame)
+                )
             )
     end_offset = 13 if is_4e else 9
     end_code = int.from_bytes(frame[end_offset:end_offset + 2], "little")

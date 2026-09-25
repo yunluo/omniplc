@@ -43,6 +43,7 @@ from ...core.constants import (
     MC_1C_MAX_MESSAGE_WAIT,
     MC_1C_MAX_WORD_POINTS,
 )
+from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
 
 _COMMAND_READ_BIT = "BR"
@@ -190,49 +191,63 @@ def parse_1c_response(
     :return: 读为逐点数据(位 0/1,字 0~65535);写恒为空列表
     :raises omniplc.core.errors.DeviceError: 错误代码非 0(保持连接)
     :raises omniplc.core.errors.ProtocolFrameError: 帧结构/回显/和校验不符
+        (消息带**收到的原始帧**十六进制转储,便于现场与抓包比对)
     """
     if not response:
-        raise ProtocolFrameError("1C 响应为空")
+        raise ProtocolFrameError("1C 响应为空(未收到任何字节)")
     head = response[0]
     route = _route_text(station_number, pc_number).encode("ascii")
     if head == codec_serial.NAK:
         if len(response) != 9:
             raise ProtocolFrameError(
-                "1C 异常响应长度不符:期望 9 字节,实际 {}".format(len(response))
+                "1C 异常响应长度不符:期望 9 字节,实际 {}(收到的原始帧:{})".format(
+                    len(response), format_hex(response)
+                )
             )
-        _check_route(response[1:5], route)
-        codec_serial._check_crlf(response[7:9], "1C 异常响应")
-        status = codec_serial._hex_int(response[5:7])
+        _check_route(response[1:5], route, response)
+        codec_serial._check_crlf(response[7:9], "1C 异常响应", response)
+        status = codec_serial._hex_int(response[5:7], response)
         raise DeviceError(f"MC 错误代码 0x{status:02X},详见 MELSEC 手册", status)
     if head == codec_serial.ACK:
         if len(response) != 7:
             raise ProtocolFrameError(
-                "1C 写响应长度不符:期望 7 字节,实际 {}".format(len(response))
+                "1C 写响应长度不符:期望 7 字节,实际 {}(收到的原始帧:{})".format(
+                    len(response), format_hex(response)
+                )
             )
-        _check_route(response[1:5], route)
-        codec_serial._check_crlf(response[5:7], "1C 写响应")
+        _check_route(response[1:5], route, response)
+        codec_serial._check_crlf(response[5:7], "1C 写响应", response)
         return []
     if head != codec_serial.STX:
-        raise ProtocolFrameError(f"1C 响应控制码非法:0x{head:02X}")
+        raise ProtocolFrameError(
+            "1C 响应控制码非法:0x{:02X}(收到的原始帧:{})".format(
+                head, format_hex(response)
+            )
+        )
     expected = _data_chars(points, is_bit) if is_read else 0
     total = 10 + expected
     if len(response) != total:
         raise ProtocolFrameError(
-            "1C 读响应长度不符:期望 {} 字节,实际 {}".format(total, len(response))
+            "1C 读响应长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+                total, len(response), format_hex(response)
+            )
         )
-    _check_route(response[1:5], route)
+    _check_route(response[1:5], route, response)
     if response[5 + expected] != codec_serial.ETX:
-        raise ProtocolFrameError("1C 响应数据后必须是 ETX")
-    codec_serial._check_crlf(response[8 + expected:10 + expected], "1C 读响应")
+        raise ProtocolFrameError(
+            "1C 响应数据后必须是 ETX(收到的原始帧:{})".format(format_hex(response))
+        )
+    codec_serial._check_crlf(response[8 + expected:10 + expected], "1C 读响应", response)
     # 和校验范围 = 站号/PC 号回显 + 数据 + ETX(含 ETX,与 3C 格式 4 同规则)
     wanted = "{:02X}".format(
         codec_serial.checksum(response[1:6 + expected])
     ).encode("ascii")
     if response[6 + expected:8 + expected] != wanted:
         raise ProtocolFrameError(
-            "1C 和校验码不符:期望 {},收到 {!r}".format(
+            "1C 和校验码不符:期望 {},收到 {!r}(收到的原始帧:{})".format(
                 wanted.decode("ascii"),
                 response[6 + expected:8 + expected].decode("ascii", "replace"),
+                format_hex(response),
             )
         )
     if not is_read:
@@ -240,7 +255,11 @@ def parse_1c_response(
     data_text = response[5:5 + expected].decode("ascii")
     if is_bit:
         if not set(data_text) <= {"0", "1"}:
-            raise ProtocolFrameError(f"1C 位读数据含非 0/1 字符:{data_text!r}")
+            raise ProtocolFrameError(
+                "1C 位读数据含非 0/1 字符:{!r}(收到的原始帧:{})".format(
+                    data_text, format_hex(response)
+                )
+            )
         return [1 if char == "1" else 0 for char in data_text]
     return [codec_serial._hex_int(data_text[i:i + 4].encode("ascii")) for i in range(0, expected, 4)]
 
@@ -326,11 +345,11 @@ def _data_chars(points: int, is_bit: bool) -> int:
     return points if is_bit else points * 4
 
 
-def _check_route(raw: bytes, wanted: bytes) -> None:
-    """校验响应站号/PC 号回显(内部函数)。"""
+def _check_route(raw: bytes, wanted: bytes, whole: bytes) -> None:
+    """校验响应站号/PC 号回显(内部函数);``whole`` 为完整响应帧,失败时随消息转储。"""
     if raw != wanted:
         raise ProtocolFrameError(
-            "1C 响应站号/PC 号回显不符:期望 {!r},收到 {!r}".format(
-                wanted.decode("ascii"), raw.decode("ascii", "replace")
+            "1C 响应站号/PC 号回显不符:期望 {!r},收到 {!r}(收到的原始帧:{})".format(
+                wanted.decode("ascii"), raw.decode("ascii", "replace"), format_hex(whole)
             )
         )

@@ -32,6 +32,7 @@ from ..core.constants import (
     OPEN_TCP_MAX_FRAME,
     OPEN_TCP_RECV_CHUNK,
 )
+from ..core.debug import format_hex
 from ..core.errors import DeviceError, ProtocolFrameError
 from ..transport import BaseTransport, TcpTransport
 from ..types import DataType, PrimitiveValue
@@ -255,7 +256,9 @@ class OpenTcpClient(BaseClient):
                 return frame.decode(self._encoding)
             except UnicodeDecodeError as exc:
                 raise ProtocolFrameError(
-                    f"应答不是合法 {self._encoding}:{frame!r}"
+                    "应答不是合法 {}:{!r}(收到的原始帧:{})".format(
+                        self._encoding, frame, format_hex(frame)
+                    )
                 ) from exc
         return self._execute(operation)
 
@@ -297,7 +300,9 @@ class OpenTcpClient(BaseClient):
                 return frame.decode(self._encoding)
             except UnicodeDecodeError as exc:
                 raise ProtocolFrameError(
-                    f"应答不是合法 {self._encoding}:{frame!r}"
+                    "应答不是合法 {}:{!r}(收到的原始帧:{})".format(
+                        self._encoding, frame, format_hex(frame)
+                    )
                 ) from exc
         return self._execute(operation)
 
@@ -325,7 +330,9 @@ class OpenTcpClient(BaseClient):
                     return frame
                 if len(self._buffer) > self._max_frame:
                     raise ProtocolFrameError(
-                        f"接收超过 {self._max_frame} 字节未成帧,判定流内失步"
+                        "接收超过 {} 字节未成帧,判定流内失步(当前缓冲前段:{})".format(
+                            self._max_frame, format_hex(bytes(self._buffer))
+                        )
                     )
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:

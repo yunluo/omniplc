@@ -23,6 +23,7 @@ from __future__ import annotations
 from typing import List
 
 from ...core.constants import MEWTOCOL_STATION_DIRECT
+from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
 
 # 响应头偏移:%(1) + 站号(2) + $(1) = 4;命令名回显 2 字节至下标 6
@@ -111,27 +112,40 @@ def parse_response(response: bytes, station: str, command: str) -> str:
     :param command: 期望的命令名回显(2 字符:RC/RD/WC/WD)
     :raises omniplc.core.errors.DeviceError: PLC 错误响应(! 帧,链路正常)
     :raises omniplc.core.errors.ProtocolFrameError: 帧结构/站号/BCC/回显不符
+        (消息带**收到的原始帧**十六进制转储,便于现场与抓包比对)
     """
     if len(response) < _RESPONSE_MIN_SIZE:
         raise ProtocolFrameError(
-            "MEWTOCOL 响应过短(至少 {} 字节):{}".format(_RESPONSE_MIN_SIZE, len(response))
+            "MEWTOCOL 响应过短(至少 {} 字节),实收 {}(收到的原始帧:{})".format(
+                _RESPONSE_MIN_SIZE, len(response), format_hex(response)
+            )
         )
     text = response.decode("ascii", errors="replace")
     if text[-1] != "\r":
-        raise ProtocolFrameError("MEWTOCOL 响应未以 CR 结束:{!r}".format(text[-8:]))
+        raise ProtocolFrameError(
+            "MEWTOCOL 响应未以 CR 结束:{!r}(收到的原始帧:{})".format(
+                text[-8:], format_hex(response)
+            )
+        )
     if text[0] != "%" or text[3] not in ("$", "!"):
         raise ProtocolFrameError(
-            "MEWTOCOL 响应帧头非法:{!r}(应为 %HH$ 或 %HH!)".format(text[:4])
+            "MEWTOCOL 响应帧头非法:{!r}(应为 %HH$ 或 %HH!)(收到的原始帧:{})".format(
+                text[:4], format_hex(response)
+            )
         )
     if text[1:3] != station and text[1:3] != "EE":
         raise ProtocolFrameError(
-            "MEWTOCOL 站号不匹配:期望 {},收到 {}".format(station, text[1:3])
+            "MEWTOCOL 站号不匹配:期望 {},收到 {}(收到的原始帧:{})".format(
+                station, text[1:3], format_hex(response)
+            )
         )
     body = text[:-3]
     expected_bcc = text[-3:-1]
     if bcc(body) != expected_bcc:
         raise ProtocolFrameError(
-            "MEWTOCOL BCC 校验失败:期望 {},收到 {}".format(bcc(body), expected_bcc)
+            "MEWTOCOL BCC 校验失败:期望 {},收到 {}(收到的原始帧:{})".format(
+                bcc(body), expected_bcc, format_hex(response)
+            )
         )
     if text[3] == "!":
         code = text[4:6]
@@ -142,7 +156,9 @@ def parse_response(response: bytes, station: str, command: str) -> str:
     echo = text[4:6]
     if echo != command:
         raise ProtocolFrameError(
-            f"MEWTOCOL 命令回显不匹配:期望 {command},收到 {echo}"
+            "MEWTOCOL 命令回显不匹配:期望 {},收到 {}(收到的原始帧:{})".format(
+                command, echo, format_hex(response)
+            )
         )
     return text[_RESPONSE_DATA_OFFSET:-3]
 

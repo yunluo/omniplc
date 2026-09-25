@@ -59,9 +59,11 @@ class SerialConfig:
 class SerialTransport(BaseTransport):
     """串口传输,基于 pyserial。
 
-    recv 语义:阻塞读取恰好 ``size`` 字节;超时抛
-    :class:`omniplc.core.errors.TransportTimeoutError`(DeviceError
-    子类,不断线——串口按长度收,超时无残留字节时安全)。
+    recv 语义:阻塞读取恰好 ``size`` 字节。0 字节已读超时抛
+    :class:`omniplc.core.errors.TransportTimeoutError`(DeviceError 子类,
+    不断线);部分字节已读后超时(帧截断)主动关闭串口并抛
+    :class:`omniplc.core.errors.TransportClosedError`,借惰性重连重新
+    同步(见 :meth:`recv`)。
 
     :attr:`receive_timeout` 修改后**立即作用于已打开串口**。
     """
@@ -141,12 +143,19 @@ class SerialTransport(BaseTransport):
     def recv(self, size: int) -> bytes:
         """读取恰好 ``size`` 字节。
 
-        整事务受 ``receive_timeout`` 绝对 deadline 约束(涓流对端不能
-        无限拖住读);超时抛 :class:`omniplc.core.errors.TransportTimeoutError`
-        (DeviceError 子类,按链路完好不断线处理)。
+        超时分两种情况(以是否已收到部分字节划分):
 
-        :raises TransportClosedError: 串口未打开
-        :raises TransportTimeoutError: 接收超时
+        - **0 字节已读超时**:线上安静、无帧残渣,抛
+          :class:`omniplc.core.errors.TransportTimeoutError`(DeviceError
+          子类,按链路完好不断线处理)
+        - **部分字节已读后超时**:帧被截断,已读字节无法回退到 OS 缓冲,
+          下一帧开头必然错位——关闭串口并抛
+          :class:`omniplc.core.errors.TransportClosedError`,借基类惰性
+          重连重新打开串口(OS 清缓冲)完成重新同步。与 Modbus RTU CRC
+          校验失败后的断线重连是同一恢复逻辑。
+
+        :raises TransportClosedError: 串口未打开,或帧截断后已主动关闭串口
+        :raises TransportTimeoutError: 接收超时(0 字节已读)
         """
         port = self._require_serial()
         deadline = time.monotonic() + self._receive_timeout
@@ -155,22 +164,29 @@ class SerialTransport(BaseTransport):
         while received < size:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise TransportTimeoutError(
-                    f"串口读取超时(receive_timeout={self._receive_timeout})",
-                    0,
-                )
+                self._timeout_exit(received, size)
             port.timeout = remaining
             chunk = port.read(size - received)
             if not chunk:
-                raise TransportTimeoutError(
-                    f"串口读取超时(receive_timeout={self._receive_timeout})",
-                    0,
-                )
+                self._timeout_exit(received, size)
             chunks.append(chunk)
             received += len(chunk)
         frame = b"".join(chunks)
         log_frame(self._debug_label, RECV_MARK, frame)
         return frame
+
+    def _timeout_exit(self, received: int, size: int) -> None:
+        """超时收尾:按已读字节数选择不断线超时或断线重同步(内部方法)。"""
+        if received == 0:
+            raise TransportTimeoutError(
+                f"串口读取超时(receive_timeout={self._receive_timeout})",
+                0,
+            )
+        self.close()
+        raise TransportClosedError(
+            f"串口读取超时且已收 {received}/{size} 字节(帧截断,残渣必致后续帧错位),"
+            "已关闭串口,下次事务将重新打开以重新同步"
+        )
 
     def _require_serial(self) -> Any:
         """取当前串口对象,未打开则抛出。"""

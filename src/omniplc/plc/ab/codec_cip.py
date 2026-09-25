@@ -35,6 +35,7 @@ from ...core.constants import (
     AB_EIP_STRING_STRUCT_ID,
     AB_MAX_BATCH_SERVICES,
 )
+from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
 from ...core.validation import (
     check_int16,
@@ -274,25 +275,37 @@ def _check_enip_reply(
     (0x6F)应答,但个别模拟器以 0x66(UnregisterSession 的命令号,疑为把
     SendUnitData 记成 0x66)回帧——pylogix 客户端对响应命令号不做校验,
     此处对齐该宽容,应答体由调用方按 CPF 布局分流解析。
+
+    坏帧消息带**收到的原始帧**十六进制转储,便于现场与抓包比对。
     """
     if len(reply) < EIP_HEADER_SIZE:
-        raise ProtocolFrameError("ENIP 应答头不完整:{} 字节".format(len(reply)))
+        raise ProtocolFrameError(
+            "ENIP 应答头不完整:{} 字节(收到的原始帧:{})".format(
+                len(reply), format_hex(reply)
+            )
+        )
     command, length, _, status = struct.unpack_from("<HHII", reply, 0)
     allowed = (expected_command,) if isinstance(expected_command, int) \
         else tuple(expected_command)
     if command not in allowed:
         canonical = allowed[0]
         raise ProtocolFrameError(
-            f"ENIP 命令不符:期望 0x{canonical:04X},实际 0x{command:04X}"
+            "ENIP 命令不符:期望 0x{:04X},实际 0x{:04X}(收到的原始帧:{})".format(
+                canonical, command, format_hex(reply)
+            )
         )
     if len(reply) - EIP_HEADER_SIZE != length:
         raise ProtocolFrameError(
-            "ENIP 长度域不符:声明 {},实际 {}".format(length, len(reply) - EIP_HEADER_SIZE)
+            "ENIP 长度域不符:声明 {},实际 {}(收到的原始帧:{})".format(
+                length, len(reply) - EIP_HEADER_SIZE, format_hex(reply)
+            )
         )
     if status != 0:
         text = AB_EIP_STATUS_TEXT.get(status, "未知状态")
         raise ProtocolFrameError(
-            f"ENIP 封装状态 0x{status:08X}({text})"
+            "ENIP 封装状态 0x{:08X}({})(收到的原始帧:{})".format(
+                status, text, format_hex(reply)
+            )
         )
 
 
@@ -691,33 +704,48 @@ def parse_send_unit_data_reply(
     序列号回显、服务回显与通用状态。
 
     :raises ProtocolFrameError: 封装/CPF/连接 ID/序列号/服务回显不符
+        (消息带**收到的原始帧**十六进制转储,便于现场与抓包比对)
     :raises DeviceError: CIP 通用状态非 0(不断线)
     """
     _check_enip_reply(reply, EIP_COMMAND_SEND_UNIT_DATA)
     prefix = reply[EIP_HEADER_SIZE:]
     if len(prefix) < 22:
-        raise ProtocolFrameError("SendUnitData 前缀不完整:{} 字节".format(len(prefix)))
+        raise ProtocolFrameError(
+            "SendUnitData 前缀不完整:{} 字节(收到的原始帧:{})".format(
+                len(prefix), format_hex(reply)
+            )
+        )
     item_count, address_type, address_length = struct.unpack_from("<HHH", prefix, 6)
     if item_count != 2 or address_type != _CPF_ITEM_CONNECTED_ADDRESS or address_length != 4:
-        raise ProtocolFrameError("SendUnitData CPF 地址项非法")
+        raise ProtocolFrameError(
+            "SendUnitData CPF 地址项非法(收到的原始帧:{})".format(format_hex(reply))
+        )
     connection_id = struct.unpack_from("<I", prefix, 12)[0]
     if connection_id != to_connection_id:
         raise ProtocolFrameError(
-            "连接地址项 T->O ID 不符:期望 0x{:08X},实际 0x{:08X}".format(
-                to_connection_id, connection_id
+            "连接地址项 T->O ID 不符:期望 0x{:08X},实际 0x{:08X}(收到的原始帧:{})".format(
+                to_connection_id, connection_id, format_hex(reply)
             )
         )
     data_type, data_length, reply_sequence = struct.unpack_from("<HHH", prefix, 16)
     if data_type != _CPF_ITEM_CONNECTED_DATA:
-        raise ProtocolFrameError(f"CPF 数据项类型非法:0x{data_type:04X}")
+        raise ProtocolFrameError(
+            "CPF 数据项类型非法:0x{:04X}(收到的原始帧:{})".format(
+                data_type, format_hex(reply)
+            )
+        )
     cip = prefix[22:]
     if len(cip) != data_length - 2:
         raise ProtocolFrameError(
-            "CPF 数据项长度不符:声明 {},实际 {}".format(data_length - 2, len(cip))
+            "CPF 数据项长度不符:声明 {},实际 {}(收到的原始帧:{})".format(
+                data_length - 2, len(cip), format_hex(reply)
+            )
         )
     if reply_sequence != sequence:
         raise ProtocolFrameError(
-            f"序列号回显不符:期望 {sequence},实际 {reply_sequence}"
+            "序列号回显不符:期望 {},实际 {}(收到的原始帧:{})".format(
+                sequence, reply_sequence, format_hex(reply)
+            )
         )
     return _parse_service_payload(cip, request_service)
 
@@ -734,45 +762,79 @@ def _parse_rr_data_cip(reply: bytes) -> bytes:
     应答体按 CPF 地址项类型分流:NullAddress(0x0000)+ UnconnectedData
     (0xB2)为规范布局;个别对端以连接式项(0xA1 地址 + 0xB1 数据 + 序列号)
     回帧,同样取其数据项载荷(T->O ID 与序列号无连接态可校验,跳过)。
+
+    坏帧消息带**收到的原始帧**十六进制转储,便于现场与抓包比对。
     """
     _check_enip_reply(
         reply, (EIP_COMMAND_SEND_RR_DATA, EIP_COMMAND_UNREGISTER_SESSION)
     )
     prefix = reply[EIP_HEADER_SIZE:]
     if len(prefix) < EIP_RRDATA_PREFIX_SIZE:
-        raise ProtocolFrameError("SendRRData 前缀不完整:{} 字节".format(len(prefix)))
+        raise ProtocolFrameError(
+            "SendRRData 前缀不完整:{} 字节(收到的原始帧:{})".format(
+                len(prefix), format_hex(reply)
+            )
+        )
     item_count, address_type, address_length, data_type, data_length = struct.unpack_from(
         "<HHHHH", prefix, 6
     )
     if item_count != 2:
-        raise ProtocolFrameError(f"SendRRData CPF 项数非法:{item_count}")
+        raise ProtocolFrameError(
+            "SendRRData CPF 项数非法:{}(收到的原始帧:{})".format(
+                item_count, format_hex(reply)
+            )
+        )
     if address_type == _CPF_ITEM_NULL_ADDRESS:
         if address_length != 0:
-            raise ProtocolFrameError("SendRRData CPF 地址项非法")
+            raise ProtocolFrameError(
+                "SendRRData CPF 地址项非法(收到的原始帧:{})".format(format_hex(reply))
+            )
         if data_type != _CPF_ITEM_UNCONNECTED_DATA:
-            raise ProtocolFrameError(f"CPF 数据项类型非法:0x{data_type:04X}")
+            raise ProtocolFrameError(
+                "CPF 数据项类型非法:0x{:04X}(收到的原始帧:{})".format(
+                    data_type, format_hex(reply)
+                )
+            )
         cip = prefix[EIP_RRDATA_PREFIX_SIZE:]
         if len(cip) != data_length:
             raise ProtocolFrameError(
-                "CPF 数据项长度不符:声明 {},实际 {}".format(data_length, len(cip))
+                "CPF 数据项长度不符:声明 {},实际 {}(收到的原始帧:{})".format(
+                    data_length, len(cip), format_hex(reply)
+                )
             )
     elif address_type == _CPF_ITEM_CONNECTED_ADDRESS:
         if address_length != 4:
-            raise ProtocolFrameError("SendRRData 连接式 CPF 地址项非法")
+            raise ProtocolFrameError(
+                "SendRRData 连接式 CPF 地址项非法(收到的原始帧:{})".format(
+                    format_hex(reply)
+                )
+            )
         data_type, data_length = struct.unpack_from("<HH", prefix, 16)
         if data_type != _CPF_ITEM_CONNECTED_DATA:
-            raise ProtocolFrameError(f"CPF 数据项类型非法:0x{data_type:04X}")
+            raise ProtocolFrameError(
+                "CPF 数据项类型非法:0x{:04X}(收到的原始帧:{})".format(
+                    data_type, format_hex(reply)
+                )
+            )
         cip = prefix[22:]  # 跳过 2 字节序列号(无连接态可校验,丢弃)
         if len(cip) != data_length - 2:
             raise ProtocolFrameError(
-                "CPF 数据项长度不符:声明 {},实际 {}".format(data_length - 2, len(cip))
+                "CPF 数据项长度不符:声明 {},实际 {}(收到的原始帧:{})".format(
+                    data_length - 2, len(cip), format_hex(reply)
+                )
             )
     else:
         raise ProtocolFrameError(
-            f"SendRRData CPF 地址项类型非法:0x{address_type:04X}"
+            "SendRRData CPF 地址项类型非法:0x{:04X}(收到的原始帧:{})".format(
+                address_type, format_hex(reply)
+            )
         )
     if len(cip) < 4:
-        raise ProtocolFrameError("CIP 应答不完整")
+        raise ProtocolFrameError(
+            "CIP 应答不完整:{} 字节(收到的原始帧:{})".format(
+                len(cip), format_hex(reply)
+            )
+        )
     return cip
 
 

@@ -68,7 +68,7 @@ def log_frame(label: str, direction: str, data: bytes) -> None:
     """
     if not _enabled:
         return
-    _logger.debug("%s %s %dB: %s", label, direction, len(data), _format_hex(data))
+    _logger.debug("%s %s %dB: %s", label, direction, len(data), format_hex(data))
 
 
 def log_op(label: str, message: str, *args: object) -> None:
@@ -106,8 +106,20 @@ def log_warning(label: str, message: str, *args: object) -> None:
     _logger.warning("%s %s", label, message)
 
 
-def _format_hex(data: bytes) -> str:
-    """十六进制转储(大写、空格分隔;超长截断并注明,内部函数)。"""
+def format_hex(data: bytes) -> str:
+    """十六进制转储(大写、空格分隔;超长截断并注明)。
+
+    全库统一的报文十六进制展示口径:日志转储(:func:`log_frame`)与
+    协议层错误信息(坏帧/校验失败时把**收到的原始数据**带进异常文本,
+    便于现场比对抓包)共用。
+
+    截断上限见 :data:`~omniplc.core.constants.DEBUG_MAX_DUMP_BYTES`;
+    协议帧(Modbus 最长 260B、MC/FINS 均为 KB 级)远小于该上限,实际
+    不会截断,仅防异常路径上传入超大缓冲刷屏。
+
+    :param data: 待转储字节
+    :return: 形如 ``"01 03 00 00 ..."`` 的文本(超长带「仅转储前 NB」尾注)
+    """
     dumped = data[:DEBUG_MAX_DUMP_BYTES]
     text = " ".join(f"{byte:02X}" for byte in dumped)
     if len(data) > len(dumped):

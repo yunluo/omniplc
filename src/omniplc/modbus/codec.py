@@ -34,6 +34,7 @@ from ..core.constants import (
     MODBUS_MBAP_LENGTH_MAX,
     MODBUS_PROTOCOL_ID,
 )
+from ..core.debug import format_hex
 from ..core.errors import DeviceError, ProtocolFrameError
 
 
@@ -146,16 +147,22 @@ def check_response_exception(pdu: bytes, request_function_code: int) -> None:
     DeviceError 表示"链路正常但 PLC 拒绝了操作",由基类记录到
     ``last_error`` 即可,**不断线、不重试**。
 
+    所有坏帧类失败的异常文本都带**收到的原始数据**十六进制转储
+    (:func:`omniplc.core.debug.format_hex`),便于现场与抓包比对定位
+    是线路噪声、站号错配还是对端语义不符。
+
     :param pdu: 响应 PDU
     :param request_function_code: 请求功能码
     :raises DeviceError: PLC 返回异常码
     :raises ProtocolFrameError: 空帧或响应功能码与请求不符
     """
     if not pdu:
-        raise ProtocolFrameError("响应 PDU 为空")
+        raise ProtocolFrameError("响应 PDU 为空(未收到任何字节)")
     if pdu[0] & MODBUS_EXCEPTION_FLAG:
         if len(pdu) < 2:
-            raise ProtocolFrameError("异常响应缺少异常码:{}".format(pdu.hex()))
+            raise ProtocolFrameError(
+                "异常响应缺少异常码(收到的原始数据:{})".format(format_hex(pdu))
+            )
         code = pdu[1]
         text = MODBUS_EXCEPTION_TEXT.get(code, "未知异常码")
         raise DeviceError(
@@ -166,7 +173,9 @@ def check_response_exception(pdu: bytes, request_function_code: int) -> None:
         )
     if pdu[0] != request_function_code:
         raise ProtocolFrameError(
-            "响应功能码不符:期望 0x{:02X},收到 0x{:02X}".format(request_function_code, pdu[0])
+            "响应功能码不符:期望 0x{:02X},收到 0x{:02X}(收到的原始数据:{})".format(
+                request_function_code, pdu[0], format_hex(pdu)
+            )
         )
 
 
@@ -182,13 +191,15 @@ def parse_read_response(pdu: bytes, function_code: int, count: int) -> List[int]
     """
     check_response_exception(pdu, function_code)
     if len(pdu) < 2:
-        raise ProtocolFrameError("读响应 PDU 长度不足:{}".format(len(pdu)))
+        raise ProtocolFrameError(
+            "读响应 PDU 长度不足(收到的原始数据:{})".format(format_hex(pdu))
+        )
     byte_count = pdu[1]
     expected = (count + 7) // 8 if function_code in _READ_BIT_FUNCTIONS else count * 2
     if byte_count != expected or len(pdu) != expected + 2:
         raise ProtocolFrameError(
-            "读响应长度不符:字节计数域 {},期望 {},实际 PDU {} 字节".format(
-                byte_count, expected, len(pdu)
+            "读响应长度不符:字节计数域 {},期望 {},实际 PDU {} 字节(收到的原始数据:{})".format(
+                byte_count, expected, len(pdu), format_hex(pdu)
             )
         )
     if function_code in _READ_BIT_FUNCTIONS:
@@ -205,7 +216,9 @@ def parse_write_response(pdu: bytes, request_pdu: bytes) -> None:
     check_response_exception(pdu, request_pdu[0])
     if len(pdu) != 5 or pdu != request_pdu[:5]:
         raise ProtocolFrameError(
-            "写响应回显不符:期望 {},收到 {}".format(request_pdu[:5].hex(), pdu.hex())
+            "写响应回显不符:期望 {},收到 {}".format(
+                format_hex(request_pdu[:5]), format_hex(pdu)
+            )
         )
 
 
@@ -237,7 +250,9 @@ def parse_mask_write_response(pdu: bytes, request_pdu: bytes) -> None:
     check_response_exception(pdu, request_pdu[0])
     if len(pdu) != MODBUS_MASK_WRITE_PDU_SIZE or pdu != request_pdu:
         raise ProtocolFrameError(
-            "掩码写响应回显不符:期望 {},收到 {}".format(request_pdu.hex(), pdu.hex())
+            "掩码写响应回显不符:期望 {},收到 {}".format(
+                format_hex(request_pdu), format_hex(pdu)
+            )
         )
 
 # ----------------------------------------------------------------------
@@ -271,16 +286,28 @@ def parse_mbap_header(header: bytes) -> Tuple[int, int]:
     :raises ProtocolFrameError: 帧头过短/协议号非 0/长度字段非法
     """
     if len(header) < MBAP_HEADER_SIZE:
-        raise ProtocolFrameError("MBAP 帧头不足 {} 字节:{}".format(MBAP_HEADER_SIZE, len(header)))
+        raise ProtocolFrameError(
+            "MBAP 帧头不足 {} 字节,实收 {}(收到的原始数据:{})".format(
+                MBAP_HEADER_SIZE, len(header), format_hex(header)
+            )
+        )
     transaction_id, protocol_id, length = struct.unpack(">HHH", header[:6])
     if protocol_id != MODBUS_PROTOCOL_ID:
-        raise ProtocolFrameError(f"MBAP 协议标识符必须为 0,收到:{protocol_id}")
+        raise ProtocolFrameError(
+            "MBAP 协议标识符必须为 0,收到:{}(收到的原始数据:{})".format(
+                protocol_id, format_hex(header)
+            )
+        )
     if length < 2:
-        raise ProtocolFrameError(f"MBAP 长度字段非法(至少含站号+功能码):{length}")
+        raise ProtocolFrameError(
+            "MBAP 长度字段非法(至少含站号+功能码):{}(收到的原始数据:{})".format(
+                length, format_hex(header)
+            )
+        )
     if length > MODBUS_MBAP_LENGTH_MAX:
         raise ProtocolFrameError(
-            "MBAP 长度字段超出上限 {}(按长收包将挂死,按坏帧处理):{}".format(
-                MODBUS_MBAP_LENGTH_MAX, length
+            "MBAP 长度字段超出上限 {}(按长收包将挂死,按坏帧处理):{}(收到的原始数据:{})".format(
+                MODBUS_MBAP_LENGTH_MAX, length, format_hex(header)
             )
         )
     return transaction_id, length
@@ -298,7 +325,9 @@ def parse_mbap(frame: bytes) -> Tuple[int, int, bytes]:
     end = MBAP_HEADER_SIZE + length - 1
     if end > len(frame):
         raise ProtocolFrameError(
-            "MBAP 长度字段 {} 超出实际帧长 {}".format(length, len(frame))
+            "MBAP 长度字段 {} 超出实际帧长 {}(收到的原始数据:{})".format(
+                length, len(frame), format_hex(frame)
+            )
         )
     return transaction_id, station, frame[MBAP_HEADER_SIZE:end]
 
@@ -326,18 +355,28 @@ def build_rtu_frame(station: int, pdu: bytes) -> bytes:
 def parse_rtu_frame(frame: bytes) -> Tuple[int, bytes]:
     """解析 RTU 帧(校验 CRC16)。
 
+    CRC 校验失败时异常文本带**收到的原始帧**十六进制转储:CRC 不符通常
+    源于线路噪声误码或收发错位,现场需要逐字节比对才能判断是哪一类
+    (帧完整但 CRC 错 = 噪声;帧长异常 = 错位)。
+
     :param frame: 完整帧字节
     :return: ``(station, pdu)``
-    :raises ProtocolFrameError: 帧过短或 CRC 校验失败
+    :raises ProtocolFrameError: 帧过短或 CRC 校验失败(消息含原始数据)
     """
     if len(frame) < 4:
-        raise ProtocolFrameError("RTU 帧过短(至少 4 字节):{}".format(len(frame)))
+        raise ProtocolFrameError(
+            "RTU 帧过短(至少 4 字节,实收 {} 字节)(收到的原始数据:{})".format(
+                len(frame), format_hex(frame)
+            )
+        )
     body = frame[:-2]
     received = int.from_bytes(frame[-2:], "little")
     computed = crc16(body)
     if computed != received:
         raise ProtocolFrameError(
-            f"RTU CRC 校验失败:计算 0x{computed:04X},收到 0x{received:04X}"
+            "RTU CRC 校验失败:计算 0x{:04X},收到 0x{:04X}(收到的原始帧:{})".format(
+                computed, received, format_hex(frame)
+            )
         )
     return body[0], body[1:]
 

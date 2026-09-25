@@ -15,6 +15,7 @@ import pytest
 
 from omniplc import MelsecMcSerialClient, MelsecMcTcpClient, MelsecMcUdpClient
 from omniplc.aio import AMelsecMcSerialClient
+from omniplc.core.debug import format_hex
 from omniplc.core.errors import ProtocolFrameError
 from omniplc.plc.melsec import codec_serial, codec_serial_a
 from omniplc.plc.melsec.address import parse_mc_address
@@ -363,15 +364,20 @@ def test_3c_nak_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_3c_bad_checksum_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
-    """3C:和校验不符按坏帧处理,标记断开。"""
+    """3C:和校验不符按坏帧处理,标记断开;错误信息带收到的原始帧。"""
     client = MelsecMcSerialClient()
     response = _resp_3c("2710")
-    corrupted = response[:-3] + b"XX" + b"\r\n"
+    # 保持帧长不变、仅改和校验两字符 → 必落在和校验分支(改长度会先撞长度校验)
+    corrupted = response[:-4] + b"00" + b"\r\n"
+    assert len(corrupted) == len(response) and corrupted != response
     scripted = ScriptedTransport([corrupted[:1], corrupted[1:]])
     _mount(monkeypatch, client, scripted)
     client.connect()
     assert client.read_ushort("D100") == (False, None)
     assert client.connected is False
+    assert client.last_error is not None and "和校验码不符" in client.last_error
+    # 现场排查需要原始字节:噪声误码 vs 收发错位靠帧内容区分
+    assert format_hex(corrupted) in client.last_error
 
 
 def test_3c_missing_crlf_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -13,6 +13,7 @@ from __future__ import annotations
 import pytest
 
 from omniplc import ModbusRtuClient, ModbusTcpClient
+from omniplc.core.debug import format_hex
 from omniplc.core.errors import DeviceError
 from omniplc.modbus import codec
 from scripted import ScriptedTransport as _ScriptedTransport, mount_real_tcp
@@ -33,7 +34,7 @@ def test_tcp_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_tcp_transaction_id_mismatch_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
-    """TCP:事务号不匹配按坏帧处理,标记断开等待惰性重连。"""
+    """TCP:事务号不匹配按坏帧处理,标记断开等待惰性重连;错误信息带收到的原始帧。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)
     frame = codec.build_mbap(99, 1, _RESPONSE_ONE_REGISTER)
     scripted = _ScriptedTransport([frame[:7], frame[7:]])
@@ -42,6 +43,7 @@ def test_tcp_transaction_id_mismatch_marks_disconnected(monkeypatch: pytest.Monk
     assert client.read_ushort("hr0") == (False, None)
     assert client.connected is False
     assert client.last_error is not None and "事务号" in client.last_error
+    assert format_hex(frame) in client.last_error  # 原始字节供现场比对抓包
 
 
 def test_tcp_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -69,17 +71,20 @@ def test_rtu_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_rtu_crc_failure_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
-    """RTU:CRC 校验失败按坏帧处理,标记断开。"""
+    """RTU:CRC 校验失败按坏帧处理,标记断开;错误信息带收到的原始帧(逐字节可比对)。"""
     client = ModbusRtuClient(station=1)
     client.configure_serial("COM3")
     corrupted = bytearray(codec.build_rtu_frame(1, _RESPONSE_ONE_REGISTER))
     corrupted[-1] ^= 0xFF
-    scripted = _ScriptedTransport([bytes(corrupted[:2]), bytes(corrupted[2:])])
+    corrupted = bytes(corrupted)
+    scripted = _ScriptedTransport([corrupted[:2], corrupted[2:]])
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     assert client.read_ushort("hr0") == (False, None)
     assert client.connected is False
     assert client.last_error is not None and "CRC" in client.last_error
+    # 现场排查要有原始字节:噪声误码 vs 收发错位靠帧内容区分
+    assert format_hex(corrupted) in client.last_error
 
 
 def test_rtu_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> None:

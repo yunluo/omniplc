@@ -27,6 +27,7 @@ from ...core.constants import (
     TOYOPUC_RC_ERROR,
     TOYOPUC_RC_OK,
 )
+from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
 
 
@@ -54,7 +55,11 @@ def pack_u16(value: int) -> bytes:
 def unpack_u16(data: bytes) -> List[int]:
     """小端字节串 → 16 位无符号整数列表(长度必须为偶数,内部函数)。"""
     if len(data) % 2 != 0:
-        raise ProtocolFrameError("TOYOPUC 字数据长度必须为偶数,收到:{}".format(len(data)))
+        raise ProtocolFrameError(
+            "TOYOPUC 字数据长度必须为偶数,收到 {}(收到的原始数据:{})".format(
+                len(data), format_hex(data)
+            )
+        )
     return [data[index] | (data[index + 1] << 8) for index in range(0, len(data), 2)]
 
 
@@ -102,29 +107,49 @@ def parse_response(frame: bytes) -> Tuple[int, int, bytes]:
     """解码响应帧,返回 ``(CMD, RC, 数据)``。
 
     :raises ProtocolFrameError: 帧过短、FT 非法或帧长不一致
+        (消息带**收到的原始帧**十六进制转储,便于现场与抓包比对)
     """
     if len(frame) < 5:
-        raise ProtocolFrameError("TOYOPUC 响应过短:{} 字节".format(len(frame)))
+        raise ProtocolFrameError(
+            "TOYOPUC 响应过短:{} 字节(收到的原始帧:{})".format(
+                len(frame), format_hex(frame)
+            )
+        )
     frame_type = frame[0]
     rc = frame[1]
     length = frame[2] | (frame[3] << 8)
     if len(frame) != 4 + length:
         raise ProtocolFrameError(
-            "TOYOPUC 响应帧长不符:收到 {},应为 {}".format(len(frame), 4 + length)
+            "TOYOPUC 响应帧长不符:收到 {},应为 {}(收到的原始帧:{})".format(
+                len(frame), 4 + length, format_hex(frame)
+            )
         )
     if frame_type != TOYOPUC_FT_RESPONSE:
-        raise ProtocolFrameError(f"TOYOPUC 响应 FT 非法:0x{frame_type:02X}")
+        raise ProtocolFrameError(
+            "TOYOPUC 响应 FT 非法:0x{:02X}(收到的原始帧:{})".format(
+                frame_type, format_hex(frame)
+            )
+        )
     return frame[4], rc, frame[5:]
 
 
 def check_response(
-    cmd: int, rc: int, data: bytes, request_cmd: int, expected_size: Optional[int]
+    cmd: int,
+    rc: int,
+    data: bytes,
+    request_cmd: int,
+    expected_size: Optional[int],
+    whole: bytes = b"",
 ) -> bytes:
     """校验响应并返回数据(内部函数)。
 
     - ``RC != 00`` → :class:`DeviceError`(``RC=10`` 提取详细出错代码)
     - 命令字与请求不符 / 读数据长度不符 → :class:`ProtocolFrameError`
+      (``whole`` 非空时随消息转储**收到的原始帧**,便于现场比对)
+
+    :param whole: 完整响应帧(可选;调用方传原始响应以便坏帧诊断)
     """
+    detail_suffix = "(收到的原始帧:{})".format(format_hex(whole)) if whole else ""
     if rc != TOYOPUC_RC_OK:
         if rc == TOYOPUC_RC_ERROR:
             detail = data[-1] if data else cmd
@@ -139,10 +164,14 @@ def check_response(
         )
     if cmd != request_cmd:
         raise ProtocolFrameError(
-            f"TOYOPUC 响应命令字不符:期望 0x{request_cmd:02X},收到 0x{cmd:02X}"
+            "TOYOPUC 响应命令字不符:期望 0x{:02X},收到 0x{:02X}{}".format(
+                request_cmd, cmd, detail_suffix
+            )
         )
     if expected_size is not None and len(data) != expected_size:
         raise ProtocolFrameError(
-            "TOYOPUC 响应数据长度不符:期望 {},收到 {}".format(expected_size, len(data))
+            "TOYOPUC 响应数据长度不符:期望 {},收到 {}{}".format(
+                expected_size, len(data), detail_suffix
+            )
         )
     return data
