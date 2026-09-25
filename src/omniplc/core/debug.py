@@ -88,6 +88,24 @@ def log_op(label: str, message: str, *args: object) -> None:
     _logger.debug("%s %s", label, message)
 
 
+def log_warning(label: str, message: str, *args: object) -> None:
+    """输出一条不受调试门控的 WARNING 日志(传输层异常事件使用)。
+
+    与 :func:`log_op` 的区别:UDP 截断 / 帧异常等"链路收到坏数据但继续走
+    流程"的事件必须**总能被看到**——调用方应用不一定开了
+    :func:`set_debug`,但此类事件是排查 bug 的关键信号。走 WARNING 级别,
+    走 :data:`LOGGER_NAME` 记录器(与 :func:`log_op` 共用,应用按 logger
+    统一接管即可)。
+
+    :param label: 走线标识,如 ``udp://192.168.0.10:9600``
+    :param message: 描述模板(如 ``"UDP 数据报截断:实收 %dB,缓冲 %dB"``)
+    :param args: 模板参数
+    """
+    if args:
+        message = message % args
+    _logger.warning("%s %s", label, message)
+
+
 def _format_hex(data: bytes) -> str:
     """十六进制转储(大写、空格分隔;超长截断并注明,内部函数)。"""
     dumped = data[:DEBUG_MAX_DUMP_BYTES]

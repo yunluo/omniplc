@@ -163,6 +163,46 @@ class TestRetry:
         assert client.connected is True  # 不断线
         assert "0x02" in (client.last_error or "")
 
+    def test_protocol_frame_error_triggers_reconnect(self) -> None:
+        """协议帧错误(ENIP 长度超限 / 校验错):走 OmniPLCInternalError 路径
+        ——标记断开 + 惰性重试(下次事务重建连接)。
+
+        实现细节:脚本客户端的 transport 在 :class:`_ScriptedTransport` 上,
+        connect() 必成功(``fail_connect_times=0``),所以断线后的下次读会
+        立刻重建传输 + 重新调用 _read。retries=3 给 4 次重试,前 3 次都失败
+        于同一协议帧错,第 4 次让出 ``script_failure`` 队列的最后一发空操作
+        后回到失败。
+        """
+        client = _ScriptedClient()
+        client.reconnect_backoff = False
+        client.retries = 3
+        # 队列 4 次同一协议帧错:第 1 次直接失败 → 标记断开 → 重建传输 → 第 2 次;
+        # 第 2 次再断;...;第 4 次再断
+        for _ in range(4):
+            client.script_failure(ProtocolFrameError("ENIP 长度超限"))
+        ok, value = client.read("hr0", "short")
+        assert ok is False
+        assert value is None
+        assert client.last_error_category is ErrorCategory.PROTOCOL
+        assert client._read_calls == 4
+        assert client._counters["connect_count"] >= 4
+
+    def test_udp_oversize_as_device_error(self) -> None:
+        """UDP 报文超长(Windows WSAEMSGSIZE):transport 层转 :class:`DeviceError`,
+        基类按 DEVICE 分类(与真断线 TRANSPORT 区分)、不重试、不断线——链路是好的。
+        """
+        client = _ScriptedClient()
+        client.retries = 3
+        client.script_failure(DeviceError("UDP 报文超过缓冲(1024B)", code=10040))
+        ok, value = client.read("hr0", "short")
+        assert ok is False
+        assert value is None
+        assert client._read_calls == 1  # 不重试
+        assert client.connected is True  # 不断线
+        assert client.last_error_category is ErrorCategory.DEVICE
+        assert client.last_error_code == 10040
+        assert "UDP 报文超过缓冲" in (client.last_error or "")
+
     def test_retries_negative_invalid(self) -> None:
         client = _ScriptedClient()
         with pytest.raises(ValueError):
