@@ -27,13 +27,14 @@
 - [ ] `uv run python -m pytest tests -q` 全过(本地验证)
 - [ ] `uvx ruff check src tests` 零告警
 - [ ] `uvx mypy src/omniplc` 零问题
+- [ ] `uvx ty check src/omniplc` 零问题
 - [ ] 新增/改动对应测试已补(含黄金向量,若涉及协议帧)
 - [ ] 真机联测(协议面改动):______
 
 ## 文档同步
 
 - [ ] 无文档改动需要
-- [ ] `README.md`「变更历史」节加版本条目
+- [ ] `README.md` 特性区同步(若有用户可见变化)
 - [ ] `CHANGELOG.md` 加详细条目
 - [ ] `docs/architecture.md` 状态链 + 版本履历表加行
 - [ ] `docs/review.md` P0/P1 backlog 已更新(若适用)

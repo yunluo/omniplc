@@ -7,8 +7,10 @@
 
 - **Python**:本仓库声明 `requires-python = ">=3.7.9"`;本地推荐钉 3.7.9 真机门禁
   (`.python-version` 已设),CI 用 3.12(`uv` 不托管下载 3.7,详见 `CHANGELOG.md` v0.31.4)。
-- **包管理 / 构建**:`uv`(`uv sync --group dev` 装 dev 依赖、`uv lock` 同步 lockfile)。
-- **编辑器**:任意;提交前请 `ruff format` + `mypy` 跑通。
+- **包管理 / 构建**:`uv`(`uv sync --extra dev` 装 dev 依赖——dev 是 optional-dependencies
+  的 extra,不是 dependency-group;`uv lock` 同步 lockfile)。
+- **编辑器**:任意;提交前请跑通门禁四件套(见「三、测试」,静态检查用
+  `uvx ruff check`,本仓库不设 `ruff format` 步骤)。
 
 ## 二、代码约定
 
@@ -28,12 +30,12 @@
 
 ## 三、测试
 
-本仓库三类门禁(实为四件套),**任一挂下即不通过**:
+本仓库门禁四件套,**任一挂下即不通过**:
 
 ```bash
-uv run python -m pytest tests -q         # 678+ 例全量
+uv run python -m pytest tests -q         # 721 例全量
 uvx ruff check src tests                 # 0 告警(规则集显式固定,与 ruff 版本漂移解耦)
-uvx mypy src/omniplc                     # 0 问题(70 源文件,mypy 守 3.7 兼容目标)
+uvx mypy src/omniplc                     # 0 问题(70 源文件,目标 python_version=3.9,配置见 pyproject.toml)
 uvx ty check src/omniplc                 # 0 问题(Astral 第二类型检查器,与 mypy 互补)
 ```
 
@@ -52,7 +54,7 @@ uvx ty check src/omniplc                 # 0 问题(Astral 第二类型检查器
 
 1. 从 `master` 拉特性分支(`feature/<简述>` 或 `fix/<简述>`)。
 2. 提交遵循「阶段提交」约定。
-3. 跑门禁三件套(见三)全过;新增/改动至少同步覆盖测试。
+3. 跑门禁四件套(见三)全过;新增/改动至少同步覆盖测试。
 4. 填 `.github/PULL_REQUEST_TEMPLATE.md` 的清单。
 5. 协议/breaking change 必须:
    - 在 `docs/architecture.md` 状态链与版本履历表加行;
@@ -64,7 +66,7 @@ uvx ty check src/omniplc                 # 0 问题(Astral 第二类型检查器
 
 1. `pyproject.toml` `version`
 2. `src/omniplc/__init__.py` `__version__`
-3. `README.md`「变更历史」节加版本条目(详细变更内容在 `CHANGELOG.md`)
+3. `CHANGELOG.md` 加版本条目(README 特性区如有用户可见变化则同步;变更日志已迁出 README)
 4. `docs/architecture.md` 状态链头 + 版本履历表
 5. `uv.lock`(`uv lock` 自动)
 
@@ -81,8 +83,8 @@ sdist + wheel、挂 GitHub Release、可信发布(OIDC)到 PyPI;PR 触发的是�
 
 单元测试走黄金报文 + 模拟传输,**不等于**真机联测;协议面改动提交 PR 时须:
 
-- 自检清单勾选「真机联测」
-- 在 [`docs/real-machine-checklist.md`](docs/real-machine-checklist.md) 填写真机型号 / 固件 / 版本 / 日期 / 结果
+- 「测试」节勾选「真机联测」
+- 在 [`docs/real-machine-checklist.md`](docs/real-machine-checklist.md) 填写真机型号 / 读取 / 写入 / 备注
 - 模拟器(PLCSIM Advanced / TwinCAT Simulator 等)需在备注里明确标注
 
 现有未真机项目清单:`README.md`「真机联测待做」表。

@@ -1,6 +1,6 @@
 # omniplc 项目审核报告(资深工控视角)
 
-> **基准说明**:本报告第一轮基于 v0.32.1(第一轮原始记录,保留不改)。第二/三轮复审见文末 **「十二、第二/三轮复审」**,基准 v0.34.0 + v0.35-WIP(2026-09-25),综合评分修正为 **8.1/10**。
+> **基准说明**:本报告第一轮基于 v0.32.1(第一轮原始记录,保留不改)。第二/三轮复审见文末 **「十二、第二/三轮复审」**,基准更新为 **v0.35.0(已发布;复审当日 2026-09-25 为 v0.34.0 + v0.35-WIP)**,综合评分修正为 **8.1/10**(8.1 为剔除 §12.5 新增「记录一致性」维度后的 9 项均值;10 项直算为 8.0)。
 
 ## 一、项目定位与价值判断
 
@@ -36,7 +36,7 @@ omniplc 是一个面向中国工控市场(三菱/欧姆龙/基恩士/汇川/松�
 
 - **整事务 deadline**(v0.30.0):涓流对端逐字节重置超时——原 MC 4C 最长 ~54 小时被收口,**这是真实攻击/故障场景**
 - **网络长度域上限快失败**(v0.30.2):FINS `0xFFFFFFFF` →350MB 灌包被拦下,符合工业网络安全基线
-- **TCP/UDP/串口超时语义分流**:TCP 拆连防串帧、UDP/串口超时不断线——文档对"为什么"讲得很清楚(`errors.py:42-49`)
+- **TCP/UDP/串口超时语义分流**:TCP 拆连防串帧、UDP/串口超时不断线——文档对"为什么"讲得很清楚(`core/errors.py:44-52`)
 - **TCP keepalive**(v0.30.0)+ Linux/Windows 平台差异处理:防止 PLC 断电半开连接
 - **`BaseClient.stats`** 健康统计:现场"多久没成功"判断直接可用
 - **TCP_NODELAY** + **整段 deadline**:小报文 PLC 通信的标配
@@ -73,12 +73,12 @@ omniplc 是一个面向中国工控市场(三菱/欧姆龙/基恩士/汇川/松�
 
 **深度不均的几处:**
 
-1. **OPC-UA 仅基本读写**——订阅(最常用特性)、方法调用、历史访问、安全策略都没做
+1. **OPC-UA 仅基本读写**——订阅(最常用特性)、方法调用、历史访问、安全策略都没做〔勘注:v0.35.0 已交付 subscribe_data_change/subscribe_event,订阅项收口;方法调用/历史访问/安全策略仍缺〕
 2. **MTConnect 仅只读**——写入、`/sample` 历史流、订阅协议都未实现,无法做 SPC/品质分析
 3. **AB 缺 UDT 整体读取**:工业现场大量 UDT/UDT 数组,只能逐字段拉,效率差
 4. **倍福 ADS 是 pyads 转发**——没有自己的实现,版本/平台绑死在 pyads
 5. **西门子 S7 仅支持基本数据类型**——无 S7-1200/1500 优化块访问(需用 PUT/GET),对新型 PLC 不友好
-6. **OPC-UA 标签浏览**(Browse)未暴露——现场接入第一件事就是"枚举所有点"
+6. **OPC-UA 标签浏览**(Browse)未暴露——现场接入第一件事就是"枚举所有点"〔勘注:v0.35.0 已提供 browse,P1 已收口〕
 
 ---
 
@@ -107,14 +107,14 @@ omniplc 是一个面向中国工控市场(三菱/欧姆龙/基恩士/汇川/松�
 - 双构建矩阵兼容 py3.7~3.12,`py.typed` 让下游拿到类型检查
 - CI:GitHub Actions + OIDC 可信发布到 PyPI(`fork` 守卫)——企业级做法
 - LICENSE: MIT,商业友好
-- 路线图(README 末尾)按版本降序,变更日志极其详尽
-- `architecture.md` 932 行,涵盖分层/继承/线程/状态机/类型/地址语法/协议矩阵——文档完整度在工业开源项目中罕见
+- 变更日志(`CHANGELOG.md`,自 README 末尾迁出)按版本降序、内容极其详尽;版本履历/路线图见 `docs/architecture.md` §11(升序)
+- `docs/architecture.md` 一份文档涵盖分层/继承/线程/状态机/类型/地址语法/协议矩阵——文档完整度在工业开源项目中罕见
 
 **扣分点:**
 
 - `dist/.gitignore` 在 v0.32.1 才修复发布物污染——说明此前确实出过事故
 - `.python-version` 钉 3.7.9 但 CI 用 3.12 构建——已在 v0.31.4 修复
-- 没有 `CONTRIBUTING.md` / `CODE_OF_CONDUCT.md` / issue模板——不利于社区贡献
+- 没有 `CONTRIBUTING.md` / `CODE_OF_CONDUCT.md` / issue模板——不利于社区贡献〔勘注:现均存在,正文结论已由 §12 勘误〕
 
 ---
 
@@ -124,14 +124,14 @@ omniplc 是一个面向中国工控市场(三菱/欧姆龙/基恩士/汇川/松�
 
 - `(bool, value)` 读返回 / `bool` 写返回 / `last_error` —— 语义直观,迁移成本低
 - `with client:` 上下文管理器
-- `read_batch` / `read_many` 全库统一契约,**单事务而非循环**
+- `read_batch` / `read_many` 全库统一契约,**单事务而非循环**〔勘注:README 口径已细分——`read_many` 默认逐点独立容错,5 个驱动(MC/FINS/AB/OPC-UA/MX)覆写为协议级单事务;`read_batch` 为协议级批量入口〕
 - `DataType` / `McFrame` / `WordOrder` / `ByteOrder` 枚举,IDE 自动补全友好
 - `Tag` / `TagTable` 可选点位表,自动缩放(`scale`)
 - `configure_serial()` 串口独立入口,符合"改参数 = 换对端"四分法
 
 **扣分:**
 
-- `read_batch` 整批容错 vs `read_many` 逐点容错——命名差异(都是"批")容易混淆,README 第 273 行写了契约但实际仍可能误用
+- `read_batch` 整批容错 vs `read_many` 逐点容错——命名差异(都是"批")容易混淆,README「批量读取」节写了契约但实际仍可能误用〔勘注:该节已改为按驱动分列的两段式契约——默认逐点 / 5 驱动整批〕
 - 失败时 `last_error` 是 str,丢失结构化信息——想做告警分类时只能 `str.contains`
 - 类型化方法20+ 个 + `read(addr, dtype)` 通用方法并存,有些冗余
 - 异步类用 `A` 前缀而非 `Async` 后缀,与 Python 社区惯例(asyncio 协程、aiohttp、aiofiles)反向
@@ -174,7 +174,7 @@ omniplc 是一个面向中国工控市场(三菱/欧姆龙/基恩士/汇川/松�
 |---|---|---|
 | P0 | 引入重连退避(exponential backoff) | 防断电重连风暴 |
 | P0 | 失败结构化(`last_error_code` 枚举) | 上位系统分类告警 |
-| P1 | OPC-UA 订阅 + Browse | OPC-UA 主要应用场景 |
+| P1 | OPC-UA 订阅 + Browse | OPC-UA 主要应用场景〔勘注:v0.35.0 已交付 subscribe_data_change/subscribe_event/browse,P1 已收口〕 |
 | P1 | AB UDT 整体读取 | 大幅提升 AB 吞吐 |
 | P1 | 仿真服务器(每协议 stub) | CI 真机回归前置条件 |
 | P2 | TLS 支持(TCP/OPC-UA) | 合规要求 |
@@ -193,7 +193,7 @@ omniplc 是一个面向中国工控市场(三菱/欧姆龙/基恩士/汇川/松�
 | 工业可靠性 | 9.0/10 | 整事务 deadline + 长度域上限 + 超时语义分流——真正踩过坑 |
 | 协议覆盖广度 | 9.0/10 | 国产 PLC 之王;OPC-UA/MTConnect 偏只读 |
 | 测试质量 | 7.5/10 | 黄金报文 + 脚本化 socket 优秀;缺真机仿真与模糊测试 |
-| 文档完整度 | 9.5/10 | 932 行 architecture.md + 详尽 README + 路线图 |
+| 文档完整度 | 9.5/10 | `docs/architecture.md` + 详尽 README + 路线图 |
 | API 设计 | 8.0/10 | 风格直观,上手无门槛;`last_error` 结构化可改进 |
 | 工程化 | 9.0/10 | hatchling + 双检查器 + OIDC 发布 |
 | 安全 | 6.0/10 | 长度上限有,TLS/凭据/OPC-UA 安全策略全缺 |
@@ -213,17 +213,17 @@ omniplc 是一个面向中国工控市场(三菱/欧姆龙/基恩士/汇川/松�
 
 ---
 
-## 十二、第二/三轮复审(2026-09-25,基准 v0.34.0 + v0.35-WIP)
+## 十二、第二/三轮复审(2026-09-25,基准 v0.35.0 已发布)
 
-> 本章为合并复审记录:第二轮勘误基线与反馈落地核验,第三轮新增字节层核验、GitHub Actions 运行实况取证与记录一致性检查。方法升级:黄金报文逐字节拆解、Actions run 页面抓取、`uv` 命令语义验证、git 提交时间线溯源。复审期间仓库处于活跃开发状态(v0.35 OPC-UA 订阅 WIP 在工作区未提交)。
+> 本章为合并复审记录:第二轮勘误基线与反馈落地核验,第三轮新增字节层核验、GitHub Actions 运行实况取证与记录一致性检查。方法升级:黄金报文逐字节拆解、Actions run 页面抓取、`uv` 命令语义验证、git 提交时间线溯源。复审期间仓库处于活跃开发状态(v0.35 OPC-UA 订阅当时在工作区未提交,现已提交并随 v0.35.0 发布)。
 
 ### 12.1 勘误
 
 | 轮次 | 原结论 | 勘误 |
 |---|---|---|
-| 轮1 | 基准 v0.32.1 | 实际代码已演进至 **v0.34.0**(`__init__.py:77`),v0.35 OPC-UA 订阅部分在工作区 |
+| 轮1 | 基准 v0.32.1 | 实际代码已演进至 **v0.35.0**(`__init__.py:77`),v0.35 OPC-UA 订阅已提交并随 v0.35.0 发布 |
 | 轮2 | "README CHANGELOG 引用失效" | 第三轮复核:`CHANGELOG.md` 已存在(`244ee81`,48 行),README 引用有效——该问题不再成立 |
-| 轮1 | 工程化 9.0/10 | 后续加了 CI 门禁(见 12.3,当前为红灯)——第三轮修正为 8.0 |
+| 轮1 | 工程化 9.0/10 | 后续加了 CI 门禁(见 12.3,当时为红灯)——第三轮修正为 8.0〔勘注:红灯已修复(c3f0dad/371e779),现四门禁全绿〕 |
 
 ### 12.2 反馈吸收时间线
 
@@ -245,7 +245,7 @@ omniplc 是一个面向中国工控市场(三菱/欧姆龙/基恩士/汇川/松�
 
 ### 12.3 硬发现(第三轮新增)
 
-**① CI 强制门禁三连红,从未通过(最严重)**
+**① CI 强制门禁三连红,从未通过(最严重)**〔勘注:已修复(c3f0dad/371e779),现四门禁全绿〕
 
 `ci.yml`(由 `7b8bf09` 加入的"强制门禁")在 GitHub Actions 上连续 3 次 Failure:
 
@@ -255,20 +255,20 @@ omniplc 是一个面向中国工控市场(三菱/欧姆龙/基恩士/汇川/松�
 | ci #2 | `21bd60d` | 13s | 失败 |
 | ci #3 | `f68027f` | 13s | **Failure,exit 2**(run 36021004162 页面核实) |
 
-根因已定位:`ci.yml:31` 使用 `uv sync --group dev`,但 `pyproject.toml:81` 的 `dev` 定义在 `[project.optional-dependencies]`(extra),仓库无 `[dependency-groups]` 表。`uv sync --help` 已核实 `--extra`↔optional-dependencies、`--group`↔dependency-group 的对应关系;uv 报组不存在、退出码 2,与运行注记吻合,8 秒内挂掉——pytest(660 例)从未执行。**修复是一行**:`--group dev` → `--extra dev`。
+根因已定位:`ci.yml:31` 使用 `uv sync --group dev`,但 `pyproject.toml:81` 的 `dev` 定义在 `[project.optional-dependencies]`(extra),仓库无 `[dependency-groups]` 表。`uv sync --help` 已核实 `--extra`↔optional-dependencies、`--group`↔dependency-group 的对应关系;uv 报组不存在、退出码 2,与运行注记吻合,8 秒内挂掉——pytest(660 例)从未执行。**修复是一行**:`--group dev` → `--extra dev`。〔勘注:已按此修复(c3f0dad),runner 同时改 windows(371e779),现 pytest/ruff/mypy/ty 四门禁全绿;`ci.yml:31` 现为 `ci.yml:35` `uv sync --extra dev`,`pyproject.toml:81` 的 `dev` 定义行号未变(节标题 [project.optional-dependencies] 在 :64),"660 例从未执行"已不成立——至 v0.35.0 全量 721 例持续通过〕
 
 **② 发布流水线零测试门禁**
 
-`build-release.yml`(#1-#7,7 次发布已上 PyPI)不含任何测试步骤;唯一应为门禁的 `ci.yml` 当前为红。发布路径至今没有自动化测试把关。
+`build-release.yml`(#1-#7,7 次发布已上 PyPI)不含任何测试步骤;唯一应为门禁的 `ci.yml` 当前为红。发布路径至今没有自动化测试把关。〔勘注:`ci.yml` 已修复(c3f0dad/371e779),现四门禁全绿〕
 
 **③ 真机核验清单是空表,与 README 声明矛盾**
 
-`docs/real-machine-checklist.md` 结构与填法约定专业,但**全部记录行为空**;而 `README.md:436` 声称 MX Component"读写/批量/CPU 型号/时钟已真机核证"。清单系 `da42c29` 新建的模板,历史核证记录未回填——记录体系与对外声明当前不一致。
+`docs/real-machine-checklist.md` 结构与填法约定专业,但**全部记录行为空**;而 `README.md`「真机联测待做」表声称 MX Component"读写/批量/CPU 型号/时钟已真机核证"。清单系 `da42c29` 新建的模板,历史核证记录未回填——记录体系与对外声明当前不一致。〔勘注:已回填 MX Component FX3U 与 FINS UDP CP1H 两行(d8c9d0b),与 README 声明一致〕
 
 **④ 工作区卫生(v0.35 进行中痕迹)**
 
-- 未提交 WIP:+916 行 OPC-UA 订阅(`aio/__init__.py`、`opcua/__init__.py`、`opcua/client.py`、`test_opcua_client.py`)
-- 4 个未跟踪临时文件未被 gitignore 覆盖:`_o.txt` / `_p.txt` / `_opcua_test.txt` / `_tmp_check.py`
+- 未提交 WIP:+916 行 OPC-UA 订阅(`aio/__init__.py`、`opcua/__init__.py`、`opcua/client.py`、`test_opcua_client.py`)〔勘注:该 WIP 已提交并随 v0.35.0 发布〕
+- 4 个未跟踪临时文件未被 gitignore 覆盖:`_o.txt` / `_p.txt` / `_opcua_test.txt` / `_tmp_check.py`〔勘注:该 4 个文件已清理,现已不存在于工作区;下方 .gitignore 建议仍适用于同类临时文件〕
 - `_opcua_test.txt` 内容 `...................FF.F...FF`——WIP 存在失败测试痕迹
 - 提醒:v0.35 入库前须清理残留并建议 `.gitignore` 补临时文件模式
 
@@ -285,9 +285,9 @@ omniplc 是一个面向中国工控市场(三菱/欧姆龙/基恩士/汇川/松�
 
 与三菱 SH-080008 手册一致;位打包 0x10(高半字节)/0x01(低半字节)正确,`codec_qna.py:143` 解析吻合。黄金向量是真对过手册的,不是摆设。
 
-**解码防御一致性**:`_execute`(`base_client.py:649`)只捕 `OSError`/内部异常,曾担心畸形响应 `IndexError` 穿透——实测各 codec 解码前均有长度校验并转 `ProtocolFrameError`:MC `codec_qna.py:281`、Modbus `codec.py:188` + `modbus.py:376` 按 `expected_response_length` 收包、FINS `codec.py:213/259/338` 三处、MC 串口/1E `codec_serial.py:313`/`codec_a.py:141`。**全库纪律一致,畸形响应不会逃逸为未捕获异常。**
+**解码防御一致性**:`_execute`(`base_client.py:651`)只捕 `OSError`/内部异常,曾担心畸形响应 `IndexError` 穿透——实测各 codec 解码前均有长度校验并转 `ProtocolFrameError`:MC `codec_qna.py:281`、Modbus `codec.py:188` + `modbus.py:376` 按 `expected_response_length` 收包、FINS `codec.py:213/259/338` 三处、MC 串口/1E `codec_serial.py:313`/`codec_a.py:141`。**全库纪律一致,畸形响应不会逃逸为未捕获异常。**
 
-**UDP 超时语义**:`udp.py:88-91` 将 `socket.timeout` 映射为 `TransportTimeoutError`(DeviceError 子类)→ 不断线,符合数据报整收无残留的链路特性,与 TCP 拆连防串帧语义正确分流。
+**UDP 超时语义**:`transport/udp.py:115-116` 与 `:136-137` 将 `socket.timeout` 映射为 `TransportTimeoutError`(DeviceError 子类)→ 不断线,符合数据报整收无残留的链路特性,与 TCP 拆连防串帧语义正确分流。
 
 **测试基建亮点**:`test_aio_mirror_surface.py` 用内省守卫把"异步镜像遗漏"这一历史事故固化为测试。
 
@@ -298,24 +298,24 @@ omniplc 是一个面向中国工控市场(三菱/欧姆龙/基恩士/汇川/松�
 | 架构设计 | 8.5 | 8.5 | 不变 |
 | 工业可靠性 | 9.0 | 9.5 | 字节层核验 + v0.34 退避/错误分类背书 |
 | 协议覆盖广度 | 9.0 | 9.0 | 不变 |
-| 测试质量 | 7.5 | 8.0 | 660 例 + 镜像守卫 + 黄金向量实证;门禁红=测试未进流水线 |
+| 测试质量 | 7.5 | 8.0 | 660 例〔勘注:现 CI 持续全绿,至 v0.35.0 全量 721 例〕 + 镜像守卫 + 黄金向量实证;门禁红=测试未进流水线〔勘注:c3f0dad/371e779 已修复〕 |
 | 文档完整度 | 9.5 | 9.5 | CONTRIBUTING/CoC/SECURITY/CHANGELOG 补齐 |
 | API 设计 | 8.0 | 8.5 | 失败结构化落地(`ErrorCategory`/`last_error_*`) |
-| **工程化** | 9.0 | **8.0** | ⬇ CI 三连红未修 + 发布路径零测试门禁 |
+| **工程化** | 9.0 | **8.0** | ⬇ CI 三连红未修〔勘注:已修复(c3f0dad/371e779),现四门禁全绿〕 + 发布路径零测试门禁 |
 | 安全 | 6.0 | 6.5 | 安全文档落地;TLS/凭据/OPC-UA 策略仍缺 |
 | **记录一致性** | — | **7.0** | 新维度:真机清单空表 vs README 声明矛盾 |
 | 可持续性 | 5.0 | 5.5 | issue/PR 模板 + 路线图公开 |
 
-**综合:8.0 → 8.1/10**——三轮反馈吸收与代码质量拉高分值,工程化红灯与记录矛盾抵消部分涨幅。
+**综合:8.0 → 8.1/10**(8.1 为剔除本节新增「记录一致性」维度后的 9 项均值,10 项直算为 8.0)——三轮反馈吸收与代码质量拉高分值,工程化红灯与记录矛盾抵消部分涨幅。
 
-### 12.6 行动清单(建议,未执行)
+### 12.6 行动清单(建议,未执行)〔勘注:截至 v0.35.0,CI 修复、真机清单回填、临时文件清理等已执行,详见各行〕
 
 | 优先级 | 项 | 说明 |
 |---|---|---|
-| P0 | `ci.yml:31` `--group dev` → `--extra dev` | 一行修复,重推验证 CI 变绿 |
+| P0 | `ci.yml:31` `--group dev` → `--extra dev` | 一行修复,重推验证 CI 变绿〔勘注:已执行(c3f0dad),runner 改 windows(371e779),四门禁全绿;`ci.yml:31` 现为 `ci.yml:35`〕 |
 | P0 | `build-release.yml` 构建前插入测试步骤 | 发布依赖测试通过 |
 | P0 | 红灯响应机制 | 3 次失败运行无人应答,建议开启 GitHub Actions 通知 |
-| P1 | 回填真机清单 MX 已核证项,或撤回 README"已真机核证"措辞 | 声明与记录二选一对齐 |
-| P1 | `.gitignore` 补临时文件模式 + 清理 4 个残留 | 防止 v0.35 误入库 |
-| P1 | 修复 `_opcua_test.txt` 中的失败测试再提交 | v0.35 发布前全量测试 |
+| P1 | 回填真机清单 MX 已核证项,或撤回 README"已真机核证"措辞 | 声明与记录二选一对齐〔勘注:已执行(d8c9d0b),MX Component FX3U 与 FINS UDP CP1H 两行已回填,无需撤回措辞〕 |
+| P1 | `.gitignore` 补临时文件模式 + 清理 4 个残留 | 防止 v0.35 误入库〔勘注:4 个残留已清理,工作区已无此文件〕 |
+| P1 | 修复 `_opcua_test.txt` 中的失败测试再提交 | v0.35 发布前全量测试〔勘注:已收口——v0.35.0 全量 721 例通过,四门禁全绿〕 |
 | P2 | 连接池/协议 stub 仿真/TLS 的 spec 排期 | 轮1 轮2 建议仍有效 |

@@ -3,7 +3,7 @@
 #### 介绍
 omniplc:一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、汇川、松下、丰田、罗克韦尔(AB)、倍福(TwinCAT)、西门子(S7)等 PLC/扫码枪、OPC-UA 服务器与 CNC 机床(MTConnect),支持 Modbus、MC(3E/4E/1E 以太网帧、1C/3C/4C 串口帧)、FINS、NJ/NX CIP(EtherNet/IP)、KV Host Link、KV MC 协议兼容(SLMP)、汇川 H3U/H5U(Modbus TCP/RTU、MC 协议兼容 3E)、松下 FP(MC 协议兼容 3E、MEWTOCOL)、SR、TOYOPUC 计算机链接、EtherNet/IP(Logix 标签读写)、TwinCAT ADS(封装 pyads)、西门子 S7(封装 python-snap7,DB/I/Q/M)、通用自定义 TCP(分隔符成帧)、OPC-UA、MTConnect 数采等协议。
 
-- **Python 3.7+**,uv 开发,核心零第三方依赖
+- **Python 3.7.9+**,uv 开发,核心零第三方依赖
 - 命名与使用习惯对齐,迁移成本极低
 - 全量类型标注(PEP 484 + py.typed),mypy 检查通过
 - 内置全局报文调试开关(`omniplc.set_debug(True)` 一键输出所有协议的请求/响应报文)
@@ -62,7 +62,7 @@ AOpenTcpClient / AMTConnectClient / ASiemensS7Client
 
 ```bash
 uv add omniplc            # 或 pip install omniplc
-uv add 'omniplc[serial]'  # 需要 Modbus RTU 或三菱 MC 串口 3C/4C 帧时(pyserial)
+uv add 'omniplc[serial]'  # 需要 Modbus RTU 或三菱 MC 串口 1C/3C/4C 帧时(pyserial)
 uv add 'omniplc[mx]'      # 需要三菱 MX Component(Windows)时
 uv add 'omniplc[opcua]'   # 需要 OPC-UA 时(安装 asyncua)
 uv add 'omniplc[ads]'     # 需要倍福 TwinCAT ADS 时(安装 pyads,Windows 需 TcAdsDll 运行库)
@@ -149,7 +149,8 @@ ok = nj.write_bool("RunFlag", True)
 nj_c = OmronCipClient(ip_address="192.168.0.10", connected_messaging=True)  # 连接型
 
 # 倍福 TwinCAT(ADS):变量名即地址(MAIN.nCounter / .gGlobal / GVL.MyVar)
-# 安装:pip install 'omniplc[ads]'(Windows 侧还需 Beckhoff TcAdsDll 运行库,随 TwinCAT ADS 安装)
+# 安装:pip install 'omniplc[ads]'
+# Windows 侧还需 Beckhoff TcAdsDll 运行库,随 TwinCAT ADS 安装
 from omniplc import BeckhoffAdsClient
 bc = BeckhoffAdsClient(ip_address="192.168.0.10", ads_port=851)  # net_id 默认 IP+.1.1
 ok, value = bc.read_int("MAIN.nCounter")
@@ -257,7 +258,8 @@ ok, device = cnc.probe()               # 设备信息(name/uuid 等)
 
 # 西门子 S7(封装 python-snap7):DB/I/Q/M 绝对寻址,ISO-on-TCP 102,rack/slot 路由
 # S7-1200/1500 需勾选"允许来自远程对象的 PUT/GET 通信访问",DB 须为非优化块
-# 安装:pip install 'omniplc[s7]' —— 依赖按 Python 版本自动二选一:
+# 安装:pip install 'omniplc[s7]'
+# 依赖按 Python 版本自动二选一:
 #   3.7~3.9 → python-snap7 1.3(C 封装,64 位用捆绑库;32 位需自备 snap7.dll 经 dll_path 指定)
 #   3.10+   → python-snap7 3.x(纯 Python 实现,无需原生 DLL)
 from omniplc import SiemensS7Client
@@ -269,14 +271,14 @@ ok, current = s7.read_ushort("MW10")   # Merker 字
 ok, text = s7.read_string("DB1.DBS20", length=32)  # S7 String(头 2 字节声明/实际长)
 ```
 
-#### 批量读取(协议原生,单事务)
+#### 批量读取(默认逐点 / 协议原生单事务)
 
-`read_many(地址列表, 数据类型)` 与 `read_batch([(地址, 类型), ...])` 全库统一契约：**一帧往返**读回多个点(不是循环单点),任一地址非法或设备拒绝则**整批失败**(原因在 `last_error`;要逐点容错请逐点 `read`)。以下驱动覆写为协议原生批量,其余驱动回退逐点独立事务:
+`read_many(地址列表, 数据类型)` 的默认契约是**逐点独立容错**:基类逐点发出独立事务,单点失败不影响其他点。`read_batch([(地址, 类型), ...])` 是**协议级批量入口**,仅在支持单事务批量的驱动上提供。以下驱动把批量入口覆写为协议级单事务——**一帧往返**读回多个点(不是循环单点),是**整批语义**:任一地址非法或设备拒绝则整批失败(原因在 `last_error`;要逐点容错请逐点 `read`):
 
 - 三菱 MC 3E/4E:`0406` 多块批量读(混软元件,总块数 ≤120);KV/汇川/松下 MC 兼容子类经继承同享
 - 欧姆龙 FINS:`0104` 多存储区读(以太网上限 167 条)
 - AB / 欧姆龙 NJ-NX CIP:`0x0A` 多服务包(上限 32 条;BOOL 首次批量读做一次类型发现后缓存)
-- OPC-UA:UA Read 服务原生多节点(asyncua `read_values` 单请求)
+- OPC-UA:UA Read 服务原生多节点(asyncua `read_values` 单请求);**任一节点非法或服务端拒绝则整批失败**,原因进 `last_error`,需要逐点容错请逐点 `read`
 - MX Component:`ReadDeviceRandom`(软元件列表换行分隔;仅 16 位类型)
 
 ```python
@@ -360,30 +362,53 @@ client.bind_tags(TagTable.from_json("tags.json"))
 ok, value = client.read_tag("furnace_temp")   # 点位标识 → 地址+类型,自动应用缩放
 ```
 
+**迁移(v0.33.0 schema 破坏性变更)**:旧表 `name` 字段的值原样迁入 `tag_id`
+(点位标识,项目内唯一,一般字母/数字),原中文说明改写到新增的 `remark`
+(可选,缺省为空),其余字段不变;字段语义见 `tag.py` 的 `Tag` 文档。
+
 #### 错误处理约定
 
 **读返回 `(bool, 值)`,写返回 `bool`,不抛自定义异常**;
 失败原因记录在 `client.last_error`(含 PLC 原始错误码)。参数非法(地址/类型/
-范围错误)抛 `ValueError`。批量操作逐点独立容错,单点失败不影响其他点。
+范围错误)抛 `ValueError`。`read_many`/`write_many` **默认**逐点独立容错,单点失败不影响其他点;
+被覆写为协议级单事务的驱动(MC 0406 / FINS 0104 / AB 0x0A / OPC-UA UA Read /
+MX ReadDeviceRandom)为整批语义:任一点失败则整批失败,原因在 `last_error`,
+要逐点容错请逐点 `read`。
 
 **失败分类与原始码(v0.34.0 起)**:除 `last_error` 文本外,另有两个只读
 属性供上位系统分类告警——`client.last_error_category`(`ErrorCategory`
 枚举:`TRANSPORT`/`PROTOCOL`/`DEVICE`/`TIMEOUT`/`UNKNOWN`)与
 `client.last_error_code`(PLC 原始错误码,如 MC 结束码 `0xC059`、Modbus
 异常码 `2`、FINS 结束码 `0x2108`;传输类错误为 `errno`,无码为 `None`)。
-成功读写后三者一并清空::
+成功读写后三者一并清空:
 
-    from omniplc import ErrorCategory
+```python
+from omniplc import ErrorCategory
 
-    ok, value = client.read_ushort("D100")
-    if not ok:
-        cat = client.last_error_category
-        if cat is ErrorCategory.DEVICE:
-            ...  # PLC 报错:看 last_error_code 区分地址越界/功能不支持
-        elif cat is ErrorCategory.TRANSPORT:
-            ...  # PLC 不可达:最高级告警
-        elif cat is ErrorCategory.TIMEOUT:
-            ...  # 链路完好但超时:查负载/串扰/超时配置
+ok, value = client.read_ushort("D100")
+if not ok:
+    cat = client.last_error_category
+    if cat is ErrorCategory.DEVICE:
+        ...  # PLC 报错:看 last_error_code 区分地址越界/功能不支持
+    elif cat is ErrorCategory.TRANSPORT:
+        ...  # PLC 不可达:最高级告警
+    elif cat is ErrorCategory.TIMEOUT:
+        ...  # 链路完好但超时:查负载/串扰/超时配置
+```
+
+#### OPC-UA 推模式(v0.35.0 起)
+
+OPC-UA 除拉模式读写外,还支持服务端**推**数据与事件:
+
+- `subscribe_data_change(node, on_change, sampling_interval_ms=1000)` 订阅数据
+  变化(回调 `(value, node_id, source_timestamp)`,回调异常只记日志与
+  `last_error`,不杀订阅)、`subscribe_event(node, on_event, event_filter=None)`
+  订阅事件(EventFilter 可选透传)
+- `OpcUaSubscription` 订阅句柄(`unsubscribe()` 幂等),`active_subscriptions`
+  给出活跃订阅快照;`disconnect()` 先退订再断开
+- `browse(node_text="Root", recursive=True, max_depth=None)` 枚举地址树,
+  返回 `{node_id: {browse_name, node_class, children}}` 嵌套字典
+- **断线不自动重订**,订阅重建策略留调用端;同步与 aio 异步双轨可用
 
 #### 连接退避(v0.34.0 起)
 
@@ -412,12 +437,14 @@ ok, value = client.read_tag("furnace_temp")   # 点位标识 → 地址+类型,�
   "多久没成功/多久前出错"
 - `last_rtt`:最近一次成功事务的往返耗时(秒,含 PLC 等待),微秒级开销
 
-异步镜像 `ABaseClient.stats` 同步转发。判断示例::
+异步镜像 `ABaseClient.stats` 同步转发。判断示例:
 
-    s = client.stats
-    if s["error_count"] > 10 and (s["last_success_at"] or 0) < (time.monotonic() - 60):
-        # 错误多且一分钟没成功过:报警/触发诊断
-        ...
+```python
+s = client.stats
+if s["error_count"] > 10 and (s["last_success_at"] or 0) < (time.monotonic() - 60):
+    # 错误多且一分钟没成功过:报警/触发诊断
+    ...
+```
 
 #### 真机联测待做(v0.30.0 整理)
 
@@ -437,7 +464,9 @@ ok, value = client.read_tag("furnace_temp")   # 点位标识 → 地址+类型,�
 
 实际真机联测通过项的核验记录见 [`docs/real-machine-checklist.md`](docs/real-machine-checklist.md)(按厂商/协议/读写独立勾选)。
 
-#### v1 协议 × 走线矩阵
+#### 全协议 × 走线矩阵
+
+表中 `v1.x(...)` 表示该走线**留待 v1.x 版本**实现,非版本号标注。
 
 | 协议                                     | TCP                                                   | UDP     | RTU(串口)            | MX Component     |
 |----------------------------------------|-------------------------------------------------------|---------|--------------------|------------------|
@@ -450,8 +479,8 @@ ok, value = client.read_tag("furnace_temp")   # 点位标识 → 地址+类型,�
 | 基恩士 KV Host Link                       | ✅                                                     | ✅       | —                  | —                |
 | 基恩士 KV MC 协议兼容(SLMP 3E)                | ✅(5000)                                               | ✅(5000) | —                  | —                |
 | 汇川 H3U/H5U(Modbus + 汇川地址映射)            | ✅(502)                                                | —       | ✅(9600-8N2)        | —                |
-| 汇川 MC 协议兼容(3E 帧,Easy/H5U 固件 V6.4.0.0+) | ✅(端口以 MC配置 为准)                                        | —       | —                  | —                |
-| 松下 FP0H/FP7 MC 协议兼容(3E 帧)              | ✅(端口以模块配置为准)                                          | —       | —                  | —                |
+| 汇川 MC 协议兼容(3E 帧,Easy/H5U 固件 V6.4.0.0+) | ✅(默认 2000,可配)                                          | —       | —                  | —                |
+| 松下 FP0H/FP7 MC 协议兼容(3E 帧)              | ✅(默认 2000,可配)                                          | —       | —                  | —                |
 | 松下 MEWTOCOL                            | ✅(1024)                                               | ✅(1024) | v1.x(MEWTOCOL-COM) | —                |
 | 基恩士 SR 扫码枪                             | ✅(9004)                                               | —       | —                  | —                |
 | 丰田 TOYOPUC 计算机链接                       | ✅(1025)                                               | ✅(1025) | —                  | —                |
@@ -467,11 +496,11 @@ ok, value = client.read_tag("furnace_temp")   # 点位标识 → 地址+类型,�
 #### 开发
 
 ```bash
-uv sync --extra dev --extra mx   # 安装开发依赖(Windows 加装 comtypes 供静态检查解析)
-uv run python -m pytest          # 测试(无需真机;32 位 py3.7 venv 的 exe shim 兼容性问题走 -m)
-uv run ruff check .              # 代码检查
-uv run mypy                      # 类型检查(python_version = 3.7,配置见 pyproject.toml)
-uvx ty check                     # ty 类型检查(Astral,配置见 pyproject.toml [tool.ty])
+uv sync --extra dev             # 安装开发依赖(dev extra 已含 comtypes,供静态检查解析)
+uv run python -m pytest tests -q     # 测试(无需真机;32 位 py3.7 venv 的 exe shim 兼容性问题走 -m)
+uvx ruff check src tests             # 代码检查
+uvx mypy src/omniplc                 # 类型检查(python_version = 3.9,配置见 pyproject.toml)
+uvx ty check src/omniplc             # ty 类型检查(Astral,配置见 pyproject.toml [tool.ty.src])
 ```
 
 #### License
