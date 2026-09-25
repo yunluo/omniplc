@@ -69,9 +69,9 @@ def test_csv_missing_column(tmp_path: Path) -> None:
 
 
 def test_duplicate_tag_id_rejected() -> None:
-    table = TagTable([Tag("a", "D0", "short")])
+    """构造期即拒绝重复标识(表构造后只读,无运行期增删)。"""
     with pytest.raises(ValueError):
-        table.add(Tag("a", "D1", "short"))
+        TagTable([Tag("a", "D0", "short"), Tag("a", "D1", "short")])
 
 
 def test_mapping_protocol() -> None:

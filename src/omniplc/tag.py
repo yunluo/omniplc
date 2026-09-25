@@ -40,24 +40,24 @@ class TagTable(Mapping[str, Tag]):
         ok, value = client.read_tag("furnace_temp")
 
     也可不绑定,直接把 :class:`Tag` 传给 ``read_tag``/``write_tag``。
+
+    表内容在构造时一次性确定,之后**只读**——实际场景点位表来自
+    JSON/CSV 导入,运行期不需要增删;只读也保证了并发轮询遍历
+    (``for tag_id in table``)不会被写入打断。
     """
 
     def __init__(self, tags: Optional[Iterable[Tag]] = None) -> None:
-        """创建点位表。
+        """创建点位表(构造后只读)。
 
-        :param tags: 初始点位集合,重复标识抛出 ValueError
+        :param tags: 初始点位集合,标识重复或字段非法抛出 ValueError
         """
         self._tags: Dict[str, Tag] = {}
         if tags is not None:
             for tag in tags:
-                self.add(tag)
+                self._validate_and_insert(tag)
 
-    def add(self, tag: Tag) -> None:
-        """添加一个点位。
-
-        :param tag: 点位定义
-        :raises ValueError: 标识重复、字段为空或 ``scale`` 为 0
-        """
+    def _validate_and_insert(self, tag: Tag) -> None:
+        """校验一个点位并写入内部字典(内部方法,仅构造期调用)。"""
         if not tag.tag_id or not tag.tag_id.strip():
             raise ValueError("点位标识不能为空")
         if not tag.address or not tag.address.strip():

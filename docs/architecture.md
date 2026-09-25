@@ -209,7 +209,7 @@ flowchart TB
     BeckhoffAdsClient -.->|"AMS 851"| AdsSession
 
     %% ═══ 点位表 / 异步镜像 ═══
-    TagNode["Tag(dataclass)/ TagTable(Mapping)— tag.py(from_json / from_csv)"]
+    TagNode["Tag(dataclass)/ TagTable(构造后只读 Mapping)— tag.py(from_json / from_csv)"]
     BaseClient -.->|"bind_tags"| TagNode
 
     subgraph AsyncMirror["异步镜像(omniplc.aio):ABaseClient 组合同步实例 + 单线程 ThreadPoolExecutor,签名同名同型"]
