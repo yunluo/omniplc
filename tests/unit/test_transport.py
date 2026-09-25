@@ -2,22 +2,23 @@
 from __future__ import annotations
 
 import logging
-import sys
+import socket
 from typing import List
 
 import pytest
 
 from omniplc.core.debug import LOGGER_NAME
-from omniplc.core.errors import TransportClosedError
+from omniplc.core.errors import DeviceError, TransportClosedError
 from omniplc.transport import SerialConfig, TcpTransport, UdpTransport
+from omniplc.transport import udp as udp_module
 from omniplc.types import SerialParity
 
-# Windows 上 UDP ``recv`` 对超长报文直接抛 ``WSAEMSGSIZE``(OS 显式报错),
-# 不存在"静默截断"路径——截断日志机制只对 POSIX(Linux/macOS)有意义。
-_POSIX_ONLY = pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="UDP 静默截断 + MSG_TRUNC 仅 POSIX 平台适用",
-)
+# UDP 超长报文的两条平台分支(内核行为互斥,单机无法同时复现):
+# - POSIX:``recv`` 静默截断,库用 ``MSG_TRUNC`` 探真长并记 WARNING
+#   (``udp.py:_SUPPORTS_MSG_TRUNC``,Windows 上该开关恒为假);
+# - Windows:``recv`` 抛 ``WSAEMSGSIZE``(errno 10040),库转 ``DeviceError``。
+# 两条**库内逻辑**均以假 socket 强制打开对应分支来验证,用例跨平台可跑;
+# 内核侧差异记录在 ``transport/udp.py`` 的模块注释里。
 
 
 class TestTcpTransport:
@@ -85,76 +86,120 @@ class TestUdpTransport:
         with pytest.raises(TransportClosedError):
             transport.send(b"x")
 
-    @_POSIX_ONLY
-    def test_recv_truncation_logs_warning(self, udp_echo_port: int, caplog: pytest.LogCaptureFixture) -> None:
+    def test_recv_truncation_logs_warning(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """UDP 数据报超过缓冲:返回截断后字节,并通过 WARNING 日志提示截断量。
 
-        UDP 是原子报文协议——超出 ``size`` 的字节会被**静默丢弃**,且**不会**
-        留到下一次 recv。库必须以 WARNING 级(不受 ``set_debug`` 门控)输出一条
-        故障信号,提示调用方协议层 size 估错或对端回了超长报文。
+        UDP 是原子报文协议——超出 ``size`` 的字节会被**静默丢弃**(POSIX 行为),
+        且**不会**留到下一次 recv。库必须以 WARNING 级(不受 ``set_debug`` 门控)
+        输出一条故障信号,提示调用方协议层 size 估错或对端回了超长报文。
+        假 socket 强制打开 ``MSG_TRUNC`` 截断分支,故 Windows 上同样可测。
         """
-        transport = UdpTransport("127.0.0.1", udp_echo_port)
-        transport.connect()
+
+        class TruncatingSocket:
+            """真长 2000B > 缓冲 1024B:按 ``MSG_TRUNC`` 语义返回真实长度。"""
+
+            def settimeout(self, _value: float) -> None:
+                pass
+
+            def recv_into(self, buffer: bytearray, _size: int, _flags: int = 0) -> int:
+                buffer[:] = b"\xAA" * len(buffer)
+                return 2000
+
+            def recv(self, _size: int) -> bytes:
+                raise AssertionError("截断分支应走 recv_into")
+
+            def close(self) -> None:
+                pass
+
+        monkeypatch.setattr(udp_module, "_SUPPORTS_MSG_TRUNC", True)
+        monkeypatch.setattr(socket, "MSG_TRUNC", 0x20, raising=False)
+        transport = UdpTransport("127.0.0.1", 9600)
+        transport._socket = TruncatingSocket()  # type: ignore[assignment]
         try:
-            # 发 2000 字节,recv 仅 1024——必截断
-            big = b"\xAA" * 2000
-            transport.send(big)
             with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
                 frame = transport.recv(1024)
-            assert len(frame) == 1024
-            # 截断日志必出现,带"实收 2000B,缓冲 1024B,超出 976B"
-            truncate_records = [
-                record for record in caplog.records
-                if record.levelno == logging.WARNING and "UDP 数据报截断" in record.getMessage()
-            ]
-            assert len(truncate_records) == 1
-            assert "2000" in truncate_records[0].getMessage()
-            assert "1024" in truncate_records[0].getMessage()
         finally:
             transport.close()
+        assert frame == b"\xAA" * 1024  # 缓冲内收到的字节原样返回
+        # 截断日志必出现,带"实收 2000B,缓冲 1024B,超出 976B"
+        truncate_records = [
+            record for record in caplog.records
+            if record.levelno == logging.WARNING and "UDP 数据报截断" in record.getMessage()
+        ]
+        assert len(truncate_records) == 1
+        assert "2000" in truncate_records[0].getMessage()
+        assert "1024" in truncate_records[0].getMessage()
 
-    @_POSIX_ONLY
-    def test_recv_no_truncation_no_warning(self, udp_echo_port: int, caplog: pytest.LogCaptureFixture) -> None:
-        """UDP 数据报未超 size:不输出截断 WARNING。"""
-        transport = UdpTransport("127.0.0.1", udp_echo_port)
-        transport.connect()
+    def test_recv_no_truncation_no_warning(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """UDP 数据报未超 size:不输出截断 WARNING(截断分支同源,跨平台同测)。"""
+
+        class SmallDatagramSocket:
+            """真长 100B < 缓冲 1024B:照常写入缓冲并返回真实长度。"""
+
+            def settimeout(self, _value: float) -> None:
+                pass
+
+            def recv_into(self, buffer: bytearray, _size: int, _flags: int = 0) -> int:
+                buffer[:100] = b"\xAA" * 100
+                return 100
+
+            def close(self) -> None:
+                pass
+
+        monkeypatch.setattr(udp_module, "_SUPPORTS_MSG_TRUNC", True)
+        monkeypatch.setattr(socket, "MSG_TRUNC", 0x20, raising=False)
+        transport = UdpTransport("127.0.0.1", 9600)
+        transport._socket = SmallDatagramSocket()  # type: ignore[assignment]
         try:
-            transport.send(b"\xAA" * 100)
             with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
                 frame = transport.recv(1024)
-            assert frame == b"\xAA" * 100
-            truncate_records = [
-                record for record in caplog.records
-                if record.levelno == logging.WARNING and "UDP 数据报截断" in record.getMessage()
-            ]
-            assert len(truncate_records) == 0
         finally:
             transport.close()
+        assert frame == b"\xAA" * 100
+        truncate_records = [
+            record for record in caplog.records
+            if record.levelno == logging.WARNING and "UDP 数据报截断" in record.getMessage()
+        ]
+        assert len(truncate_records) == 0
 
-    @pytest.mark.skipif(
-        sys.platform != "win32",
-        reason="Windows 上 WSAEMSGSIZE(WinError 10040)才直接抛 OSError,POSIX 走 MSG_TRUNC 静默截断分支",
-    )
-    def test_recv_windows_oversize_raises_device_error(self, udp_echo_port: int) -> None:
-        """Windows 上 recv 对超长 UDP 报文抛 WSAEMSGSIZE:库捕获后转 :class:`DeviceError`,
-        让基类按 DEVICE 分类记入 last_error_category(链路完好,区分于真断线 TRANSPORT),
-        且不触发重连(协议层 size 估错或对端报文超长,与链路健康无关)。
+    def test_recv_oversize_raises_device_error(self) -> None:
+        """``recv`` 报 WSAEMSGSIZE(errno 10040):库转 :class:`DeviceError` 并留码。
+
+        Windows 内核对该情形直接抛错(故 ``udp.py`` 的平台分支为 Windows 保留);
+        库捕获后转 :class:`DeviceError`,让基类按 DEVICE 分类记入
+        ``last_error_category``(链路完好,区分于真断线 TRANSPORT)且不触发重连
+        (协议层 size 估错或对端报文超长,与链路健康无关)。
+        假 socket 强制抛出该错误,故非 Windows 平台同样可测这条映射逻辑。
         """
-        from omniplc.core.errors import DeviceError
 
-        transport = UdpTransport("127.0.0.1", udp_echo_port)
-        transport.connect()
+        class OversizeSocket:
+            """``recv`` 恒抛 WSAEMSGSIZE(Windows 内核行为)。"""
+
+            def settimeout(self, _value: float) -> None:
+                pass
+
+            def recv(self, _size: int) -> bytes:
+                raise OSError(10040, "WSAEMSGSIZE: message too long")
+
+            def close(self) -> None:
+                pass
+
+        transport = UdpTransport("127.0.0.1", 9600)
+        transport._socket = OversizeSocket()  # type: ignore[assignment]
         try:
-            transport.send(b"\xAA" * 2000)  # 对端原样回 2000B
             with pytest.raises(DeviceError) as excinfo:
                 transport.recv(1024)
-            # message 直说"UDP 报文超过缓冲"
-            assert "UDP 报文超过缓冲" in str(excinfo.value)
-            assert "1024" in str(excinfo.value)
-            # code 字段承载原 WSAEMSGSIZE errno(10040)便于应用层判定
-            assert excinfo.value.code == 10040
         finally:
             transport.close()
+        # message 直说"UDP 报文超过缓冲"
+        assert "UDP 报文超过缓冲" in str(excinfo.value)
+        assert "1024" in str(excinfo.value)
+        # code 字段承载原 WSAEMSGSIZE errno(10040)便于应用层判定
+        assert excinfo.value.code == 10040
 
 
 class _FakeSerialPort:

@@ -33,7 +33,7 @@
 本仓库门禁四件套,**任一挂下即不通过**:
 
 ```bash
-uv run python -m pytest tests -q         # 全量(当前 838 例 + 2 skipped)
+uv run python -m pytest tests -q         # 全量(当前 842 例,随批次增长;无平台跳过)
 uvx ruff check src tests                 # 0 告警(规则集显式固定,与 ruff 版本漂移解耦)
 uvx mypy src/omniplc                     # 0 问题(70 源文件,目标 python_version=3.9,配置见 pyproject.toml)
 uvx ty check src/omniplc                 # 0 问题(Astral 第二类型检查器,与 mypy 互补)
