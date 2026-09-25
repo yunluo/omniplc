@@ -24,6 +24,7 @@ from ..core.constants import (
     DEFAULT_STRING_ENCODING,
     FINS_DEFAULT_PORT,
     INOVANCE_MC_DEFAULT_PORT,
+    INOVANCE_SERIAL_DEFAULT_STOP_BITS,
     KEYENCE_MC_DEFAULT_PORT,
     KV_DEFAULT_PORT,
     MC_1C_DEFAULT_MESSAGE_WAIT,
@@ -42,7 +43,9 @@ from ..core.constants import (
     MODBUS_DEFAULT_STATION,
     MX_DEFAULT_LOGICAL_STATION,
     OPCUA_DEFAULT_PORT,
+    OPCUA_DEFAULT_SAMPLING_INTERVAL_MS,
     OPEN_TCP_DEFAULT_DELIMITER,
+    OPEN_TCP_DEFAULT_ENCODING,
     OPEN_TCP_DEFAULT_PORT,
     OPEN_TCP_MAX_FRAME,
     MTCONNECT_DEFAULT_PORT,
@@ -564,7 +567,7 @@ class AInovanceRtuClient(AModbusBaseClient):
         port_name: str,
         baud_rate: int = SERIAL_DEFAULT_BAUD_RATE,
         data_bits: int = SERIAL_DEFAULT_DATA_BITS,
-        stop_bits: float = 2,
+        stop_bits: float = INOVANCE_SERIAL_DEFAULT_STOP_BITS,
         parity: Union[SerialParity, str] = SERIAL_DEFAULT_PARITY,
     ) -> None:
         """配置串口参数(汇川缺省 9600-8N2,转发到同步实例)。"""
@@ -1183,7 +1186,7 @@ class AOpcUaClient(ABaseClient):
         node_text: str,
         on_change: Callable[[Any, str, Optional[float]], None],
         *,
-        sampling_interval_ms: int = 1000,
+        sampling_interval_ms: int = OPCUA_DEFAULT_SAMPLING_INTERVAL_MS,
     ) -> Tuple[bool, Optional[OpcUaSubscription]]:
         """订阅节点值变化(DataChange)。
 
@@ -1413,7 +1416,7 @@ class AOpenTcpClient(ABaseClient):
         ip_address: str = "192.168.0.10",
         port: int = OPEN_TCP_DEFAULT_PORT,
         delimiter: Optional[Union[str, bytes]] = OPEN_TCP_DEFAULT_DELIMITER,
-        encoding: str = "utf-8",
+        encoding: str = OPEN_TCP_DEFAULT_ENCODING,
         append_delimiter: bool = True,
         strip_delimiter: bool = True,
         max_frame: int = OPEN_TCP_MAX_FRAME,

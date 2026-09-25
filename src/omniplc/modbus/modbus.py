@@ -19,6 +19,10 @@ from .address import ModbusAddress, ModbusArea, parse_address
 from .. import convert
 from ..core.base_client import BaseClient, validate_endpoint
 from ..core.constants import (
+    INT32_MAX,
+    INT32_MIN,
+    INT64_MAX,
+    INT64_MIN,
     MBAP_HEADER_SIZE,
     MODBUS_DEFAULT_PORT,
     MODBUS_DEFAULT_STATION,
@@ -29,6 +33,8 @@ from ..core.constants import (
     SERIAL_DEFAULT_DATA_BITS,
     SERIAL_DEFAULT_PARITY,
     SERIAL_DEFAULT_STOP_BITS,
+    UINT32_MAX,
+    UINT64_MAX,
 )
 from ..core.errors import ProtocolFrameError
 from ..core.validation import (
@@ -428,10 +434,10 @@ def _encode_32bit(value: PrimitiveValue, data_type: DataType, word_order: WordOr
     """按类型编码 32 位整数为 2 寄存器。"""
     number = require_int(value)
     if data_type is DataType.INT:
-        if not -2147483648 <= number <= 2147483647:
+        if not INT32_MIN <= number <= INT32_MAX:
             raise ValueError(f"int 超出 32 位范围:{number}")
         return list(convert.int32_to_registers(number, word_order))
-    if not 0 <= number <= 4294967295:
+    if not 0 <= number <= UINT32_MAX:
         raise ValueError(f"uint 超出 32 位范围:{number}")
     return list(convert.uint32_to_registers(number, word_order))
 
@@ -440,9 +446,9 @@ def _encode_64bit(value: PrimitiveValue, data_type: DataType, word_order: WordOr
     """按类型编码 64 位整数为 4 寄存器。"""
     number = require_int(value)
     if data_type is DataType.LONG:
-        if not -9223372036854775808 <= number <= 9223372036854775807:
+        if not INT64_MIN <= number <= INT64_MAX:
             raise ValueError(f"long 超出 64 位范围:{number}")
         return list(convert.int64_to_registers(number, word_order))
-    if not 0 <= number <= 18446744073709551615:
+    if not 0 <= number <= UINT64_MAX:
         raise ValueError(f"ulong 超出 64 位范围:{number}")
     return list(convert.uint64_to_registers(number, word_order))

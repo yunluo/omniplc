@@ -25,14 +25,13 @@ from __future__ import annotations
 import logging
 import sys
 
+from .constants import DEBUG_MAX_DUMP_BYTES
+
 LOGGER_NAME = "omniplc.debug"
 """报文日志使用的记录器名(接管输出时按此配置)。"""
 
 SEND_MARK = "→ 发送"
 RECV_MARK = "← 接收"
-
-_MAX_DUMP_BYTES = 4096
-"""单条日志最多转储的字节数(超出截断,防大块读写刷屏)。"""
 
 _logger = logging.getLogger(LOGGER_NAME)
 _enabled = False
@@ -91,10 +90,10 @@ def log_op(label: str, message: str, *args: object) -> None:
 
 def _format_hex(data: bytes) -> str:
     """十六进制转储(大写、空格分隔;超长截断并注明,内部函数)。"""
-    dumped = data[:_MAX_DUMP_BYTES]
+    dumped = data[:DEBUG_MAX_DUMP_BYTES]
     text = " ".join(f"{byte:02X}" for byte in dumped)
     if len(data) > len(dumped):
-        text += " …(仅转储前 {}B,共 {}B)".format(_MAX_DUMP_BYTES, len(data))
+        text += " …(仅转储前 {}B,共 {}B)".format(DEBUG_MAX_DUMP_BYTES, len(data))
     return text
 
 

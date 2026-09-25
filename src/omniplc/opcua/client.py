@@ -31,7 +31,21 @@ import struct
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from ..core.base_client import BaseClient, validate_endpoint
-from ..core.constants import OPCUA_DEFAULT_PORT
+from ..core.constants import (
+    INT16_MAX,
+    INT16_MIN,
+    INT32_MAX,
+    INT32_MIN,
+    INT64_MAX,
+    INT64_MIN,
+    OPCUA_DEFAULT_PORT,
+    OPCUA_DEFAULT_SAMPLING_INTERVAL_MS,
+    PORT_MAX,
+    PORT_MIN,
+    UINT16_MAX,
+    UINT32_MAX,
+    UINT64_MAX,
+)
 from ..core.debug import log_op
 from ..core.errors import DeviceError, ErrorCategory, OmniPLCInternalError, TransportClosedError
 from ..core.validation import require_bool, require_float, require_int
@@ -618,7 +632,7 @@ class OpcUaClient(BaseClient):
         node_text: str,
         on_change: Callable[[Any, str, Optional[float]], None],
         *,
-        sampling_interval_ms: int = 1000,
+        sampling_interval_ms: int = OPCUA_DEFAULT_SAMPLING_INTERVAL_MS,
     ) -> Tuple[bool, Optional[OpcUaSubscription]]:
         """订阅节点值变化(DataChange)。
 
@@ -792,8 +806,8 @@ def _validate_endpoint_url(endpoint: str) -> None:
             )
         )
     port_text = match.group(2)
-    if port_text is not None and not 1 <= int(port_text) <= 65535:
-        raise ValueError(f"OPC-UA 端点端口必须在 1~65535 之间,收到:{port_text}")
+    if port_text is not None and not PORT_MIN <= int(port_text) <= PORT_MAX:
+        raise ValueError(f"OPC-UA 端点端口必须在 {PORT_MIN}~{PORT_MAX} 之间,收到:{port_text}")
 
 
 def _coerce_read(value: Any, data_type: DataType, address: str) -> PrimitiveValue:
@@ -863,12 +877,12 @@ def _coerce_write(value: PrimitiveValue, data_type: DataType) -> Tuple[Any, str]
 
 
 _INT_RANGES = {
-    DataType.SHORT: (-0x8000, 0x7FFF),
-    DataType.USHORT: (0, 0xFFFF),
-    DataType.INT: (-0x80000000, 0x7FFFFFFF),
-    DataType.UINT: (0, 0xFFFFFFFF),
-    DataType.LONG: (-0x8000000000000000, 0x7FFFFFFFFFFFFFFF),
-    DataType.ULONG: (0, 0xFFFFFFFFFFFFFFFF),
+    DataType.SHORT: (INT16_MIN, INT16_MAX),
+    DataType.USHORT: (0, UINT16_MAX),
+    DataType.INT: (INT32_MIN, INT32_MAX),
+    DataType.UINT: (0, UINT32_MAX),
+    DataType.LONG: (INT64_MIN, INT64_MAX),
+    DataType.ULONG: (0, UINT64_MAX),
 }
 """整数DataType → (下限, 上限)。"""
 

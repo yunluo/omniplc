@@ -39,12 +39,14 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, Union
 from ... import convert
 from ...core.base_client import BaseClient
 from ...core.constants import (
+    INT16_MIN,
     MX_BIT_DEVICES,
     MX_DEFAULT_LOGICAL_STATION,
     MX_LOGICAL_STATION_MAX,
     MX_MAX_BLOCK_WORDS,
     MX_PROG_ID,
     MX_SUPPORT_MSG_PROG_ID,
+    UINT16_MAX,
 )
 from ...core.debug import log_op
 from ...core.errors import OmniPLCInternalError, TransportClosedError
@@ -786,7 +788,7 @@ class MelsecMxClient(BaseClient):
                 words.append(1 if value else 0)
                 continue
             if isinstance(value, int):
-                if not -32768 <= value <= 65535:
+                if not INT16_MIN <= value <= UINT16_MAX:
                     raise ValueError(
                         f"write_batch 整数值超出 16 位范围(-32768~65535):{value!r}"
                     )

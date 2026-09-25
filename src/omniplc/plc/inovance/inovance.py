@@ -22,6 +22,7 @@ from typing import Union
 
 from .address import to_modbus_address
 from ...core.constants import (
+    INOVANCE_SERIAL_DEFAULT_STOP_BITS,
     MODBUS_DEFAULT_PORT,
     MODBUS_DEFAULT_STATION,
     SERIAL_DEFAULT_BAUD_RATE,
@@ -92,7 +93,7 @@ class InovanceRtuClient(_InovanceBase, ModbusRtuClient):
         port_name: str,
         baud_rate: int = SERIAL_DEFAULT_BAUD_RATE,
         data_bits: int = SERIAL_DEFAULT_DATA_BITS,
-        stop_bits: float = 2,
+        stop_bits: float = INOVANCE_SERIAL_DEFAULT_STOP_BITS,
         parity: Union[SerialParity, str] = SERIAL_DEFAULT_PARITY,
     ) -> None:
         """配置串口参数,汇川缺省 9600-8N2(停止位默认 2,参数同手册)。

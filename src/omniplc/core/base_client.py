@@ -24,6 +24,8 @@ from .constants import (
     DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_RECEIVE_TIMEOUT,
     DEFAULT_STRING_ENCODING,
+    PORT_MAX,
+    PORT_MIN,
     READ_STRING_DEFAULT_LENGTH,
     RECONNECT_BACKOFF_BASE,
     RECONNECT_BACKOFF_FACTOR,
@@ -54,8 +56,8 @@ def validate_endpoint(ip_address: str, port: int) -> None:
     """
     if not ip_address or not ip_address.strip():
         raise ValueError("ip_address 不能为空")
-    if not 1 <= int(port) <= 65535:
-        raise ValueError(f"port 必须在 1~65535 之间,收到:{port}")
+    if not PORT_MIN <= int(port) <= PORT_MAX:
+        raise ValueError(f"port 必须在 {PORT_MIN}~{PORT_MAX} 之间,收到:{port}")
 
 
 class BaseClient(ABC):

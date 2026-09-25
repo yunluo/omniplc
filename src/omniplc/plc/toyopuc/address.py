@@ -26,7 +26,7 @@ import re
 from functools import lru_cache
 from typing import Dict, NamedTuple, Tuple
 
-from ...core.constants import TOYOPUC_BIT_DEVICES, TOYOPUC_WORD_DEVICES
+from ...core.constants import ADDRESS_CACHE_MAXSIZE, TOYOPUC_BIT_DEVICES, TOYOPUC_WORD_DEVICES
 
 _TOYOPUC_ADDRESS_RE = re.compile(r"^([A-Z]{1,2})([0-9A-F]+)(L|H|W)?$")
 
@@ -98,7 +98,7 @@ class ToyopucAddress(NamedTuple):
 
 
 # 地址串 → 解析结果缓存(结果类型不可变):高频轮询同址免重复正则解析
-@lru_cache(maxsize=4096)
+@lru_cache(maxsize=ADDRESS_CACHE_MAXSIZE)
 def parse_toyopuc_address(address: str) -> ToyopucAddress:
     """解析 TOYOPUC 软元件地址字符串。
 

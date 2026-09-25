@@ -34,6 +34,15 @@ from ...core.base_client import BaseClient, validate_endpoint
 from ...core.constants import (
     ADS_DEFAULT_ADS_PORT,
     ADS_NET_ID_SUFFIX,
+    INT16_MAX,
+    INT16_MIN,
+    INT32_MAX,
+    INT32_MIN,
+    INT64_MAX,
+    INT64_MIN,
+    UINT16_MAX,
+    UINT32_MAX,
+    UINT64_MAX,
 )
 from ...core.debug import log_op
 from ...core.errors import DeviceError, OmniPLCInternalError, TransportClosedError
@@ -61,12 +70,12 @@ _PLCTYPE_NAMES = {
 """DataType → pyads ``PLCTYPE`` 成员名(惰性解析,保持核心零导入)。"""
 
 _INT_RANGES = {
-    DataType.SHORT: (-0x8000, 0x7FFF),
-    DataType.USHORT: (0, 0xFFFF),
-    DataType.INT: (-0x80000000, 0x7FFFFFFF),
-    DataType.UINT: (0, 0xFFFFFFFF),
-    DataType.LONG: (-0x8000000000000000, 0x7FFFFFFFFFFFFFFF),
-    DataType.ULONG: (0, 0xFFFFFFFFFFFFFFFF),
+    DataType.SHORT: (INT16_MIN, INT16_MAX),
+    DataType.USHORT: (0, UINT16_MAX),
+    DataType.INT: (INT32_MIN, INT32_MAX),
+    DataType.UINT: (0, UINT32_MAX),
+    DataType.LONG: (INT64_MIN, INT64_MAX),
+    DataType.ULONG: (0, UINT64_MAX),
 }
 """整数 DataType → (下限, 上限)。"""
 

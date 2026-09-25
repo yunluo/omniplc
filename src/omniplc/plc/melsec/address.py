@@ -24,6 +24,8 @@ import re
 from functools import lru_cache
 from typing import NamedTuple, Optional
 
+from ...core.constants import ADDRESS_CACHE_MAXSIZE, MODBUS_REGISTER_BIT_MAX
+
 _MC_ADDRESS_RE = re.compile(r"^([A-Za-z]{1,4})([0-9A-Fa-f]+)(?:\.(\d+))?$")
 
 
@@ -41,7 +43,7 @@ class McAddress(NamedTuple):
 
 
 # 地址串 → 解析结果缓存(结果类型不可变):高频轮询同址免重复正则解析
-@lru_cache(maxsize=4096)
+@lru_cache(maxsize=ADDRESS_CACHE_MAXSIZE)
 def parse_mc_address(address: str) -> McAddress:
     """解析 MC 软元件地址字符串。
 
@@ -65,6 +67,6 @@ def _parse_bit(text: Optional[str]) -> Optional[int]:
     if text is None:
         return None
     bit = int(text)
-    if not 0 <= bit <= 15:
+    if not 0 <= bit <= MODBUS_REGISTER_BIT_MAX:
         raise ValueError(f"字软元件位号必须在 0~15 之间,收到:{bit}")
     return bit

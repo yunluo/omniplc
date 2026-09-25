@@ -42,6 +42,8 @@ from ...core.constants import (
     AB_EIP_ORIGINATOR_VENDOR_ID,
     AB_EIP_SLOT_MAX,
     AB_MAX_BATCH_SERVICES,
+    INT32_MAX,
+    UINT16_MAX,
 )
 from ...core.errors import DeviceError, OmniPLCInternalError, ProtocolFrameError
 from ...core.validation import require_bool
@@ -92,7 +94,7 @@ class AllenBradleyEthIpClient(BaseClient):
         self._to_connection_id = 0
         self._connection_size: Optional[int] = None
         self._sequence = 0
-        self._originator_serial = random.randrange(1, 0xFFFF)
+        self._originator_serial = random.randrange(1, UINT16_MAX)
 
     @property
     def slot(self) -> int:
@@ -140,7 +142,7 @@ class AllenBradleyEthIpClient(BaseClient):
             (True, codec_cip.CONNECTION_SIZE_LARGE),
             (False, codec_cip.CONNECTION_SIZE_NORMAL),
         ):
-            to_connection_id = random.randrange(1, 0xFFFF)
+            to_connection_id = random.randrange(1, UINT16_MAX)
             request = codec_cip.build_forward_open(
                 is_large,
                 size,
@@ -472,7 +474,7 @@ class AllenBradleyEthIpClient(BaseClient):
         if parsed.bit is not None and data_type is not DataType.BOOL:
             raise ValueError(f"仅布尔类型支持位访问:{address!r}")
         if data_type is DataType.STRING:
-            return self._read_string(address, 0x7FFFFFFF, "utf-8")
+            return self._read_string(address, INT32_MAX, "utf-8")
         if data_type is DataType.BOOL:
             return self._read_bool_impl(parsed)
         expected = codec_cip.data_type_code(data_type)

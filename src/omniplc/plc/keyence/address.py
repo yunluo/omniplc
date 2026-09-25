@@ -25,10 +25,14 @@ from functools import lru_cache
 from typing import NamedTuple, Optional
 
 from ...core.constants import (
+    ADDRESS_CACHE_MAXSIZE,
     KV_BIT_BANK_DEVICES,
+    KV_BIT_BANK_PACK,
     KV_BIT_DEVICES,
+    KV_BITS_PER_GROUP,
     KV_HEX_NUMBER_DEVICES,
     KV_WORD_DEVICES,
+    MODBUS_REGISTER_BIT_MAX,
 )
 
 _TYPE_PATTERN = "|".join(
@@ -55,7 +59,7 @@ class KvAddress(NamedTuple):
 
 
 # 地址串 → 解析结果缓存(结果类型不可变):高频轮询同址免重复正则解析
-@lru_cache(maxsize=4096)
+@lru_cache(maxsize=ADDRESS_CACHE_MAXSIZE)
 def parse_kv_address(address: str) -> KvAddress:
     """解析 KV 软元件地址字符串。
 
@@ -75,15 +79,15 @@ def parse_kv_address(address: str) -> KvAddress:
     bit = _parse_bit(match.group(3))
     if device in KV_BIT_BANK_DEVICES:
         number = int(number_text, 10)
-        if number % 100 > 15:
-            raise ValueError(f"位组软元件编号低两位必须在 00~15,收到:{address!r}")
+        if number % KV_BIT_BANK_PACK > MODBUS_REGISTER_BIT_MAX:
+            raise ValueError(f"位组软元件编号低两位必须在 00~{MODBUS_REGISTER_BIT_MAX},收到:{address!r}")
     elif device in KV_HEX_NUMBER_DEVICES:
         number = int(number_text, 16)
     elif device in ("X", "Y"):
         bank_text = "0" if len(number_text) == 1 else number_text[:-1]
         if not bank_text.isdigit():
             raise ValueError(f"X/Y 组号必须为十进制数字,收到:{address!r}")
-        number = int(bank_text, 10) * 16 + int(number_text[-1], 16)
+        number = int(bank_text, 10) * KV_BITS_PER_GROUP + int(number_text[-1], 16)
     else:
         number = int(number_text, 10)
     if bit is not None and device in KV_BIT_DEVICES:
@@ -94,9 +98,9 @@ def parse_kv_address(address: str) -> KvAddress:
 def format_kv_device(device: str, number: int) -> str:
     """把软元件与编号还原为规范文本(组帧用)。"""
     if device in KV_BIT_BANK_DEVICES:
-        return "{}{}{:02d}".format(device, number // 100, number % 100)
+        return "{}{}{:02d}".format(device, number // KV_BIT_BANK_PACK, number % KV_BIT_BANK_PACK)
     if device in ("X", "Y"):
-        return "{}{}{:X}".format(device, number // 16, number % 16)
+        return "{}{}{:X}".format(device, number // KV_BITS_PER_GROUP, number % KV_BITS_PER_GROUP)
     if device in KV_HEX_NUMBER_DEVICES:
         return device + format(number, "X")
     return f"{device}{number}"
@@ -109,8 +113,8 @@ def offset_device(address: KvAddress, offset: int) -> KvAddress:
     其余软元件直接对编号加偏移。
     """
     if address.device in KV_BIT_BANK_DEVICES:
-        logical = (address.number // 100) * 16 + (address.number % 100) + offset
-        return KvAddress(address.device, (logical // 16) * 100 + (logical % 16), address.bit)
+        logical = (address.number // KV_BIT_BANK_PACK) * KV_BITS_PER_GROUP + (address.number % KV_BIT_BANK_PACK) + offset
+        return KvAddress(address.device, (logical // KV_BITS_PER_GROUP) * KV_BIT_BANK_PACK + (logical % KV_BITS_PER_GROUP), address.bit)
     return KvAddress(address.device, address.number + offset, address.bit)
 
 
@@ -124,6 +128,6 @@ def _parse_bit(text: Optional[str]) -> Optional[int]:
     if text is None:
         return None
     bit = int(text)
-    if not 0 <= bit <= 15:
-        raise ValueError(f"字软元件位号必须在 0~15 之间,收到:{bit}")
+    if not 0 <= bit <= MODBUS_REGISTER_BIT_MAX:
+        raise ValueError(f"字软元件位号必须在 0~{MODBUS_REGISTER_BIT_MAX} 之间,收到:{bit}")
     return bit

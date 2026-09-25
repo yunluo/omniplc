@@ -32,6 +32,7 @@ from ..core.base_client import BaseClient, validate_endpoint
 from ..core.constants import (
     MTCONNECT_DEFAULT_PORT,
     MTCONNECT_MAX_BODY,
+    MTCONNECT_MAX_NUMERIC_TEXT,
     MTCONNECT_READ_CHUNK,
 )
 from ..core.debug import log_op
@@ -54,9 +55,6 @@ _STALE_CONNECTION_ERRORS = (ConnectionResetError, BrokenPipeError)
 
 _BOOL_TRUE = ("true", "1")
 _BOOL_FALSE = ("false", "0")
-
-_MAX_NUMERIC_TEXT = 64
-"""数值文本长度上限(py3.11 前 int/float 对超长数字串超线性,先按长度快拒)。"""
 
 _SUPPORTED_TYPES = (
     DataType.BOOL,
@@ -428,7 +426,7 @@ def _coerce(value: str, data_type: DataType, address: str) -> PrimitiveValue:
         raise ValueError(f"MTConnect 数据项不是布尔量:{address} ← {value!r}")
     if data_type is DataType.STRING:
         return value
-    if len(value) > _MAX_NUMERIC_TEXT:
+    if len(value) > MTCONNECT_MAX_NUMERIC_TEXT:
         # 3.11 之前的 int/float 对超长数字串是超线性开销,先按长度快拒
         raise ValueError(
             f"MTConnect 数据项数值文本过长:{address} ← {len(value)} 字符"

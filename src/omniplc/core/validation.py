@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from .constants import INT16_MAX, INT16_MIN, UINT16_MAX, UINT8_MAX
 from ..types import PrimitiveValue
 
 
@@ -32,16 +33,16 @@ def require_float(value: PrimitiveValue) -> float:
 def check_int16(value: PrimitiveValue) -> int:
     """校验 16 位有符号整数范围,返回 0~65535 原始字。"""
     number = require_int(value)
-    if not -32768 <= number <= 32767:
-        raise ValueError(f"short 超出范围 -32768~32767:{number}")
+    if not INT16_MIN <= number <= INT16_MAX:
+        raise ValueError(f"short 超出范围 {INT16_MIN}~{INT16_MAX}:{number}")
     return number & 0xFFFF
 
 
 def check_uint16(value: PrimitiveValue) -> int:
     """校验 16 位无符号整数范围。"""
     number = require_int(value)
-    if not 0 <= number <= 65535:
-        raise ValueError(f"ushort 超出范围 0~65535:{number}")
+    if not 0 <= number <= UINT16_MAX:
+        raise ValueError(f"ushort 超出范围 0~{UINT16_MAX}:{number}")
     return number
 
 
@@ -56,7 +57,7 @@ def check_range(value: int, low: int, high: int, name: str) -> int:
     return value
 
 
-def check_byte_field(name: str, value: int, maximum: int = 0xFF) -> int:
+def check_byte_field(name: str, value: int, maximum: int = UINT8_MAX) -> int:
     """校验单字节路由字段(0~maximum),非法抛 :class:`ValueError`,合法原值返回。
 
     供 MC 以太网帧路由字段(网络号/PC 号/模块 I/O/局号等)与串口帧

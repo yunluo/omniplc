@@ -26,9 +26,15 @@ from typing import List
 from ... import convert
 from ...core.base_client import BaseClient, validate_endpoint
 from ...core.constants import (
+    INT32_MAX,
+    INT32_MIN,
+    INT64_MAX,
+    INT64_MIN,
     KV_DEFAULT_PORT,
     KV_MAX_DATAGRAM,
     KV_MAX_LINE,
+    UINT32_MAX,
+    UINT64_MAX,
 )
 from ...core.errors import OmniPLCInternalError
 from ...core.validation import (
@@ -221,11 +227,11 @@ class _KeyenceHostLinkBase(BaseClient):
             )
             return
         if data_type is DataType.INT:
-            number = check_range(require_int(value), -0x80000000, 0x7FFFFFFF, "int")
+            number = check_range(require_int(value), INT32_MIN, INT32_MAX, "int")
             self._write_single(parsed, ".L", codec.format_value(number, ".L"))
             return
         if data_type is DataType.UINT:
-            number = check_range(require_int(value), 0, 0xFFFFFFFF, "uint")
+            number = check_range(require_int(value), 0, UINT32_MAX, "uint")
             self._write_single(parsed, ".D", codec.format_value(number, ".D"))
             return
         if data_type is DataType.FLOAT:
@@ -239,10 +245,10 @@ class _KeyenceHostLinkBase(BaseClient):
         if data_type in (DataType.LONG, DataType.ULONG):
             number = require_int(value)
             if data_type is DataType.LONG:
-                check_range(number, -9223372036854775808, 9223372036854775807, "long")
+                check_range(number, INT64_MIN, INT64_MAX, "long")
                 raw = number.to_bytes(8, "little", signed=True)
             else:
-                check_range(number, 0, 18446744073709551615, "ulong")
+                check_range(number, 0, UINT64_MAX, "ulong")
                 raw = number.to_bytes(8, "little", signed=False)
             self._write_consecutive_words(parsed, convert.bytes_to_words(raw))
             return

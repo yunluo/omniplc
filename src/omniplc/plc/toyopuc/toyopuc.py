@@ -35,11 +35,17 @@ from typing import List, Optional
 from ... import convert
 from ...core.base_client import BaseClient, validate_endpoint
 from ...core.constants import (
+    INT32_MAX,
+    INT32_MIN,
+    INT64_MAX,
+    INT64_MIN,
     TOYOPUC_DEFAULT_PORT,
     TOYOPUC_FRAME_HEADER_SIZE,
     TOYOPUC_MAX_BYTE_COUNT,
     TOYOPUC_MAX_DATAGRAM,
     TOYOPUC_WORD_DEVICES,
+    UINT32_MAX,
+    UINT64_MAX,
 )
 from ...core.errors import ProtocolFrameError
 from ...core.validation import (
@@ -140,11 +146,11 @@ class _ToyopucBase(BaseClient):
             self._write_words(parsed, [check_uint16(value)])
             return
         if data_type is DataType.INT:
-            number = check_range(require_int(value), -2147483648, 2147483647, "int")
+            number = check_range(require_int(value), INT32_MIN, INT32_MAX, "int")
             self._write_raw(parsed, number, 4)
             return
         if data_type is DataType.UINT:
-            number = check_range(require_int(value), 0, 0xFFFFFFFF, "uint")
+            number = check_range(require_int(value), 0, UINT32_MAX, "uint")
             self._write_raw(parsed, number, 4)
             return
         if data_type is DataType.FLOAT:
@@ -157,12 +163,12 @@ class _ToyopucBase(BaseClient):
             return
         if data_type is DataType.LONG:
             number = check_range(
-                require_int(value), -9223372036854775808, 9223372036854775807, "long"
+                require_int(value), INT64_MIN, INT64_MAX, "long"
             )
             self._write_raw(parsed, number, 8)
             return
         if data_type is DataType.ULONG:
-            number = check_range(require_int(value), 0, 0xFFFFFFFFFFFFFFFF, "ulong")
+            number = check_range(require_int(value), 0, UINT64_MAX, "ulong")
             self._write_raw(parsed, number, 8)
             return
         if data_type is DataType.DOUBLE:

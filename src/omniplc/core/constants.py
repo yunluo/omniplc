@@ -23,6 +23,12 @@ UINT32_MAX: int = 0xFFFFFFFF
 """32 位无符号整数上限(4294967295),用于 Modbus/MC/KEYENCE 等 32 位无符号写校验。"""
 UINT64_MAX: int = 0xFFFFFFFFFFFFFFFF
 """64 位无符号整数上限,用于 LONG 类型写校验。"""
+INT16_MIN: int = -32768
+"""16 位有符号整数下限。"""
+INT16_MAX: int = 32767
+"""16 位有符号整数上限。"""
+UINT16_MAX: int = 65535
+"""16 位无符号整数上限。"""
 INT32_MIN: int = -0x80000000
 """32 位有符号整数下限(-2147483648)。"""
 INT32_MAX: int = 0x7FFFFFFF
@@ -222,6 +228,8 @@ MC_SERIAL_DEFAULT_MODULE_IO: int = 0x03FF
 """4C 帧请求目标模块 I/O 编号默认值(CPU 直连 03FF,报文小端 FF 03)。"""
 MC_SERIAL_DEFAULT_MODULE_STATION: int = 0
 """4C 帧请求目标模块局号默认值(CPU 直连恒为 0)。"""
+MC_MODULE_IO_MAX: int = 0xFFFF
+"""4C 帧目标模块 I/O 编号字段上限(报文小端两字节,取值 0~0xFFFF;默认 03FF 是 CPU 直连)。"""
 
 # ---------------------------------------------------------------- 三菱 MC 串口帧(1C,A 兼容)
 MC_1C_DEFAULT_MESSAGE_WAIT: int = 0
@@ -326,6 +334,8 @@ Q/L 系列口径编码,映射关系:S 按三菱 L(92h)访问;R 与 D 统一编�
 """
 INOVANCE_MC_R_BASE: int = 8000
 """汇川 R 与 D 统一编址偏移:经 MC 协议访问 R n 即访问 D(8000+n),如 R0 = D8000。"""
+INOVANCE_SERIAL_DEFAULT_STOP_BITS: float = 2.0
+"""汇川 RTU 缺省停止位(9600-8N2 的 '2';通用 SERIAL_DEFAULT_STOP_BITS=1 不适用)。"""
 
 # ---------------------------------------------------------------- 松下 FP 系列 MC 协议兼容
 PANASONIC_MC_DEFAULT_PORT: int = 2000
@@ -389,6 +399,12 @@ FINS_DEFAULT_DESTINATION_NODE: int = 0
 """默认目标节点号(0 = 握手自动获取;手工配置常用 PLC IP 地址末位)。"""
 FINS_DEFAULT_DESTINATION_UNIT: int = 0
 """默认目标单元号(0 = CPU 单元)。"""
+FINS_DEFAULT_SOURCE_NETWORK: int = 0
+"""默认源网络号(上位机侧,一般 0 = 本网络)。"""
+FINS_DEFAULT_SOURCE_UNIT: int = 0
+"""默认源单元号(上位机为 CPU 单元)。"""
+FINS_SID_BITS: int = 8
+"""FINS SID(Service ID)字段位宽(帧头 1 字节,0~255 回绕)。"""
 FINS_ICF: int = 0x80
 """请求 ICF:要求响应 + 非网关(响应帧为 0xC0)。"""
 FINS_RSV: int = 0x00
@@ -566,6 +582,10 @@ KV_MAX_LINE: int = 4096
 """ASCII 响应行长度上限(驱动单次最多读 8 个字,远小于该上限)。"""
 KV_MAX_DATAGRAM: int = 4096
 """UDP 整包接收缓冲上限(与 :data:`KV_MAX_LINE` 对齐,防超长行被截断)。"""
+KV_BITS_PER_GROUP: int = 16
+"""KV 位组(组号+位号)与 X/Y 组每组位数;X/Y 编号为组号*16+位号。"""
+KV_BIT_BANK_PACK: int = 100
+"""KV 位组软元件编号打包基数:编号 = 组号×100 + 位号(十进制两位)。"""
 KV_ERROR_TEXT: Dict[str, str] = {
     "E0": "软元件编号异常",
     "E1": "命令异常",
@@ -677,16 +697,18 @@ TOYOPUC_ERROR_TEXT: Dict[int, str] = {
 # ---------------------------------------------------------------- OPC-UA
 OPCUA_DEFAULT_PORT: int = 4840
 """OPC-UA 标准默认端口(opc.tcp 端点未显式带端口时提示用)。"""
+OPCUA_DEFAULT_SAMPLING_INTERVAL_MS: int = 1000
+"""OPC-UA DataChange 订阅默认采样间隔(毫秒;1000 = 1Hz,常见工业采样需求)。"""
 
 # ---------------------------------------------------------------- AB(罗克韦尔)
 AB_EIP_DEFAULT_PORT: int = 44818
 """EtherNet/IP TCP 默认端口(Logix CPU 内置以太网口)。"""
 AB_EIP_DEFAULT_SLOT: int = 0
 """默认 CPU 槽号(Unconnected Send 背板路由;0 = CPU 与以太网口同模块)。"""
+AB_EIP_SLOT_MAX: int = 31
+"""AB/CIP 槽位号上限(端口段 link 单字节,0~31)。"""
 AB_EIP_MAX_FRAME: int = 8192
 """ENIP 长度域上限(24 字节头之后的字节数;合法最大约 2KB,防恶意声明拖长收包)。"""
-AB_EIP_SLOT_MAX: int = 31
-"""槽号上限(CIP 端口段 link 为 1 字节)。"""
 AB_EIP_ORIGINATOR_VENDOR_ID: int = 0x1337
 """Forward Open 的发起方厂商号(目标侧不校验,任意非冲突值即可;沿用参考库惯例)。"""
 AB_EIP_STRING_STRUCT_ID: int = 0x0FCE
@@ -836,6 +858,8 @@ OPEN_TCP_DEFAULT_PORT: int = 9000
 """OpenTcpClient 默认端口(自定义设备无统一标准,仅占位,按现场配置)。"""
 OPEN_TCP_DEFAULT_DELIMITER: str = "\r\n"
 """OpenTcpClient 默认帧分隔符(CR LF,行式协议最常见的应答结尾)。"""
+OPEN_TCP_DEFAULT_ENCODING: str = "utf-8"
+"""OpenTcpClient 文本收发默认字符编码(与 BaseClient 字符串 'ascii' 区分,通用 TCP 多为现代设备/上位机自定协议)。"""
 OPEN_TCP_MAX_FRAME: int = 4096
 """OpenTcpClient 帧内容字节上限(不含分隔符;超限未见到分隔符按坏帧断线惰性重连)。"""
 OPEN_TCP_RECV_CHUNK: int = 256
@@ -862,9 +886,30 @@ S7_DEFAULT_RACK: int = 0
 """默认机架号(单机架部署绝大多数为 0)。"""
 S7_DEFAULT_SLOT: int = 1
 """默认槽位号(S7-1200/1500 常用 1;S7-300/400 的 CPU 常在 2,按实际硬件调整)。"""
+S7_RACK_MAX: int = 7
+"""S7 机架号上限(ISO-on-TCP/Snap7 客户端约定)。"""
+S7_SLOT_MAX: int = AB_EIP_SLOT_MAX
+"""S7 槽位号上限(与 AB/CIP 端口段 link 单字节口径一致,0~31)。"""
+"""默认槽位号(S7-1200/1500 常用 1;S7-300/400 的 CPU 常在 2,按实际硬件调整)。"""
 
 # ---------------------------------------------------------------- 通用
 BIT_INDEX_MAX: int = 63
 """位操作工具允许的最大位号。"""
 READ_STRING_DEFAULT_LENGTH: int = 32
 DEFAULT_STRING_ENCODING: str = "ascii"
+ADDRESS_CACHE_MAXSIZE: int = 4096
+"""地址解析 LRU 缓存容量(各协议 address.parse_* 共用;高频轮询同址免重复正则)。"""
+
+# ---------------------------------------------------------------- 网络
+PORT_MIN: int = 1
+"""TCP/UDP 端口号下限(IANA 约定)。"""
+PORT_MAX: int = 65535
+"""TCP/UDP 端口号上限(与 UINT16_MAX 同值,独立常量便于语义查找)。"""
+
+# ---------------------------------------------------------------- 调试
+DEBUG_MAX_DUMP_BYTES: int = 4096
+"""单条日志十六进制转储的最大字节数(超出截断,防大块读写刷屏)。"""
+
+# ---------------------------------------------------------------- MTConnect
+MTCONNECT_MAX_NUMERIC_TEXT: int = 64
+"""MTConnect 数值文本解析的最大字符长度(py3.11 前 int/float 对超长数字串超线性,先按长度快拒)。"""

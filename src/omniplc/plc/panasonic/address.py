@@ -23,7 +23,7 @@ import re
 from functools import lru_cache
 from typing import NamedTuple, Optional
 
-from ...core.constants import MEWTOCOL_CONTACT_AREAS
+from ...core.constants import ADDRESS_CACHE_MAXSIZE, MEWTOCOL_CONTACT_AREAS, MODBUS_REGISTER_BIT_MAX
 
 # 接点:区代码 + 数字串(末位可为十六进制位号,可选 .十进制位号点号形式)
 _CONTACT_RE = re.compile(r"^([XYRTCL])(\d*[0-9A-Fa-f])(?:\.(\d+))?$")
@@ -45,7 +45,7 @@ class MewtocolAddress(NamedTuple):
 
 
 # 地址串 → 解析结果缓存(结果类型不可变):高频轮询同址免重复正则解析
-@lru_cache(maxsize=4096)
+@lru_cache(maxsize=ADDRESS_CACHE_MAXSIZE)
 def parse_mewtocol_address(address: str, is_bit: bool) -> MewtocolAddress:
     """解析 MEWTOCOL 软元件地址字符串。
 
@@ -92,8 +92,8 @@ def _build_contact(match: "re.Match[str]", address: str) -> MewtocolAddress:
     digits = match.group(2)
     if match.group(3) is not None:
         bit = int(match.group(3))
-        if not 0 <= bit <= 15:
-            raise ValueError(f"MEWTOCOL 接点位号必须在 0~15 之间,收到:{bit}")
+        if not 0 <= bit <= MODBUS_REGISTER_BIT_MAX:
+            raise ValueError(f"MEWTOCOL 接点位号必须在 0~{MODBUS_REGISTER_BIT_MAX} 之间,收到:{bit}")
         word = int(digits, 10) if digits else 0
         return MewtocolAddress(area=area, word=word, bit=bit)
     if not digits or len(digits) < 2:
@@ -116,6 +116,6 @@ def _build_data(match: "re.Match[str]", address: str, is_bit: bool) -> MewtocolA
             "MEWTOCOL 字软元件 {} 位访问需要 .位号 后缀:{!r}(如 D100.3);"
             "接点区软元件为 {}".format(area, address, "/".join(MEWTOCOL_CONTACT_AREAS))
         )
-    if bit is not None and not 0 <= bit <= 15:
-        raise ValueError(f"MEWTOCOL 字软元件位号必须在 0~15 之间,收到:{bit}")
+    if bit is not None and not 0 <= bit <= MODBUS_REGISTER_BIT_MAX:
+        raise ValueError(f"MEWTOCOL 字软元件位号必须在 0~{MODBUS_REGISTER_BIT_MAX} 之间,收到:{bit}")
     return MewtocolAddress(area=area, word=number, bit=bit)

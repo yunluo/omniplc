@@ -33,6 +33,7 @@ from functools import lru_cache
 from typing import Optional, Union
 
 from ...core.constants import (
+    ADDRESS_CACHE_MAXSIZE,
     INOVANCE_BIT_DEVICES,
     INOVANCE_OCTAL_DEVICES,
     INOVANCE_WORD_DEVICES,
@@ -59,7 +60,7 @@ class InovanceAddress:
 
 
 # 地址串 → 解析结果缓存(结果类型不可变):高频轮询同址免重复正则解析
-@lru_cache(maxsize=4096)
+@lru_cache(maxsize=ADDRESS_CACHE_MAXSIZE)
 def parse_inovance_address(address: str) -> InovanceAddress:
     """解析汇川软元件地址字符串。
 

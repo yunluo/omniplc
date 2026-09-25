@@ -18,11 +18,14 @@ import re
 from functools import lru_cache
 from typing import NamedTuple, Optional, Tuple
 
+from ...core.constants import ADDRESS_CACHE_MAXSIZE, UINT32_MAX
+
 _ADDRESS_PATTERN = re.compile(r"[A-Za-z0-9_:\.\[\], ]+")
 _MEMBER_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?::[A-Za-z_][A-Za-z0-9_]*)?")
 _BIT_PATTERN = re.compile(r"\.(\d+)$")
 _INDEX_PATTERN = re.compile(r"\[\s*(\d+(?:\s*,\s*\d+)*)\s*\]$")
-_INDEX_MAX = 0xFFFFFFFF
+_INDEX_MAX = UINT32_MAX
+"""数组下标上限(对应 CIP 32 位无符号整数)。"""
 
 
 class AbTag(NamedTuple):
@@ -46,7 +49,7 @@ class AbTag(NamedTuple):
 
 
 # 地址串 → 解析结果缓存(结果类型不可变):高频轮询同址免重复正则解析
-@lru_cache(maxsize=4096)
+@lru_cache(maxsize=ADDRESS_CACHE_MAXSIZE)
 def parse_ab_tag(address: str) -> AbTag:
     """解析 Logix 标签名为 :class:`AbTag`。
 

@@ -27,6 +27,7 @@ from typing import Optional, Tuple, Union
 from ..core.base_client import BaseClient, validate_endpoint
 from ..core.constants import (
     OPEN_TCP_DEFAULT_DELIMITER,
+    OPEN_TCP_DEFAULT_ENCODING,
     OPEN_TCP_DEFAULT_PORT,
     OPEN_TCP_MAX_FRAME,
     OPEN_TCP_RECV_CHUNK,
@@ -60,7 +61,7 @@ class OpenTcpClient(BaseClient):
         ip_address: str = "192.168.0.10",
         port: int = OPEN_TCP_DEFAULT_PORT,
         delimiter: Optional[Union[str, bytes]] = OPEN_TCP_DEFAULT_DELIMITER,
-        encoding: str = "utf-8",
+        encoding: str = OPEN_TCP_DEFAULT_ENCODING,
         append_delimiter: bool = True,
         strip_delimiter: bool = True,
         max_frame: int = OPEN_TCP_MAX_FRAME,

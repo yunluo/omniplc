@@ -25,7 +25,10 @@ from ...core.constants import (
     FINS_DEFAULT_DESTINATION_NETWORK,
     FINS_DEFAULT_DESTINATION_UNIT,
     FINS_DEFAULT_PORT,
+    FINS_DEFAULT_SOURCE_NETWORK,
+    FINS_DEFAULT_SOURCE_UNIT,
     FINS_MAX_DATAGRAM,
+    FINS_SID_BITS,
     FINS_TCP_HEADER_SIZE,
     FINS_TIMER_COUNTER_AREAS,
 )
@@ -67,9 +70,9 @@ class _OmronFinsBase(BaseClient):
         destination_network: int = FINS_DEFAULT_DESTINATION_NETWORK,
         destination_node: Optional[int] = None,
         destination_unit: int = FINS_DEFAULT_DESTINATION_UNIT,
-        source_network: int = 0,
+        source_network: int = FINS_DEFAULT_SOURCE_NETWORK,
         source_node: Optional[int] = None,
-        source_unit: int = 0,
+        source_unit: int = FINS_DEFAULT_SOURCE_UNIT,
     ) -> None:
         """初始化 FINS 客户端公共参数。
 
@@ -133,7 +136,7 @@ class _OmronFinsBase(BaseClient):
 
     def _next_sid(self) -> int:
         """SID 递增(0~255 回绕,事务标识,内部方法)。"""
-        return self._bump_id("_sid", 8)
+        return self._bump_id("_sid", FINS_SID_BITS)
 
     # ------------------------------------------------------------------
     # 协议原语(BaseClient 类型化方法只调用 _read/_write)
@@ -384,9 +387,9 @@ class OmronFinsTcpClient(_OmronFinsBase):
         destination_network: int = FINS_DEFAULT_DESTINATION_NETWORK,
         destination_node: Optional[int] = None,
         destination_unit: int = FINS_DEFAULT_DESTINATION_UNIT,
-        source_network: int = 0,
+        source_network: int = FINS_DEFAULT_SOURCE_NETWORK,
         source_node: Optional[int] = None,
-        source_unit: int = 0,
+        source_unit: int = FINS_DEFAULT_SOURCE_UNIT,
     ) -> None:
         """初始化 FINS/TCP 客户端。
 
@@ -468,9 +471,9 @@ class OmronFinsUdpClient(_OmronFinsBase):
         destination_network: int = FINS_DEFAULT_DESTINATION_NETWORK,
         destination_node: Optional[int] = None,
         destination_unit: int = FINS_DEFAULT_DESTINATION_UNIT,
-        source_network: int = 0,
+        source_network: int = FINS_DEFAULT_SOURCE_NETWORK,
         source_node: Optional[int] = None,
-        source_unit: int = 0,
+        source_unit: int = FINS_DEFAULT_SOURCE_UNIT,
     ) -> None:
         """初始化 FINS/UDP 客户端。
 

@@ -34,6 +34,7 @@ from ...core.constants import (
     MC_DEFAULT_PC_NUMBER,
     MC_DEFAULT_PORT,
     MC_MAX_DATAGRAM,
+    MC_MODULE_IO_MAX,
     MC_RESPONSE_HEAD_SIZE,
     MC_SERIAL_DEFAULT_MODULE_IO,
     MC_SERIAL_DEFAULT_MODULE_STATION,
@@ -575,7 +576,7 @@ class MelsecMcSerialClient(_MelsecMcBase):
             "本站号", self_station_number
         )
         self._module_io = check_byte_field(
-            "目标模块 I/O 编号", module_io, 0xFFFF
+            "目标模块 I/O 编号", module_io, MC_MODULE_IO_MAX
         )
         self._module_station = check_byte_field(
             "目标模块局号", module_station

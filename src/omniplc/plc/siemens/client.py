@@ -37,7 +37,7 @@ from typing import Any, NoReturn, Optional, Tuple
 
 from ... import convert
 from ...core.base_client import BaseClient, validate_endpoint
-from ...core.constants import S7_DEFAULT_PORT, S7_DEFAULT_RACK, S7_DEFAULT_SLOT
+from ...core.constants import S7_DEFAULT_PORT, S7_DEFAULT_RACK, S7_DEFAULT_SLOT, S7_RACK_MAX, S7_SLOT_MAX
 from ...core.debug import log_op
 from ...core.errors import DeviceError, TransportClosedError
 from ...core.validation import require_bool, require_float, require_int
@@ -303,10 +303,10 @@ class SiemensS7Client(BaseClient):
         """
         validate_endpoint(ip_address, port)
         super().__init__(ip_address, int(port))
-        if not 0 <= int(rack) <= 7:
-            raise ValueError(f"机架号必须在 0~7 之间,收到:{rack}")
-        if not 0 <= int(slot) <= 31:
-            raise ValueError(f"槽位号必须在 0~31 之间,收到:{slot}")
+        if not 0 <= int(rack) <= S7_RACK_MAX:
+            raise ValueError(f"机架号必须在 0~{S7_RACK_MAX} 之间,收到:{rack}")
+        if not 0 <= int(slot) <= S7_SLOT_MAX:
+            raise ValueError(f"槽位号必须在 0~{S7_SLOT_MAX} 之间,收到:{slot}")
         self._rack = int(rack)
         self._slot = int(slot)
         self._dll_path = dll_path.strip()
