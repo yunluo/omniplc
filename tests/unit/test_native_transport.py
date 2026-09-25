@@ -252,12 +252,15 @@ def test_udp_hostname_resolves_to_ipv4_like_sync(loop: Any) -> None:
         async def scenario() -> None:
             transport = AsyncUdpTransport("localhost", port)
             transport.receive_timeout = 0.5
+            assert transport.peer_ip is None  # 连接前无对端信息
             await transport.connect()
             sock = transport._socket
             assert sock is not None and sock.family == socket.AF_INET
+            assert transport.peer_ip == "127.0.0.1"  # 已解析的对端 IP(供节点推导复用)
             await transport.send(b"ping")
             assert await transport.recv(256) == b"PONG:ping"
             transport.close()
+            assert transport.peer_ip is None  # 断开后回到 None
 
         loop.run_until_complete(scenario())
     finally:

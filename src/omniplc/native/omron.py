@@ -439,21 +439,23 @@ class AsyncOmronFinsUdpClient(AsyncOmronFinsBase):
         return AsyncUdpTransport(self._ip_address, self._port)
 
     async def _after_connect(self) -> None:
-        """UDP 无握手:节点号自动模式在连接时从 IP 推导(内部方法)。
+        """UDP 无握手:节点号自动模式在连接时推导(内部方法)。
 
-        目标节点 = PLC IP 末段(主机名先解析);源节点 = 本机对 PLC 地址实际
-        出口 IP 的末段(UDP connect 探测,与真实通信同一路由)。自动模式每次
-        连接都重新推导,显式配置的节点号不被覆盖。
-
-        ``_node_from_host`` / ``_local_ip_for`` 是纯本机地址推导(不发报文、
-        无网络等待),与同步层共用同一实现,这里按原样调用。
+        目标节点 = PLC IP 末段;源节点 = 本机对 PLC 地址实际出口 IP 的末段
+        (UDP connect 探测,与真实通信同一路由)。**推导一律用传输层已异步解析
+        出的对端 IP 字面量**(:attr:`AsyncUdpTransport.peer_ip`),不把主机名
+        交给 ``_node_from_host`` / ``_local_ip_for``——那两个助手对主机名会调
+        ``socket.gethostbyname``(阻塞解析),在事件循环里会把整段 await 卡住
+        (实测 ``localhost`` 目标下循环停顿 260ms,慢 DNS 更久);对 IP 字面量
+        目标本就没有解析步骤,故取值与同步层**逐值一致**。自动模式每次连接都
+        重新推导,显式配置的节点号不被覆盖。
         """
+        transport = self._require_transport()
+        peer_ip = transport.peer_ip or self._ip_address
         if self._auto_destination_node:
-            self._destination_node = _node_from_host(self._ip_address)
+            self._destination_node = _node_from_host(peer_ip)
         if self._auto_source_node:
-            self._source_node = _node_from_host(
-                _local_ip_for(self._ip_address, self._port)
-            )
+            self._source_node = _node_from_host(_local_ip_for(peer_ip, self._port))
 
     async def _transact(self, fins_frame: bytes) -> bytes:
         """FINS/UDP 事务:一帧一数据报,整包接收(长度校验交给 codec)。"""

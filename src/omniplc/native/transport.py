@@ -144,6 +144,17 @@ class AsyncBaseTransport(ABC):
         """标记链路已回到同步点(一次事务成功完成时由事务层调用)。"""
         self._pending = False
 
+    @property
+    def peer_ip(self) -> Optional[str]:
+        """连接后解析出的对端地址字面量;未连接或传输未提供时为 None。
+
+        供"需要 IP 而非主机名"的调用方复用(如 FINS/UDP 的自动节点号推导),
+        避免在事件循环里再做一次**阻塞 DNS**。:class:`AsyncUdpTransport` 在
+        :meth:`connect` 里把 ``getaddrinfo`` 的结果(AF_INET 钉死)记下来并覆写
+        本属性;基类默认无此信息。
+        """
+        return None
+
     @abstractmethod
     async def connect(self) -> None:
         """建立底层通道。
@@ -351,6 +362,7 @@ class AsyncUdpTransport(AsyncBaseTransport):
         self._ip_address = ip_address
         self._port = port
         self._socket: Optional[socket.socket] = None
+        self._peer_ip: Optional[str] = None
         self._debug_label = f"udp://{ip_address}:{port}"
 
     async def connect(self) -> None:
@@ -378,7 +390,13 @@ class AsyncUdpTransport(AsyncBaseTransport):
         sock.setblocking(False)
         sock.connect(sockaddr)
         self._socket = sock
+        self._peer_ip = str(sockaddr[0])
         log_op(self._debug_label, "已连接")
+
+    @property
+    def peer_ip(self) -> Optional[str]:
+        """已解析的对端 IPv4 字面量(连接后可用,断开后回到 None)。"""
+        return self._peer_ip
 
     def close(self) -> None:
         """关闭 UDP 套接字,幂等。
@@ -397,6 +415,7 @@ class AsyncUdpTransport(AsyncBaseTransport):
                 sock.close()
             finally:
                 self._socket = None
+                self._peer_ip = None
             log_op(self._debug_label, "已断开")
 
     async def send(self, data: bytes) -> None:

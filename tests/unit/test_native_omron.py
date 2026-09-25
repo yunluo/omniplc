@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import socket
 from typing import Any, Dict, NamedTuple, Optional, Sequence
 
 import pytest
@@ -288,6 +289,33 @@ def test_udp_auto_nodes_derived_from_ip(
         sent = bytes(scripted.sent)
         assert sent[4] == 1  # DA1
         assert sent[7] == 33  # SA1
+        await client.close()
+
+    loop.run_until_complete(scenario())
+
+
+def test_udp_auto_nodes_from_hostname_without_blocking_dns(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """主机名目标:节点推导复用传输层已解析的对端 IP,事件循环内不做阻塞 DNS。
+
+    修复前 ``_after_connect`` 把主机名直接交给 ``_node_from_host``(内部
+    ``socket.gethostbyname``)与 ``_local_ip_for``(内部 UDP ``connect`` 也要
+    解析),实测主机名场景把事件循环卡住 260ms(慢 DNS 更久)。现在一律用
+    :attr:`AsyncUdpTransport.peer_ip`;把 ``gethostbyname`` 换成"一调就炸"即可
+    锁死这条路径,且取值与 IP 字面量目标逐值一致(localhost → 127.0.0.1)。
+    """
+
+    def _boom(host: str) -> str:
+        raise AssertionError("事件循环里不应出现阻塞解析:{}".format(host))
+
+    monkeypatch.setattr(socket, "gethostbyname", _boom)
+
+    async def scenario() -> None:
+        client = AsyncOmronFinsUdpClient("localhost")  # 真实 UDP 传输(不挂假传输)
+        assert await client.connect() is True
+        assert client.destination_node == 1  # PLC 侧:127.0.0.1 末段
+        assert client.source_node == 1  # 本机出口 IP 同段(127.0.0.1)
         await client.close()
 
     loop.run_until_complete(scenario())
