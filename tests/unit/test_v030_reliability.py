@@ -902,7 +902,7 @@ class TestTimeoutAndCodeSemantics:
 
 
 class TestWriteBoolValueValidation:
-    """``write_bool`` 的值校验:非 bool/int 直接拒绝,不静默写反。"""
+    """``write_bool`` 的值校验:非 bool/int 0/1 直接拒绝,不静默写反。"""
 
     @pytest.mark.parametrize("bad", ["0", "false", "True", 1.0, None])
     def test_non_bool_values_rejected(self, bad: object) -> None:
@@ -911,6 +911,16 @@ class TestWriteBoolValueValidation:
         client.connect()
         with pytest.raises(ValueError):
             client.write_bool("m0", bad)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("bad", [2, -1, 5, 255])
+    def test_int_outside_zero_one_rejected(self, bad: int) -> None:
+        """非 0/1 的整数显式拒绝:``bool(5)`` 会被按真值写入(现场笔误被掩盖)。"""
+        client = _ScriptedSyncForAio()
+        client.connect()
+        with pytest.raises(ValueError) as excinfo:
+            client.write_bool("m0", bad)
+        assert "0/1" in str(excinfo.value)
+        assert str(bad) in str(excinfo.value)  # 报错文本带上被拒的值
 
     def test_bool_and_int_still_accepted(self) -> None:
         """bool 与 int 0/1(现场习惯写法)照常写入。"""

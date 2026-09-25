@@ -467,12 +467,12 @@ class AsyncBaseClient(ABC):
     async def write_bool(self, address: str, value: bool) -> bool:
         """写入布尔量(位)。
 
-        :param value: 真值(``bool``;兼容 ``int`` 0/1)
-        :raises ValueError: value 不是 bool/int(与同步版同口径显式拒绝,
-            不把 ``"0"`` 这类非空字符串静默吞成 ``True``)
+        :param value: 真值(``bool``;兼容 ``int`` 0/1 —— 其他整数显式拒绝)
+        :raises ValueError: value 不是 bool/int 0/1(与同步 :meth:`BaseClient.write_bool`
+            同口径:不把 ``"0"`` 这类非空字符串静默吞成 ``True``,也不把 5 当 True)
         """
-        if isinstance(value, str) or not isinstance(value, int):
-            raise ValueError(f"布尔量必须是 bool,收到:{type(value).__name__}")
+        if isinstance(value, str) or not isinstance(value, int) or value not in (0, 1):
+            raise ValueError(f"布尔量必须是 bool 或 int 0/1,收到:{value!r}")
         return await self.write(address, DataType.BOOL, bool(value))
 
     async def write_short(self, address: str, value: int) -> bool:

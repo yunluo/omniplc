@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import inspect
 
 import pytest
@@ -160,6 +161,31 @@ def test_typed_signatures_match_sync_twin() -> None:
         assert [p.default for p in sync_sig.parameters.values()] == [
             p.default for p in async_sig.parameters.values()
         ], name
+
+
+def test_write_bool_value_guard_matches_sync() -> None:
+    """``write_bool`` 的值守卫两侧同口径(手抄的守卫最容易单边漂移)。
+
+    原生层的守卫是从同步基类抄过来的,review §7.7 的 P3-1 正是"只拒 str、
+    放过了 5"这类单边收口不彻底 —— 这里把"同一批入参在两层得到同一结论"
+    固化成守门用例。
+    """
+    allowed = [True, False, 1, 0]
+    rejected = ["0", "false", 1.0, None, 2, -1, 5, 255]
+    sync_client = pkg.ModbusTcpClient("127.0.0.1", 502, 1)
+    async_client = native.AsyncModbusTcpClient("127.0.0.1", 502, 1)
+
+    for value in allowed:
+        # 只验"未被守卫拒绝"(不真发报文:未连接时 write 返回 False)
+        assert sync_client.write_bool("hr0", value) is False
+        assert asyncio.run(async_client.write_bool("hr0", value)) is False
+    for value in rejected:
+        with pytest.raises(ValueError):
+            sync_client.write_bool("hr0", value)  # type: ignore[arg-type]
+        with pytest.raises(ValueError):
+            asyncio.run(async_client.write_bool("hr0", value))  # type: ignore[arg-type]
+
+    asyncio.run(async_client.close())
 
 
 def test_stats_uses_shared_client_stats_type() -> None:

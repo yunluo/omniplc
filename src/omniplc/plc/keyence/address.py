@@ -106,18 +106,6 @@ def format_kv_device(device: str, number: int) -> str:
     return f"{device}{number}"
 
 
-def offset_device(address: KvAddress, offset: int) -> KvAddress:
-    """按字/逻辑位偏移软元件(连续访问用)。
-
-    位组软元件(R/MR/CR)先换算为 16 位一组的逻辑号偏移,再还原为组表示;
-    其余软元件直接对编号加偏移。
-    """
-    if address.device in KV_BIT_BANK_DEVICES:
-        logical = (address.number // KV_BIT_BANK_PACK) * KV_BITS_PER_GROUP + (address.number % KV_BIT_BANK_PACK) + offset
-        return KvAddress(address.device, (logical // KV_BITS_PER_GROUP) * KV_BIT_BANK_PACK + (logical % KV_BITS_PER_GROUP), address.bit)
-    return KvAddress(address.device, address.number + offset, address.bit)
-
-
 def is_bit_device(device: str) -> bool:
     """判断是否为位软元件。"""
     return device in KV_BIT_DEVICES

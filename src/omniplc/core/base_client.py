@@ -535,12 +535,14 @@ class BaseClient(ABC):
     def write_bool(self, address: str, value: bool) -> bool:
         """写入布尔量(位)。
 
-        :param value: 真值(``bool``;兼容 ``int`` 0/1)
-        :raises ValueError: value 不是 bool/int——``"0"``/``"false"`` 这类非空
-            字符串会被 ``bool()`` 吞成 ``True`` 而写反,显式拒绝而不是静默写错
+        :param value: 真值(``bool``;兼容 ``int`` 0/1 —— 其他整数显式拒绝:
+            写布尔量却传 5 属于调用方笔误,静默按真值写入会掩盖现场问题)
+        :raises ValueError: value 不是 bool/int 0/1——``"0"``/``"false"`` 这类
+            非空字符串会被 ``bool()`` 吞成 ``True`` 而写反,显式拒绝而不是
+            静默写错
         """
-        if isinstance(value, str) or not isinstance(value, int):
-            raise ValueError(f"布尔量必须是 bool,收到:{type(value).__name__}")
+        if isinstance(value, str) or not isinstance(value, int) or value not in (0, 1):
+            raise ValueError(f"布尔量必须是 bool 或 int 0/1,收到:{value!r}")
         return self.write(address, DataType.BOOL, bool(value))
 
     def write_short(self, address: str, value: int) -> bool:
