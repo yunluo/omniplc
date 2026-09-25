@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 from .address import McAddress
+from .codec_qna import reject_bit_suffix_on_bit_device
 from ...core.constants import (
     MC_1E_DEVICE_CODES,
     MC_1E_ERROR_EXTRA,
@@ -87,6 +88,8 @@ def build_request(
         raise ValueError(
             f"字软元件 {address.device} 不支持位单位成批访问,请按字访问后提取位"
         )
+    if is_bit and is_bit_device:
+        reject_bit_suffix_on_bit_device(address)
     if not 1 <= points <= MC_1E_MAX_POINTS:
         raise ValueError(f"1E 访问点数超出范围 1~{MC_1E_MAX_POINTS}:{points}")
     number = device_number(address.device, address.number, base)

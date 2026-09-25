@@ -1019,12 +1019,10 @@ def test_read_batch_bool_and_string(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_read_batch_rejects() -> None:
-    """read_batch 拒绝路径:空列表与条数超限。"""
+    """read_batch 拒绝路径:空列表直接拒;条数超限自动拆分不再报错。"""
     client = AllenBradleyEthIpClient("127.0.0.1", AB_EIP_DEFAULT_PORT)
     with pytest.raises(ValueError):
         client.read_batch([])
-    with pytest.raises(ValueError):
-        client.read_batch([("Tag{}".format(index), "int") for index in range(33)])
 
 
 def test_async_mirror_read_batch(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1067,3 +1065,26 @@ def test_enip_length_field_over_limit() -> None:
     assert client.read_int("MyDint") == (False, None)
     assert client.connected is False
     assert client.last_error is not None and "超限" in client.last_error
+
+
+# ----------------------------------------------------------------------
+# 0x0A 字节预算切块(v0.41:长标签名不再触顶未连接缓冲)
+# ----------------------------------------------------------------------
+
+
+def test_chunk_batch_requests_budget_split() -> None:
+    """长内嵌请求按字节预算拆分;短请求按条数上限拆分。"""
+    from omniplc.plc.ab.ab import _chunk_batch_requests
+
+    long_req = b"x" * 200  # 条目约 201B(含对齐),三条即超 480B 预算
+    chunks = _chunk_batch_requests([long_req] * 3)
+    assert len(chunks) == 2
+    assert [len(c) for c in chunks] == [2, 1]
+    assert all(sum(len(r) + len(r) % 2 for r in c) + 2 + 2 * len(c) <= 480 for c in chunks)
+
+    short_req = b"y" * 8
+    chunks = _chunk_batch_requests([short_req] * 100)
+    assert all(len(c) <= 32 for c in chunks)  # 条数上限仍生效
+    assert sum(len(c) for c in chunks) == 100  # 切块不丢条目
+    assert _chunk_batch_requests([short_req]) == [[short_req]]  # 单条单事务
+    assert _chunk_batch_requests([]) == []

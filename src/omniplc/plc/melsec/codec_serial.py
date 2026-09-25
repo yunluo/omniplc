@@ -419,6 +419,8 @@ def _ascii_core(
         raise ValueError(
             f"字软元件 {address.device} 不支持位单位成批访问,请按字访问后提取位"
         )
+    if is_bit and is_bit_device:
+        codec_qna.reject_bit_suffix_on_bit_device(address)
     if not 1 <= points <= MC_MAX_TRANSFER_POINTS:
         raise ValueError(
             f"MC 访问点数超出范围 1~{MC_MAX_TRANSFER_POINTS}:{points}"

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 import time
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from . import codec_a, codec_qna, codec_serial, codec_serial_a
 from .address import McAddress, parse_mc_address
@@ -43,6 +43,7 @@ from ...core.constants import (
     MC_SERIAL_DEFAULT_SELF_STATION,
     MC_SERIAL_DEFAULT_STATION,
     MC_SERIAL_FRAME_ID_4C,
+    MC_DEVICE_CODES,
     MC_SERIAL_MAX_FRAME,
     SERIAL_DEFAULT_BAUD_RATE,
     SERIAL_DEFAULT_DATA_BITS,
@@ -59,7 +60,13 @@ from ...core.validation import (
 from ...transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport, UdpTransport
 from ...types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity
 
-
+# iQ-F(FX5U)X/Y 八进制口径码表(其余软元件与 Q/L/R 同):xy_octal=True 时
+# 经 :meth:`_MelsecMcBase._effective_codes` 生效(组帧与校验共用,见 SH-080956)
+_MC_DEVICE_CODES_FX5U_XY: Dict[str, Tuple[int, int, int]] = {
+    **MC_DEVICE_CODES,
+    "X": (0x9C, 1, 8),
+    "Y": (0x9D, 1, 8),
+}
 class _MelsecMcBase(BaseClient):
     """MC 客户端公共基类:帧型/序列号管理与软元件地址分发(私有)。
 
@@ -73,6 +80,9 @@ class _MelsecMcBase(BaseClient):
         McFrame.FRAME_1E,
     )
 
+    # X/Y 八进制口径(FX5U);串口走线不适用,类属性兜底(False)
+    _xy_octal: bool = False
+
     def __init__(
         self,
         ip_address: str,
@@ -80,6 +90,7 @@ class _MelsecMcBase(BaseClient):
         frame: Union[McFrame, str] = McFrame.FRAME_3E,
         network_number: int = MC_DEFAULT_NETWORK_NUMBER,
         pc_number: int = MC_DEFAULT_PC_NUMBER,
+        xy_octal: bool = False,
     ) -> None:
         """初始化 MC 客户端公共参数。
 
@@ -90,10 +101,13 @@ class _MelsecMcBase(BaseClient):
             ``FRAME_1E`` 为 A 兼容);也兼容 ``"3E"``/``"4E"``/``"1E"`` 字符串
         :param network_number: 网络编号(仅 3E/4E 使用)
         :param pc_number: PC 编号(仅 3E/4E 使用;1E 帧语义为站号)
+        :param xy_octal: X/Y 编号按八进制解释(iQ-F/FX5U 口径;
+            默认 False = Q/L/R 十六进制口径)。仅 3E/4E 帧生效
         :raises ValueError: 参数非法
         """
         validate_endpoint(ip_address, port)
         super().__init__(ip_address, port)
+        self._xy_octal = bool(xy_octal)
         self._init_frame(frame, network_number, pc_number)
 
     def _init_frame(
@@ -254,6 +268,7 @@ class _MelsecMcBase(BaseClient):
             number = codec_qna.device_number(parsed.device, parsed.number, base)
             if data_type_enum is DataType.BOOL:
                 if is_bit_device:
+                    codec_qna.reject_bit_suffix_on_bit_device(parsed)
                     bit_blocks.append((code, number, 1))
                     plan.append(("bit", bit_index, 0, data_type_enum))
                     bit_index += 1
@@ -331,7 +346,11 @@ class _MelsecMcBase(BaseClient):
         return convert.get_bit(words[0], parsed.bit or 0)
 
     def _read_bits(self, parsed: McAddress, count: int) -> List[int]:
-        """位软元件成批读(位单位核心命令)。"""
+        """位软元件成批读(位单位核心命令)。
+
+        位号后缀校验在 :func:`codec_qna.build_core`(组帧层),与 native
+        层及串口 3C/4C 共用同一防线;品牌兼容子类的记号换算先于该校验。
+        """
         request = self._build_frame(parsed, count, is_bit=True, is_write=False)
         tail = self._read_tail_size(count, is_bit=True)
         return self._parse_read(self._transact(request, tail), count, is_bit=True)
@@ -349,7 +368,7 @@ class _MelsecMcBase(BaseClient):
         return (points + 1) // 2 if is_bit else points * 2
 
     def _write_bits(self, parsed: McAddress, values: List[int]) -> None:
-        """位软元件成批写(位单位核心命令)。"""
+        """位软元件成批写(位单位核心命令,位号后缀校验在组帧层)。"""
         request = self._build_frame(parsed, len(values), is_bit=True, is_write=True, data=values)
         self._parse_write(self._transact(request), True)
 
@@ -368,7 +387,13 @@ class _MelsecMcBase(BaseClient):
             return codec_a.device_info(device)
         if self._frame is McFrame.FRAME_1C:
             return codec_serial_a.device_info(device)
-        return codec_qna.device_info(device)
+        return codec_qna.device_info(device, self._effective_codes())
+
+    def _effective_codes(self) -> Optional[Dict[str, Tuple[int, int, int]]]:
+        """生效软元件码表:xy_octal 时换 X/Y 八进制口径的 FX5U 变体(内部)。"""
+        if not self._xy_octal:
+            return None
+        return _MC_DEVICE_CODES_FX5U_XY
 
     def _translate_address(self, parsed: McAddress) -> McAddress:
         """帧级地址换算钩子,默认透传(内部方法)。
@@ -402,6 +427,7 @@ class _MelsecMcBase(BaseClient):
             is_bit,
             is_write,
             data,
+            self._effective_codes(),
         )
 
     def _parse_read(self, response: bytes, points: int, is_bit: bool) -> List[int]:
@@ -471,6 +497,7 @@ class MelsecMcTcpClient(_MelsecMcBase):
         frame: Union[McFrame, str] = McFrame.FRAME_3E,
         network_number: int = MC_DEFAULT_NETWORK_NUMBER,
         pc_number: int = MC_DEFAULT_PC_NUMBER,
+        xy_octal: bool = False,
     ) -> None:
         """初始化 MC TCP 客户端。
 
@@ -481,9 +508,10 @@ class MelsecMcTcpClient(_MelsecMcBase):
             ``FRAME_1E`` 为 A 兼容);也兼容 ``"3E"``/``"4E"``/``"1E"`` 字符串
         :param network_number: 网络编号(仅 3E/4E 使用)
         :param pc_number: PC 编号(仅 3E/4E 使用;1E 帧语义为站号)
+        :param xy_octal: X/Y 编号按八进制解释(iQ-F/FX5U 口径,默认 False)
         :raises ValueError: 参数非法
         """
-        super().__init__(ip_address, port, frame, network_number, pc_number)
+        super().__init__(ip_address, port, frame, network_number, pc_number, xy_octal)
 
     def _create_transport(self) -> BaseTransport:
         return TcpTransport(self._ip_address, self._port)
@@ -499,6 +527,7 @@ class MelsecMcUdpClient(_MelsecMcBase):
         frame: Union[McFrame, str] = McFrame.FRAME_3E,
         network_number: int = MC_DEFAULT_NETWORK_NUMBER,
         pc_number: int = MC_DEFAULT_PC_NUMBER,
+        xy_octal: bool = False,
     ) -> None:
         """初始化 MC UDP 客户端。
 
@@ -509,9 +538,10 @@ class MelsecMcUdpClient(_MelsecMcBase):
             ``FRAME_1E`` 为 A 兼容);也兼容 ``"3E"``/``"4E"``/``"1E"`` 字符串
         :param network_number: 网络编号(仅 3E/4E 使用)
         :param pc_number: PC 编号(仅 3E/4E 使用;1E 帧语义为站号)
+        :param xy_octal: X/Y 编号按八进制解释(iQ-F/FX5U 口径,默认 False)
         :raises ValueError: 参数非法
         """
-        super().__init__(ip_address, port, frame, network_number, pc_number)
+        super().__init__(ip_address, port, frame, network_number, pc_number, xy_octal)
 
     def _create_transport(self) -> BaseTransport:
         return UdpTransport(self._ip_address, self._port)

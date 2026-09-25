@@ -86,6 +86,23 @@ def device_number(device: str, number: str, base: int) -> int:
         )
 
 
+def reject_bit_suffix_on_bit_device(address: McAddress) -> None:
+    """位软元件带位号后缀(如 ``M10.5``)直接拒绝(内部函数)。
+
+    位单位访问的帧内编号不含位号字段,静默丢位号会错位读写(与
+    MX Component 的 :mod:`.mx` 校验同口径)。品牌兼容子类在
+    ``_build_frame`` 内先做记号换算(如松下 R1.15 → 字号×16+位号、
+    汇川 X/Y 八进制,换算后位号已被消费),不受本校验影响。
+    """
+    if address.bit is not None:
+        raise ValueError(
+            "位软元件不支持位号后缀:{}{}.{}(位软元件直接用编号,"
+            "如 M10;字软元件位访问用 D100.3)".format(
+                address.device, address.number, address.bit
+            )
+        )
+
+
 def build_core(
     address: McAddress,
     points: int,
@@ -113,6 +130,8 @@ def build_core(
         raise ValueError(
             f"字软元件 {address.device} 不支持位单位成批访问,请按字访问后提取位"
         )
+    if is_bit and is_bit_device:
+        reject_bit_suffix_on_bit_device(address)
     _check_points(points, MC_MAX_TRANSFER_POINTS)
     number = device_number(address.device, address.number, base)
     if number > 0xFFFFFF:

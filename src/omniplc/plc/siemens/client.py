@@ -401,7 +401,10 @@ class SiemensS7Client(BaseClient):
         session.write_area(area_code(parsed.area), parsed.db_number, parsed.byte_index, data)
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
-        """读 S7 String(头 2 字节 = 声明长/实际长,正文按声明长)。"""
+        """读 S7 String(头 2 字节 = 声明长/实际长,正文按声明长)。
+
+        实际长超出请求 ``length`` 时按 ``length`` 截断返回(不报错不丢帧)。
+        """
         parsed = parse_s7_address(address)
         if parsed.bit is not None:
             raise ValueError(f"S7 字符串地址不带位号:{address!r}")
@@ -412,17 +415,38 @@ class SiemensS7Client(BaseClient):
         if len(data) < 2:
             raise DeviceError("S7 String 响应过短:{}".format(len(data)), 0)
         actual = data[1]
-        if actual <= 0 or actual > length:
+        if actual <= 0:
             return ""
+        if actual > length:
+            # PLC 侧实际长 > 请求 length:截断返回,避免静默丢成空串
+            actual = length
         return convert.decode_string(data[2:2 + actual], encoding)
 
     def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
-        """写 S7 String(声明长/实际长均按本次编码长度,建议 ≤ PLC 侧声明长)。"""
+        """写 S7 String(声明长字节保留 PLC 侧现值,仅覆盖实际长字节)。
+
+        先读 1 字节取 PLC 侧声明长(STRING[x] 的 x),写入值超声明长时
+        拒绝(防溢出污染相邻变量);声明长字节读得 0(未初始化区)时
+        按本次编码长度落盘(与旧版行为兼容)。
+        """
         parsed = parse_s7_address(address)
         if parsed.bit is not None:
             raise ValueError(f"S7 字符串地址不带位号:{address!r}")
         encoded = convert.encode_string(value, len(value.encode(encoding)), encoding)
-        header = bytes([len(encoded), len(encoded)])
+        head = self._session().read_area(
+            area_code(parsed.area), parsed.db_number, parsed.byte_index, 1
+        )
+        declared_max = head[0] if head else 0
+        if declared_max == 0:
+            # 未初始化区(声明长为 0 非法):退回旧口径,声明长=实际长
+            declared_max = len(encoded)
+        if len(encoded) > declared_max:
+            raise ValueError(
+                "S7 String 写入值超出 PLC 侧声明长:{} > {} 字符({!r})".format(
+                    len(encoded), declared_max, address
+                )
+            )
+        header = bytes([declared_max, len(encoded)])
         self._session().write_area(
             area_code(parsed.area), parsed.db_number, parsed.byte_index, header + encoded
         )

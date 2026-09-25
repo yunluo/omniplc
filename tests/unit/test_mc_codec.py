@@ -212,3 +212,31 @@ def test_parse_random_read_response_short_data() -> None:
     )
     with pytest.raises(ProtocolFrameError):
         codec_qna.parse_random_read_response(frame, "3E", 3, 2)
+
+
+# ----------------------------------------------------------------------
+# 位软元件位号后缀校验:各帧型组帧层统一防线(含串口 3C/4C 与 1C)
+# ----------------------------------------------------------------------
+
+
+def test_qna_bit_suffix_rejected() -> None:
+    """3E/4E 组帧层:位软元件带位号后缀直接拒绝(M10.5 不得发成 M10)。"""
+    with pytest.raises(ValueError):
+        codec_qna.build_request(
+            "3E", 0, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER,
+            parse_mc_address("M10.5"), 1, True, False,
+        )
+
+
+def test_serial_bit_suffix_rejected() -> None:
+    """3C/1C 串口组帧层同款校验:位号后缀不得静默丢弃。"""
+    from omniplc.plc.melsec import codec_serial, codec_serial_a
+
+    with pytest.raises(ValueError):
+        codec_serial.build_3c_request(
+            0, 0, 0xFF, 0, parse_mc_address("M10.5"), 1, True, False
+        )
+    with pytest.raises(ValueError):
+        codec_serial_a.build_1c_request(
+            0, 0xFF, 0, parse_mc_address("M10.5"), 1, True, False
+        )

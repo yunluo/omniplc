@@ -502,10 +502,19 @@ def build_tag_write(path: bytes, cip_type: int, payload: bytes, elements: int = 
     return _service_request(CIP_SERVICE_WRITE_TAG, path, body)
 
 
-def build_string_write(path: bytes, payload: bytes, elements: int = 1) -> bytes:
-    """构造 STRING 写请求(结构体类型域 = 0xA0 + 0x02 + 模板实例号)。"""
+def build_string_write(
+    path: bytes,
+    payload: bytes,
+    elements: int = 1,
+    template_id: int = AB_EIP_STRING_STRUCT_ID,
+) -> bytes:
+    """构造 STRING 写请求(结构体类型域 = 0xA0 + 0x02 + 模板实例号)。
+
+    ``template_id`` 缺省为 Logix 标准 STRING 模板;NJ/NX 等模板号不同
+    的设备由调用方传入应答中读到的实际模板号。
+    """
     body = (
-        struct.pack("<BBH", CIP_TYPE_STRUCT, 2, AB_EIP_STRING_STRUCT_ID)
+        struct.pack("<BBH", CIP_TYPE_STRUCT, 2, template_id)
         + struct.pack("<H", elements)
         + payload
     )

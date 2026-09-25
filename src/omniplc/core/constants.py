@@ -219,9 +219,24 @@ MC_DEVICE_CODES: Dict[str, Tuple[int, int, int]] = {
     "X": (0x9C, 1, 16),
     "Y": (0x9D, 1, 16),
     "M": (0x90, 1, 10),
+    "L": (0xA0, 1, 10),
     "S": (0x98, 1, 10),
     "B": (0xA0, 1, 16),
+    "F": (0x93, 1, 10),
+    "SB": (0xA1, 1, 16),
+    "V": (0x94, 1, 10),
+    "DX": (0xA2, 1, 16),
+    "DY": (0xA3, 1, 16),
+    "TS": (0xC1, 1, 10),
+    "TC": (0xC2, 1, 10),
+    "TN": (0xC3, 0, 10),
+    "CS": (0xC4, 1, 10),
+    "CC": (0xC5, 1, 10),
+    "CN": (0xC6, 0, 10),
+    "SM": (0x91, 1, 10),
+    "SD": (0xA9, 0, 10),
     "D": (0xA8, 0, 10),
+    "SW": (0xB5, 0, 16),
     "W": (0xB4, 0, 16),
     "R": (0xAF, 0, 10),
     "Z": (0xCC, 0, 10),
@@ -229,8 +244,12 @@ MC_DEVICE_CODES: Dict[str, Tuple[int, int, int]] = {
 }
 """3E/4E 软元件码表:软元件 → (二进制码, 位软元件?, 地址进制)。
 
-来源:SH-080956 手册二进制码列:X/Y/W/B 十六进制,ZR 十进制;
-仅 iQ-F(FX5U)的 X/Y 为八进制,v1 按 Q/L/R 口径处理。
+来源:SH-080956 手册二进制码列:X/Y/W/B/SB/SW/DX/DY 十六进制,
+L/F/S/V/TS/TC/TN/CS/CC/CN/SM/SD/ZR 十进制;TS/TC/CS/CC 为定时器
+计数器接点/线圈(位),TN/CN 为当前值(字,TN=C3/CN=C6 待真机终核)。
+仅 iQ-F(FX5U)的 X/Y 为八进制,v1 按 Q/L/R 口径处理(可用
+:class:`~omniplc.plc.melsec` 以太网客户端的 ``xy_octal=True`` 切换)。
+智能功能模块缓冲存储器不在本表(SLMP 走专用命令,非软元件寻址)。
 """
 MC_1E_DEVICE_CODES: Dict[str, Tuple[int, int, int]] = {
     "X": (0x5820, 1, 8),
@@ -756,10 +775,13 @@ AB_EIP_STRING_STRUCT_ID: int = 0x0FCE
 AB_EIP_STRING_MAX_CHARS: int = 82
 """Logix STRING 结构体最大字符数(len u32 + 82 字符 + 2 对齐 = 88 字节)。"""
 AB_MAX_BATCH_SERVICES: int = 32
-"""AB 多服务包(0x0A)单事务内嵌服务数上限。
+"""AB 多服务包(0x0A)单事务内嵌服务数上限(超出由批量入口自动拆分)。"""
+AB_MAX_BATCH_PAYLOAD: int = 480
+"""AB 多服务包(0x0A)单事务估算字节预算。
 
-保守口径:unconnected 消息经 UC-Send 包裹后须落在 Logix 未连接缓冲
-(504 字节)内,典型标签名下 32 条约 500 字节;标签名较长时请分批。"""
+unconnected 消息经 UC-Send 包裹后须落在 Logix 未连接缓冲(504 字节)
+内;0x0A 数据段 = 条数(2) + 偏移表(2×n) + Σ(内嵌请求+对齐),再留
+信封余量。批量入口按 (条数, 字节) 双约束自动切块,长标签名不再触顶。"""
 AB_EIP_STATUS_TEXT: dict = {
     0x01: "非法命令或未提供协议版本",
     0x02: "内存不足",

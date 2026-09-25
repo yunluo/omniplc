@@ -94,19 +94,31 @@ def _load_pyads() -> Optional[Any]:
         return None
 
 
+_ADS_TRANSPORT_ERROR_CODES = frozenset({0x00000705, 0x00000706, 0x00000725})
+"""transport 类 ADS 错误码:TwinCAT 侧连接失效(不断线会导致后续调用
+持续失败)——0x0705 目标端口未找到 / 0x0706 目标 AMS NetId 不可达 /
+0x0725 本机路由器端口已关闭,出现即标记断线走惰性重连。"""
+
+
 def _translate_ads_error(exc: BaseException) -> OmniPLCInternalError:
     """把 pyads 异常翻译为本库内部异常(内部函数)。
 
-    - ``ADSError``(ADS 状态码错误:符号不存在/长度不符等)→
+    - ``ADSError`` 且错误码属 transport 类(:data:`_ADS_TRANSPORT_ERROR_CODES`,
+      TwinCAT 重启/路由器断开等)→ :class:`OmniPLCInternalError`,
+      由基类标记断线、下次事务惰性重连
+    - 其余 ``ADSError``(符号不存在/长度不符等设备语义错误)→
       :class:`DeviceError`,``code`` 携带原始 ADS 错误码——链路是好的,
       不断线不重试
-    - 其余(pyads 缺失/连接中断/内部错误)→ :class:`OmniPLCInternalError`,
-      由基类标记断线惰性重连
+    - pyads 缺失/连接中断/内部错误 → :class:`OmniPLCInternalError`
     """
     pyads = _load_pyads()
     error_class = getattr(pyads, "ADSError", None) if pyads is not None else None
     if error_class is not None and isinstance(exc, error_class):
         code = int(getattr(exc, "err_code", 0) or 0)
+        if code in _ADS_TRANSPORT_ERROR_CODES:
+            return OmniPLCInternalError(
+                "ADS 连接失效 0x{:08X}:{}(下次事务将重连)".format(code, exc)
+            )
         return DeviceError(f"ADS 出错 0x{code:08X}:{exc}", code)
     return OmniPLCInternalError(
         "ADS 调用失败:{}:{}".format(type(exc).__name__, exc)

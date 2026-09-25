@@ -21,7 +21,7 @@
 """
 from __future__ import annotations
 
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from .base import AsyncBaseClient
 from .transport import AsyncBaseTransport, AsyncTcpTransport, AsyncUdpTransport
@@ -47,6 +47,7 @@ from ..core.validation import (
 from ..plc.melsec import codec_a, codec_qna
 from ..plc.melsec.address import McAddress, parse_mc_address
 from ..plc.melsec.melsec import (
+    _MC_DEVICE_CODES_FX5U_XY,
     _coerce_frame,
     _decode_32,
     _decode_64,
@@ -74,6 +75,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         frame: Union[McFrame, str] = McFrame.FRAME_3E,
         network_number: int = MC_DEFAULT_NETWORK_NUMBER,
         pc_number: int = MC_DEFAULT_PC_NUMBER,
+        xy_octal: bool = False,
     ) -> None:
         """初始化 MC 客户端公共参数。
 
@@ -84,10 +86,12 @@ class AsyncMelsecMcBase(AsyncBaseClient):
             ``"3E"``/``"1E"`` 字符串
         :param network_number: 网络编号(仅 3E 使用)
         :param pc_number: PC 编号(仅 3E 使用;1E 帧语义为站号)
+        :param xy_octal: X/Y 编号按八进制解释(iQ-F/FX5U 口径,默认 False)
         :raises ValueError: 参数非法
         """
         validate_endpoint(ip_address, port)
         super().__init__(ip_address, port)
+        self._xy_octal = bool(xy_octal)
         self._frame = _coerce_frame(frame)
         if self._frame not in self._SUPPORTED_FRAMES:
             supported = "/".join(member.value for member in self._SUPPORTED_FRAMES)
@@ -281,7 +285,14 @@ class AsyncMelsecMcBase(AsyncBaseClient):
             is_bit,
             is_write,
             data,
+            self._effective_codes(),
         )
+
+    def _effective_codes(self) -> Optional[Dict[str, Tuple[int, int, int]]]:
+        """生效软元件码表:xy_octal 时换 X/Y 八进制口径的 FX5U 变体(内部)。"""
+        if not self._xy_octal:
+            return None
+        return _MC_DEVICE_CODES_FX5U_XY
 
     def _parse_read(self, response: bytes, points: int, is_bit: bool) -> List[int]:
         """按当前帧型解析读响应(内部方法)。"""
@@ -357,6 +368,7 @@ class AsyncMelsecMcTcpClient(AsyncMelsecMcBase):
         frame: Union[McFrame, str] = McFrame.FRAME_3E,
         network_number: int = MC_DEFAULT_NETWORK_NUMBER,
         pc_number: int = MC_DEFAULT_PC_NUMBER,
+        xy_octal: bool = False,
     ) -> None:
         """初始化 MC TCP 客户端。
 
@@ -365,9 +377,10 @@ class AsyncMelsecMcTcpClient(AsyncMelsecMcBase):
         :param frame: 帧型(``FRAME_3E`` / ``FRAME_1E``,兼容 ``"3E"``/``"1E"``)
         :param network_number: 网络编号(仅 3E 使用)
         :param pc_number: PC 编号(仅 3E 使用;1E 帧语义为站号)
+        :param xy_octal: X/Y 编号按八进制解释(iQ-F/FX5U 口径,默认 False)
         :raises ValueError: 参数非法
         """
-        super().__init__(ip_address, port, frame, network_number, pc_number)
+        super().__init__(ip_address, port, frame, network_number, pc_number, xy_octal)
 
     def _create_transport(self) -> AsyncBaseTransport:
         return AsyncTcpTransport(self._ip_address, self._port)
@@ -386,6 +399,7 @@ class AsyncMelsecMcUdpClient(AsyncMelsecMcBase):
         frame: Union[McFrame, str] = McFrame.FRAME_3E,
         network_number: int = MC_DEFAULT_NETWORK_NUMBER,
         pc_number: int = MC_DEFAULT_PC_NUMBER,
+        xy_octal: bool = False,
     ) -> None:
         """初始化 MC UDP 客户端。
 
@@ -394,9 +408,10 @@ class AsyncMelsecMcUdpClient(AsyncMelsecMcBase):
         :param frame: 帧型(``FRAME_3E`` / ``FRAME_1E``,兼容 ``"3E"``/``"1E"``)
         :param network_number: 网络编号(仅 3E 使用)
         :param pc_number: PC 编号(仅 3E 使用;1E 帧语义为站号)
+        :param xy_octal: X/Y 编号按八进制解释(iQ-F/FX5U 口径,默认 False)
         :raises ValueError: 参数非法
         """
-        super().__init__(ip_address, port, frame, network_number, pc_number)
+        super().__init__(ip_address, port, frame, network_number, pc_number, xy_octal)
 
     def _create_transport(self) -> AsyncBaseTransport:
         return AsyncUdpTransport(self._ip_address, self._port)

@@ -400,14 +400,37 @@ def test_bit_read_modify_write(monkeypatch: pytest.MonkeyPatch) -> None:
 # ----------------------------------------------------------------------
 
 def test_string_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
-    """S7 String:读按头部长度截取;写头部=实际长度。"""
+    """S7 String:读按头部长度截取;写保留 PLC 侧声明长、仅覆盖实际长。"""
     client, fake = _client(monkeypatch)
     fake.seed(_AREA_DB, 1, 20, bytes([80, 5]) + b"HELLO")
     assert client.read_string("DB1.DBS20", length=80) == (True, "HELLO")
     assert client.write_string("DB1.DBS20", "HI") is True
-    assert fake.dump(_AREA_DB, 1, 20, 4) == bytes([2, 2, 72, 73])
+    assert fake.dump(_AREA_DB, 1, 20, 4) == bytes([80, 2, 72, 73])
     fake.seed(_AREA_DB, 1, 40, bytes([80, 0]))  # 空串(actual=0)
     assert client.read_string("DB1.DBS40") == (True, "")
+
+
+def test_string_read_truncates_to_requested_length(monkeypatch: pytest.MonkeyPatch) -> None:
+    """实际长 > 请求 length:按 length 截断返回,不再静默丢成空串。"""
+    client, fake = _client(monkeypatch)
+    fake.seed(_AREA_DB, 1, 20, bytes([80, 5]) + b"HELLO")
+    assert client.read_string("DB1.DBS20", length=3) == (True, "HEL")
+
+
+def test_string_write_rejects_overflow_of_declared_max(monkeypatch: pytest.MonkeyPatch) -> None:
+    """写入值超 PLC 侧声明长:ValueError 且不落盘(防污染相邻变量)。"""
+    client, fake = _client(monkeypatch)
+    fake.seed(_AREA_DB, 1, 20, bytes([4, 0]) + b"\x00\x00\x00\x00")
+    with pytest.raises(ValueError):
+        client.write_string("DB1.DBS20", "TOOLONG")
+    assert fake.dump(_AREA_DB, 1, 20, 10) == bytes([4, 0]) + b"\x00" * 8
+
+
+def test_string_write_uninitialized_area_keeps_legacy_behavior(monkeypatch: pytest.MonkeyPatch) -> None:
+    """声明长字节为 0(未初始化区):按本次编码长度落盘(兼容旧口径)。"""
+    client, fake = _client(monkeypatch)
+    assert client.write_string("DB1.DBS60", "HI") is True
+    assert fake.dump(_AREA_DB, 1, 60, 4) == bytes([2, 2, 72, 73])
 
 
 # ----------------------------------------------------------------------

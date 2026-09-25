@@ -14,7 +14,7 @@ from omniplc.aio import AMelsecMcTcpClient
 from omniplc.core.constants import MC_DEFAULT_MONITOR_TIMER
 from omniplc.plc.melsec import codec_a, codec_qna
 from omniplc.plc.melsec.address import parse_mc_address
-from omniplc.plc.melsec.melsec import _encode_32
+from omniplc.plc.melsec.melsec import _MC_DEVICE_CODES_FX5U_XY, _encode_32
 from omniplc.types import DataType
 from scripted import ScriptedTransport, mount_real_tcp
 
@@ -364,3 +364,67 @@ def test_mc_routing_properties_exposed() -> None:
     assert serial.network_number == 0
     assert serial.self_station_number == 3
     assert serial.module_station == 2
+
+# ----------------------------------------------------------------------
+# 位软元件位号后缀校验(MC 侧补齐,与 MX 同口径)+ FX5U 八进制
+# ----------------------------------------------------------------------
+
+
+def test_tcp_3e_bit_device_bit_suffix_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """位软元件带位号后缀(如 M10.5)直接拒绝,不静默丢位号错位读写。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    scripted = ScriptedTransport([])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    with pytest.raises(ValueError):
+        client.read_bool("M10.5")
+    with pytest.raises(ValueError):
+        client.write_bool("M10.5", True)
+    with pytest.raises(ValueError):
+        client.read_batch([("M10.5", "bool")])
+    assert len(scripted.sent) == 0  # 参数错误不发报文
+
+
+def test_tcp_3e_word_device_bit_suffix_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
+    """字软元件位访问(D100.2)不受影响:读-改-写口径保持。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    read = _qna_read_response([0b0000_0000_0000_0100])
+    write = _qna_write_response()
+    scripted = ScriptedTransport([read[:9], read[9:], write[:9], write[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.write_bool("D100.2", True) is True
+
+
+def test_tcp_3e_fx5u_xy_octal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """xy_octal=True:iQ-F 口径,X/Y 编号按八进制换算组帧。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000, xy_octal=True)
+    data = b"\x10"  # 1 点位读,bit0=1(高位在前)
+    head = b"\xd0\x00\x00\xff\xff\x03\x00"
+    frame = head + (2 + len(data)).to_bytes(2, "little") + b"\x00\x00" + data
+    scripted = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_bool("X17") == (True, True)  # 八进制 17 = 15 点
+    assert bytes(scripted.sent) == codec_qna.build_request(
+        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("X17"), 1, True, False, None, _MC_DEVICE_CODES_FX5U_XY,
+    )
+    with pytest.raises(ValueError):
+        client.read_bool("X19")  # 八进制无 8/9 数字
+
+
+def test_tcp_3e_default_xy_hex_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    """默认(非 xy_octal)仍按 Q/L/R 十六进制口径:X19 合法、按 0x19 组帧。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    data = b"\x10"
+    head = b"\xd0\x00\x00\xff\xff\x03\x00"
+    frame = head + (2 + len(data)).to_bytes(2, "little") + b"\x00\x00" + data
+    scripted = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_bool("X19") == (True, True)
+    assert bytes(scripted.sent) == codec_qna.build_request(
+        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("X19"), 1, True, False, None,
+    )

@@ -239,6 +239,16 @@ def test_translate_ads_error(monkeypatch: pytest.MonkeyPatch) -> None:
     assert not isinstance(other, DeviceError)
 
 
+def test_translate_ads_error_transport_codes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """transport 类错误码(0x705/0x706/0x725)→ 内部异常,标记断线走惰性重连。"""
+    ads_error_class = _install_pyads_stub(monkeypatch)
+    for code in (0x705, 0x706, 0x725):
+        translated = _translate_ads_error(ads_error_class(code, "transport down"))
+        assert isinstance(translated, OmniPLCInternalError)
+        assert not isinstance(translated, DeviceError)
+        assert "0x0000" in str(translated)
+
+
 def test_session_connect_failure_translated(monkeypatch: pytest.MonkeyPatch) -> None:
     """会话连接失败:pyads Connection.open 异常 → OSError(断线重连口径)。"""
     pkg = types.ModuleType("pyads")

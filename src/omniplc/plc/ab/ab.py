@@ -41,6 +41,7 @@ from ...core.constants import (
     AB_EIP_MAX_FRAME,
     AB_EIP_ORIGINATOR_VENDOR_ID,
     AB_EIP_SLOT_MAX,
+    AB_MAX_BATCH_PAYLOAD,
     AB_MAX_BATCH_SERVICES,
     INT32_MAX,
     UINT16_MAX,
@@ -534,6 +535,15 @@ class AllenBradleyEthIpClient(BaseClient):
         _, data = self._read_tag_values(word_path, 1)
         return bool((codec_cip.decode_word(data, codec_cip.CIP_TYPE_DWORD) >> (index % 32)) & 1)
 
+    def _batch_bool_array_address(self, parsed: AbTag, index: int) -> Tuple[AbTag, int]:
+        """批量读 BOOL 数组元素的读取路径与位提取口径(继承定制点)。
+
+        Logix 口径:BOOL 数组按 DWORD 位打包,读 ``下标//32`` 字、
+        提 ``下标%32`` 位;应答仍带实际类型(元素应答 BOOL 时按本体解码)。
+        NJ/NX 等不做打包的设备覆写为直读元素本体。
+        """
+        return _word_index_path(parsed, index), index % 32
+
     def _read_string(
         self, address: str, length: int, encoding: str
     ) -> PrimitiveValue:
@@ -571,26 +581,23 @@ class AllenBradleyEthIpClient(BaseClient):
     def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
-        """多服务包批量读取(0x0A,单事务混读多个标签;上限 32 条)。
+        """多服务包批量读取(0x0A,混读多个标签;自动按预算拆分事务)。
 
         利用 CIP 原生 Multiple Service Packet 能力:每条 ``(标签, 数据类型)``
         内嵌为一个 0x4C 标签读,一帧往返取回全部值;unconnected/connected
-        与 NJ/NX 直发路径均适用(经继承定制点分发)。
+        与 NJ/NX 直发路径均适用(经继承定制点分发)。条目数超上限或标签名
+        较长导致估算字节超出未连接缓冲预算(:data:`AB_MAX_BATCH_PAYLOAD`)
+        时,自动拆为多个 0x0A 事务按序执行,结果仍按 ``items`` 顺序返回。
 
         - 标量/字符串:应答自带实际类型码,类型不符抛 ``ValueError``(同单点读)
         - 布尔:BOOL 标签直读、整型位号读词提位、BOOL 数组元素定词提位;
           未知类型首次批量读会先做一次类型发现(按基名缓存,之后无额外往返)
-        - 条目上限 :data:`~omniplc.core.constants.AB_MAX_BATCH_SERVICES`;
-          标签名较长时未连接缓冲(504 字节)可能先于条数触顶,请分批
+        - 整批语义:任一事务任一条被 PLC 拒绝则整批失败(原因见 ``last_error``)
 
-        :raises ValueError: 列表为空/条数超限/地址或类型非法
+        :raises ValueError: 列表为空/地址或类型非法
         """
         if not items:
             raise ValueError("read_batch 至少需要一个 (标签, 数据类型) 项")
-        if len(items) > AB_MAX_BATCH_SERVICES:
-            raise ValueError(
-                "read_batch 条目数超出上限 {}:{}".format(AB_MAX_BATCH_SERVICES, len(items))
-            )
 
         def operation() -> List[PrimitiveValue]:
             requests: List[bytes] = []
@@ -614,10 +621,11 @@ class AllenBradleyEthIpClient(BaseClient):
                         plan.append(("bitofword", address, bit, data_type_enum))
                     elif cip_type == codec_cip.CIP_TYPE_DWORD:
                         index = _single_array_index(parsed)
+                        read_parsed, bit_index = self._batch_bool_array_address(parsed, index)
                         requests.append(codec_cip.build_tag_read(
-                            codec_cip.tag_type_path(_word_index_path(parsed, index)), 1
+                            codec_cip.tag_type_path(read_parsed), 1
                         ))
-                        plan.append(("boolarray", address, index, data_type_enum))
+                        plan.append(("boolarray", address, bit_index, data_type_enum))
                     else:
                         requests.append(codec_cip.build_tag_read(
                             codec_cip.tag_type_path(parsed), 1
@@ -631,11 +639,13 @@ class AllenBradleyEthIpClient(BaseClient):
                     plan.append(("string", address, 0, data_type_enum))
                 else:
                     plan.append(("scalar", address, 0, data_type_enum))
-            packet = codec_cip.build_multiple_service_packet(requests)
-            payloads = codec_cip.parse_multiple_service_payload(
-                self._transact(packet, codec_cip.CIP_SERVICE_MULTIPLE),
-                [codec_cip.CIP_SERVICE_READ_TAG] * len(requests),
-            )
+            payloads: List[bytes] = []
+            for chunk in _chunk_batch_requests(requests):
+                packet = codec_cip.build_multiple_service_packet(chunk)
+                payloads.extend(codec_cip.parse_multiple_service_payload(
+                    self._transact(packet, codec_cip.CIP_SERVICE_MULTIPLE),
+                    [codec_cip.CIP_SERVICE_READ_TAG] * len(chunk),
+                ))
             values: List[PrimitiveValue] = []
             for (kind, address, extra, data_type_enum), payload in zip(plan, payloads):
                 parsed = parse_ab_tag(address)
@@ -665,9 +675,19 @@ class AllenBradleyEthIpClient(BaseClient):
                 elif kind == "bitofword":
                     values.append(bool((codec_cip.decode_word(data, cip_type) >> extra) & 1))
                 else:  # boolarray
-                    values.append(bool(
-                        (codec_cip.decode_word(data, codec_cip.CIP_TYPE_DWORD) >> (extra % 32)) & 1
-                    ))
+                    if cip_type == codec_cip.CIP_TYPE_DWORD:
+                        values.append(bool(
+                            (codec_cip.decode_word(data, cip_type) >> (extra % 32)) & 1
+                        ))
+                    elif cip_type == codec_cip.CIP_TYPE_BOOL:
+                        # NJ/NX 等按元素自描述的设备:元素应答即 BOOL 本体
+                        values.append(bool(codec_cip.decode_values(data, cip_type, 1)[0]))
+                    else:
+                        raise ValueError(
+                            "标签 {!r} 实际类型 {} 不是 BOOL".format(
+                                address, codec_cip.type_name(cip_type)
+                            )
+                        )
             return values
 
         return self._execute(operation)
@@ -764,6 +784,36 @@ class AllenBradleyEthIpClient(BaseClient):
 # ----------------------------------------------------------------------
 # 模块级辅助函数
 # ----------------------------------------------------------------------
+
+# 0x0A 请求在 UC-Send 信封(路由段+超时+服务头)之外的估算余量(字节)
+_BATCH_ENVELOPE_MARGIN: int = 24
+
+
+def _chunk_batch_requests(requests: Sequence[bytes]) -> List[List[bytes]]:
+    """把 0x0A 内嵌服务请求按 (条数, 字节预算) 切成多个事务(内部函数)。
+
+    数据段 = 条数(2) + 偏移表(2×n) + Σ(内嵌请求 + 偶对齐);加上
+    信封余量后须落在 Logix 未连接缓冲(504 字节)内。短标签名典型
+    单事务即可承载全部条目,长标签名自动拆分。
+    """
+    chunks: List[List[bytes]] = []
+    current: List[bytes] = []
+    used = 2  # 条数域
+    for request in requests:
+        entry = len(request) + len(request) % 2  # 偏移项 + 偶对齐后的请求
+        if current and (
+            len(current) >= AB_MAX_BATCH_SERVICES
+            or used + entry + _BATCH_ENVELOPE_MARGIN > AB_MAX_BATCH_PAYLOAD
+        ):
+            chunks.append(current)
+            current = []
+            used = 2
+        current.append(request)
+        used += entry
+    if current:
+        chunks.append(current)
+    return chunks
+
 
 def _strip_bit(parsed: AbTag) -> AbTag:
     """去掉末尾位号(词读/RMW 路径用,内部函数)。"""

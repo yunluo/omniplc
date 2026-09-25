@@ -133,17 +133,109 @@ def test_cip_status_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> N
     assert bytes(scripted.sent).count(codec_cip.build_register_session()) == 1
 
 
-def test_string_unsupported(monkeypatch: pytest.MonkeyPatch) -> None:
-    """NJ/NX STRING 待真机核证:读 (False, None)、写 False,连接保持。"""
+def test_string_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """NJ/NX STRING 读:len(u32)+字符,继承结构体解析路径。"""
     client = OmronCipClient("127.0.0.1", 44818)
-    scripted = ScriptedTransport(_session_chunks())
+    payload = bytes([0xA0, 0x00, 0x34, 0x12]) + struct.pack("<I", 5) + b"HELLO"
+    scripted = ScriptedTransport(_session_chunks() + _direct_reply_chunks(payload))
     _mount(monkeypatch, client, scripted)
     client.connect()
-    assert client.read_string("MyString") == (False, None)
-    assert "暂不支持字符串读取" in (client.last_error or "")
-    assert client.write_string("MyString", "Hi") is False
-    assert "暂不支持字符串写入" in (client.last_error or "")
-    assert client.connected is True
+    assert client.read_string("MyString") == (True, "HELLO")
+
+
+def test_string_write_carries_template_and_declared_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """NJ/NX STRING 写:先读模板号与声明尺寸,写入类型域回带模板号。"""
+    client = OmronCipClient("127.0.0.1", 44818)
+    # 结构体 = 类型域(4)+ len(u32)(4)+ 字符区 10 → 声明可写 10 字符
+    payload = (
+        bytes([0xA0, 0x00, 0x34, 0x12]) + struct.pack("<I", 5) + b"HELLO" + b"\x00" * 5
+    )
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _direct_reply_chunks(payload)
+        + _direct_reply_chunks(service=codec_cip.CIP_SERVICE_WRITE_TAG)
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.write_string("MyString", "HI") is True
+    data = struct.pack("<I", 2) + b"HI" + b"\x00" * 8
+    write_request = codec_cip.build_string_write(
+        codec_cip.build_symbol_path(("MyString",), ((),)), data, template_id=0x1234
+    )
+    assert bytes(scripted.sent).endswith(codec_cip.build_rr_data(_SESSION, write_request))
+
+
+def test_string_write_rejects_overflow_of_declared_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """写入值超 NJ STRING 声明尺寸:ValueError 且不发写帧。"""
+    client = OmronCipClient("127.0.0.1", 44818)
+    payload = bytes([0xA0, 0x00, 0x34, 0x12]) + struct.pack("<I", 2) + b"AB"
+    scripted = ScriptedTransport(_session_chunks() + _direct_reply_chunks(payload))
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    with pytest.raises(ValueError):
+        client.write_string("MyString", "TOOLONG")
+    read_request = codec_cip.build_rr_data(
+        _SESSION,
+        codec_cip.build_tag_read(codec_cip.build_symbol_path(("MyString",), ((),)), 1),
+    )
+    assert bytes(scripted.sent).endswith(read_request)  # 只发了先读,无写帧出线
+
+
+# ----------------------------------------------------------------------
+# BOOL 数组:按元素访问,实际类型由自描述应答决定
+# ----------------------------------------------------------------------
+
+
+def test_bool_array_element_direct_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """类型发现回存储字类型时,元素直读应答 BOOL 按本体取值(NJ 口径)。"""
+    client = OmronCipClient("127.0.0.1", 44818)
+    dword = codec_cip.CIP_TYPE_DWORD
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _direct_reply_chunks(_atomic_payload(dword, b"\x00\x00\x00\x00"))  # 探 Bits[0]
+        + _direct_reply_chunks(_atomic_payload(0xC1, b"\x01"))               # Bits[5]→BOOL
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_bool("Bits[5]") == (True, True)
+
+
+def test_bool_array_element_direct_write(monkeypatch: pytest.MonkeyPatch) -> None:
+    """BOOL 数组元素写:先按元素以 BOOL 类型直写(0x4D 携带 C1)。"""
+    client = OmronCipClient("127.0.0.1", 44818)
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _direct_reply_chunks(
+            _atomic_payload(codec_cip.CIP_TYPE_DWORD, b"\x00\x00\x00\x00")
+        )
+        + _direct_reply_chunks(service=codec_cip.CIP_SERVICE_WRITE_TAG)
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.write_bool("Bits[5]", True) is True
+    write_request = codec_cip.build_tag_write(
+        codec_cip.build_symbol_path(("Bits",), ((5,),)), 0xC1, b"\x01"
+    )
+    assert bytes(scripted.sent).endswith(codec_cip.build_rr_data(_SESSION, write_request))
+
+
+def test_bool_array_element_dword_reply_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """元素直读应答存储字类型(DWORD)时,按 Logix 下标//32 打包口径回退。"""
+    client = OmronCipClient("127.0.0.1", 44818)
+    dword = codec_cip.CIP_TYPE_DWORD
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _direct_reply_chunks(_atomic_payload(dword, b"\x00\x00\x00\x00"))  # 探 →DWORD
+        + _direct_reply_chunks(_atomic_payload(dword, b"\x00\x00\x00\x00"))  # Bits[5]→DWORD
+        + _direct_reply_chunks(_atomic_payload(dword, b"\x20\x00\x00\x00"))  # Bits[0] bit5=1
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_bool("Bits[5]") == (True, True)
 
 
 # ----------------------------------------------------------------------
