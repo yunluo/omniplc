@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import List
 
 import pytest
@@ -16,7 +17,7 @@ import pytest
 from omniplc import MelsecMcSerialClient, MelsecMcTcpClient, MelsecMcUdpClient
 from omniplc.aio import AMelsecMcSerialClient
 from omniplc.core.debug import format_hex
-from omniplc.core.errors import ProtocolFrameError
+from omniplc.core.errors import ErrorCategory, ProtocolFrameError
 from omniplc.plc.melsec import codec_serial, codec_serial_a
 from omniplc.plc.melsec.address import parse_mc_address
 from omniplc.types import McFrame
@@ -906,3 +907,37 @@ def test_async_mirror_1c_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
         await client.close()
 
     asyncio.run(scenario())
+
+
+class _SlowTrickle(ScriptedTransport):
+    """先按脚本给帧头,之后每 20ms 吐 1 字节(帧长永远赶不上 deadline)。"""
+
+    def recv(self, size: int) -> bytes:
+        if self._chunks:
+            return self._chunks.pop(0)
+        time.sleep(0.02)
+        return b"\x00"
+
+
+def test_4c_mid_frame_timeout_closes_to_resync(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """4C:帧中途超时(已消费帧头与部分正文)→ 拆连重同步。
+
+    回归:此处原抛 ``TransportTimeoutError``("0 字节已读、链路无残渣"语义),
+    基类据此不拆连并按 ``retries`` 重试;但长度域/帧识别码已被读走(异常文本
+    自带"已收 N 字节"),残渣必致下一帧错位——按串口截断语义改抛
+    ``TransportClosedError``,借惰性重连重新同步。
+    """
+    client = MelsecMcSerialClient(frame=McFrame.FRAME_4C)
+    client.receive_timeout = 0.2
+    header_chunks = _chunks_4c(_wire_4c([10000]))[:4]  # DLE STX + 长度域 + 帧识别码
+    scripted = _SlowTrickle(header_chunks)
+    _mount(monkeypatch, client, scripted)
+    client.configure_serial("COM3")
+    client.connect()
+    assert client.read_ushort("D100") == (False, None)
+    assert client.connected is False  # 截断 → 拆连重同步
+    assert client.last_error is not None and "截断" in client.last_error
+    assert client.last_error_category is ErrorCategory.TRANSPORT
+    assert client.stats["device_error_count"] == 0  # 超时不是设备错误码

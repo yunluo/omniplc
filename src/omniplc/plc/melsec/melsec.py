@@ -49,7 +49,7 @@ from ...core.constants import (
     SERIAL_DEFAULT_PARITY,
     SERIAL_DEFAULT_STOP_BITS,
 )
-from ...core.errors import ProtocolFrameError, TransportTimeoutError
+from ...core.errors import ProtocolFrameError, TransportClosedError
 from ...core.validation import (
     check_byte_field,
     check_int16,
@@ -800,11 +800,14 @@ class MelsecMcSerialClient(_MelsecMcBase):
             while len(body) < length - 1:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise TransportTimeoutError(
-                        "4C 收包超时({}s),已收 {} 字节".format(
+                    # 已消费帧头(长度域+帧识别码)与若干正文:残渣留在串口
+                    # 缓冲里必致下一帧错位,按串口的截断语义拆连重同步
+                    # (0 字节已读才算"链路无残渣",见 TransportTimeoutError)
+                    raise TransportClosedError(
+                        "4C 收包超时({}s),帧已截断(已收 {} 字节),"
+                        "已放弃本帧,下次事务将重连以重新同步".format(
                             previous_timeout, len(body)
-                        ),
-                        0,
+                        )
                     )
                 transport.receive_timeout = remaining
                 raw = transport.recv(1)[0]
