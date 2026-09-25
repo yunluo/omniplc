@@ -15,7 +15,8 @@ permissions:
 jobs:
   build:
     name: uv build
-    runs-on: ubuntu-latest
+    # 与 ci.yml 对齐 Windows 平台;产物为 py3-none-any,平台无关
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
