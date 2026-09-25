@@ -43,9 +43,9 @@
 | 三菱 | MC 1C(串口) | | | | |
 | 三菱 | MC 3C(串口) | | | | |
 | 三菱 | MC 4C(串口) | | | | |
-| 三菱 | MX Component | | | | |
+| 三菱 | MX Component | 三菱 FX3U ✓ | 三菱 FX3U ✓ | 0.35.0 | get_error_message(ActSupportMsg) 待核证 |
 | 欧姆龙 | FINS TCP | | | | |
-| 欧姆龙 | FINS UDP | | | | |
+| 欧姆龙 | FINS UDP | 欧姆龙 CP1H ✓ | 欧姆龙 CP1H ✓ | 0.35.0 | |
 | 欧姆龙 | NJ/NX CIP(unconnected) | | | | |
 | 欧姆龙 | NJ/NX CIP(connected, Forward Open) | | | | |
 | 罗克韦尔 | EtherNet/IP(unconnected) | | | | |
