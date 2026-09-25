@@ -27,6 +27,7 @@ from ..core.constants import (
     INT64_MAX,
     INT64_MIN,
     MBAP_HEADER_SIZE,
+    MODBUS_ADDRESS_MAX,
     MODBUS_DEFAULT_PORT,
     MODBUS_DEFAULT_STATION,
     MODBUS_DEVICE_ID_CODE_BASIC,
@@ -331,7 +332,12 @@ class ModbusBaseClient(BaseClient):
         失败语义:
 
         - 任一笔 FC 失败 → 该 chunk 内所有条目 ok 为 ``False``(对应槽
-          位 ``False``);其他 chunk 各自独立
+          位 ``False``);其他 chunk 各自独立——每个 chunk 与每个 RMW 项
+          独立成一个事务(``is_write=True``,重试取 :attr:`write_retries`,
+          默认 0 防重复写入),失败原因记入 :attr:`last_error` /
+          :attr:`last_error_category`;按 :attr:`last_error` 的"成功即清空"
+          契约,后续成功的事务会清掉它(需要"整批失败 + 保留失败原因"用
+          :meth:`write_batch`)
         - 地址 / 类型 / 值非法 → 同步抛 :class:`ValueError`,不进入
           事务锁(零字节发送)
 
@@ -345,10 +351,9 @@ class ModbusBaseClient(BaseClient):
             parsed_items.append(
                 (_check_address(address, data_type_enum), data_type_enum, value)
             )
-        ok, ok_list = self._execute(lambda: self._coalesce_and_write(parsed_items))
-        if not ok or ok_list is None:
-            return [False] * len(items)
-        return ok_list
+        # 外层不再套 _execute:每个 chunk / RMW 项各自成事务(见 _coalesce_and_write),
+        # 否则外层会把内层刚记下的失败当成功 _clear_error(),失败原因丢失
+        return self._coalesce_and_write(parsed_items, fail_fast=False)
 
     def write_batch(
         self,
@@ -368,7 +373,9 @@ class ModbusBaseClient(BaseClient):
 
         失败语义:
 
-        - 任一笔 FC 失败 → ``(False, None)``(整批失败,不放出部分 ok)
+        - 任一笔 FC 失败 → ``(False, None)``(整批失败,不放出部分 ok);
+          失败原因(设备异常码 / 协议越界)记入 :attr:`last_error` 与
+          失败分类,与读侧 :meth:`read_batch` 口径一致
         - 空列表 / 任意非法 → 同步 :class:`ValueError`,不进入事务锁
 
         :param items: ``(地址, 数据类型, 值)`` 三元组序列
@@ -384,8 +391,12 @@ class ModbusBaseClient(BaseClient):
             parsed_items.append(
                 (_check_address(address, data_type_enum), data_type_enum, value)
             )
-        # 整批容错:任一 FC 失败 → (False, None)
-        ok, results = self._execute(lambda: self._coalesce_and_write(parsed_items))
+        # 整批容错:任一 FC 失败 → (False, None);异常穿透到 _execute,
+        # 失败原因(设备异常码 / 越界)随 last_error 与分类记录;
+        # is_write=True → 重试取 write_retries(默认 0,防重复写入)
+        ok, results = self._execute(
+            lambda: self._coalesce_and_write(parsed_items, True), is_write=True
+        )
         if not ok or results is None:
             return False, None
         if not all(results):
@@ -395,6 +406,7 @@ class ModbusBaseClient(BaseClient):
     def _coalesce_and_write(
         self,
         items: List[Tuple["ModbusAddress", DataType, PrimitiveValue]],
+        fail_fast: bool,
     ) -> List[bool]:
         """批量写核心算法(内部方法):寄存器位走 RMW,其余按组合并。
 
@@ -412,6 +424,14 @@ class ModbusBaseClient(BaseClient):
         4. **写 + 回填**:寄存器位逐项 RMW;合并后 chunk 各发 1 笔 FC,
            按 chunk 内各条目 ok 写回入参原位(同 chunk 全成功 / 全失败)。
 
+        失败语义按 ``fail_fast`` 分流(两个入口的契约不同):
+
+        - ``fail_fast=True``(:meth:`write_batch`):异常直接穿透到外层
+          ``_execute`` → 整批 ``(False, None)``,失败原因落 ``last_error``
+        - ``fail_fast=False``(:meth:`write_many`):每个 RMW 项 / 每个 chunk
+          各自一个 ``_execute`` → 该项 / 该 chunk 置 ``False`` 且继续,
+          其余条目不受影响(返回值不含 ``None``)
+
         5 类分组(写侧,与读侧对称):
 
         =====  ==========================  =========  =======  ==========
@@ -424,6 +444,8 @@ class ModbusBaseClient(BaseClient):
         E      寄存器 × LONG/ULONG/DOUBLE   ``word``   4 words FC 16
         =====  ==========================  =========  =======  ==========
 
+        :param fail_fast: True = 整批一个事务(异常穿透);False = 逐项 /
+           逐 chunk 独立事务
         :return: 与 items 顺序对应的 ok 列表(同 chunk 内条目共享 ok)
         """
         # 1) 分流:寄存器位走 RMW,其余走合并
@@ -458,12 +480,17 @@ class ModbusBaseClient(BaseClient):
         # 2) 寄存器位 RMW:offset 升序,逐项"读-改-写"
         rmw_items.sort(key=lambda t: t[1].offset)
         for item_index, parsed, flag in rmw_items:
-            try:
+            if fail_fast:
+                # 整批语义:异常穿透到 write_batch 的外层 _execute 收口
                 self._write_bool_impl(parsed, flag)
                 result[item_index] = True
-            except Exception:
-                result[item_index] = False
-                # RMW 单项失败不中断(逐点容错),整体失败语义由 write_batch 的 _execute 收口
+            else:
+                # 逐项独立事务:该项 False 且原因落 last_error,其余继续
+                # (写语义:重试取 write_retries,默认 0 防重复写入)
+                ok, _ = self._execute(
+                    lambda: self._write_bool_impl(parsed, flag), is_write=True
+                )
+                result[item_index] = ok
 
         # 3) 合并:按 (area, kind, width, dtype) 分组
         groups: Dict[Tuple[ModbusArea, str, int, DataType], List[Tuple[int, _CoalesceEntry, List[int]]]] = {}
@@ -484,12 +511,19 @@ class ModbusBaseClient(BaseClient):
                     for item in group
                     if item[1] in chunk_entries
                 ]
-                ok = _write_and_apply(self, area, kind, chunk_items, result)
-                if not ok:
-                    # 任一 chunk 失败 → 该 chunk 内所有槽位已置 False
-                    # write_batch 整批失败语义由 _execute 收口:
-                    # 这里保证不再继续后面的写入,避免越界副作用
-                    break
+                if fail_fast:
+                    _write_chunk(self, area, kind, chunk_items)
+                    for item_index, _, _ in chunk_items:
+                        result[item_index] = True
+                else:
+                    # 逐 chunk 独立事务:该 chunk 全 False 且原因落 last_error
+                    # (写语义:重试取 write_retries,默认 0 防重复写入)
+                    ok, _ = self._execute(
+                        lambda: _write_chunk(self, area, kind, chunk_items),
+                        is_write=True,
+                    )
+                    for item_index, _, _ in chunk_items:
+                        result[item_index] = ok
 
         return cast(List[bool], result)
 
@@ -954,10 +988,11 @@ def _coalesce_group(
     2. **相邻 offset 合并**(``offset == current_end``):gap = 0,合并不切
     3. **空洞立即切块**(``offset > current_end``):协议只能读连续地址,
        空洞必须独立 FC
+    4. **超 FC 上限在连续区内二次切片**:并入前先算合并后跨度,超限则
+       先切块、本条目另起一笔(保证每 chunk 跨度 ≤ ``max_unit``)
 
-    合并后单 chunk 范围超 FC 上限(``max_unit``)再按上限切为多段(连续
-    区内二次切片)。读 / 写按协议上下限传不同 ``max_unit``:读位 2000 /
-    写字 125;写位 1968 / 写字 123。
+    读 / 写按协议上下限传不同 ``max_unit``:读位 2000 / 读写 125;
+    写位 1968 / 写字 123。
 
     :param max_unit: 单 chunk 最大协议单位数(位设备按 bit 计,寄存器按 word 计)
     :return: 每个子列表是一个连续地址区间内的所有条目,合并为 1 笔 FC
@@ -977,14 +1012,18 @@ def _coalesce_group(
             current = [entry]
             current_end = offset + entry.width
             continue
+        # 规则 4:并入后跨度会超 FC 上限 → 先切块,本条目另起一笔
+        # (必须在并入**之前**判定:并入再判会把溢出条目留在超限 chunk 里,
+        #  切出的 chunk 跨度恒为 max_unit+1 → 组帧期 ValueError)
+        merged_end = max(current_end, offset + entry.width)
+        if merged_end - current[0].parsed.offset > max_unit:
+            chunks.append(current)
+            current = [entry]
+            current_end = offset + entry.width
+            continue
         # 规则 1 + 2:同字 / 相邻 offset,合并不切
         current.append(entry)
-        current_end = max(current_end, offset + entry.width)
-        # 连续区内若累计跨 FC 上限,二次切片
-        if current_end - current[0].parsed.offset > max_unit:
-            chunks.append(current)
-            current = []
-            current_end = 0
+        current_end = merged_end
     if current:
         chunks.append(current)
     return chunks
@@ -1059,10 +1098,27 @@ def _read_and_fill(
 
 
 def _check_address(address: str, data_type: DataType) -> ModbusAddress:
-    """地址校验:解析 + 类型与位访问的匹配检查。"""
+    """地址校验:解析 + 类型与位访问的匹配检查 + 地址跨度不越界。
+
+    跨度校验在**组帧前**同步完成:32/64 位类型占 2/4 个寄存器,``hr65535``
+    这类"地址本身合法但整条越界"的请求若留到组帧期才拒,批量写路径会先写掉
+    前面的合法项再抛异常(部分写已落线,调用方无从知晓)。
+
+    :raises ValueError: 地址非法 / 位访问与类型不匹配 / 地址跨度越界
+    """
     parsed = parse_address(address)
     if data_type is not DataType.BOOL and parsed.bit is not None:
         raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+    if data_type is DataType.BOOL or parsed.bit is not None:
+        units = 1  # 位访问 / 布尔量恒占 1 个单位(线圈位或寄存器位所在字)
+    else:
+        units = data_type.register_size
+    if parsed.offset + units > MODBUS_ADDRESS_MAX + 1:
+        raise ValueError(
+            "起始地址 + 数量超出 Modbus 地址空间 0~{}:{}+{}={}".format(
+                MODBUS_ADDRESS_MAX, parsed.offset, units, parsed.offset + units
+            )
+        )
     return parsed
 
 
@@ -1235,14 +1291,13 @@ def _encode_value_for_write(
     raise ValueError(f"Modbus 不支持的数据类型:{dtype}")
 
 
-def _write_and_apply(
+def _write_chunk(
     client: "ModbusBaseClient",
     area: ModbusArea,
     kind: str,
     chunk: List[Tuple[int, _CoalesceEntry, List[int]]],
-    result: List[Optional[bool]],
-) -> bool:
-    """对合并区间执行单笔 FC 写,把 chunk 内条目 ok 写回 result(内部函数)。
+) -> None:
+    """把单个合并 chunk 编码成 1 笔 FC 写下去(内部函数,**不捕获异常**)。
 
     流程:
 
@@ -1251,38 +1306,37 @@ def _write_and_apply(
        - ``"bit"``(COIL)→ 调 :meth:`_write_bools_impl` 写 ``count`` 位
        - ``"word"``(寄存器)→ 调 :meth:`_write_registers_impl` 写
          ``count`` 字(各条目按 offset 拼入,中间空洞按 0 填)
-    3. 写成功 → chunk 内所有 ``item_index`` 槽位置 ``True``;失败 → 全
-       置 ``False`` 并返回 ``False``
 
-    :returns: chunk 写入是否成功(失败时调用方用以触发整批失败语义)
+    设备异常码 :class:`DeviceError` 与帧组装期 :class:`ValueError`(越界等,
+    入参前置校验已拦下大部分,此处属纵深防御)都直接抛出,由调用方的事务
+    边界收口——异常若在此被吞掉,事务层会误判成功并 ``_clear_error()``,
+    失败就变成"无错误"的静默 False:
+
+    - :meth:`ModbusBaseClient.write_batch` —— 整批一个 ``_execute``:
+      异常穿透 → ``(False, None)`` 且失败原因落 ``last_error``
+    - :meth:`ModbusBaseClient.write_many` —— 每个 chunk 一个 ``_execute``:
+      该 chunk 全 False、原因落 ``last_error``,其余 chunk 继续
+
+    调用方保证 ``chunk`` 跨度不超协议上限(:func:`_coalesce_group` 已切块)。
     """
     if not chunk:
-        return True
+        return
     start_offset = chunk[0][1].parsed.offset
     end_offset = chunk[-1][1].parsed.offset + chunk[-1][1].width
     count = end_offset - start_offset
 
-    try:
-        if kind == "bit":
-            values: List[bool] = [False] * count
-            for _, entry, encoded in chunk:
-                idx = entry.parsed.offset - start_offset
-                values[idx] = bool(encoded[0])
-            probe = ModbusAddress(area=area, offset=start_offset)
-            client._write_bools_impl(probe, values)
-        else:
-            words: List[int] = [0] * count
-            for _, entry, encoded in chunk:
-                idx = entry.parsed.offset - start_offset
-                for offset_within, word in enumerate(encoded):
-                    words[idx + offset_within] = word
-            probe = ModbusAddress(area=area, offset=start_offset)
-            client._write_registers_impl(probe, words)
-    except Exception:
-        for _, entry, _ in chunk:
-            result[entry.item_index] = False
-        return False
-
-    for _, entry, _ in chunk:
-        result[entry.item_index] = True
-    return True
+    if kind == "bit":
+        values: List[bool] = [False] * count
+        for _, entry, encoded in chunk:
+            idx = entry.parsed.offset - start_offset
+            values[idx] = bool(encoded[0])
+        probe = ModbusAddress(area=area, offset=start_offset)
+        client._write_bools_impl(probe, values)
+    else:
+        words: List[int] = [0] * count
+        for _, entry, encoded in chunk:
+            idx = entry.parsed.offset - start_offset
+            for offset_within, word in enumerate(encoded):
+                words[idx + offset_within] = word
+        probe = ModbusAddress(area=area, offset=start_offset)
+        client._write_registers_impl(probe, words)

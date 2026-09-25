@@ -1205,3 +1205,251 @@ def test_async_read_device_object_aio_mirror(
         await client.close()
 
     asyncio.run(scenario())
+
+
+# ----------------------------------------------------------------------
+# 超限二次切片 + 写侧失败口径(review 复审收口)
+# ----------------------------------------------------------------------
+
+
+def test_tcp_read_many_contiguous_over_read_limit_slices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """read_many:126 个连续字超读上限(125)→ 切成 125 + 1 两笔,不抛异常。
+
+    回归:切块顺序错误会让溢出条目留在被 flush 的 chunk 里(跨度 126),
+    组帧期 ``ValueError`` 直接抛给调用方(合法入参却零字节失败)。
+    """
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    responses = [
+        _mbap_response(1, 1, _fc03_response([0] * 124 + [7])),  # 125 字
+        _mbap_response(2, 1, _fc03_response([9])),  # 1 字
+    ]
+    scripted = _ScriptedTransport(
+        [responses[0][:7], responses[0][7:], responses[1][:7], responses[1][7:]]
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    results = client.read_many(["hr{}".format(i) for i in range(126)], "ushort")
+    assert len(results) == 126
+    assert all(ok for ok, _ in results)
+    assert results[124][1] == 7  # 第 125 个字(第 1 笔)
+    assert results[125][1] == 9  # 第 126 个字(第 2 笔)
+    assert bytes(scripted.sent) == (
+        codec.build_mbap(1, 1, codec.build_read_pdu(3, 0, 125))
+        + codec.build_mbap(2, 1, codec.build_read_pdu(3, 125, 1))
+    )
+
+
+def test_tcp_read_many_contiguous_coils_over_read_limit_slices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """read_many:2001 个连续线圈超读上限(2000)→ 切成 2000 + 1 两笔。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    responses = [
+        _mbap_response(1, 1, _fc01_response([1] * 2000)),
+        _mbap_response(2, 1, _fc01_response([1])),
+    ]
+    scripted = _ScriptedTransport(
+        [responses[0][:7], responses[0][7:], responses[1][:7], responses[1][7:]]
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    results = client.read_many(["c{}".format(i) for i in range(2001)], "bool")
+    assert len(results) == 2001
+    assert all(ok and value is True for ok, value in results)
+    assert bytes(scripted.sent) == (
+        codec.build_mbap(1, 1, codec.build_read_pdu(1, 0, 2000))
+        + codec.build_mbap(2, 1, codec.build_read_pdu(1, 2000, 1))
+    )
+
+
+def test_tcp_read_many_wide_type_over_read_limit_slices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """read_many:64 个连续 FLOAT(占 126 字)超上限 → 两笔且不劈开寄存器。
+
+    跨度按字算:FLOAT 占 2 字,chunk 边界必须落在条目的字边界上
+    (124 字 + 4 字,而不是把某个 FLOAT 劈成两半)。
+    """
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    responses = [
+        _mbap_response(1, 1, _fc03_response([0] * 124)),
+        _mbap_response(2, 1, _fc03_response([0] * 4)),
+    ]
+    scripted = _ScriptedTransport(
+        [responses[0][:7], responses[0][7:], responses[1][:7], responses[1][7:]]
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    results = client.read_many(["hr{}".format(i * 2) for i in range(64)], "float")
+    assert len(results) == 64
+    assert all(ok for ok, _ in results)
+    assert bytes(scripted.sent) == (
+        codec.build_mbap(1, 1, codec.build_read_pdu(3, 0, 124))
+        + codec.build_mbap(2, 1, codec.build_read_pdu(3, 124, 4))
+    )
+
+
+def test_tcp_write_many_contiguous_over_write_limit_slices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_many:124 个连续字超写上限(123)→ 切成 123 + 1 两笔且真的发出。
+
+    回归:切片错误时组帧期 ``ValueError`` 被写侧吞掉 → 全 False、零字节、
+    ``last_error=None``(静默失败)。
+    """
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    responses = [
+        _mbap_response(1, 1, _fc16_response(0, 123)),
+        _mbap_response(2, 1, _fc16_response(123, 1)),
+    ]
+    scripted = _ScriptedTransport(
+        [responses[0][:7], responses[0][7:], responses[1][:7], responses[1][7:]]
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    results = client.write_many(
+        [("hr{}".format(i), "ushort", i) for i in range(124)]
+    )
+    assert results == [True] * 124  # 不再含有 None 或静默 False
+    assert bytes(scripted.sent) == (
+        codec.build_mbap(1, 1, codec.build_write_multi_pdu(16, 0, list(range(123))))
+        + codec.build_mbap(2, 1, codec.build_write_multi_pdu(16, 123, [123]))
+    )
+
+
+def test_tcp_write_batch_device_error_records_last_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_batch:设备异常码 → ``(False, None)`` 且失败原因落 last_error。
+
+    回归:写侧吞异常使事务层误判成功并 ``_clear_error()``,失败变成
+    "无错误"的静默 False(读侧 read_batch 一直是对的)。
+    """
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    response = _mbap_response(1, 1, bytes([0x90, 0x02]))  # FC16|0x80,异常码 02
+    scripted = _ScriptedTransport([response[:7], response[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, results = client.write_batch([("hr0", "ushort", 1)])
+    assert (ok, results) == (False, None)
+    assert client.last_error is not None and "异常码 0x02" in client.last_error
+    assert client.last_error_category is ErrorCategory.DEVICE
+    assert client.last_error_code == 2
+    assert client.connected is True
+
+
+def test_tcp_write_many_chunks_are_independent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_many:跨 chunk 各自独立——前一笔失败不影响后一笔,返回值不含 None。
+
+    回归:实现曾在首个 chunk 失败时 ``break``,后续槽位保持 ``None``
+    (违反 ``List[bool]`` 契约)且与 docstring"其他 chunk 各自独立"矛盾。
+    """
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    responses = [
+        _mbap_response(1, 1, bytes([0x90, 0x02])),  # 第 1 笔:设备异常码
+        _mbap_response(2, 1, _fc16_response(100, 1)),  # 第 2 笔:正常
+    ]
+    scripted = _ScriptedTransport(
+        [responses[0][:7], responses[0][7:], responses[1][:7], responses[1][7:]]
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    results = client.write_many([("hr0", "ushort", 1), ("hr100", "ushort", 2)])
+    assert results == [False, True]
+    assert None not in results  # List[bool] 契约:不泄漏 None
+    # 两笔都发出(第 2 笔未被 break 跳过)
+    assert bytes(scripted.sent) == (
+        codec.build_mbap(1, 1, codec.build_write_multi_pdu(16, 0, [1]))
+        + codec.build_mbap(2, 1, codec.build_write_multi_pdu(16, 100, [2]))
+    )
+
+
+def test_tcp_write_many_device_error_records_last_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_many:设备异常码 → 该点 False 且失败原因落 last_error。
+
+    回归:外层曾再套一层 ``_execute``,内层记完错误后正常返回,外层按"成功"
+    执行 ``_clear_error()``——写失败又变回静默(``last_error=None``)。
+    """
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    response = _mbap_response(1, 1, bytes([0x90, 0x02]))
+    scripted = _ScriptedTransport([response[:7], response[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.write_many([("hr0", "ushort", 1)]) == [False]
+    assert client.last_error is not None and "异常码 0x02" in client.last_error
+    assert client.last_error_category is ErrorCategory.DEVICE
+    assert client.connected is True
+    # transactions = 实际协议事务数(不再多计一层空壳事务)
+    assert client.stats["transactions"] == 1
+
+
+def test_tcp_write_many_uses_write_retries_not_read_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_many 的重试取 write_retries:默认 0 时即便 retries>0 也不重发。
+
+    回归:写路径漏传 ``is_write=True``,抖动链路上会按读重试重发写命令
+    (重复写入危险动作)。
+    """
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    client.retries = 3  # 读重试:写路径不该采用
+    client.write_retries = 0
+    sent_frames: list = []
+
+    class Counting(_ScriptedTransport):
+        def send(self, data: bytes) -> None:
+            sent_frames.append(bytes(data))
+            super().send(data)
+
+        def recv(self, size: int) -> bytes:
+            raise OSError("链路故障")
+
+    scripted = Counting([])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.write_many([("hr0", "ushort", 1)]) == [False]
+    assert len(sent_frames) == 1  # write_retries=0 → 只发一次
+
+
+def test_tcp_write_span_overflow_rejected_before_any_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """越界跨度在入参校验期同步拒绝:零字节发送,不留部分写。
+
+    回归:``hr65535``(32/64 位占 2/4 字)此前只在组帧期被 codec 拦下,
+    批量写会先把前面的合法项写下去再抛 ``ValueError``——调用方无从知道
+    哪些点已经落线。
+    """
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    scripted = _ScriptedTransport([])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    for call in (
+        lambda: client.write_many([("hr0", "ushort", 1), ("hr65535", "double", 1.0)]),
+        lambda: client.write_batch([("hr0", "ushort", 1), ("hr65535", "double", 1.0)]),
+        lambda: client.read_many(["hr65534", "hr65535"], "int"),
+        lambda: client.read_batch([("hr65535", "double")]),
+    ):
+        with pytest.raises(ValueError):
+            call()
+    assert bytes(scripted.sent) == b""  # 一笔都没发出
+
+
+def test_tcp_write_bool_int_values_reach_wire(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``write_bool`` 接受 int 0/1(现场习惯写法):FC 05 数据域 0000/FF00。"""
+    for value, expected_value_field in ((1, b"\xff\x00"), (0, b"\x00\x00")):
+        client = ModbusTcpClient("127.0.0.1", 502, 1)
+        response = _mbap_response(1, 1, bytes([0x05, 0x00, 0x00]) + expected_value_field)
+        scripted = _ScriptedTransport([response[:7], response[7:]])
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        client.connect()
+        assert client.write_bool("c0", value) is True
+        assert bytes(scripted.sent)[-2:] == expected_value_field
