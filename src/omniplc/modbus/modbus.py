@@ -5,8 +5,11 @@
     BaseClient
     └── ModbusBaseClient          寄存器级公共逻辑(字序/类型分发)
         ├── ModbusTcpClient       MBAP over TCP(默认端口 502)
-        └── ModbusRtuClient       站号+PDU+CRC16 over 串口
+        └── ModbusRtuClient       站号+PDU+CRC16 over 串口(需要 pyserial)
 
+帧格式与功能码语义以《Modbus 通信协议规范》V1.1b3(应用协议)与
+V1.02(串行线实现指南)为准;中文资源见
+`modbus.cn 规范页 <https://www.modbus.cn/modbus-specifications>`。
 地址语法见 :mod:`omniplc.modbus.address`。
 """
 from __future__ import annotations
@@ -27,6 +30,8 @@ from ..core.constants import (
     MODBUS_DEFAULT_PORT,
     MODBUS_DEFAULT_STATION,
     MODBUS_EXCEPTION_FLAG,
+    MODBUS_MAX_WRITE_BITS,
+    MODBUS_MAX_WRITE_REGISTERS,
     MODBUS_STATION_MAX,
     MODBUS_STATION_MIN,
     SERIAL_DEFAULT_BAUD_RATE,
@@ -289,11 +294,197 @@ class ModbusBaseClient(BaseClient):
         # 3) 每组:排序 → 合并 → 逐 chunk 读 + 切片回填
         for (area, kind, _width, _dtype), group in groups.items():
             group.sort(key=lambda e: e.parsed.offset)
-            chunks = _coalesce_group(group, kind)
+            max_unit = 2000 if kind == "bit" else 125
+            chunks = _coalesce_group(group, kind, max_unit)
             for chunk in chunks:
                 _read_and_fill(self, area, kind, chunk, result)
 
         return cast(List[PrimitiveValue], result)
+
+    # ------------------------------------------------------------------
+    # 批量写入:与读侧对称的"按 (area, kind, width, dtype) 分组合并连续地址"
+    # ------------------------------------------------------------------
+
+    def write_many(
+        self,
+        items: Sequence[Tuple[str, Union[DataType, str], PrimitiveValue]],
+    ) -> List[bool]:
+        """按地址列表批量写:同 (区, 类型) 连续地址合一笔 FC,事务最少化。
+
+        与 :class:`BaseClient` 基类逐点循环相比——同 FC + 同数据类型 +
+        偏移连续/相邻的条目合一笔 FC 事务(FC 15 多线圈 / FC 16 多寄存
+        器),把 N 个点从 N 笔事务压到 K 笔(K ≤ N,典型 1 笔)。Modbus
+        协议本身不支持跨 FC 单事务合并,这是协议上限。
+
+        返回与基类一致:`List[bool]`,与 items 顺序对应——同一合并
+        chunk 内的条目共享 ok(全部成功或全部失败),跨 chunk 各自独立。
+        寄存器位写(``hr0.3`` 这类位号后缀)**不入合并**,走"读-改-写"
+        两段事务(FC 03 + FC 06),与基类逐点行为一致。
+
+        失败语义:
+
+        - 任一笔 FC 失败 → 该 chunk 内所有条目 ok 为 ``False``(对应槽
+          位 ``False``);其他 chunk 各自独立
+        - 地址 / 类型 / 值非法 → 同步抛 :class:`ValueError`,不进入
+          事务锁(零字节发送)
+
+        :param items: ``(地址, 数据类型, 值)`` 三元组序列
+        :return: 与 items 顺序对应的 ``bool`` 列表;成功 ``True``
+        """
+        # 1) 入参合法性前置校验:任一非法即同步抛出,不进事务
+        parsed_items: List[Tuple[ModbusAddress, DataType, PrimitiveValue]] = []
+        for address, dtype, value in items:
+            data_type_enum = DataType.coerce(dtype)
+            parsed_items.append(
+                (_check_address(address, data_type_enum), data_type_enum, value)
+            )
+        ok, ok_list = self._execute(lambda: self._coalesce_and_write(parsed_items))
+        if not ok or ok_list is None:
+            return [False] * len(items)
+        return ok_list
+
+    def write_batch(
+        self,
+        items: Sequence[Tuple[str, Union[DataType, str], PrimitiveValue]],
+    ) -> Tuple[bool, Optional[List[bool]]]:
+        """混类型批量写:整批容错,任一 FC 失败 → ``(False, None)``。
+
+        行为对齐 :meth:`read_batch` 与 MX Component ``write_batch``:
+        利用 Modbus 单条 FC 15/16 可写连续 N 个位/字的协议能力,把 N 个
+        混类型条目压缩到 K 笔 FC 事务(K ≤ N);Modbus 协议不支持跨 FC
+        合并,K 取决于跨区 / 跨类型 / 地址空洞数。
+
+        寄存器位写(``hr0.3`` 这类位号后缀)**不入合并**:走"读-改-写"
+        两段事务;同一批次内若 ``hr0.3`` 与 ``hr0`` 同时写入,后者
+        FC 16 会清零前者的位修改结果(协议层竞态,与基类逐点行为
+        一致——本实现不引入新限制)。
+
+        失败语义:
+
+        - 任一笔 FC 失败 → ``(False, None)``(整批失败,不放出部分 ok)
+        - 空列表 / 任意非法 → 同步 :class:`ValueError`,不进入事务锁
+
+        :param items: ``(地址, 数据类型, 值)`` 三元组序列
+        :return: ``(是否成功, 与 items 顺序对应的 ok 列表)``
+        :raises ValueError: 列表为空 / 地址 / 类型 / 值非法
+        """
+        if not items:
+            raise ValueError("write_batch 至少需要一个 (地址, 数据类型, 值) 项")
+        # 1) 入参合法性前置校验
+        parsed_items: List[Tuple[ModbusAddress, DataType, PrimitiveValue]] = []
+        for address, dtype, value in items:
+            data_type_enum = DataType.coerce(dtype)
+            parsed_items.append(
+                (_check_address(address, data_type_enum), data_type_enum, value)
+            )
+        # 整批容错:任一 FC 失败 → (False, None)
+        ok, results = self._execute(lambda: self._coalesce_and_write(parsed_items))
+        if not ok or results is None:
+            return False, None
+        if not all(results):
+            return False, None
+        return True, results
+
+    def _coalesce_and_write(
+        self,
+        items: List[Tuple["ModbusAddress", DataType, PrimitiveValue]],
+    ) -> List[bool]:
+        """批量写核心算法(内部方法):寄存器位走 RMW,其余按组合并。
+
+        算法分四步:
+
+        1. **分类 + 编码**:每个 ``(parsed, dtype, value)`` 按
+           :func:`_classify` 得到 ``(kind, width)``;同时按 dtype 把
+           value 编码为字序列(写入用)。寄存器位(``hr0.3`` 这类位号
+           后缀)单独走"读-改-写"路径,**不入合并**(FC 16 写 1 字会冲
+           掉其他位)。
+        2. **分组**:非寄存器位的 key = ``(area, kind, width, dtype)``;
+           同组合并后走 FC 15(线圈)/ FC 16(寄存器)。
+        3. **合并**:复用 :func:`_coalesce_group`,``max_unit`` 按写
+           上限参数化(位 1968 / 字 123)。
+        4. **写 + 回填**:寄存器位逐项 RMW;合并后 chunk 各发 1 笔 FC,
+           按 chunk 内各条目 ok 写回入参原位(同 chunk 全成功 / 全失败)。
+
+        5 类分组(写侧,与读侧对称):
+
+        =====  ==========================  =========  =======  ==========
+        组      区域 × 类型                  kind       width   协议路径
+        =====  ==========================  =========  =======  ==========
+        A      线圈 × BOOL                  ``bit``    1 bit   FC 15
+        B      寄存器 × BOOL(位号后缀)      ``bitword``1 word  FC 03+06 RMW
+        C      寄存器 × SHORT/USHORT        ``word``   1 word  FC 16
+        D      寄存器 × INT/UINT/FLOAT      ``word``   2 words FC 16
+        E      寄存器 × LONG/ULONG/DOUBLE   ``word``   4 words FC 16
+        =====  ==========================  =========  =======  ==========
+
+        :return: 与 items 顺序对应的 ok 列表(同 chunk 内条目共享 ok)
+        """
+        # 1) 分流:寄存器位走 RMW,其余走合并
+        rmw_items: List[Tuple[int, ModbusAddress, bool]] = []
+        plan: List[Tuple[int, _CoalesceEntry, List[int]]] = []
+        for item_index, (parsed, dtype, value) in enumerate(items):
+            if dtype is DataType.BOOL and parsed.area in (
+                ModbusArea.HOLDING_REGISTER,
+                ModbusArea.INPUT_REGISTER,
+            ):
+                rmw_items.append((item_index, parsed, require_bool(value)))
+                continue
+            kind, width = _classify(parsed, dtype)
+            # 编码 value → 字序列
+            encoded = _encode_value_for_write(parsed, dtype, value, self._word_order)
+            plan.append(
+                (
+                    item_index,
+                    _CoalesceEntry(
+                        item_index=item_index,
+                        parsed=parsed,
+                        dtype=dtype,
+                        kind=kind,
+                        width=width,
+                    ),
+                    encoded,
+                )
+            )
+
+        result: List[Optional[bool]] = [None] * len(items)
+
+        # 2) 寄存器位 RMW:offset 升序,逐项"读-改-写"
+        rmw_items.sort(key=lambda t: t[1].offset)
+        for item_index, parsed, flag in rmw_items:
+            try:
+                self._write_bool_impl(parsed, flag)
+                result[item_index] = True
+            except Exception:
+                result[item_index] = False
+                # RMW 单项失败不中断(逐点容错),整体失败语义由 write_batch 的 _execute 收口
+
+        # 3) 合并:按 (area, kind, width, dtype) 分组
+        groups: Dict[Tuple[ModbusArea, str, int, DataType], List[Tuple[int, _CoalesceEntry, List[int]]]] = {}
+        for item_index, entry, encoded in plan:
+            key = (entry.parsed.area, entry.kind, entry.width, entry.dtype)
+            groups.setdefault(key, []).append((item_index, entry, encoded))
+
+        # 4) 每组:排序 → 合并 → 逐 chunk 写 + 回填
+        for (area, kind, _width, _dtype), group in groups.items():
+            group.sort(key=lambda t: t[1].parsed.offset)
+            max_unit = MODBUS_MAX_WRITE_BITS if kind == "bit" else MODBUS_MAX_WRITE_REGISTERS
+            chunks = _coalesce_group(
+                [t[1] for t in group], kind, max_unit
+            )
+            for chunk_entries in chunks:
+                chunk_items = [
+                    item
+                    for item in group
+                    if item[1] in chunk_entries
+                ]
+                ok = _write_and_apply(self, area, kind, chunk_items, result)
+                if not ok:
+                    # 任一 chunk 失败 → 该 chunk 内所有槽位已置 False
+                    # write_batch 整批失败语义由 _execute 收口:
+                    # 这里保证不再继续后面的写入,避免越界副作用
+                    break
+
+        return cast(List[bool], result)
 
     # ------------------------------------------------------------------
     # 位与寄存器原语(基于 PDU 编解码 + 走线事务)
@@ -333,6 +524,20 @@ class ModbusBaseClient(BaseClient):
         updated = convert.set_bit(registers[0], bit, value)
         self._write_pdu(
             codec.build_write_single_pdu(parsed.write_single_function_code, parsed.offset, updated)
+        )
+
+    def _write_bools_impl(self, parsed: ModbusAddress, values: List[bool]) -> None:
+        """写连续多个线圈(FC 15,与 :meth:`_write_registers_impl` 的 FC 16 对称)。
+
+        :param parsed: 起始地址(仅线圈区)
+        :param values: 连续 ``count`` 个线圈的真值表(LSB first)
+        """
+        if parsed.area != ModbusArea.COIL:
+            raise ValueError(f"FC 15 仅支持线圈区域,收到:{parsed.area.value!r}")
+        # codec 内部按位打包,期望 List[int];此处 bool 是 int 的子类可直接传
+        int_values: List[int] = [1 if flag else 0 for flag in values]
+        self._write_pdu(
+            codec.build_write_multi_pdu(parsed.write_multi_function_code, parsed.offset, int_values)
         )
 
     def _write_single_register(self, parsed: ModbusAddress, value: int) -> None:
@@ -597,23 +802,25 @@ def _classify(parsed: "ModbusAddress", dtype: DataType) -> Tuple[str, int]:
 def _coalesce_group(
     group: List[_CoalesceEntry],
     kind: str,
+    max_unit: int,
 ) -> List[List[_CoalesceEntry]]:
     """把同组条目按"相邻偏移"合并为多个 chunk(内部函数)。
 
     同组内宽度统一(``kind=="bit"`` 全部宽 1 bit;``kind=="word"`` 全部
     宽 ``width`` words),按 offset 升序遍历。三条规则:
 
-    1. **同 offset 合并**:同字位 / 同位(位设备),属于同一 FC 读覆盖区
+    1. **同 offset 合并**:同字位 / 同位(位设备),属于同一 FC 覆盖区
     2. **相邻 offset 合并**(``offset == current_end``):gap = 0,合并不切
     3. **空洞立即切块**(``offset > current_end``):协议只能读连续地址,
        空洞必须独立 FC
 
-    合并后单 chunk 范围超 FC 上限(位 2000 / 字 125)再按上限切为多段
-    (连续区内二次切片)。
+    合并后单 chunk 范围超 FC 上限(``max_unit``)再按上限切为多段(连续
+    区内二次切片)。读 / 写按协议上下限传不同 ``max_unit``:读位 2000 /
+    写字 125;写位 1968 / 写字 123。
 
+    :param max_unit: 单 chunk 最大协议单位数(位设备按 bit 计,寄存器按 word 计)
     :return: 每个子列表是一个连续地址区间内的所有条目,合并为 1 笔 FC
     """
-    max_unit = 2000 if kind == "bit" else 125
     chunks: List[List[_CoalesceEntry]] = []
     current: List[_CoalesceEntry] = []
     current_end = 0  # 当前 chunk 的"独占上界"(offset+width,半开)
@@ -758,3 +965,101 @@ def _encode_64bit(value: PrimitiveValue, data_type: DataType, word_order: WordOr
     if not 0 <= number <= UINT64_MAX:
         raise ValueError(f"ulong 超出 64 位范围:{number}")
     return list(convert.uint64_to_registers(number, word_order))
+
+
+def _encode_value_for_write(
+    parsed: "ModbusAddress",
+    dtype: DataType,
+    value: PrimitiveValue,
+    word_order: WordOrder,
+) -> List[int]:
+    """把入参 value 按 dtype 编码为字/位序列(写合并使用,内部函数)。
+
+    编码映射:
+
+    =====  ========================  =============  =============
+    dtype                           序列元素类型    长度
+    =====  ========================  =============  =============
+    BOOL(COIL)                      int 0/1         1(由
+                                                     :meth:`_write_bools_impl`
+                                                     按位打包)
+    SHORT                           int 0~65535     1
+    USHORT                          int 0~65535     1
+    INT/UINT                        int 0~65535     2(字序感知)
+    LONG/ULONG                      int 0~65535     4(字序感知)
+    FLOAT                           int 0~65535     2(字序感知)
+    DOUBLE                          int 0~65535     4(字序感知)
+    =====  ========================  =============  =============
+
+    寄存器位(``hr0.3`` 这类位号后缀)在调用方已分流到 RMW 路径,不在此
+    函数处理范围内。
+    """
+    if dtype is DataType.BOOL:
+        flag = require_bool(value)
+        return [1 if flag else 0]
+    if dtype is DataType.SHORT:
+        return [check_int16(value) & 0xFFFF]
+    if dtype is DataType.USHORT:
+        return [check_uint16(value)]
+    if dtype in (DataType.INT, DataType.UINT):
+        return _encode_32bit(value, dtype, word_order)
+    if dtype in (DataType.LONG, DataType.ULONG):
+        return _encode_64bit(value, dtype, word_order)
+    if dtype is DataType.FLOAT:
+        return list(convert.float32_to_registers(require_float(value), word_order))
+    if dtype is DataType.DOUBLE:
+        return list(convert.float64_to_registers(require_float(value), word_order))
+    raise ValueError(f"Modbus 不支持的数据类型:{dtype}")
+
+
+def _write_and_apply(
+    client: "ModbusBaseClient",
+    area: ModbusArea,
+    kind: str,
+    chunk: List[Tuple[int, _CoalesceEntry, List[int]]],
+    result: List[Optional[bool]],
+) -> bool:
+    """对合并区间执行单笔 FC 写,把 chunk 内条目 ok 写回 result(内部函数)。
+
+    流程:
+
+    1. 计算 chunk 覆盖范围 ``[start_offset, end_offset)`` 与 ``count``
+    2. 按 ``kind`` 发单笔 FC:
+       - ``"bit"``(COIL)→ 调 :meth:`_write_bools_impl` 写 ``count`` 位
+       - ``"word"``(寄存器)→ 调 :meth:`_write_registers_impl` 写
+         ``count`` 字(各条目按 offset 拼入,中间空洞按 0 填)
+    3. 写成功 → chunk 内所有 ``item_index`` 槽位置 ``True``;失败 → 全
+       置 ``False`` 并返回 ``False``
+
+    :returns: chunk 写入是否成功(失败时调用方用以触发整批失败语义)
+    """
+    if not chunk:
+        return True
+    start_offset = chunk[0][1].parsed.offset
+    end_offset = chunk[-1][1].parsed.offset + chunk[-1][1].width
+    count = end_offset - start_offset
+
+    try:
+        if kind == "bit":
+            values: List[bool] = [False] * count
+            for _, entry, encoded in chunk:
+                idx = entry.parsed.offset - start_offset
+                values[idx] = bool(encoded[0])
+            probe = ModbusAddress(area=area, offset=start_offset)
+            client._write_bools_impl(probe, values)
+        else:
+            words: List[int] = [0] * count
+            for _, entry, encoded in chunk:
+                idx = entry.parsed.offset - start_offset
+                for offset_within, word in enumerate(encoded):
+                    words[idx + offset_within] = word
+            probe = ModbusAddress(area=area, offset=start_offset)
+            client._write_registers_impl(probe, words)
+    except Exception:
+        for _, entry, _ in chunk:
+            result[entry.item_index] = False
+        return False
+
+    for _, entry, _ in chunk:
+        result[entry.item_index] = True
+    return True

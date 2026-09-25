@@ -485,6 +485,14 @@ class AModbusBaseClient(ABaseClient):
         sync = self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
         return await self._run(lambda: sync.read_batch(items))
 
+    async def write_batch(
+        self,
+        items: Sequence[Tuple[str, Union[DataType, str], PrimitiveValue]],
+    ) -> Tuple[bool, Optional[List[bool]]]:
+        """混类型批量写(按 FC+类型分组合并连续地址,语义同同步版)。"""
+        sync = self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
+        return await self._run(lambda: sync.write_batch(items))
+
     @property
     def _modbus(self) -> ModbusBaseClient:
         """取 Modbus 同步实例(内部属性)。"""

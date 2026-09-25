@@ -10,6 +10,8 @@
 """
 from __future__ import annotations
 
+import struct
+
 import pytest
 
 from omniplc import ModbusRtuClient, ModbusTcpClient
@@ -612,6 +614,259 @@ def test_async_read_batch_aio_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
         ok, values = await client.read_batch([("hr0", "short"), ("hr1", "short")])
         assert ok is True
         assert values == [10, 20]
+        await client.close()
+
+    asyncio.run(scenario())
+
+
+# ----------------------------------------------------------------------
+# 批量写(按 FC+类型分组合并连续地址)
+# ----------------------------------------------------------------------
+
+
+def _fc15_response(offset: int, count: int) -> bytes:
+    """构造 FC 15 写多线圈的响应 PDU(测试夹具):回显 offset + count。"""
+    return struct.pack(">BHH", 15, offset, count)
+
+
+def _fc16_response(offset: int, count: int) -> bytes:
+    """构造 FC 16 写多寄存器的响应 PDU(测试夹具):回显 offset + count。"""
+    return struct.pack(">BHH", 16, offset, count)
+
+
+def _fc03_read_response(values: list) -> bytes:
+    """构造 FC 03 读 N 字的响应 PDU(寄存器位 RMW 用)。"""
+    body = b"".join(int(v).to_bytes(2, "big") for v in values)
+    return bytes([3, len(body)]) + body
+
+
+def test_tcp_write_many_coalesces_short_contiguous(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_many:3 邻接 SHORT 合 1 笔 FC 16 写 3 字。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    response = _mbap_response(1, 1, _fc16_response(100, 3))
+    scripted = _ScriptedTransport([response[:7], response[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    results = client.write_many(
+        [("hr100", "short", 10), ("hr101", "short", 20), ("hr102", "short", 30)]
+    )
+    assert results == [True, True, True]
+    sent = bytes(scripted.sent)
+    assert sent == codec.build_mbap(1, 1, codec.build_write_multi_pdu(16, 100, [10, 20, 30]))
+
+
+def test_tcp_write_many_non_contiguous_two_transactions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_many:地址空洞强制拆 2 笔 FC 16(协议只能写连续地址)。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    responses = [
+        _mbap_response(1, 1, _fc16_response(100, 3)),  # FC 16 hr100~102
+        _mbap_response(2, 1, _fc16_response(200, 2)),  # FC 16 hr200~201
+    ]
+    scripted = _ScriptedTransport(
+        [responses[0][:7], responses[0][7:], responses[1][:7], responses[1][7:]]
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    results = client.write_many(
+        [
+            ("hr100", "short", 10),
+            ("hr101", "short", 20),
+            ("hr102", "short", 30),
+            ("hr200", "short", 40),
+            ("hr201", "short", 50),
+        ]
+    )
+    assert results == [True, True, True, True, True]
+
+
+def test_tcp_write_many_coil_bits_coalesce(monkeypatch: pytest.MonkeyPatch) -> None:
+    """write_many:3 邻接线圈位合 1 笔 FC 15 写 3 位。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    response = _mbap_response(1, 1, _fc15_response(0, 3))
+    scripted = _ScriptedTransport([response[:7], response[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    results = client.write_many(
+        [("c0", "bool", True), ("c1", "bool", False), ("c2", "bool", True)]
+    )
+    assert results == [True, True, True]
+    sent = bytes(scripted.sent)
+    assert sent == codec.build_mbap(1, 1, codec.build_write_multi_pdu(15, 0, [1, 0, 1]))
+
+
+def test_tcp_write_many_different_widths_no_merge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_batch:不同宽度不合并(SHORT 1 字 + INT 2 字) → 2 笔 FC 16。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    responses = [
+        _mbap_response(1, 1, _fc16_response(100, 1)),  # FC 16 hr100 (1 字)
+        _mbap_response(2, 1, _fc16_response(101, 2)),  # FC 16 hr101~102 (2 字)
+    ]
+    scripted = _ScriptedTransport(
+        [responses[0][:7], responses[0][7:], responses[1][:7], responses[1][7:]]
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, results = client.write_batch(
+        [("hr100", "short", 10), ("hr101", "int", 0x12345678)]
+    )
+    assert ok is True
+    assert results == [True, True]
+
+
+def test_tcp_write_batch_mixed_fc_areas(monkeypatch: pytest.MonkeyPatch) -> None:
+    """write_batch:跨 FC(线圈 + 寄存器) → FC 15 + FC 16 各一笔。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    responses = [
+        _mbap_response(1, 1, _fc15_response(0, 1)),  # FC 15 c0
+        _mbap_response(2, 1, _fc16_response(100, 1)),  # FC 16 hr100
+    ]
+    scripted = _ScriptedTransport(
+        [responses[0][:7], responses[0][7:], responses[1][:7], responses[1][7:]]
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, results = client.write_batch([("c0", "bool", True), ("hr100", "short", 10)])
+    assert ok is True
+    assert results == [True, True]
+
+
+def test_tcp_write_many_register_bit_rmw(monkeypatch: pytest.MonkeyPatch) -> None:
+    """write_many:寄存器位(``hr0.3``)走"读-改-写"两段事务(FC 03 + FC 06),不入合并。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    # RMW 第一笔:FC 03 读 hr0 → 0x0000
+    # RMW 第二笔:FC 06 写 hr0 → 0x0008(bit3=1)
+    responses = [
+        _mbap_response(1, 1, _fc03_read_response([0x0000])),
+        _mbap_response(2, 1, bytes([6, 0, 0, 0, 8])),  # FC 06 echo offset=0 value=0x0008
+    ]
+    scripted = _ScriptedTransport(
+        [responses[0][:7], responses[0][7:], responses[1][:7], responses[1][7:]]
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    results = client.write_many([("hr0.3", "bool", True)])
+    assert results == [True]
+
+
+def test_tcp_write_many_register_bit_then_full_word(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_many:同一批次内 ``hr0.3`` RMW 先,``hr0=100`` FC 16 后 → hr0 最终值由 FC 16 决定(协议层竞态,与基类一致)。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    # 顺序按入参:hr0.3 先 → hr0 后
+    # 但实现按 offset 升序:RMW(hr0.3 offset=0) 先 → FC 16 hr0 后
+    # RMW:FC 03 读 hr0 → 0x0000;FC 06 写 hr0 → 0x0008
+    # FC 16:写 hr0 → 100 (0x0064)
+    responses = [
+        _mbap_response(1, 1, _fc03_read_response([0x0000])),  # RMW FC 03
+        _mbap_response(2, 1, bytes([6, 0, 0, 0, 8])),  # RMW FC 06
+        _mbap_response(3, 1, _fc16_response(0, 1)),  # FC 16 hr0
+    ]
+    scripted = _ScriptedTransport(
+        [
+            responses[0][:7], responses[0][7:],
+            responses[1][:7], responses[1][7:],
+            responses[2][:7], responses[2][7:],
+        ]
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    results = client.write_many([("hr0.3", "bool", True), ("hr0", "short", 100)])
+    assert results == [True, True]
+
+
+def test_tcp_write_batch_failure_marks_all_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_batch:任一 FC 失败 → ``(False, None)``(整批失败)。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    # 第二次响应给坏 PDU(功能码 0x90 是异常码 16 + 0x80),触发坏帧
+    responses = [
+        _mbap_response(1, 1, _fc16_response(100, 3)),  # OK
+        _mbap_response(2, 1, b"\x90\x01"),  # FC 16 异常码 1
+    ]
+    scripted = _ScriptedTransport(
+        [responses[0][:7], responses[0][7:], responses[1][:7], responses[1][7:]]
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, results = client.write_batch(
+        [
+            ("hr100", "short", 10),
+            ("hr101", "short", 20),
+            ("hr102", "short", 30),
+            ("hr200", "short", 40),
+            ("hr201", "short", 50),
+        ]
+    )
+    assert ok is False
+    assert results is None
+
+
+def test_tcp_write_many_bad_address_raises_synchronously(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """write_many:非法地址同步 ValueError,不进入事务锁(零字节发送)。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    scripted = _ScriptedTransport([])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    with pytest.raises(ValueError):
+        client.write_many([("hr10", "short", 100), ("INVALID@", "short", 200)])
+    assert len(bytes(scripted.sent)) == 0
+
+
+def test_tcp_write_batch_empty_raises() -> None:
+    """write_batch:空列表 → ValueError。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    with pytest.raises(ValueError):
+        client.write_batch([])
+
+
+def test_async_write_many_aio_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
+    """异步镜像:write_many 经单工作线程驱动同步版(连续合并路径)。"""
+    import asyncio
+
+    from omniplc.aio import AModbusTcpClient
+
+    async def scenario() -> None:
+        client = AModbusTcpClient("127.0.0.1", 502, 1)
+        response = _mbap_response(1, 1, _fc16_response(0, 3))
+        scripted = _ScriptedTransport([response[:7], response[7:]])
+        monkeypatch.setattr(client._sync, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        results = await client.write_many(
+            [("hr0", "short", 10), ("hr1", "short", 20), ("hr2", "short", 30)]
+        )
+        assert results == [True, True, True]
+        await client.close()
+
+    asyncio.run(scenario())
+
+
+def test_async_write_batch_aio_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
+    """异步镜像:write_batch 经单工作线程驱动同步版。"""
+    import asyncio
+
+    from omniplc.aio import AModbusTcpClient
+
+    async def scenario() -> None:
+        client = AModbusTcpClient("127.0.0.1", 502, 1)
+        response = _mbap_response(1, 1, _fc16_response(0, 2))
+        scripted = _ScriptedTransport([response[:7], response[7:]])
+        monkeypatch.setattr(client._sync, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        ok, results = await client.write_batch(
+            [("hr0", "short", 10), ("hr1", "short", 20)]
+        )
+        assert ok is True
+        assert results == [True, True]
         await client.close()
 
     asyncio.run(scenario())
