@@ -35,6 +35,17 @@ def make_loop(name: str) -> asyncio.AbstractEventLoop:
     return getattr(asyncio, name)()
 
 
+async def close_server(server: asyncio.AbstractServer) -> None:
+    """关闭测试服务端,且**不** ``await wait_closed()``。
+
+    3.7 的 ``Server.wait_closed()`` 只等监听套接字关闭就返回;3.12 起它还会等
+    **每个连接由应用侧关净**——"接受但不回应"的测试 handler(读超时类用例必需的
+    形态,如 ``lambda r, w: None``)从不关 writer,``wait_closed()`` 于是永久挂住
+    (纯标准库即可复现,不需要本库参与)。测试收尾一律走本函数。
+    """
+    server.close()
+
+
 class ScriptedAsyncTransport(AsyncBaseTransport):
     """按脚本应答的假异步传输:send 记录请求,recv 按序返回预置分片。
 
@@ -101,11 +112,13 @@ class RawTcpServer:
         return self.port
 
     async def stop(self) -> None:
-        """关闭服务端并取消在等数据的连接任务(幂等)。"""
-        if self._server is not None:
-            self._server.close()
-            await self._server.wait_closed()
-            self._server = None
+        """关闭服务端并取消在等数据的连接任务(幂等)。
+
+        顺序刻意是"先取消连接任务 → 再关服务端":3.12 起
+        :meth:`asyncio.AbstractServer.wait_closed` 还会等**每个连接由应用侧关净**,
+        先取消在等数据的任务才可能关净(否则会等到超时)。等待本身也加了上限,
+        3.12 下即便仍有连接未关净也不至于挂死测试。
+        """
         pending, self._tasks = self._tasks, []
         for task in pending:
             task.cancel()
@@ -114,6 +127,13 @@ class RawTcpServer:
                 await task
             except (asyncio.CancelledError, Exception):
                 pass
+        if self._server is not None:
+            self._server.close()
+            try:
+                await asyncio.wait_for(self._server.wait_closed(), 1)
+            except asyncio.TimeoutError:
+                pass  # 3.12:连接未由应用侧关净时 wait_closed 会一直等,不再阻塞测试
+            self._server = None
 
     async def _dispatch(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter

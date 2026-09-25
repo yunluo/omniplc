@@ -20,7 +20,7 @@ import pytest
 from omniplc.core.errors import DeviceError, TransportClosedError, TransportTimeoutError
 from omniplc.native.transport import AsyncTcpTransport, AsyncUdpTransport
 from omniplc.transport.udp import UdpTransport
-from scripted_async import UdpResponder, loop_names, make_loop
+from scripted_async import UdpResponder, close_server, loop_names, make_loop
 
 
 @pytest.fixture(params=loop_names())
@@ -56,8 +56,7 @@ def test_tcp_roundtrip(loop: Any) -> None:
         transport.mark_synced()
         assert transport.pending is False
         transport.close()
-        server.close()
-        await server.wait_closed()
+        await close_server(server)
 
     loop.run_until_complete(scenario())
 
@@ -76,8 +75,7 @@ def test_tcp_recv_timeout_is_socket_timeout(loop: Any) -> None:
         with pytest.raises(socket.timeout):
             await transport.recv(4)
         transport.close()
-        server.close()
-        await server.wait_closed()
+        await close_server(server)
 
     loop.run_until_complete(scenario())
 
@@ -98,8 +96,7 @@ def test_tcp_peer_close_raises_closed(loop: Any) -> None:
         with pytest.raises(TransportClosedError):
             await transport.recv(4)
         transport.close()
-        server.close()
-        await server.wait_closed()
+        await close_server(server)
 
     loop.run_until_complete(scenario())
 
