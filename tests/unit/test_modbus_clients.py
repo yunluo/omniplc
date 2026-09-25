@@ -14,7 +14,7 @@ import pytest
 
 from omniplc import ModbusRtuClient, ModbusTcpClient
 from omniplc.core.debug import format_hex
-from omniplc.core.errors import DeviceError
+from omniplc.core.errors import DeviceError, ErrorCategory
 from omniplc.modbus import codec
 from scripted import ScriptedTransport as _ScriptedTransport, mount_real_tcp
 
@@ -47,7 +47,11 @@ def test_tcp_transaction_id_mismatch_marks_disconnected(monkeypatch: pytest.Monk
 
 
 def test_tcp_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> None:
-    """TCP:PLC 异常码记录 last_error,不断线(链路是好的)。"""
+    """TCP:PLC 异常码记录 last_error,不断线(链路是好的)。
+
+    异常码原样落 ``last_error_code``(2),分类 DEVICE,``device_error_count``
+    计数——供上位系统程序化区分"PLC 拒绝"与"链路故障"。
+    """
     client = ModbusTcpClient("127.0.0.1", 502, 1)
     frame = codec.build_mbap(1, 1, bytes([0x83, 0x02]))
     scripted = _ScriptedTransport([frame[:7], frame[7:]])
@@ -56,6 +60,31 @@ def test_tcp_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> N
     assert client.read_ushort("hr0") == (False, None)
     assert client.connected is True
     assert client.last_error is not None and "异常码 0x02" in client.last_error
+    assert client.last_error_code == 2
+    assert client.last_error_category is ErrorCategory.DEVICE
+    assert client.stats["device_error_count"] == 1
+
+
+def test_tcp_exception_function_code_mismatch_marks_disconnected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TCP:异常响应功能码与请求不符(错配/迟到帧)按坏帧处理。
+
+    请求 FC03、回了 FC05|0x80:这不是本次请求的设备错误,须分类
+    PROTOCOL(断线 + 重试),``last_error_code`` 不得被别的请求的异常码污染。
+    """
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    pdu = bytes([0x85, 0x02])
+    frame = codec.build_mbap(1, 1, pdu)
+    scripted = _ScriptedTransport([frame[:7], frame[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("hr0") == (False, None)
+    assert client.connected is False
+    assert client.last_error_category is ErrorCategory.PROTOCOL
+    assert client.last_error_code is None
+    assert client.last_error is not None and "异常响应功能码不符" in client.last_error
+    assert format_hex(pdu) in client.last_error  # 原始字节供现场比对抓包
 
 
 def test_rtu_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -88,7 +117,10 @@ def test_rtu_crc_failure_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_rtu_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> None:
-    """RTU:异常响应(功能码|0x80)正确解析为 DeviceError,不断线。"""
+    """RTU:异常响应(功能码|0x80)正确解析为 DeviceError,不断线。
+
+    异常码原样落 ``last_error_code``,分类 DEVICE(与 TCP 口径一致)。
+    """
     client = ModbusRtuClient(station=1)
     client.configure_serial("COM3")
     frame = codec.build_rtu_frame(1, bytes([0x83, 0x02]))
@@ -98,6 +130,32 @@ def test_rtu_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> N
     assert client.read_ushort("hr0") == (False, None)
     assert client.connected is True
     assert client.last_error is not None and "异常码 0x02" in client.last_error
+    assert client.last_error_code == 2
+    assert client.last_error_category is ErrorCategory.DEVICE
+    assert client.stats["device_error_count"] == 1
+
+
+def test_rtu_exception_function_code_mismatch_marks_disconnected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """RTU:异常响应功能码与请求不符(半双工迟到帧)按坏帧处理。
+
+    RTU 只校验站号,同站号前一条请求(如 FC05 写)的异常回包晚到时,
+    必须按坏帧断线重连,而不是当作本次 FC03 读的设备错误落码。
+    """
+    client = ModbusRtuClient(station=1)
+    client.configure_serial("COM3")
+    pdu = bytes([0x85, 0x02])
+    frame = codec.build_rtu_frame(1, pdu)
+    scripted = _ScriptedTransport([frame[:2], frame[2:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("hr0") == (False, None)
+    assert client.connected is False
+    assert client.last_error_category is ErrorCategory.PROTOCOL
+    assert client.last_error_code is None
+    assert client.last_error is not None and "异常响应功能码不符" in client.last_error
+    assert format_hex(pdu) in client.last_error
 
 
 def test_rtu_station_mismatch_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:

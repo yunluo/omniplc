@@ -151,10 +151,14 @@ def check_response_exception(pdu: bytes, request_function_code: int) -> None:
     (:func:`omniplc.core.debug.format_hex`),便于现场与抓包比对定位
     是线路噪声、站号错配还是对端语义不符。
 
+    异常响应的功能码须为请求功能码 | 0x80;与请求不符属**错配/迟到帧**
+    (如 RTU 总线上同站号前一条请求的异常回包晚到),按坏帧处理
+    (断线重连 + 重试),不得当作本次请求的设备错误误落 ``last_error_code``。
+
     :param pdu: 响应 PDU
     :param request_function_code: 请求功能码
-    :raises DeviceError: PLC 返回异常码
-    :raises ProtocolFrameError: 空帧或响应功能码与请求不符
+    :raises DeviceError: PLC 返回异常码(功能码与请求一致)
+    :raises ProtocolFrameError: 空帧、异常响应缺少异常码、或功能码与请求不符
     """
     if not pdu:
         raise ProtocolFrameError("响应 PDU 为空(未收到任何字节)")
@@ -163,11 +167,17 @@ def check_response_exception(pdu: bytes, request_function_code: int) -> None:
             raise ProtocolFrameError(
                 "异常响应缺少异常码(收到的原始数据:{})".format(format_hex(pdu))
             )
+        if pdu[0] ^ MODBUS_EXCEPTION_FLAG != request_function_code:
+            raise ProtocolFrameError(
+                "异常响应功能码不符:期望 0x{:02X},收到 0x{:02X}(收到的原始数据:{})".format(
+                    request_function_code, pdu[0], format_hex(pdu)
+                )
+            )
         code = pdu[1]
-        text = MODBUS_EXCEPTION_TEXT.get(code, "未知异常码")
+        text = MODBUS_EXCEPTION_TEXT.get(code, "未知异常码(厂商自定义/保留码)")
         raise DeviceError(
             "Modbus 异常码 0x{:02X}({})(请求功能码 0x{:02X})".format(
-                code, text, pdu[0] ^ MODBUS_EXCEPTION_FLAG
+                code, text, request_function_code
             ),
             code,
         )

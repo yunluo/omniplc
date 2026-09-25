@@ -177,6 +177,18 @@ class TestFrameErrorMessageCarriesRawData:
         assert "功能码不符" in message
         assert format_hex(pdu) in message
 
+    def test_exception_function_code_mismatch_has_raw_pdu(self) -> None:
+        """异常响应也须校验回显功能码:FC03 请求回 FC05|0x80 属错配坏帧。
+
+        不得降级成 DeviceError 把别的请求的异常码落到 ``last_error_code``。
+        """
+        pdu = bytes([0x85, 0x02])  # 请求 FC03,收到 FC05|0x80 + 异常码 02
+        with pytest.raises(ProtocolFrameError) as excinfo:
+            codec.check_response_exception(pdu, 3)
+        message = str(excinfo.value)
+        assert "异常响应功能码不符" in message
+        assert format_hex(pdu) in message
+
     def test_read_response_length_mismatch_has_raw_pdu(self) -> None:
         pdu = bytes([3, 4, 0x00, 0x14, 0x00, 0x0A])  # 字节计数域谎报 4
         with pytest.raises(ProtocolFrameError) as excinfo:
