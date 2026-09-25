@@ -36,7 +36,6 @@
 - [ ] `README.md`「变更历史」节加版本条目
 - [ ] `CHANGELOG.md` 加详细条目
 - [ ] `docs/architecture.md` 状态链 + 版本履历表加行
-- [ ] 设计稿(`docs/superpowers/specs/...`)已写
 - [ ] `docs/review.md` P0/P1 backlog 已更新(若适用)
 
 ## 自检清单

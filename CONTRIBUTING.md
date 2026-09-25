@@ -56,8 +56,7 @@ uvx ty check src/omniplc                 # 0 问题(Astral 第二类型检查器
 4. 填 `.github/PULL_REQUEST_TEMPLATE.md` 的清单。
 5. 协议/breaking change 必须:
    - 在 `docs/architecture.md` 状态链与版本履历表加行;
-   - README 与 `docs/architecture.md` 文案同步;
-   - 描述里挂 `docs/superpowers/specs/...` 设计稿(如适用)。
+   - README 与 `docs/architecture.md` 文案同步。
 
 ## 六、版本发布
 
@@ -73,18 +72,12 @@ uvx ty check src/omniplc                 # 0 问题(Astral 第二类型检查器
 sdist + wheel、挂 GitHub Release、可信发布(OIDC)到 PyPI;PR 触发的是门禁工作流
 `.github/workflows/ci.yml`。
 
-## 七、设计文档(可选但推荐)
-
-新功能 / 协议面破坏性改动 / 性能权衡,建议先在 `docs/superpowers/specs/`
-写一份设计稿(中文,含范围、动机、方案对比、风险表、决策日志),评审通过后再
-写实施计划与代码;本仓库 v0.32 起多项大改遵循此流程。
-
-## 八、行为准则
+## 七、行为准则
 
 本仓库参与讨论须遵守 [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md);
 安全漏洞披露见 [`SECURITY.md`](SECURITY.md)(**不要**在公开 issue 提)。
 
-## 九、真机联测
+## 八、真机联测
 
 单元测试走黄金报文 + 模拟传输,**不等于**真机联测;协议面改动提交 PR 时须:
 
