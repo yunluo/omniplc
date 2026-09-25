@@ -254,3 +254,37 @@ def test_async_mirror_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
         await client.close()
 
     asyncio.run(scenario())
+
+
+def test_batch_read_translates_address_like_single(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """批量读与单点读必须走同一地址换算:R1003 → 1603(不是未换算的 1003)。
+
+    回归:松下子类漏覆写 ``_translate_address`` 钩子(基类默认透传),而批量
+    路径只经该钩子 → 单点读写正常、``read_many``/``read_batch`` 打向别的
+    软元件并静默返回错数据。两路帧内编号对照锁死。
+    """
+    # 单点路径:字号 100 × 16 + 位号 3 = 1603
+    single = PanasonicMcTcpClient("127.0.0.1", 2000)
+    frame = _word_read_response([7])
+    scripted_single = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, single, scripted_single)
+    single.connect()
+    assert single.read_ushort("R1003") == (True, 7)
+
+    # 钩子本身:帧记号必须已线性化
+    assert single._translate_address(parse_mc_address("R1003")).number == "1603"
+
+    # 批量路径:无应答,只看请求帧
+    batch = PanasonicMcTcpClient("127.0.0.1", 2000)
+    scripted_batch = ScriptedTransport([])
+    _mount(monkeypatch, batch, scripted_batch)
+    batch.connect()
+    assert batch.read_many(["R1003"], "ushort") == [(False, None)]
+    batch_sent = bytes(scripted_batch.sent)
+    assert b"\x43\x06\x00" in batch_sent  # 1603(与单点一致)
+    assert b"\xeb\x03\x00" not in batch_sent  # 不是未换算的 1003
+
+    assert batch.read_batch([("R1003", "ushort")]) == (False, None)
+    assert b"\x43\x06\x00" in bytes(scripted_batch.sent)

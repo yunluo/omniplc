@@ -127,6 +127,14 @@ class PanasonicMcTcpClient(MelsecMcTcpClient):
         """查松下 MC 码表(R 视按位软元件,内部方法)。"""
         return codec_qna.device_info(device, PANASONIC_MC_DEVICE_CODES)
 
+    def _translate_address(self, parsed: McAddress) -> McAddress:
+        """松下记号换算为帧内编号(批量读路径与 _build_frame 同源,内部方法)。
+
+        缺此覆写时批量路径按原记号编号发帧——例如 ``R1003`` 会按 1003 而非
+        线性化的 1603 访问,静默读到别的软元件(单点读写正常,批量错)。
+        """
+        return _to_melsec_address(parsed)
+
     def _build_frame(
         self,
         parsed: McAddress,
