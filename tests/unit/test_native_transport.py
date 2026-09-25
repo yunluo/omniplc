@@ -5,6 +5,7 @@
 - TCP 回环收发、``recv`` 的**绝对 deadline** 超时(``socket.timeout`` 口径)
 - 对端关闭 → ``TransportClosedError``;未连接调用 → ``TransportClosedError``
 - UDP 回环收发(``loop.sock_recv_into`` / ``sock_sendall``,两种事件循环都跑)
+- UDP 主机名解析按 IPv4(与同步层同族)与**发送**超时的 OSError 口径
 - UDP 静默对端 → ``TransportTimeoutError``(不断线语义)
 - UDP 超长报文(WSAEMSGSIZE 10040)→ ``DeviceError(code=10040)``(假 socket)
 """
@@ -18,6 +19,7 @@ import pytest
 
 from omniplc.core.errors import DeviceError, TransportClosedError, TransportTimeoutError
 from omniplc.native.transport import AsyncTcpTransport, AsyncUdpTransport
+from omniplc.transport.udp import UdpTransport
 from scripted_async import UdpResponder, loop_names, make_loop
 
 
@@ -192,6 +194,68 @@ def test_udp_oversize_datagram_maps_to_device_error() -> None:
         loop.run_until_complete(scenario())
     finally:
         loop.close()
+
+
+def test_udp_hostname_resolves_to_ipv4_like_sync(loop: Any) -> None:
+    """主机名解析按 AF_INET(与同步层同族):IPv4-only 对端用 ``localhost`` 也要通。
+
+    回归护栏:UDP 的 ``connect`` 不会失败、没有 TCP 那样的候选回退,若不约束
+    地址族,``localhost``/双栈主机名的首个 addrinfo 可能是 AF_INET6(本机实测
+    即如此)→ 数据报发到 ``::1`` 而同步层发到 127.0.0.1,两层行为分裂。
+    """
+    responder = UdpResponder()  # 只绑 127.0.0.1,不监听 ::1
+    port = responder.start()
+    try:
+        # 对照基线:同一主机名 + 同一端口,同步层照常通
+        sync = UdpTransport("localhost", port)
+        sync.receive_timeout = 0.5
+        sync.connect()
+        sync.send(b"ping")
+        assert sync.recv(256) == b"PONG:ping"
+        sync.close()
+
+        async def scenario() -> None:
+            transport = AsyncUdpTransport("localhost", port)
+            transport.receive_timeout = 0.5
+            await transport.connect()
+            sock = transport._socket
+            assert sock is not None and sock.family == socket.AF_INET
+            await transport.send(b"ping")
+            assert await transport.recv(256) == b"PONG:ping"
+            transport.close()
+
+        loop.run_until_complete(scenario())
+    finally:
+        responder.stop()
+
+
+def test_udp_send_timeout_is_socket_timeout(
+    loop: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """UDP **发送**超时按 OSError 语义抛(与同步 ``sock.send`` 同口径:拆连重试)。
+
+    真实触发条件是本地发送缓冲打满(罕见),用真 socket 难以稳定复现,也无法用
+    假 socket 走通(selector 注册要真句柄、IOCP 要真 handle),故直接注入"等待器
+    超时"这一条件,验证异常映射本身:必须是 ``socket.timeout`` 而不是
+    ``TransportTimeoutError``(后者语义是"接收 0 字节、不断线")。
+    """
+    from omniplc.native import transport as transport_module
+
+    async def fake_wait(awaitable: Any, timeout: float) -> Any:
+        awaitable.close()  # 丢弃未等待的协程,避免 "never awaited" 告警
+        return False, None
+
+    monkeypatch.setattr(transport_module, "_await_with_timeout", fake_wait)
+
+    async def scenario() -> None:
+        transport = AsyncUdpTransport("127.0.0.1", 9999)
+        transport.receive_timeout = 0.1
+        await transport.connect()
+        with pytest.raises(socket.timeout):
+            await transport.send(b"x")
+        transport.close()
+
+    loop.run_until_complete(scenario())
 
 
 def test_udp_not_connected_raises_closed(loop: Any) -> None:

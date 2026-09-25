@@ -1099,7 +1099,8 @@ FINS 协议复审(2026-09,对照欧姆龙 FINS 手册 W340):FINS 帧头 10 字�
 | 场景 | 行为 |
 |---|---|
 | TCP 读超时 | 抛 `socket.timeout`(OSError 语义)→ 分类 `TIMEOUT` + **拆连**重试(与同步 TCP 同口径) |
-| UDP 读超时 | 抛 `TransportTimeoutError`(0 字节已读)→ 分类 `TIMEOUT` + **不拆连**(数据报无残渣) |
+| UDP **接收**超时 | 抛 `TransportTimeoutError`(0 字节已读)→ 分类 `TIMEOUT` + **不拆连**(数据报无残渣) |
+| UDP **发送**超时 | 抛 `socket.timeout`(本地缓冲打满属传输故障)→ 分类 `TIMEOUT` + **拆连**重试(与同步 `UdpTransport.send` 同口径) |
 | 取消(请求已发出) | 真中断;**保守拆连**(应答可能残留在链路/内核缓冲),`CancelledError` 原样传播 |
 | 取消(仅排队未发出) | 真中断;连接保持(链路干净) |
 

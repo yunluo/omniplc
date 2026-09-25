@@ -330,8 +330,11 @@ class AsyncUdpTransport(AsyncBaseTransport):
     - :meth:`recv` 返回**一条数据报**(最长 ``size`` 字节,超出截断),即一次
       收发对应一个协议帧
     - UDP 无连接概念,``connect()`` 只做地址解析与本地套接字初始化
-    - 超时抛 :class:`omniplc.core.errors.TransportTimeoutError`(DeviceError
-      子类):数据报整收无残留字节,按"链路完好不断线"——与同步 UDP 同口径
+    - **接收**超时抛 :class:`omniplc.core.errors.TransportTimeoutError`
+      (DeviceError 子类):数据报整收无残留字节,按"链路完好不断线"——与同步
+      UDP 同口径;**发送**超时抛 :class:`socket.timeout`(OSError 语义,本地
+      缓冲打满属传输故障,与同步 ``sock.send`` 的超时同一处理:分类 TIMEOUT
+      并拆连重试)
     - 平台差异见模块 docstring(超长报文的截断探测在 POSIX 上不可用)
     """
 
@@ -359,8 +362,16 @@ class AsyncUdpTransport(AsyncBaseTransport):
         :raises OSError: 地址解析失败或套接字创建失败
         """
         loop = asyncio.get_event_loop()
+        # 地址族**必须与同步层一致(AF_INET)**:UDP 的 connect 不会失败、也没有
+        # TCP 那样的候选回退,若不约束族,`localhost`/双栈主机名的 `infos[0]`
+        # 可能是 AF_INET6(实测本机即如此)→ 同一地址同步层走 IPv4、原生层走
+        # IPv6,行为分裂;且 FINS/UDP 的节点号推导按 IPv4 出末段,与 IPv6
+        # 数据报套接字语义不自洽。
         infos = await loop.getaddrinfo(
-            self._ip_address, self._port, type=socket.SOCK_DGRAM
+            self._ip_address,
+            self._port,
+            family=socket.AF_INET,
+            type=socket.SOCK_DGRAM,
         )
         family, _, _, _, sockaddr = infos[0]
         sock = socket.socket(family, socket.SOCK_DGRAM)
@@ -382,7 +393,7 @@ class AsyncUdpTransport(AsyncBaseTransport):
         """发送一条数据报到固定对端。
 
         :raises TransportClosedError: 未初始化
-        :raises OSError: 发送失败或超时
+        :raises OSError: 发送失败或超时(``socket.timeout``,与同步层同口径)
         """
         sock = self._require_socket()
         log_frame(self._debug_label, SEND_MARK, data)
@@ -395,7 +406,9 @@ class AsyncUdpTransport(AsyncBaseTransport):
         )
         if not done:
             self._clear_stale_selector(sock)
-            raise TransportTimeoutError(f"UDP 发送超时({self._receive_timeout}s)", 0)
+            # 与同步 UDP 传输同口径:发送超时按 OSError 语义抛(事务层分类
+            # TIMEOUT 并拆连重试),不套用"0 字节已读"的接收超时语义
+            raise socket.timeout(f"UDP 发送超时({self._receive_timeout}s)")
 
     async def recv(self, size: int) -> bytes:
         """接收一条数据报。
@@ -438,20 +451,25 @@ class AsyncUdpTransport(AsyncBaseTransport):
         return frame
 
     def _clear_stale_selector(self, sock: socket.socket) -> None:
-        """摘掉取消 ``sock_recv_into`` 后残留的 selector 读注册(内部方法)。
+        """摘掉取消/超时后残留的 selector 注册(内部方法)。
 
-        Python 3.7 的实现里,``loop.sock_recv_into`` 被取消时**不会**立即摘掉
-        已注册的读事件(要等该 fd 下次可读时才自清理);若期间套接字被关闭,
-        Windows 的 ``select`` 会对已关闭句柄抛 ``WSAENOTSOCK``(10038),把事件
-        循环带崩。超时路径显式摘一次,之后的 close 就安全了。
+        Python 3.7 的 ``loop.sock_recv_into`` / ``loop.sock_sendall`` 在阻塞时会
+        注册读/写事件(``add_reader`` / ``add_writer``),被取消时**不会**立即
+        摘除(要等该 fd 下次就绪才自清理);若期间套接字被关闭,Windows 的
+        ``select`` 会对已关闭句柄抛 ``WSAENOTSOCK``(10038),把事件循环带崩。
+        收/发两条路径都要摘——只摘 reader 会漏掉"发送缓冲打满导致 send 超时"
+        这条路径(3.7 的 ``_sock_sendall`` 阻塞时走 ``add_writer``)。
 
-        Proactor 循环的 ``sock_recv_into`` 走 IOCP,没有 selector 注册
-        (``remove_reader`` 抛 ``NotImplementedError``),直接忽略。
+        Proactor 循环的 ``sock_*`` 走 IOCP,没有 selector 注册
+        (``remove_*`` 抛 ``NotImplementedError``),直接忽略。
         """
-        try:
-            asyncio.get_event_loop().remove_reader(sock.fileno())
-        except (NotImplementedError, OSError, ValueError):
-            pass
+        loop = asyncio.get_event_loop()
+        fd = sock.fileno()
+        for remove in (loop.remove_reader, loop.remove_writer):
+            try:
+                remove(fd)
+            except (NotImplementedError, OSError, ValueError):
+                pass
 
     def _require_socket(self) -> socket.socket:
         """取当前 socket,未初始化则抛出。"""
