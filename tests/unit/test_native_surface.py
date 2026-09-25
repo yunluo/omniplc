@@ -141,6 +141,29 @@ def test_after_connect_failure_hook_mirrored() -> None:
     assert inspect.iscoroutinefunction(native.AsyncBaseClient._after_connect_failure)
 
 
+def test_constructors_match_sync_twin() -> None:
+    """5 对孪生客户端的构造签名(参数名 + 默认值)与同步侧逐一对齐。
+
+    建成同型构造是"切换两层只改类名"的前提;``__init__`` 不在
+    :func:`test_sync_base_surface_mirrored_or_pending` 的公开面扫描里
+    (那是方法/属性集),故单独锁一道。
+    """
+    pairs = [
+        ("MelsecMcTcpClient", "AsyncMelsecMcTcpClient"),
+        ("MelsecMcUdpClient", "AsyncMelsecMcUdpClient"),
+        ("ModbusTcpClient", "AsyncModbusTcpClient"),
+        ("OmronFinsTcpClient", "AsyncOmronFinsTcpClient"),
+        ("OmronFinsUdpClient", "AsyncOmronFinsUdpClient"),
+    ]
+    for sync_name, async_name in pairs:
+        sync_sig = inspect.signature(getattr(pkg, sync_name).__init__)
+        async_sig = inspect.signature(getattr(native, async_name).__init__)
+        assert list(sync_sig.parameters) == list(async_sig.parameters), sync_name
+        assert [p.default for p in sync_sig.parameters.values()] == [
+            p.default for p in async_sig.parameters.values()
+        ], sync_name
+
+
 def test_typed_signatures_match_sync_twin() -> None:
     """类型化读写的方法签名(参数名与默认值)与同步基类逐一对齐。"""
     checked = [
