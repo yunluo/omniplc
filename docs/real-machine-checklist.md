@@ -61,8 +61,8 @@
 | 基恩士 | KV MC 协议兼容(SLMP 3E) | | | |
 | 基恩士 | SR 扫码枪 | — | — | SR 扫码枪为读码设备,读=扫码触发,写=不适用 |
 | 丰田 | TOYOPUC 计算机链接 TCP/UDP | | | |
-| Modbus | Modbus TCP | | | |
-| Modbus | Modbus RTU | | | |
+| Modbus | Modbus TCP | | | FC22 掩码写 / FC23 读写多寄存器 / FC43·14 设备标识待真机核证 |
+| Modbus | Modbus RTU | | | FC22 掩码写 / FC23 读写多寄存器 / FC43·14 设备标识(RTU 按对象头增量收包)待真机核证 |
 | OPC-UA | opc.tcp | | | 订阅/Browse 为 v0.35 新增,待真机验证 |
 | CNC | MTConnect Agent HTTP/XML | | | |
 | 通用 | OpenTcp(分隔符 / 定长) | | | |

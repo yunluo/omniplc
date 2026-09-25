@@ -513,7 +513,7 @@ class BaseClient(ABC):
 
 | 协议 | TCP | UDP | RTU(串口) | MX Component |
 |---|---|---|---|---|
-| Modbus(FC 01/02/03/04/05/06/0F/10/16) | ✅ `ModbusTcpClient` | — | ✅ `ModbusRtuClient` | — |
+| Modbus(FC 01/02/03/04/05/06/0F/10/16/17/2B·0E) | ✅ `ModbusTcpClient` | — | ✅ `ModbusRtuClient` | — |
 | 三菱 MC 3E/4E(QnA 兼容) | ✅ `MelsecMcTcpClient(frame="3E"/"4E")` | ✅ `MelsecMcUdpClient` | ✅ `MelsecMcSerialClient`(1C/3C/4C 帧) | ✅ `MelsecMxClient` |
 | 三菱 MC 1E(A 兼容,A 系列) | ✅ `frame="1E"` | ✅ | ✅(1C 帧,A 兼容串口) | ✅ |
 | 欧姆龙 FINS | ✅ `OmronFinsTcpClient`(含握手) | ✅ `OmronFinsUdpClient` | v1.x(Host Link) | — |
@@ -847,9 +847,21 @@ MBAP 事务号/协议号/站号校验、RTU CRC16(0xA001 反射,低字节在前)
   TCP 无广播概念,站号 0 照常收发。
 - **新增 FC 0x16 掩码写**:`write_mask_register()` 单笔设备侧原子
   AND/OR 位修改,替代"读-改-写"两段事务(需设备支持)。
-- **不做**:ASCII 走线、诊断/报告类功能码(07/0B/0C/11/08/2B)
-  与本库"点位读写"契约不符,留 v1.x;RTU 收包靠长度推算而非
-  t1.5/t3.5 帧间时序(不做 3.5 字符静默)。
+- **新增 FC 0x17 读写多寄存器**:`read_write_registers()` 单事务
+  "先写后读"(写上限 121,比 FC16 的 123 小 2),控制场景省一个
+  往返且无中间态插入(需设备支持)。
+- **新增 FC 0x2B/0x0E 读设备标识**:`read_device_id()`(流式访问
+  1/2/3,More Follows **自动翻页**)与 `read_device_object()`(个体
+  访问 4);标准对象(0x00~0x06)映射为规范名键,厂商私有对象用
+  `object_0xNN`。RTU 走线响应长度随对象数变化,**按对象头增量收包**
+  (其余 FC 按请求推算长度)。
+- **起始地址 + 数量 越界前置拒绝**:规范状态图把
+  `Starting Address + Quantity` 列为服务端校验项(越界回异常码 02),
+  本库在组帧期直接拒绝(如 `hr65535` 读 2 字),不发必然被拒的请求。
+- **不做**:ASCII 走线、诊断/报告类功能码(07/08/0B/0C/11/17)、
+  文件记录类(14/15)与 FIFO 队列(18)与本库"点位读写"契约不符,
+  留 v1.x;RTU 收包靠长度推算而非 t1.5/t3.5 帧间时序(不做 3.5
+  字符静默)。
 
 实现选型:MC、FINS、Modbus 均**自研**(无同时支持 Python 3.7 的
 成熟维护依赖;报文简单,超时/重连/错误语义与全库完全统一;

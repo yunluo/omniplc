@@ -8,9 +8,9 @@
 
 ## 一、总体结论
 
-**综合评分:7.4 / 10**。项目自我定位 `Development Status :: 3 - Alpha`(`pyproject.toml:48`),诚实。
+**综合评分:7.1 / 10**(八项分项评分等权算术均值,57/8 = 7.125)。项目自我定位 `Development Status :: 3 - Alpha`(`pyproject.toml:48`),诚实。
 
-一句话定性:**协议自研深度与测试质量罕见地高,文档深度达商用水准;但真机验证闭环仅约 7%,工程治理(CI 版本矩阵、发布门禁)与异步层正确性存在实质性缺口。** 属于"工程自律极强、验证闭环未完成"的个人冲刺型项目(126 commits / 8 天 / 45 版本)。
+一句话定性:**协议自研深度与测试质量罕见地高,文档深度达商用水准;但真机验证闭环仅约 7%,CI 版本矩阵单薄与异步层正确性存在实质性缺口。** 属于"工程自律极强、验证闭环未完成"的个人冲刺型项目(126 commits / 8 天 / 45 版本)。
 
 ### 规模画像(实测)
 
@@ -35,10 +35,10 @@
 | 错误处理 | **7** | 三层语义清晰,统计口径有污染 |
 | 协议栈深度(自研组) | **9** | 四大栈达生产级 |
 | 测试质量 | **8** | 字节级断言、0 形式主义 |
-| CI/CD | **6** | 门禁齐但矩阵单薄、发布路径零测试 |
+| CI/CD | **7** | push/PR 四门禁 + tag 独立构建的互补触发设计合理;扣:矩阵单薄、lint 规则弱、无覆盖率 |
 | 文档 | **8** | 深度超额、呈现不足 |
 | 真机验证 | **3** | 29 项适用协议仅 2 项通过 |
-| **综合** | **7.4** | 八项等权 |
+| **综合** | **7.1** | 八项等权(57/8 = 7.125) |
 
 ---
 
@@ -126,7 +126,7 @@
 |---|---|---|---|
 | **A 生产级(自研栈)** | 三菱 MC 3E/4E/1E + 串口 1C/3C/4C(2,877 行,755 行串口测试,`test_mc_serial_clients.py`) | **9.5** | 6 帧型全自研(含 DLE 转义、和校验、4C 长度域/帧识别码);0406 批量 + 1E 错误扩展头(`melsec.py:443-451`)等边角全处理;黄金 7 样本 |
 | | AB EtherNet/IP + CIP(1,024 行手写 `ab/codec_cip.py`) | **9.5** | RegisterSession/Forward Open 三路由/SendUnitData/0x4C·0x4E 标签/0x91 符号路径/0x0A 多服务包全手写;`test_ab_codec.py` 字面字节断言 + 会话复用/ENIP 错误重注册回归;缺口仅 UDT 整读 |
-| | Modbus TCP/RTU | **9.5** | 10 黄金样本、CRC16 known vector、异常回显功能码错配校验(`codec.py:144-187`)、FC22、RTU 广播语义;**FC 01/02/03/04 连续地址合并读**(按 (area, kind, width, dtype) 5 类分组,读 N 个连续点 ≈ 1 笔事务)、**FC 15/16 连续地址合并写**(同上 + 寄存器位走 RMW 不入合并);**无 ASCII 走线、无 BCD**;规范参考 [Modbus 应用协议 V1.1b3](https://www.modbus.cn/modbus-specifications) |
+| | Modbus TCP/RTU | **9.5** | 18 黄金样本(含 FC23 规范 §6.17 示例逐字节)、CRC16 known vector、异常回显功能码错配校验、FC22、RTU 广播语义;**FC 01/02/03/04 连续地址合并读**(按 (area, kind, width, dtype) 5 类分组,读 N 个连续点 ≈ 1 笔事务)、**FC 15/16 连续地址合并写**(同上 + 寄存器位走 RMW 不入合并)、**FC 23 单事务读写多寄存器**、**FC 43/14 设备标识**(标准对象名映射 + More Follows 自动翻页 + RTU 按对象头增量收包)、**起始地址+数量越界组帧期拒绝**;**无 ASCII 走线、无 BCD、无文件记录/FIFO/串行诊断类功能码**;规范参考 [Modbus 应用协议 V1.1b3](https://www.modbus.cn/modbus-specifications) |
 | | 欧姆龙 FINS TCP/UDP | **9.0** | 握手后节点自动分配(`omron.py:464-489`)、UDP 节点由 IP 末段推导、0104 批量、ICF 回显 + 长度 + 错误域三重校验;**真机 CP1H 已录** |
 | **B 可用** | OPC-UA | **8.0** | 适配层最厚:NodeId 解析、类型映射、Browse(`:546`)、DataChange/Event 订阅、UA Read 批量(`:504`);扣:asyncua 1.1.5 钉版、无 TLS/X.509、无历史/聚合 |
 | | MX Component | **7.5** | 798 行 ctypes/vtable 深度适配、HRESULT/返回码双校验、`write_batch`(`:753`);**真机 FX3U 两轮踩坑修复**(CHANGELOG v0.31.0/v0.31.1) |
@@ -159,10 +159,10 @@
 |---|---|---|
 | 1 | **真机验证 ≈ 7%** | `docs/real-machine-checklist.md` 30 行仅 2 行有值(MX Component/FX3U `:45`、FINS UDP/CP1H `:47`);**MC 全系、Modbus、S7、AB、ADS、CIP、汇川、松下、基恩士、TOYOPUC 全空**。90% 协议正确性靠"手册字节核验 + 模拟器"背书。记录体系本身专业(读/写独立单元格、✓/✗/~/— 约定),但覆盖面是可信度瓶颈 |
 | 2 | **CI 单 OS × 单 Python** | `ci.yml:30` 仅 `python-version: "3.12"` + `runs-on: windows-latest`;而 `pyproject.toml:6,53-58` 声明 `>=3.7.9` 与 3.7–3.12 classifiers——**6 个声明版本里 5 个从未在 CI 跑过**;`transport/udp.py` 的 `MSG_TRUNC`、`TCP_KEEPIDLE` 等 Linux 分支在 CI 永不执行 |
-| 3 | **发布路径零测试门禁** | `build-release.yml` 实测仅 `needs: build`,无 pytest;曾加入后被显式撤回(`4b0c8d6` "revert(ci): … 用户裁决")——审查认定的 P0 至今未闭环 |
+| 3 | **发布触发设计(经复核为合理,非缺口)** | 早前评审曾记"发布路径零测试门禁",**经复核撤回该结论**:`ci.yml:5-9` 在 push/PR master 时强制执行 pytest/ruff/mypy/ty 四门禁,`build-release.yml:7-10` 仅 `v*` 标签触发纯构建;而标签是从**已通过 CI 的 master 提交**上打的,`ci.yml:4` 注释亦明示两者互补("本工作流 push+PR 触发,发布仍走 tag 触发的 build-release.yml")。故 build 再跑测试属**同一批次的二次执行**,`4b0c8d6` 撤回 build 内 test 作业属合理的防重复设计,不构成"未测即发布"风险 |
 | 4 | **无覆盖率工具链** | `pytest-cov` 不在 `pyproject.toml:81-90` dev extra;全仓 `coverage` 零命中;协议层覆盖率仅为静态推断 70–85%,无实测背书,无门禁 |
 | 5 | **lint/type 规则偏松** | ruff 仅 `["E4","E7","E9","F"]`(`pyproject.toml:107`),无 B/I/SIM/行宽、无 format 门禁;mypy 未开 `strict`,且 CI 只查 `src/omniplc`(`ci.yml:44`)使 `pyproject` 的 `files=["src","tests"]` 被覆盖 |
-| 6 | **迭代节奏与治理** | 8 天 45 版(日均 5.6 版);tag v0.1.0–v0.34.0 **同日批量回补**;CHANGELOG 无日期;commit 类型前缀非 100% 统一;门禁决策受人工裁决影响(`4b0c8d6`)——长期维护性无历史证据 |
+| 6 | **迭代节奏与治理** | 8 天 45 版(日均 5.6 版);tag v0.1.0–v0.34.0 **同日批量回补**;CHANGELOG 无日期;commit 类型前缀非 100% 统一——长期维护性无历史证据 |
 | 7 | **可持续性** | 单一作者、bus factor = 1;`snap7/asyncua/pyads` 上游 breaking change 会传导 |
 | 8 | **国际化与呈现** | 全中文、无 API 文档站(mkdocs/Sphinx 均无)、README 无任何 badge、标题层级断在 h4、`CONTRIBUTING.md:36` "721 例"与实测 742 已漂移 |
 
@@ -183,7 +183,6 @@
 |---|---|---|
 | **P0** | aio 属性阻塞事件循环 | `aio/__init__.py:209-282` 改 `await self._run(lambda: ...)`,或至少文档化"可能停顿循环"并告警 |
 | **P0** | SR 误用拆线 | `keyence_sr.py:215,219` 改抛 `DeviceError(..., 0)`(对齐 `opentcp:394`);`test_sr_scanner.py:145` 补 `assert client.connected is True` |
-| **P0** | 恢复发布测试门禁 | `build-release.yml` 插入 `needs: test`——一行级成本,堵"未测即发布" |
 | **P1** | `TransportTimeoutError` 单独分支 | `base_client.py:647-650`:不计入 `device_error_count`;是否重试显式决策并补注入该异常的回归测试 |
 | **P1** | `code=0 → None` | `_extract_code`(`:791-803`)统一处理 |
 | **P1** | OPC-UA 回调加锁 | `opcua/client.py:254,305` 提供加锁版 `_set_error` 入口 |
@@ -204,7 +203,7 @@
 | 错误处理 | 7 | 三层语义文档与实现一致;`_categorize` 顺序正确且有 10 例专项测试 | 超时吞计数、`code=0` 污染、能力缺失三套口径、docstring 过度承诺 |
 | 协议栈深度 | 9 | 四大栈全自研 + 黄金样本 + 长度域/回显/序列号全校验 | 真机 7%;4/15 为薄封装;写侧批量、BCD/结构体缺失 |
 | 测试质量 | 8 | 742 例字节级断言、三层假传输、独立生成器、28/28 覆盖 | 无覆盖率实测、无 fuzz、无并发压测、黄金样本仅 3/15 协议 |
-| CI/CD | 6 | 四门禁 + 双类型检查器 + OIDC 发布 + fork 守卫 | 单 OS 单 Python、ruff 极弱、发布零测试、无 coverage/SAST |
+| CI/CD | 7 | push/PR 四门禁 + tag 纯构建的互补触发(标签取自已过门禁的 master 提交,无"未测即发布")+ 双类型检查器 + OIDC 发布 + fork 守卫 | 单 OS 单 Python、ruff 规则集弱、无 coverage/SAST |
 | 文档 | 8 | 94KB 架构文档逐协议列手册章节、267/267 docstring、诚实公示待核证 | 纯中文、无 API 站、无 badge、CHANGELOG 无日期、数字漂移 |
 | 真机验证 | 3 | 清单专业 + 待做项诚实 + 36 个联测脚本 + MX 两轮真机根因记录 | 29 项适用协议仅 2 项通过 |
 
