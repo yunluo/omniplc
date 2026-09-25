@@ -381,10 +381,20 @@ class AsyncUdpTransport(AsyncBaseTransport):
         log_op(self._debug_label, "已连接")
 
     def close(self) -> None:
-        """关闭 UDP 套接字,幂等。"""
-        if self._socket is not None:
+        """关闭 UDP 套接字,幂等。
+
+        **先摘 selector 注册、再关句柄**:3.7 的 ``sock_recv_into`` /
+        ``sock_sendall`` 被取消时不会立即摘除注册(要等该 fd 下次就绪才自清
+        理),此时关掉句柄,``select()`` 会对已关闭句柄抛 ``WSAENOTSOCK``
+        (Windows 10038;POSIX ``EBADF``)把事件循环带崩。取消路径(``_execute``
+        按"已发出请求"保守拆连)与用户直接 ``close()`` / ``disconnect()`` 都
+        经过本方法,故收口在这里(与发/收超时路径的显式调用并存,幂等无害)。
+        """
+        sock = self._socket
+        if sock is not None:
             try:
-                self._socket.close()
+                self._clear_stale_selector(sock)
+                sock.close()
             finally:
                 self._socket = None
             log_op(self._debug_label, "已断开")
@@ -463,8 +473,11 @@ class AsyncUdpTransport(AsyncBaseTransport):
         Proactor 循环的 ``sock_*`` 走 IOCP,没有 selector 注册
         (``remove_*`` 抛 ``NotImplementedError``),直接忽略。
         """
+        try:
+            fd = sock.fileno()
+        except (AttributeError, OSError, ValueError):
+            return  # 假 socket / 句柄已失效:没有可摘的注册,尽力而为
         loop = asyncio.get_event_loop()
-        fd = sock.fileno()
         for remove in (loop.remove_reader, loop.remove_writer):
             try:
                 remove(fd)

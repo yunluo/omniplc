@@ -20,7 +20,13 @@ from omniplc.plc.melsec.melsec import _encode_32, _encode_64
 from omniplc.tag import Tag, TagTable
 from omniplc.types import DataType, PrimitiveValue
 from scripted import ScriptedTransport
-from scripted_async import RawTcpServer, ScriptedAsyncTransport, loop_names, make_loop
+from scripted_async import (
+    RawTcpServer,
+    ScriptedAsyncTransport,
+    UdpResponder,
+    loop_names,
+    make_loop,
+)
 
 
 # ----------------------------------------------------------------------
@@ -370,3 +376,34 @@ def test_expected_request_frame_matches_codec() -> None:
         await client.close()
 
     asyncio.run(scenario())
+
+
+def test_udp_cancel_then_close_keeps_loop_alive() -> None:
+    """客户端层:``wait_for`` 取消 UDP 读 → ``close()``,Selector 循环必须存活。
+
+    取消时请求已发出 → 保守拆连(``AsyncBaseClient._execute``),随后关闭套接字
+    不得残留 selector 注册。修复前实测 ``OSError(10038)`` 从 ``run_until_complete``
+    逃逸(事件循环被带崩);因 3.7 在 Windows 上的默认循环就是 Selector,这是
+    默认配置下的可达路径,故用例固定走 Selector。
+    """
+    responder = UdpResponder(transform=lambda data: None)  # 静默对端:收下不回包
+    port = responder.start()
+    try:
+
+        async def scenario() -> None:
+            client = AsyncMelsecMcUdpClient("127.0.0.1", port)
+            client.receive_timeout = 5.0
+            assert await client.connect() is True
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(client.read_ushort("D100"), 0.2)
+            assert client.connected is False  # 已发出请求 → 保守拆连
+            await client.close()
+            await asyncio.sleep(0.05)  # 让 select() 带着陈旧 fd 再跑一次
+
+        loop = make_loop("SelectorEventLoop")
+        try:
+            loop.run_until_complete(scenario())
+        finally:
+            loop.close()
+    finally:
+        responder.stop()

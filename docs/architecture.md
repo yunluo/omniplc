@@ -1134,8 +1134,12 @@ POSIX 下超长数据报的静默截断**无法在传输层探测**(同步层会
 
 **一个 3.7 真缺陷的规避**:取消 `loop.sock_recv_into` 后 3.7 不会立即摘掉
 selector 的读注册(要等该 fd 下次可读才自清理),期间若关闭套接字,Windows 的
-`select` 会对已关闭句柄抛 `WSAENOTSOCK`(10038)把事件循环带崩——UDP 超时路径
-显式 `remove_reader` 清一次(Proactor 无 selector 注册,忽略)。
+`select` 会对已关闭句柄抛 `WSAENOTSOCK`(10038)把事件循环带崩(**3.7 在 Windows
+上的默认循环正是 Selector,故这是默认配置下的可达路径**;POSIX 上同样抛
+`EBADF`)。**收口在 `AsyncUdpTransport.close()`**:关句柄前先 `remove_reader` +
+`remove_writer`(Proactor 无 selector 注册,忽略),因此发/收超时、客户端级取消
+(`_execute` 按"已发出请求"保守拆连)、用户直接 `close()`/`disconnect()` 全路径
+覆盖;发/收超时路径另有一次显式清理(幂等)。
 
 **实例绑定一个事件循环**:跨循环/跨线程共享同一实例不支持(事务锁按首次使用时
 的循环创建,这是刻意的:跨循环使用会得到"锁在前一个循环上"的隐晦错误)。

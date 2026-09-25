@@ -163,6 +163,41 @@ def test_udp_timeout_is_transport_timeout(loop: Any) -> None:
         responder.stop()
 
 
+def test_udp_cancel_then_close_keeps_loop_alive() -> None:
+    """取消 UDP 接收后关套接字:不得残留 selector 注册(否则``select()``崩循环)。
+
+    3.7 的 ``sock_recv_into`` 被取消时不立即摘 reader 注册,若此时关句柄,
+    ``select()`` 会对已关闭句柄抛 ``WSAENOTSOCK``(Windows 10038 / POSIX
+    ``EBADF``)——而 3.7 在 Windows 上的**默认**循环正是 Selector,故本用例
+    固定走 Selector 循环;修复前实测 ``OSError(10038)`` 从 ``run_until_complete``
+    逃逸(即事件循环被带崩),修复后在此通过。
+    """
+    responder = UdpResponder(transform=lambda data: None)  # 只记录不回应
+    port = responder.start()
+    try:
+
+        async def scenario() -> None:
+            transport = AsyncUdpTransport("127.0.0.1", port)
+            transport.receive_timeout = 5.0
+            await transport.connect()
+            task = asyncio.ensure_future(transport.recv(256))
+            await asyncio.sleep(0.05)  # 让 sock_recv_into 注册 reader
+            assert not task.done()  # 仍在等待 → reader 已注册(避免空跑)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            transport.close()
+            await asyncio.sleep(0.05)  # 让 select() 带着陈旧 fd 再跑一次
+
+        loop = make_loop("SelectorEventLoop")
+        try:
+            loop.run_until_complete(scenario())
+        finally:
+            loop.close()
+    finally:
+        responder.stop()
+
+
 def test_udp_oversize_datagram_maps_to_device_error() -> None:
     """超长数据报(WSAEMSGSIZE 10040)→ ``DeviceError(code=10040)``,与同步层同口径。
 
