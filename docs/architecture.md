@@ -828,9 +828,13 @@ Root/Objects/Types/Views 语义别名,递归与 ``max_depth`` 深度上限,
 策略配置(TLS/X.509)按内网部署口径**永久不考虑**。
 
 Modbus 协议复审(2026-09,对照 Modbus 官方规范):
-帧格式、地址域 0~65535、位打包 LSB、线圈 ON=0xFF00、异常码表
-(01~08/0A/0B)、MBAP 事务号/协议号/站号校验、RTU CRC16(0xA001
-反射,低字节在前)全部一致。差异与决策:
+参考[Modbus 应用协议 V1.1b3](https://www.modbus.cn/modbus-specifications)
+(应用层,功能码/异常码/MBAP/数据编码)与《Modbus 串行线协议与实现
+指南 V1.02》(RTU 物理层/帧间时序/CRC16);中文资源见
+[`modbus.cn`](https://www.modbus.cn/modbus-specifications)。帧格式、
+地址域 0~65535、位打包 LSB、线圈 ON=0xFF00、异常码表(01~08/0A/0B)、
+MBAP 事务号/协议号/站号校验、RTU CRC16(0xA001 反射,低字节在前)
+全部一致。差异与决策:
 
 - **数量上限**:本库写线圈上限 1968(规范 0x7B0,保守取值——
   更高上限可能被合规设备拒绝),本库不改。
@@ -858,8 +862,8 @@ Modbus 协议复审(2026-09,对照 Modbus 官方规范):
 
 | 本库模块 | 参考资料 |
 |---|---|
-| Modbus 编解码 | Modbus 官方规范(功能码/异常码/MBAP 组帧、事务号/协议号校验、按长收包;2026-09 复审见 §8 差异决策) |
-| Modbus TCP/RTU 客户端 | Modbus 规范(MODBUS over Serial Line / MODBUS TCP/IP 应用协议;CRC16 校验) |
+| Modbus 编解码 | [Modbus 应用协议 V1.1b3](https://www.modbus.cn/modbus-specifications)(功能码/异常码/MBAP 组帧、事务号/协议号校验、按长收包;中文资源见 [`modbus.cn`](https://www.modbus.cn/modbus-specifications);2026-09 复审见 §8 差异决策) |
+| Modbus TCP/RTU 客户端 | 《Modbus 串行线协议与实现指南 V1.02》+ [Modbus TCP/IP 消息实现指南 V1.0b](https://www.modbus.cn/modbus-specifications)(MBAP / 事务号 / 502 端口;CRC16 校验) |
 | 三菱 MC(3E/4E/1E,已实现) | MELSEC MC 协议手册 SH-080956(3E/4E 二进制与 ASCII 帧、软元件码表、核心命令);1E 帧按 A 兼容格式 |
 | 三菱 MC 串口帧 3C/4C(已实现) | 官方手册 SH-080008-AB《MELSEC Communication Protocol Reference Manual》(2022/05):4.2 节五种通信格式、4.3 节帧识别码(4C=F8H/3C=F9H)/和校验/控制码、6.1~6.2 节各帧路由字段、8.2 节成批读/写命令、**Appendix 7 完整报文设置示例**(3C/4C 读/写四例,黄金向量来源);协议核心命令复用本库 MC 模块 |
 | 三菱 MC 1C 帧(A 兼容串口,已实现) | 官方手册 SH-080008-AB《MELSEC Communication Protocol Reference Manual》第 17 章(A 兼容 1C 帧通信格式、BR/WR/BW/WW 成批读写命令、和校验范围算例、错误代码 2 位规格、帧识别码表"1C 不需要") |
