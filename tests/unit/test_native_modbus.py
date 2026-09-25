@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import struct
 from typing import Any, Dict, NamedTuple, Optional, Sequence, Tuple
 
 import pytest
@@ -17,6 +18,7 @@ from omniplc.core.errors import ErrorCategory
 from omniplc.modbus import codec
 from omniplc.native import AsyncModbusTcpClient
 from omniplc.native.transport import AsyncBaseTransport
+from omniplc.tag import Tag, TagTable
 from omniplc.transport.base import BaseTransport
 from omniplc.types import DataType, PrimitiveValue
 from scripted import ScriptedTransport
@@ -32,11 +34,21 @@ _RESP_COIL_OK = bytes([5, 0x00, 0x00, 0xFF, 0x00])      # FC05 回显
 _RESP_DEVICE_ERROR = bytes([0x83, 0x02])                # FC03 | 0x80,异常码 02
 
 
+def _resp_registers(data: bytes) -> bytes:
+    """按 FC03 规范把大端字节串包成读响应 PDU(测试脚手架)。"""
+    return bytes([3, len(data)]) + data
+
+
+# 点位表用例:scale/offset 取整数倍,保证逆缩放无浮点误差(读写两侧都可精确还原)
+_TAG = Tag(tag_id="flow", address="hr0", data_type="ushort", scale=2.0, offset=10.0)
+
+
 class Case(NamedTuple):
     """一条对拍用例:同一批响应分片喂同步与异步客户端,比对全部可观测结果。
 
-    ``op`` 取 ``"read"`` / ``"write"`` / ``"read_string"``(字符串在两侧都走
-    ``read_string`` 入口,不经 ``read(DataType.STRING)``——同步层同样如此)。
+    ``op`` 取 ``"read"`` / ``"write"`` / ``"read_string"`` / ``"read_tag"`` /
+    ``"write_tag"``(字符串在两侧都走 ``read_string`` 入口,不经
+    ``read(DataType.STRING)``——同步层同样如此;点位表用例经 ``tag`` 字段绑定)。
     """
 
     name: str
@@ -52,13 +64,22 @@ class Case(NamedTuple):
     expect_category: Optional[ErrorCategory]
     expect_code: Optional[int]
     length: int = 4
+    tag: Optional[Tag] = None
 
 
 _READ_CASES = [
     Case("ushort", "read", "hr0", DataType.USHORT, None, ((1, _RESP_ONE_REGISTER),), True, 20, True, None, None),
     Case("bool_coil", "read", "c0", DataType.BOOL, None, ((1, _RESP_ONE_COIL),), True, True, True, None, None),
+    Case("short", "read", "hr0", DataType.SHORT, None, ((1, _resp_registers(struct.pack(">h", -2))),), True, -2, True, None, None),
+    Case("int", "read", "hr0", DataType.INT, None, ((1, _resp_registers(struct.pack(">i", -2))),), True, -2, True, None, None),
+    Case("uint", "read", "hr0", DataType.UINT, None, ((1, _resp_registers(struct.pack(">I", 4294967290))),), True, 4294967290, True, None, None),
     Case("float", "read", "hr0", DataType.FLOAT, None, ((1, _RESP_FLOAT),), True, -1.5, True, None, None),
+    Case("long", "read", "hr0", DataType.LONG, None, ((1, _resp_registers(struct.pack(">q", -2))),), True, -2, True, None, None),
+    Case("ulong", "read", "hr0", DataType.ULONG, None, ((1, _resp_registers(struct.pack(">Q", 2 ** 64 - 5))),), True, 2 ** 64 - 5, True, None, None),
+    Case("double", "read", "hr0", DataType.DOUBLE, None, ((1, _resp_registers(struct.pack(">d", 1.5))),), True, 1.5, True, None, None),
     Case("string", "read_string", "hr0", DataType.STRING, None, ((1, _RESP_STRING),), True, "OMNI", True, None, None),
+    # 点位表:scale/offset 正向与逆缩放(同一次读写的两条路径)
+    Case("read_tag", "read_tag", "hr0", DataType.USHORT, None, ((1, _RESP_ONE_REGISTER),), True, 50.0, True, None, None, tag=_TAG),
     # PLC 明确报错:不断线、分类 DEVICE、错误码原样落
     Case("device_error", "read", "hr0", DataType.USHORT, None, ((1, _RESP_DEVICE_ERROR),), False, None, True, ErrorCategory.DEVICE, 2),
     # 事务号不匹配(迟到帧/网关错配):坏帧 → 拆连,分类 PROTOCOL
@@ -67,6 +88,11 @@ _READ_CASES = [
 
 _WRITE_CASES = [
     Case("write_ushort", "write", "hr0", DataType.USHORT, 20, ((1, _RESP_WRITE_OK),), True, None, True, None, None),
+    Case("write_short", "write", "hr0", DataType.SHORT, -2, ((1, bytes([6, 0x00, 0x00, 0xFF, 0xFE])),), True, None, True, None, None),
+    Case("write_float", "write", "hr0", DataType.FLOAT, -1.5, ((1, bytes([0x10, 0x00, 0x00, 0x00, 0x02])),), True, None, True, None, None),
+    Case("write_double", "write", "hr0", DataType.DOUBLE, 1.5, ((1, bytes([0x10, 0x00, 0x00, 0x00, 0x04])),), True, None, True, None, None),
+    Case("write_string", "write_string", "hr0", DataType.STRING, "OMNI", ((1, bytes([0x10, 0x00, 0x00, 0x00, 0x02])),), True, None, True, None, None),
+    Case("write_tag", "write_tag", "hr0", DataType.USHORT, 50.0, ((1, _RESP_WRITE_OK),), True, None, True, None, None, tag=_TAG),
     Case("write_bool_coil", "write", "c0", DataType.BOOL, True, ((1, _RESP_COIL_OK),), True, None, True, None, None),
     # 寄存器位写 = 读-改-写两段事务(读响应 + 写回显)
     Case(
@@ -90,11 +116,19 @@ def _chunks(responses: Sequence[Tuple[int, bytes]]) -> list:
 
 
 def _call(client: Any, case: Case, is_async: bool) -> Any:
-    """按用例调用客户端(读/写/读字符串),返回同步结果或协程。"""
+    """按用例调用客户端(读/写/字符串/点位),返回同步结果或协程。"""
     if case.op == "write":
         return client.write(case.address, case.data_type, case.value)
+    if case.op == "write_string":
+        return client.write_string(case.address, str(case.value))
     if case.op == "read_string":
         return client.read_string(case.address, case.length)
+    if case.op == "read_tag":
+        assert case.tag is not None
+        return client.read_tag(case.tag.tag_id)
+    if case.op == "write_tag":
+        assert case.tag is not None
+        return client.write_tag(case.tag.tag_id, case.value)
     return client.read(case.address, case.data_type)
 
 
@@ -114,6 +148,8 @@ def _snapshot(client: Any) -> Dict[str, Any]:
 
 def _run_sync(monkeypatch: pytest.MonkeyPatch, case: Case) -> Tuple[bytes, Any, Dict[str, Any], str]:
     client = ModbusTcpClient("127.0.0.1", 502, 1)
+    if case.tag is not None:
+        client.bind_tags(TagTable([case.tag]))
     scripted = ScriptedTransport(_chunks(case.responses))
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     assert client.connect() is True
@@ -128,6 +164,8 @@ def _run_async(
 
     async def scenario() -> None:
         client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+        if case.tag is not None:
+            client.bind_tags(TagTable([case.tag]))
         scripted = ScriptedAsyncTransport(_chunks(case.responses))
         monkeypatch.setattr(client, "_create_transport", lambda: scripted)
         assert await client.connect() is True
@@ -161,6 +199,12 @@ def test_sync_async_parity(
     assert async_sent == sync_sent, "请求帧必须逐字节相同"
     assert async_result == sync_result
     assert async_snapshot == sync_snapshot
+    # 结果形状也按用例声明核对一遍(对拍相等只证明"两侧一样",不证明"符合期望")
+    if case.op in ("write", "write_string", "write_tag"):
+        assert async_result is case.expect_ok
+    else:
+        assert async_result[0] is case.expect_ok
+        assert async_result[1] == case.expect_value
 
 
 def test_sync_async_parity_error_text(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:

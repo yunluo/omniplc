@@ -17,6 +17,7 @@ from omniplc.plc.omron import codec
 from omniplc.plc.omron import omron as omron_module
 from omniplc.plc.omron.address import parse_fins_address
 from omniplc.native import omron as native_omron_module
+from omniplc.tag import Tag, TagTable
 from omniplc.types import DataType, PrimitiveValue
 from scripted import ScriptedTransport
 from scripted_async import ScriptedAsyncTransport, loop_names, make_loop
@@ -64,11 +65,28 @@ def _tcp_chunks(*fins_frames: bytes) -> Sequence[bytes]:
     return chunks
 
 
-_READ_RESP = _fins_response(1, 0x0101, data=b"\x00\x14")  # D100 = 20
+def _words_be(values: Sequence[int]) -> bytes:
+    """字序列按 FINS 大端字序拼字节(测试脚手架)。"""
+    return b"".join(value.to_bytes(2, "big") for value in values)
+
+
+_READ_RESP = _fins_response(1, 0x0101, data=_words_be([20]))  # D100 = 20
 _BIT_READ_RESP = _fins_response(1, 0x0101, data=b"\x01")  # 1 点 ON
 _WRITE_RESP = _fins_response(1, 0x0102)
 _ERROR_RESP = _fins_response(1, 0x0101, end_code=0x0001)
-_SID_MISMATCH_RESP = _fins_response(99, 0x0101, data=b"\x00\x14")
+_SID_MISMATCH_RESP = _fins_response(99, 0x0101, data=_words_be([20]))
+_INT_RESP = _fins_response(1, 0x0101, data=_words_be([0xFFFF, 0xFFFE]))  # -2(补码)
+_LONG_RESP = _fins_response(
+    1, 0x0101, data=_words_be([0xFFFF, 0xFFFF, 0xFFFF, 0xFFFE])
+)
+_FLOAT_RESP = _fins_response(1, 0x0101, data=_words_be([0x3FC0, 0x0000]))  # 1.5f
+_DOUBLE_RESP = _fins_response(
+    1, 0x0101, data=_words_be([0x3FF8, 0x0000, 0x0000, 0x0000])
+)  # 1.5d
+_STRING_RESP = _fins_response(1, 0x0101, data=_words_be([0x4F4D, 0x4E49]))  # "OMNI"
+
+# 点位表用例:scale/offset 取整数倍,保证逆缩放无浮点误差
+_TAG = Tag(tag_id="flow", address="D100", data_type="ushort", scale=2.0, offset=10.0)
 
 
 class Case(NamedTuple):
@@ -85,17 +103,31 @@ class Case(NamedTuple):
     expect_value: Optional[PrimitiveValue]
     expect_connected: bool
     expect_category: Optional[ErrorCategory]
+    length: int = 4
+    tag: Optional[Tag] = None
 
 
 _CASES = [
     Case("udp_read", True, "read", "D100", DataType.USHORT, None, (_READ_RESP,), True, 20, True, None),
     Case("udp_read_bit", True, "read", "CIO0.5", DataType.BOOL, None, (_BIT_READ_RESP,), True, True, True, None),
+    Case("udp_read_int", True, "read", "D100", DataType.INT, None, (_INT_RESP,), True, -2, True, None),
+    Case("udp_read_double", True, "read", "D100", DataType.DOUBLE, None, (_DOUBLE_RESP,), True, 1.5, True, None),
+    Case("udp_read_string", True, "read_string", "D100", DataType.STRING, None, (_STRING_RESP,), True, "OMNI", True, None),
     Case("udp_write", True, "write", "D100", DataType.USHORT, 20, (_WRITE_RESP,), True, None, True, None),
+    Case("udp_write_string", True, "write_string", "D100", DataType.STRING, "OMNI", (_WRITE_RESP,), True, None, True, None),
+    Case("udp_read_tag", True, "read_tag", "D100", DataType.USHORT, None, (_READ_RESP,), True, 50.0, True, None, tag=_TAG),
+    Case("udp_write_tag", True, "write_tag", "D100", DataType.USHORT, 50.0, (_WRITE_RESP,), True, None, True, None, tag=_TAG),
     Case("udp_device_error", True, "read", "D100", DataType.USHORT, None, (_ERROR_RESP,), False, None, True, ErrorCategory.DEVICE),
     Case("udp_sid_mismatch", True, "read", "D100", DataType.USHORT, None, (_SID_MISMATCH_RESP,), False, None, False, ErrorCategory.PROTOCOL),
     Case("tcp_read", False, "read", "D100", DataType.USHORT, None, _tcp_chunks(_READ_RESP), True, 20, True, None),
     Case("tcp_read_bit", False, "read", "CIO0.5", DataType.BOOL, None, _tcp_chunks(_BIT_READ_RESP), True, True, True, None),
+    Case("tcp_read_long", False, "read", "D100", DataType.LONG, None, _tcp_chunks(_LONG_RESP), True, -2, True, None),
+    Case("tcp_read_float", False, "read", "D100", DataType.FLOAT, None, _tcp_chunks(_FLOAT_RESP), True, 1.5, True, None),
+    Case("tcp_read_string", False, "read_string", "D100", DataType.STRING, None, _tcp_chunks(_STRING_RESP), True, "OMNI", True, None),
     Case("tcp_write", False, "write", "D100", DataType.USHORT, 20, _tcp_chunks(_WRITE_RESP), True, None, True, None),
+    Case("tcp_write_string", False, "write_string", "D100", DataType.STRING, "OMNI", _tcp_chunks(_WRITE_RESP), True, None, True, None),
+    Case("tcp_read_tag", False, "read_tag", "D100", DataType.USHORT, None, _tcp_chunks(_READ_RESP), True, 50.0, True, None, tag=_TAG),
+    Case("tcp_write_tag", False, "write_tag", "D100", DataType.USHORT, 50.0, _tcp_chunks(_WRITE_RESP), True, None, True, None, tag=_TAG),
     Case("tcp_device_error", False, "read", "D100", DataType.USHORT, None, _tcp_chunks(_ERROR_RESP), False, None, True, ErrorCategory.DEVICE),
     Case("tcp_sid_mismatch", False, "read", "D100", DataType.USHORT, None, _tcp_chunks(_SID_MISMATCH_RESP), False, None, False, ErrorCategory.PROTOCOL),
 ]
@@ -104,6 +136,16 @@ _CASES = [
 def _call(client: Any, case: Case) -> Any:
     if case.op == "write":
         return client.write(case.address, case.data_type, case.value)
+    if case.op == "write_string":
+        return client.write_string(case.address, str(case.value))
+    if case.op == "read_string":
+        return client.read_string(case.address, case.length)
+    if case.op == "read_tag":
+        assert case.tag is not None
+        return client.read_tag(case.tag.tag_id)
+    if case.op == "write_tag":
+        assert case.tag is not None
+        return client.write_tag(case.tag.tag_id, case.value)
     return client.read(case.address, case.data_type)
 
 
@@ -148,6 +190,8 @@ def test_sync_async_parity(
 ) -> None:
     """对拍:请求帧逐字节相同 + 结果/连接态/错误口径/计数完全一致。"""
     sync_client = _make_sync_client(case)
+    if case.tag is not None:
+        sync_client.bind_tags(TagTable([case.tag]))
     sync_scripted = ScriptedTransport(list(case.responses), datagram=case.datagram)
     monkeypatch.setattr(sync_client, "_create_transport", lambda: sync_scripted)
     assert sync_client.connect() is True
@@ -158,6 +202,8 @@ def test_sync_async_parity(
 
     async def scenario() -> None:
         client = _make_async_client(case)
+        if case.tag is not None:
+            client.bind_tags(TagTable([case.tag]))
         scripted = ScriptedAsyncTransport(list(case.responses), datagram=case.datagram)
         monkeypatch.setattr(client, "_create_transport", lambda: scripted)
         assert await client.connect() is True
@@ -170,7 +216,7 @@ def test_sync_async_parity(
 
     assert holder["sent"] == bytes(sync_scripted.sent), "请求帧必须逐字节相同"
     assert holder["result"] == sync_result
-    if case.op == "write":
+    if case.op in ("write", "write_string", "write_tag"):
         assert holder["result"] is case.expect_ok
     else:
         assert holder["result"][0] is case.expect_ok

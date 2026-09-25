@@ -16,7 +16,8 @@ from omniplc.core.errors import ErrorCategory
 from omniplc.native import AsyncMelsecMcTcpClient, AsyncMelsecMcUdpClient
 from omniplc.plc.melsec import codec_qna
 from omniplc.plc.melsec.address import parse_mc_address
-from omniplc.plc.melsec.melsec import _encode_32
+from omniplc.plc.melsec.melsec import _encode_32, _encode_64
+from omniplc.tag import Tag, TagTable
 from omniplc.types import DataType, PrimitiveValue
 from scripted import ScriptedTransport
 from scripted_async import RawTcpServer, ScriptedAsyncTransport, loop_names, make_loop
@@ -65,17 +66,28 @@ class Case(NamedTuple):
     expect_value: Optional[PrimitiveValue]
     expect_connected: bool
     expect_category: Optional[ErrorCategory]
+    length: int = 4
+    tag: Optional[Tag] = None
 
 
 _3E_READ = _qna_read_response([20])
 _3E_WRITE = _qna_write_response()
 _3E_FLOAT = _qna_read_response(_encode_32(-1.5, DataType.FLOAT))
+_3E_INT = _qna_read_response(_encode_32(-2, DataType.INT))
+_3E_LONG = _qna_read_response(_encode_64(-2, DataType.LONG))
+_3E_DOUBLE = _qna_read_response(_encode_64(1.5, DataType.DOUBLE))
+# 字符串按 MC 字序(小端)拆字:"OMNI" → [b"OM" 小端, b"NI" 小端]
+_OMNI_WORDS_LE = [int.from_bytes(b"OMNI"[i:i + 2], "little") for i in range(0, 4, 2)]
+_3E_STRING_READ = _qna_read_response(_OMNI_WORDS_LE)
 _1E_READ = _one_e_read_response([20])
 _1E_WRITE = _one_e_write_response()
 # 1E 位读响应副头 = 位读请求副头(0x00) + 0x80;1 点位打包在高半字节(bit4)
 _1E_BIT_READ = bytes([0x80, 0x00, 0x10])
 _3E_BIT_READ = b"\xd0\x00\x00\xff\xff\x03\x00\x03\x00\x00\x00\x10"
 _3E_BAD_SUBHEAD = bytes([0x50, 0x00, 0x00, 0xFF, 0xFF, 0x03, 0x00, 0x02, 0x00, 0x00, 0x00])
+
+# 点位表用例:scale/offset 取整数倍,保证逆缩放无浮点误差
+_TAG = Tag(tag_id="flow", address="D100", data_type="ushort", scale=2.0, offset=10.0)
 
 
 def _split_3e(frame: bytes) -> Sequence[bytes]:
@@ -89,12 +101,20 @@ def _split_1e(frame: bytes) -> Sequence[bytes]:
 _CASES = [
     Case("tcp_3e_read", "3E", False, "read", "D100", DataType.USHORT, None, _split_3e(_3E_READ), True, 20, True, None),
     Case("tcp_3e_read_float", "3E", False, "read", "D100", DataType.FLOAT, None, _split_3e(_3E_FLOAT), True, -1.5, True, None),
+    Case("tcp_3e_read_int", "3E", False, "read", "D100", DataType.INT, None, _split_3e(_3E_INT), True, -2, True, None),
+    Case("tcp_3e_read_long", "3E", False, "read", "D100", DataType.LONG, None, _split_3e(_3E_LONG), True, -2, True, None),
+    Case("tcp_3e_read_double", "3E", False, "read", "D100", DataType.DOUBLE, None, _split_3e(_3E_DOUBLE), True, 1.5, True, None),
+    Case("tcp_3e_read_string", "3E", False, "read_string", "D100", DataType.STRING, None, _split_3e(_3E_STRING_READ), True, "OMNI", True, None),
     Case("tcp_3e_write", "3E", False, "write", "D100", DataType.USHORT, 20, _split_3e(_3E_WRITE), True, None, True, None),
+    Case("tcp_3e_write_string", "3E", False, "write_string", "D100", DataType.STRING, "OMNI", _split_3e(_3E_WRITE), True, None, True, None),
+    Case("tcp_3e_read_tag", "3E", False, "read_tag", "D100", DataType.USHORT, None, _split_3e(_3E_READ), True, 50.0, True, None, tag=_TAG),
+    Case("tcp_3e_write_tag", "3E", False, "write_tag", "D100", DataType.USHORT, 50.0, _split_3e(_3E_WRITE), True, None, True, None, tag=_TAG),
     Case("tcp_3e_read_bit", "3E", False, "read", "M10", DataType.BOOL, None, _split_3e(_3E_BIT_READ), True, True, True, None),
     Case("tcp_1e_read", "1E", False, "read", "D100", DataType.USHORT, None, _split_1e(_1E_READ), True, 20, True, None),
     Case("tcp_1e_write", "1E", False, "write", "D100", DataType.USHORT, 20, _split_1e(_1E_WRITE), True, None, True, None),
     Case("tcp_1e_read_bit", "1E", False, "read", "M10", DataType.BOOL, None, _split_1e(_1E_BIT_READ), True, True, True, None),
     Case("udp_3e_read", "3E", True, "read", "D100", DataType.USHORT, None, (_3E_READ,), True, 20, True, None),
+    Case("udp_3e_read_double", "3E", True, "read", "D100", DataType.DOUBLE, None, (_3E_DOUBLE,), True, 1.5, True, None),
     Case("udp_1e_read", "1E", True, "read", "D100", DataType.USHORT, None, (_1E_READ,), True, 20, True, None),
     # 结束码非 0(PLC 明确报错):不断线、分类 DEVICE
     Case("tcp_3e_device_error", "3E", False, "read", "D100", DataType.USHORT, None, _split_3e(_qna_read_response([], end_code=0xC059)), False, None, True, ErrorCategory.DEVICE),
@@ -106,6 +126,16 @@ _CASES = [
 def _call(client: Any, case: Case) -> Any:
     if case.op == "write":
         return client.write(case.address, case.data_type, case.value)
+    if case.op == "write_string":
+        return client.write_string(case.address, str(case.value))
+    if case.op == "read_string":
+        return client.read_string(case.address, case.length)
+    if case.op == "read_tag":
+        assert case.tag is not None
+        return client.read_tag(case.tag.tag_id)
+    if case.op == "write_tag":
+        assert case.tag is not None
+        return client.write_tag(case.tag.tag_id, case.value)
     return client.read(case.address, case.data_type)
 
 
@@ -146,6 +176,8 @@ def test_sync_async_parity(
 ) -> None:
     """对拍:请求帧逐字节相同 + 结果/连接态/错误口径/计数完全一致。"""
     sync_client = _make_sync_client(case)
+    if case.tag is not None:
+        sync_client.bind_tags(TagTable([case.tag]))
     sync_scripted = ScriptedTransport(list(case.responses), datagram=case.datagram)
     monkeypatch.setattr(sync_client, "_create_transport", lambda: sync_scripted)
     assert sync_client.connect() is True
@@ -156,6 +188,8 @@ def test_sync_async_parity(
 
     async def scenario() -> None:
         client = _make_async_client(case)
+        if case.tag is not None:
+            client.bind_tags(TagTable([case.tag]))
         scripted = ScriptedAsyncTransport(list(case.responses), datagram=case.datagram)
         monkeypatch.setattr(client, "_create_transport", lambda: scripted)
         assert await client.connect() is True
@@ -168,7 +202,7 @@ def test_sync_async_parity(
 
     assert holder["sent"] == bytes(sync_scripted.sent), "请求帧必须逐字节相同"
     assert holder["result"] == sync_result
-    if case.op == "write":
+    if case.op in ("write", "write_string", "write_tag"):
         assert holder["result"] is case.expect_ok
     else:
         assert holder["result"][0] is case.expect_ok
