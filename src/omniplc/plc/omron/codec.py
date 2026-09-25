@@ -34,6 +34,7 @@ from ...core.constants import (
     FINS_HANDSHAKE_RESPONSE_SIZE,
     FINS_HEADER_SIZE,
     FINS_ICF,
+    FINS_ICF_RESPONSE,
     FINS_MAX_MULTIPLE_ELEMENTS,
     FINS_MAX_TCP_FRAME,
     FINS_MEMORY_CODES,
@@ -189,16 +190,23 @@ def build_multiple_area_read(
     )
 
 
-def parse_multiple_area_read(frame: bytes, codes: Sequence[int]) -> List[int]:
+def parse_multiple_area_read(
+    frame: bytes, request_frame: bytes, codes: Sequence[int]
+) -> List[int]:
     """解析多存储区读响应,返回逐条字数据(大端)。
 
     响应每条为 ``区码回显(1 字节) + 字数据(2 字节,大端)``,区码
     与请求顺序逐一比对,不符按坏帧处理(流内可能已失步)。
 
+    :param request_frame: 对应的请求 FINS 帧;用于 ICF / SID / 命令码
+        回显校验——三者是本次事务的身份标识,不符按串话/迟到处理。
+
     :raises omniplc.core.errors.DeviceError: 结束码非 0
-    :raises omniplc.core.errors.ProtocolFrameError: 帧结构/区码回显不符
-        (消息带**收到的原始帧**十六进制转储,便于现场与抓包比对)
+    :raises omniplc.core.errors.ProtocolFrameError: 帧结构/ICF·SID·
+        命令码·区码回显不符(消息带**收到的原始帧**十六进制转储,
+        便于现场与抓包比对)
     """
+    _check_identity(frame, request_frame)
     prefix = FINS_HEADER_SIZE + 2
     if len(frame) < prefix + FINS_END_CODE_SIZE:
         raise ProtocolFrameError(
@@ -232,18 +240,27 @@ def parse_multiple_area_read(frame: bytes, codes: Sequence[int]) -> List[int]:
     return words
 
 
-def parse_response(frame: bytes, count: int, is_bit: bool, is_read: bool) -> List[int]:
+def parse_response(
+    frame: bytes,
+    request_frame: bytes,
+    count: int,
+    is_bit: bool,
+    is_read: bool,
+) -> List[int]:
     """解析 FINS 帧响应(TCP 载荷或 UDP 整包均可)。
 
     :param frame: FINS 帧响应
+    :param request_frame: 对应的请求 FINS 帧;用于 ICF / SID / 命令码
+        回显校验——三者是本次事务的身份标识,不符按串话/迟到处理。
     :param count: 请求点数(读时校验数据长度)
     :param is_bit: 是否位单位访问
     :param is_read: 是否读操作(写响应无数据)
     :return: 读为逐点数据(位 0/1,字 0~65535);写恒为空列表
     :raises omniplc.core.errors.DeviceError: 结束码非 0
-    :raises omniplc.core.errors.ProtocolFrameError: 帧结构不符
-        (消息带**收到的原始帧**十六进制转储,便于现场与抓包比对)
+    :raises omniplc.core.errors.ProtocolFrameError: 帧结构/ICF·SID·
+        命令码不符(消息带**收到的原始帧**十六进制转储,便于现场与抓包比对)
     """
+    _check_identity(frame, request_frame)
     prefix = FINS_HEADER_SIZE + 2
     if len(frame) < prefix + FINS_END_CODE_SIZE:
         raise ProtocolFrameError(
@@ -305,6 +322,15 @@ def parse_tcp_head(head: bytes) -> int:
             )
         )
     length = int.from_bytes(head[4:8], "big")
+    # FINS 帧最小 = 头(10) + 命令(2) + 结束码(2) = 14 字节;长度域
+    # 小于此即坏帧,直接报错定位前移(避免下游 ``recv(0)`` 阻塞到超时)。
+    min_fins_frame = FINS_HEADER_SIZE + 2 + FINS_END_CODE_SIZE
+    if length < min_fins_frame:
+        raise ProtocolFrameError(
+            "FINS/TCP 长度域过短:{} < 最小 FINS 帧 {} 字节(收到的原始帧头:{})".format(
+                length, min_fins_frame, format_hex(head)
+            )
+        )
     if length > FINS_MAX_TCP_FRAME:
         raise ProtocolFrameError(
             "FINS/TCP 长度域超限:{} > {}(收到的原始帧头:{})".format(
@@ -441,3 +467,40 @@ def _check_count(count: int) -> None:
     """点数范围校验(内部函数)。"""
     if not 1 <= count <= 0xFFFF:
         raise ValueError(f"FINS 访问点数超出范围 1~65535:{count}")
+
+
+def _check_identity(frame: bytes, request_frame: bytes) -> None:
+    """校验应答帧与请求帧的 ICF / SID / 命令码三者回显(内部函数)。
+
+    串话(局域网其他 FINS 设备)/ 迟到响应(超时后到达的过期数据)
+    在单锁模型下风险较低,但 UDP 无源地址过滤时仍有混入可能——
+    三层事务标识回显校验作为最后一道防线,任何一项不符即按坏帧处理。
+    """
+    expected_sid = request_frame[9]
+    expected_command = int.from_bytes(request_frame[10:12], "big")
+    # 先做长度快速判断再回显比对,避免 IndexError 掩盖真正问题
+    if len(frame) < FINS_HEADER_SIZE + 2:
+        raise ProtocolFrameError(
+            "FINS 响应不完整(无法核对 ICF/SID/命令码):至少 {} 字节,实际 {}(收到的原始帧:{})".format(
+                FINS_HEADER_SIZE + 2, len(frame), format_hex(frame)
+            )
+        )
+    if frame[0] != FINS_ICF_RESPONSE:
+        raise ProtocolFrameError(
+            "FINS 响应 ICF 非法:期望 0x{:02X},收到 0x{:02X}(收到的原始帧:{})".format(
+                FINS_ICF_RESPONSE, frame[0], format_hex(frame)
+            )
+        )
+    if frame[9] != expected_sid:
+        raise ProtocolFrameError(
+            "FINS 响应 SID 回显不符:期望 0x{:02X},收到 0x{:02X}(收到的原始帧:{})".format(
+                expected_sid, frame[9], format_hex(frame)
+            )
+        )
+    if frame[10:12] != expected_command.to_bytes(2, "big"):
+        actual_command = int.from_bytes(frame[10:12], "big")
+        raise ProtocolFrameError(
+            "FINS 响应命令码回显不符:期望 0x{:04X},收到 0x{:04X}(收到的原始帧:{})".format(
+                expected_command, actual_command, format_hex(frame)
+            )
+        )

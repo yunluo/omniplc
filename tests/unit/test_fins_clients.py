@@ -310,3 +310,92 @@ def test_async_mirror_read_batch() -> None:
         await client.close()
 
     asyncio.run(scenario())
+
+
+# ----------------------------------------------------------------------
+# 校验加固回归测试(v0.36 候选):构造期范围 + 推导范围 + 应答身份回显
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "label"),
+    [
+        ({"destination_network": 128}, "目标网络号"),
+        ({"destination_network": -1}, "目标网络号"),
+        ({"destination_node": 128}, "目标节点号"),
+        ({"destination_unit": 256}, "目标单元号"),
+        ({"source_network": 128}, "源网络号"),
+        ({"source_node": 128}, "源节点号"),
+        ({"source_unit": 256}, "源单元号"),
+    ],
+)
+def test_fins_constructor_rejects_out_of_range_route(
+    kwargs: dict, label: str
+) -> None:
+    """构造期路由字段范围校验:network 0~127,node 0~127,unit 0~255,越界 ValueError。"""
+    with pytest.raises(ValueError) as exc_info:
+        OmronFinsUdpClient("192.168.250.1", **kwargs)
+    assert label in exc_info.value.args[0]
+
+
+def test_tcp_constructor_rejects_local_node_out_of_range() -> None:
+    """TCP local_node:0~127 范围校验,越界 ValueError。"""
+    with pytest.raises(ValueError):
+        OmronFinsTcpClient("192.168.250.1", local_node=128)
+
+
+def test_fins_constructor_accepts_auto_mode_zero() -> None:
+    """构造期路由字段合法边界值:0(自动标记)/127(上限)原样接受。"""
+    # node=0 表示自动(node 号后续由握手或 IP 推导刷新,见 v0.32 决议)
+    client = OmronFinsUdpClient(
+        "192.168.250.1",
+        destination_node=0,
+        source_node=0,
+        destination_network=127,
+        destination_unit=255,
+    )
+    assert client.destination_network == 127
+    assert client.destination_unit == 255
+    assert client._auto_destination_node is True
+    assert client._auto_source_node is True
+
+
+def test_node_from_host_rejects_out_of_range_last_octet() -> None:
+    """IP 末段推导节点号超 1~126(以太网 FINS 合法范围)抛 ValueError,提示显式指定。"""
+    with pytest.raises(ValueError) as exc_info:
+        omron_module._node_from_host("192.168.250.200")
+    assert "节点号" in exc_info.value.args[0]
+    with pytest.raises(ValueError):
+        omron_module._node_from_host("192.168.250.127")
+    with pytest.raises(ValueError):
+        omron_module._node_from_host("192.168.250.0")
+
+
+def test_udp_connect_fails_when_derived_node_out_of_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """UDP 自动模式:PLC IP 末段超 1~126 时,connect 经推导失败语义拒绝。
+
+    与 v0.30 A4 一致——``_after_connect`` 在 connect 的异常收口段调用,
+    ValueError 经清理落到干净状态,``connected`` 仍为 False。
+    """
+    client = OmronFinsUdpClient("192.168.250.200")  # 末段 200 超出 1~126
+    scripted = ScriptedTransport([])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    assert client.connect() is False
+    assert client.connected is False
+    assert client.last_error is not None and "节点号" in client.last_error
+
+
+def test_udp_explicit_node_bypasses_derivation_range_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """UDP 显式 destination_node:跳过推导,即使 PLC IP 末段超限也照常组帧。"""
+    client = OmronFinsUdpClient(
+        "192.168.250.200", destination_node=5, source_node=10
+    )
+    scripted = ScriptedTransport([_fins_read_response([20])])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("D100") == (True, 20)
+    assert client._destination_node == 5

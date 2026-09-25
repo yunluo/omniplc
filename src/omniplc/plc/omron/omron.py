@@ -28,11 +28,15 @@ from ...core.constants import (
     FINS_DEFAULT_SOURCE_NETWORK,
     FINS_DEFAULT_SOURCE_UNIT,
     FINS_MAX_DATAGRAM,
+    FINS_NETWORK_MAX,
+    FINS_NODE_DERIVED_MAX,
+    FINS_NODE_MAX,
     FINS_SID_BITS,
     FINS_TCP_HEADER_SIZE,
     FINS_TIMER_COUNTER_AREAS,
+    FINS_UNIT_MAX,
 )
-from ...core.validation import check_int16, check_uint16, require_bool
+from ...core.validation import check_int16, check_range, check_uint16, require_bool
 from ...transport import BaseTransport, TcpTransport, UdpTransport
 from ...types import ByteOrder, DataType, PrimitiveValue
 
@@ -41,12 +45,15 @@ def _node_from_host(host: str) -> int:
     """取 IPv4 地址末段作为 FINS 节点号;主机名先解析(内部函数)。
 
     Omron 以太网 FINS 节点号惯例 = IP 地址最后一段(如
-    ``192.168.250.1`` → 节点 1)。
+    ``192.168.250.1`` → 节点 1);末段须在以太网 FINS 合法范围 1~126 内
+    (0/127 为保留/广播),超限抛 :class:`ValueError`,提示调用方改用
+    显式 ``destination_node``/``source_node``。
     """
     text = host
     if not text.rsplit(".", 1)[-1].isdigit():
         text = socket.gethostbyname(host)
-    return int(text.rsplit(".", 1)[-1])
+    node = int(text.rsplit(".", 1)[-1])
+    return check_range(node, 1, FINS_NODE_DERIVED_MAX, "从 IP 末段推导的 FINS 节点号")
 
 
 def _local_ip_for(host: str, port: int) -> str:
@@ -90,14 +97,31 @@ class _OmronFinsBase(BaseClient):
         """
         validate_endpoint(ip_address, port)
         super().__init__(ip_address, port)
-        self._destination_network = int(destination_network)
-        self._destination_node = (
-            int(destination_node) if destination_node is not None else 0
+        # FINS 路由字段范围校验:network 0~127,node 0~127(0 留给"自动"
+        # 标记),unit 0~255——越界在构造期显式拒绝,避免到组帧时被
+        # ``& 0xFF`` 静默截断发出语义错位的报文。
+        self._destination_network = check_range(
+            int(destination_network), 0, FINS_NETWORK_MAX, "目标网络号"
         )
-        self._destination_unit = int(destination_unit)
-        self._source_network = int(source_network)
-        self._source_node = int(source_node) if source_node is not None else 0
-        self._source_unit = int(source_unit)
+        self._destination_node = (
+            check_range(int(destination_node), 0, FINS_NODE_MAX, "目标节点号")
+            if destination_node is not None
+            else 0
+        )
+        self._destination_unit = check_range(
+            int(destination_unit), 0, FINS_UNIT_MAX, "目标单元号"
+        )
+        self._source_network = check_range(
+            int(source_network), 0, FINS_NETWORK_MAX, "源网络号"
+        )
+        self._source_node = (
+            check_range(int(source_node), 0, FINS_NODE_MAX, "源节点号")
+            if source_node is not None
+            else 0
+        )
+        self._source_unit = check_range(
+            int(source_unit), 0, FINS_UNIT_MAX, "源单元号"
+        )
         # 记录节点号是否为自动模式(None/0 = 握手或 IP 推导):自动模式每次
         # 连接都刷新为最新推导/握手结果,显式配置的节点号不被覆盖
         self._auto_destination_node = destination_node is None or destination_node == 0
@@ -294,7 +318,9 @@ class _OmronFinsBase(BaseClient):
                 self._next_sid(),
                 entries,
             )
-            words = codec.parse_multiple_area_read(self._transact(frame), codes)
+            words = codec.parse_multiple_area_read(
+                self._transact(frame), frame, codes
+            )
             values: List[PrimitiveValue] = []
             for kind, index, extra, item_type in plan:
                 if kind == "wordbit":
@@ -312,25 +338,31 @@ class _OmronFinsBase(BaseClient):
     def _read_bit_impl(self, parsed: FinsAddress) -> bool:
         """位读:位存储区码 + 位地址,CPU 直接返回点位值。"""
         frame = self._build_read(parsed, 1, is_bit=True)
-        values = codec.parse_response(self._transact(frame), 1, is_bit=True, is_read=True)
+        values = codec.parse_response(
+            self._transact(frame), frame, 1, is_bit=True, is_read=True
+        )
         return bool(values[0])
 
     def _read_words(self, parsed: FinsAddress, word_count: int) -> List[int]:
         """字读:字存储区码,返回 0~65535 逐字数据(大端)。"""
         frame = self._build_read(parsed, word_count, is_bit=False)
         return codec.parse_response(
-            self._transact(frame), word_count, is_bit=False, is_read=True
+            self._transact(frame), frame, word_count, is_bit=False, is_read=True
         )
 
     def _write_bits(self, parsed: FinsAddress, values: List[int]) -> None:
         """位写:位存储区码,每点 1 字节 0x00/0x01。"""
         frame = self._build_write(parsed, values, is_bit=True)
-        codec.parse_response(self._transact(frame), len(values), is_bit=True, is_read=False)
+        codec.parse_response(
+            self._transact(frame), frame, len(values), is_bit=True, is_read=False
+        )
 
     def _write_words(self, parsed: FinsAddress, words: List[int]) -> None:
         """字写:字存储区码,逐字大端。"""
         frame = self._build_write(parsed, words, is_bit=False)
-        codec.parse_response(self._transact(frame), len(words), is_bit=False, is_read=False)
+        codec.parse_response(
+            self._transact(frame), frame, len(words), is_bit=False, is_read=False
+        )
 
     def _build_read(self, parsed: FinsAddress, count: int, is_bit: bool) -> bytes:
         """构造 Area Read 帧(内部方法)。"""
@@ -417,7 +449,11 @@ class OmronFinsTcpClient(_OmronFinsBase):
             source_node,
             source_unit,
         )
-        self._local_node = int(local_node) if local_node is not None else 0
+        self._local_node = (
+            check_range(int(local_node), 0, FINS_NODE_MAX, "本地节点号")
+            if local_node is not None
+            else 0
+        )
         self._auto_local_node = local_node is None or local_node == 0
 
     @property

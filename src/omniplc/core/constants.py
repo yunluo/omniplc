@@ -403,7 +403,17 @@ FINS_DEFAULT_SOURCE_UNIT: int = 0
 FINS_SID_BITS: int = 8
 """FINS SID(Service ID)字段位宽(帧头 1 字节,0~255 回绕)。"""
 FINS_ICF: int = 0x80
-"""请求 ICF:要求响应 + 非网关(响应帧为 0xC0)。"""
+"""请求 ICF:要求响应 + 非网关(响应帧为 :data:`FINS_ICF_RESPONSE`)。"""
+FINS_ICF_RESPONSE: int = 0xC0
+"""响应 ICF:响应位 + 要求响应(应答帧 ICF 必须等于此值,串话/迟到识别)。"""
+FINS_NETWORK_MAX: int = 127
+"""FINS 网络号上限(0~127,协议口径)。"""
+FINS_NODE_MAX: int = 127
+"""FINS 节点号上限(0~127;0/127 在 Ethernet 口径下为保留/广播,0 仍可用作"自动"标记)。"""
+FINS_UNIT_MAX: int = 0xFF
+"""FINS 单元号上限(0~255,0xFE/0xFF 等为广播保留)。"""
+FINS_NODE_DERIVED_MAX: int = 126
+"""以太网 FINS 节点号合法范围上限(1~126,IP 末段推导结果的硬上限——末段 127/0 不合法)。"""
 FINS_RSV: int = 0x00
 """RSV 恒为 0。"""
 FINS_GCT: int = 0x02

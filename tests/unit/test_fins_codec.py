@@ -17,6 +17,12 @@ from omniplc.plc.omron.address import parse_fins_address
 
 _FINS_ECHO_HEAD = b"\xc0\x00\x02\x00\x0a\x00\x00\x05\x00"
 
+
+def _request_frame(sid: int = 1, command: int = 0x0101) -> bytes:
+    """构造与回显校验配套的最小请求 FINS 帧(测试辅助)。"""
+    return b"\x80\x00\x02\x00\x0a\x00\x00\x05\x00" + bytes([sid]) + command.to_bytes(2, "big")
+
+
 GOLDEN_DIR = Path(__file__).resolve().parent.parent / "golden"
 
 # (文件名, 地址, 点数, 期望值)
@@ -67,7 +73,11 @@ def test_golden_area_read_roundtrip(
         built = codec.build_tcp_frame(built)
     assert built == request
     fins = _unwrap_tcp(response) if setup["transport"] == "tcp" else response
-    assert codec.parse_response(fins, count, False, True) == values
+    request_frame = codec.build_area_read(
+        dst[0], dst[1], dst[2], src[0], src[1], src[2],
+        setup["sid"], parsed, count, False,
+    )
+    assert codec.parse_response(fins, request_frame, count, False, True) == values
 
 
 @pytest.mark.parametrize(("stem", "address", "values"), _WRITE_CASES)
@@ -85,7 +95,7 @@ def test_golden_area_write_roundtrip(
         setup["sid"], parse_fins_address(address), values, False,
     )
     assert built == request
-    codec.parse_response(response, 0, False, False)
+    codec.parse_response(response, built, 0, False, False)
 
 
 @pytest.mark.parametrize(("stem", "code"), _ERROR_CASES)
@@ -94,7 +104,7 @@ def test_golden_error_response(stem: str, code: int) -> None:
     data = _load(stem)
     response = bytes.fromhex(data["response_hex"])
     with pytest.raises(DeviceError) as exc_info:
-        codec.parse_response(response, 2, False, True)
+        codec.parse_response(response, _request_frame(), 2, False, True)
     assert exc_info.value.code == code
 
 
@@ -158,16 +168,85 @@ def test_parse_multiple_area_read() -> None:
         + b"\x82" + (0x1234).to_bytes(2, "big")
         + b"\xb0" + (0x0007).to_bytes(2, "big")
     )
-    assert codec.parse_multiple_area_read(frame, [0x82, 0xB0]) == [0x1234, 0x0007]
+    assert codec.parse_multiple_area_read(
+        frame, _request_frame(sid=1, command=0x0104), [0x82, 0xB0]
+    ) == [0x1234, 0x0007]
 
 
 def test_parse_multiple_area_read_errors() -> None:
     """多存储区读响应错误路径:数据不足与区码回显不符按坏帧,结束码按设备故障。"""
     base = _FINS_ECHO_HEAD + b"\x01" + b"\x01\x04"
+    request = _request_frame(sid=1, command=0x0104)
     with pytest.raises(ProtocolFrameError):
-        codec.parse_multiple_area_read(base + b"\x00\x00" + b"\x82", [0x82, 0xB0])
+        codec.parse_multiple_area_read(base + b"\x00\x00" + b"\x82", request, [0x82, 0xB0])
     bad_echo = base + b"\x00\x00" + b"\x83" + (1).to_bytes(2, "big") + b"\xb0" + (0).to_bytes(2, "big")
     with pytest.raises(ProtocolFrameError):
-        codec.parse_multiple_area_read(bad_echo, [0x82, 0xB0])
+        codec.parse_multiple_area_read(bad_echo, request, [0x82, 0xB0])
     with pytest.raises(DeviceError):
-        codec.parse_multiple_area_read(base + b"\x11\x01", [0x82])
+        codec.parse_multiple_area_read(base + b"\x11\x01", request, [0x82])
+
+
+# ----------------------------------------------------------------------
+# 校验加固回归测试(v0.36 候选):应答帧身份回显 + TCP 头长度下限
+# ----------------------------------------------------------------------
+
+
+def test_parse_response_rejects_wrong_icf() -> None:
+    """应答帧 ICF 回显校验:响应 ICF 必须为 0xC0,请求 ICF(0x80)即按坏帧。"""
+    request = _request_frame(sid=1, command=0x0101)
+    bad_icf = b"\x80" + b"\x00\x02\x00\x0a\x00\x00\x05\x00" + b"\x01\x01\x01" + b"\x00\x00" + b"\x00\x14"
+    with pytest.raises(ProtocolFrameError) as exc_info:
+        codec.parse_response(bad_icf, request, 1, False, True)
+    assert "ICF" in exc_info.value.args[0]
+
+
+def test_parse_response_rejects_wrong_sid() -> None:
+    """应答帧 SID 回显校验:与请求 SID(本事务)不符即坏帧(串话/迟到识别)。"""
+    request = _request_frame(sid=1, command=0x0101)
+    # 字节 9 是 SID 位置;此处取 0x02 与请求 0x01 不符
+    wrong_sid = b"\xc0\x00\x02\x00\x0a\x00\x00\x05\x00\x02" + b"\x01\x01" + b"\x00\x00" + b"\x00\x14"
+    with pytest.raises(ProtocolFrameError) as exc_info:
+        codec.parse_response(wrong_sid, request, 1, False, True)
+    assert "SID" in exc_info.value.args[0]
+
+
+def test_parse_response_rejects_wrong_command() -> None:
+    """应答帧命令码回显校验:与请求命令不符即坏帧(如应答被当成另一命令的响应)。"""
+    request = _request_frame(sid=1, command=0x0101)
+    # 字节 9=SID=0x01(与请求一致),字节 10-11=命令 0x0102(请求 0x0101,不符)
+    wrong_cmd = b"\xc0\x00\x02\x00\x0a\x00\x00\x05\x00\x01" + b"\x01\x02" + b"\x00\x00" + b"\x00\x14"
+    with pytest.raises(ProtocolFrameError) as exc_info:
+        codec.parse_response(wrong_cmd, request, 1, False, True)
+    assert "命令码" in exc_info.value.args[0]
+
+
+def test_parse_multiple_area_read_rejects_wrong_sid() -> None:
+    """0104 多存储区读响应 SID 回显校验。"""
+    # SID=0x02 与请求 0x01 不符——回显字节置于帧头第 10 字节
+    base = _FINS_ECHO_HEAD + b"\x00\x02" + b"\x01\x04" + b"\x00\x00" + b"\x82" + (0x1234).to_bytes(2, "big")
+    request = _request_frame(sid=1, command=0x0104)
+    with pytest.raises(ProtocolFrameError) as exc_info:
+        codec.parse_multiple_area_read(base, request, [0x82])
+    assert "SID" in exc_info.value.args[0]
+
+
+def test_parse_response_short_frame_reports_identity() -> None:
+    """应答帧过短(连回显字段都不全)时,身份校验报错指向 ICF/SID/命令码,避免 IndexError。"""
+    request = _request_frame(sid=1, command=0x0101)
+    with pytest.raises(ProtocolFrameError) as exc_info:
+        codec.parse_response(b"\xc0\x00", request, 1, False, True)
+    assert "ICF/SID/命令码" in exc_info.value.args[0]
+
+
+def test_parse_tcp_head_rejects_length_too_small() -> None:
+    """TCP 头长度域下限:FINS 最小帧 14 字节,低于此即坏帧(报错前移)。"""
+    head = b"FINS" + (10).to_bytes(4, "big")
+    with pytest.raises(ProtocolFrameError) as exc_info:
+        codec.parse_tcp_head(head)
+    assert "长度域过短" in exc_info.value.args[0]
+
+
+def test_parse_tcp_head_accepts_minimum_length() -> None:
+    """TCP 头长度域下限边界:等于 FINS 最小帧 14 字节时合法通过。"""
+    head = b"FINS" + (14).to_bytes(4, "big")
+    assert codec.parse_tcp_head(head) == 14
