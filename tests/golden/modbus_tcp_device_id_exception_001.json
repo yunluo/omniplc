@@ -1,0 +1,12 @@
+{
+    "name": "读设备标识返回异常码 01(设备不支持该访问码)",
+    "request_hex": "000100000005012b0e0100",
+    "response_hex": "00010000000301ab01",
+    "expect": {
+        "error_code": 1
+    },
+    "setup": {
+        "station": 1,
+        "transaction_id": 1
+    }
+}

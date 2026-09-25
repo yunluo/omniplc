@@ -1,0 +1,27 @@
+{
+    "name": "读写多寄存器:读 6 个 @3、写 3 个 @14(规范 §6.17 示例)",
+    "request_hex": "000100000011011700030006000e00030600ff00ff00ff",
+    "response_hex": "00010000000f01170c00fe0acd00010003000d00ff",
+    "expect": {
+        "values": [
+            254,
+            2765,
+            1,
+            3,
+            13,
+            255
+        ]
+    },
+    "setup": {
+        "station": 1,
+        "transaction_id": 1,
+        "read_address": 3,
+        "read_count": 6,
+        "write_address": 14,
+        "write_values": [
+            255,
+            255,
+            255
+        ]
+    }
+}

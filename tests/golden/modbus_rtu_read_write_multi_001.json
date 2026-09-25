@@ -1,0 +1,26 @@
+{
+    "name": "读写多寄存器(RTU 走线):读 6 个 @3、写 3 个 @14",
+    "request_hex": "011700030006000e00030600ff00ff00ff4691",
+    "response_hex": "01170c00fe0acd00010003000d00ff1d79",
+    "expect": {
+        "values": [
+            254,
+            2765,
+            1,
+            3,
+            13,
+            255
+        ]
+    },
+    "setup": {
+        "station": 1,
+        "read_address": 3,
+        "read_count": 6,
+        "write_address": 14,
+        "write_values": [
+            255,
+            255,
+            255
+        ]
+    }
+}

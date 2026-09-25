@@ -493,6 +493,33 @@ class AModbusBaseClient(ABaseClient):
         sync = self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
         return await self._run(lambda: sync.write_batch(items))
 
+    async def read_write_registers(
+        self,
+        read_address: str,
+        read_count: int,
+        write_address: str,
+        values: Sequence[int],
+    ) -> Tuple[bool, Optional[List[int]]]:
+        """单事务「先写后读」多寄存器(FC23,语义同同步版)。"""
+        sync = self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
+        return await self._run(
+            lambda: sync.read_write_registers(
+                read_address, read_count, write_address, values
+            )
+        )
+
+    async def read_device_id(
+        self, level: Union[str, int] = "basic"
+    ) -> Tuple[bool, Optional[Dict[str, str]]]:
+        """读设备标识(FC43/14 流式访问,语义同同步版)。"""
+        sync = self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
+        return await self._run(lambda: sync.read_device_id(level))
+
+    async def read_device_object(self, object_id: int) -> Tuple[bool, Optional[bytes]]:
+        """读单个设备标识对象(FC43/14 个体访问,语义同同步版)。"""
+        sync = self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
+        return await self._run(lambda: sync.read_device_object(object_id))
+
     @property
     def _modbus(self) -> ModbusBaseClient:
         """取 Modbus 同步实例(内部属性)。"""

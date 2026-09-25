@@ -1,0 +1,25 @@
+{
+    "name": "读设备标识:首页带 MoreFollows=FF(后续对象从 0x02 起)",
+    "request_hex": "000100000005012b0e0100",
+    "response_hex": "000100000026012b0e0101ff020200124f6d6e69504c4320496e647573747269657301084d444c2d32303234",
+    "expect": {
+        "conformity_level": 1,
+        "more_follows": true,
+        "next_object_id": 2,
+        "objects": [
+            [
+                0,
+                "4f6d6e69504c4320496e6475737472696573"
+            ],
+            [
+                1,
+                "4d444c2d32303234"
+            ]
+        ]
+    },
+    "setup": {
+        "station": 1,
+        "transaction_id": 1,
+        "object_id": 0
+    }
+}

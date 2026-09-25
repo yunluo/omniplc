@@ -1,0 +1,28 @@
+{
+    "name": "读设备标识(RTU 走线):基本标识单页三对象",
+    "request_hex": "012b0e01007077",
+    "response_hex": "012b0e010100000300124f6d6e69504c4320496e647573747269657301084d444c2d32303234020556322e3131dcef",
+    "expect": {
+        "conformity_level": 1,
+        "more_follows": false,
+        "next_object_id": 0,
+        "objects": [
+            [
+                0,
+                "4f6d6e69504c4320496e6475737472696573"
+            ],
+            [
+                1,
+                "4d444c2d32303234"
+            ],
+            [
+                2,
+                "56322e3131"
+            ]
+        ]
+    },
+    "setup": {
+        "station": 1,
+        "object_id": 0
+    }
+}

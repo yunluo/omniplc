@@ -1,0 +1,12 @@
+{
+    "name": "读写多寄存器返回异常码 02(写地址越界)",
+    "request_hex": "000100000011011700030006000e00030600ff00ff00ff",
+    "response_hex": "000100000003019702",
+    "expect": {
+        "error_code": 2
+    },
+    "setup": {
+        "station": 1,
+        "transaction_id": 1
+    }
+}

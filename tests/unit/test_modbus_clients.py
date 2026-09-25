@@ -870,3 +870,295 @@ def test_async_write_batch_aio_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
         await client.close()
 
     asyncio.run(scenario())
+
+
+# ----------------------------------------------------------------------
+# FC 23 读写多寄存器(单事务"先写后读")
+# ----------------------------------------------------------------------
+
+
+def _fc23_response(values: list) -> bytes:
+    """构造 FC 23 读响应 PDU(测试夹具):字节计数 = 2 × 读数量。"""
+    body = b"".join(int(v).to_bytes(2, "big") for v in values)
+    return bytes([0x17, len(body)]) + body
+
+
+def test_tcp_read_write_registers_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC23:请求帧逐字节一致,响应解析出写入生效后的读值。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    response = _mbap_response(1, 1, _fc23_response([0x00FE, 0x0ACD, 0x0001]))
+    scripted = _ScriptedTransport([response[:7], response[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, values = client.read_write_registers("hr3", 3, "hr14", [0x00FF, 0x00FF])
+    assert ok is True
+    assert values == [0x00FE, 0x0ACD, 0x0001]
+    assert bytes(scripted.sent) == codec.build_mbap(
+        1, 1, codec.build_read_write_registers_pdu(3, 3, 14, [0x00FF, 0x00FF])
+    )
+
+
+def test_rtu_read_write_registers_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC23(RTU):按请求读数量推算收包长度,CRC 校验通过。"""
+    client = ModbusRtuClient(1)
+    pdu = _fc23_response([7, 9])
+    frame = codec.build_rtu_frame(1, pdu)
+    scripted = _ScriptedTransport([frame[:2], frame[2:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, values = client.read_write_registers("hr0", 2, "hr10", [1])
+    assert ok is True
+    assert values == [7, 9]
+
+
+def test_read_write_registers_rejects() -> None:
+    """FC23 前置校验:仅保持寄存器、无位号后缀、数量与值非法、广播站号拒绝。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    with pytest.raises(ValueError):
+        client.read_write_registers("ir0", 1, "hr0", [1])  # 输入寄存器不可写
+    with pytest.raises(ValueError):
+        client.read_write_registers("hr0.3", 1, "hr0", [1])  # 位号后缀
+    with pytest.raises(ValueError):
+        client.read_write_registers("hr0", 1, "hr0.3", [1])
+    with pytest.raises(ValueError):
+        client.read_write_registers("hr0", 0, "hr0", [1])  # 读数量 0
+    with pytest.raises(ValueError):
+        client.read_write_registers("hr0", 1, "hr0", [0] * 122)  # 写数量超 121
+    broadcast = ModbusRtuClient(0)
+    with pytest.raises(ValueError):
+        broadcast.read_write_registers("hr0", 1, "hr0", [1])
+
+
+# ----------------------------------------------------------------------
+# FC 43/14 读设备标识
+# ----------------------------------------------------------------------
+
+
+def _device_id_response(objects: list, more_follows: int = 0, next_id: int = 0) -> bytes:
+    """构造读设备标识响应 PDU(测试夹具,符合级别 0x81)。"""
+    body = bytearray([0x2B, 0x0E, 0x01, 0x81, more_follows, next_id, len(objects)])
+    for object_id, raw in objects:
+        body += bytes([object_id, len(raw)]) + raw
+    return bytes(body)
+
+
+def _device_id_rtu_chunks(frame: bytes) -> list:
+    """把 FC43 RTU 响应帧切成增量收包所需的 recv 分片(测试夹具)。
+
+    与 ``_recv_device_id_tail`` 的读取节奏一一对应:帧头(2)+ 固定头(6)
+    + 每个对象(2 + 长度)+ CRC(2)。
+    """
+    chunks = [frame[0:2], frame[2:8]]
+    cursor = 8
+    for _ in range(frame[7]):
+        length = frame[cursor + 1]
+        chunks.append(frame[cursor:cursor + 2])
+        chunks.append(frame[cursor + 2:cursor + 2 + length])
+        cursor += 2 + length
+    chunks.append(frame[cursor:])
+    return chunks
+
+
+def test_tcp_read_device_id_basic(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC43 基本标识:单页三对象映射为规范对象名,请求逐字节一致。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    response = _mbap_response(
+        1,
+        1,
+        _device_id_response(
+            [(0x00, b"ACME"), (0x01, b"MDL-1"), (0x02, b"V2.11")]
+        ),
+    )
+    scripted = _ScriptedTransport([response[:7], response[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, info = client.read_device_id()
+    assert ok is True
+    assert info == {
+        "vendor_name": "ACME",
+        "product_code": "MDL-1",
+        "major_minor_revision": "V2.11",
+    }
+    assert bytes(scripted.sent) == codec.build_mbap(
+        1, 1, codec.build_device_id_pdu(0x01, 0x00)
+    )
+
+
+def test_tcp_read_device_id_pagination(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC43 翻页:首页 MoreFollows=FF 自动续读,两页对象合并为一份结果。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    page_one = _mbap_response(
+        1, 1, _device_id_response([(0x00, b"ACME")], more_follows=0xFF, next_id=0x01)
+    )
+    page_two = _mbap_response(
+        2, 1, _device_id_response([(0x01, b"MDL-1"), (0x02, b"V2.11")])
+    )
+    scripted = _ScriptedTransport(
+        [page_one[:7], page_one[7:], page_two[:7], page_two[7:]]
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, info = client.read_device_id()
+    assert ok is True
+    assert info == {
+        "vendor_name": "ACME",
+        "product_code": "MDL-1",
+        "major_minor_revision": "V2.11",
+    }
+
+
+def test_tcp_read_device_id_private_object_naming(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FC43 厂商私有对象(0x80~0xFF)用 object_0xNN 兜底命名。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    response = _mbap_response(
+        1, 1, _device_id_response([(0x00, b"ACME"), (0x80, b"\xff\xfe")])
+    )
+    scripted = _ScriptedTransport([response[:7], response[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, info = client.read_device_id("extended")
+    assert ok is True and info is not None
+    assert info["vendor_name"] == "ACME"
+    assert info["object_0x80"] == "\ufffd\ufffd"  # 非 ASCII 字节按替换字符解码,不失败
+
+
+def test_rtu_read_device_id_incremental_recv(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC43(RTU):响应长度随对象变化,按对象头增量收包后 CRC 校验通过。"""
+    client = ModbusRtuClient(1)
+    frame = codec.build_rtu_frame(
+        1,
+        _device_id_response(
+            [(0x00, b"ACME"), (0x01, b"MDL-1"), (0x02, b"V2.11")]
+        ),
+    )
+    scripted = _ScriptedTransport(_device_id_rtu_chunks(frame))
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, info = client.read_device_id("basic")
+    assert ok is True
+    assert info == {
+        "vendor_name": "ACME",
+        "product_code": "MDL-1",
+        "major_minor_revision": "V2.11",
+    }
+
+
+def test_read_device_object(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC43 个体访问(读取码 04):返回请求对象的原始字节。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    response = _mbap_response(1, 1, _device_id_response([(0x02, b"V2.11")]))
+    scripted = _ScriptedTransport([response[:7], response[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, raw = client.read_device_object(0x02)
+    assert ok is True and raw == b"V2.11"
+    assert bytes(scripted.sent) == codec.build_mbap(
+        1, 1, codec.build_device_id_pdu(0x04, 0x02)
+    )
+
+
+def test_read_device_id_rejects() -> None:
+    """FC43 前置校验:层次名/编号非法、个体访问用错方法、对象号越界。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    with pytest.raises(ValueError):
+        client.read_device_id("bogus")
+    with pytest.raises(ValueError):
+        client.read_device_id(4)  # 个体访问应走 read_device_object
+    with pytest.raises(ValueError):
+        client.read_device_id(9)
+    with pytest.raises(ValueError):
+        client.read_device_object(0x100)
+    broadcast = ModbusRtuClient(0)
+    with pytest.raises(ValueError):
+        broadcast.read_device_id()
+
+
+def test_read_device_id_device_error_keeps_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FC43 设备不支持(异常码 01):记 last_error 但不断线。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    response = _mbap_response(1, 1, bytes([0xAB, 0x01]))
+    scripted = _ScriptedTransport([response[:7], response[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, info = client.read_device_id()
+    assert ok is False and info is None
+    assert client.connected is True
+    assert client.last_error is not None and "ILLEGAL FUNCTION" in client.last_error
+
+
+def test_read_address_span_over_space_via_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """客户端层越界:32 位读 hr65535 占 2 字越过地址空间顶端,组帧期拒绝且零字节发送。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    scripted = _ScriptedTransport([])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    with pytest.raises(ValueError):
+        client.read_int("hr65535")
+    assert len(bytes(scripted.sent)) == 0
+
+
+def test_async_read_write_registers_aio_mirror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """异步镜像:read_write_registers 经单工作线程驱动同步版。"""
+    import asyncio
+
+    from omniplc.aio import AModbusTcpClient
+
+    async def scenario() -> None:
+        client = AModbusTcpClient("127.0.0.1", 502, 1)
+        response = _mbap_response(1, 1, _fc23_response([7, 9]))
+        scripted = _ScriptedTransport([response[:7], response[7:]])
+        monkeypatch.setattr(client._sync, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        ok, values = await client.read_write_registers("hr0", 2, "hr10", [1])
+        assert ok is True and values == [7, 9]
+        await client.close()
+
+    asyncio.run(scenario())
+
+
+def test_async_read_device_id_aio_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
+    """异步镜像:read_device_id 经单工作线程驱动同步版。"""
+    import asyncio
+
+    from omniplc.aio import AModbusTcpClient
+
+    async def scenario() -> None:
+        client = AModbusTcpClient("127.0.0.1", 502, 1)
+        response = _mbap_response(1, 1, _device_id_response([(0x00, b"ACME")]))
+        scripted = _ScriptedTransport([response[:7], response[7:]])
+        monkeypatch.setattr(client._sync, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        ok, info = await client.read_device_id()
+        assert ok is True and info == {"vendor_name": "ACME"}
+        await client.close()
+
+    asyncio.run(scenario())
+
+
+def test_async_read_device_object_aio_mirror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """异步镜像:read_device_object 经单工作线程驱动同步版。"""
+    import asyncio
+
+    from omniplc.aio import AModbusTcpClient
+
+    async def scenario() -> None:
+        client = AModbusTcpClient("127.0.0.1", 502, 1)
+        response = _mbap_response(1, 1, _device_id_response([(0x01, b"MDL-1")]))
+        scripted = _ScriptedTransport([response[:7], response[7:]])
+        monkeypatch.setattr(client._sync, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        ok, raw = await client.read_device_object(0x01)
+        assert ok is True and raw == b"MDL-1"
+        await client.close()
+
+    asyncio.run(scenario())

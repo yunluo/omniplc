@@ -39,6 +39,43 @@ def mbap(transaction_id: int, station: int, pdu: bytes) -> str:
     return (struct.pack(">HHHB", transaction_id, 0, len(pdu) + 1, station) + pdu).hex()
 
 
+def device_id_pdu(
+    code: int,
+    object_id: int,
+    conformity: int,
+    objects: List[tuple],
+    more_follows: int = 0x00,
+    next_object_id: int = 0x00,
+) -> bytes:
+    """读设备标识响应 PDU(FC 43/14,规范 §6.21 结构,独立实现)。
+
+    响应 = 功能码(1) + MEI 0x0E(1) + 读取码(1) + 符合级别(1)
+    + MoreFollows(1) + 下一对象号(1) + 对象数(1)
+    + 对象数 × [对象号(1) + 长度(1) + 值(N)]。
+    """
+    body = bytearray(
+        [
+            0x2B,
+            0x0E,
+            code,
+            conformity,
+            0xFF if more_follows else 0x00,
+            next_object_id,
+            len(objects),
+        ]
+    )
+    for oid, raw in objects:
+        body.append(oid)
+        body.append(len(raw))
+        body += raw
+    return bytes(body)
+
+
+def device_id_request(code: int, object_id: int) -> bytes:
+    """读设备标识请求 PDU(FC 43/14,独立实现)。"""
+    return bytes([0x2B, 0x0E, code, object_id])
+
+
 def main() -> None:
     """生成全部 Modbus 样本文件。"""
     samples: List[Dict[str, Any]] = []
@@ -154,6 +191,130 @@ def main() -> None:
         rtu(1, bytes([0x83, 0x02])),
         {"error_code": 2},
         {"station": 1},
+    )
+
+    # ---- FC 23 读写多寄存器(规范 §6.17 示例:读 6 个 @3、写 3 个 @14) ----
+    rw_request = struct.pack(">BHHHHB", 0x17, 3, 6, 14, 3, 6) + struct.pack(
+        ">HHH", 0x00FF, 0x00FF, 0x00FF
+    )
+    rw_response = bytes([0x17, 12]) + struct.pack(
+        ">HHHHHH", 0x00FE, 0x0ACD, 0x0001, 0x0003, 0x000D, 0x00FF
+    )
+    add(
+        "modbus_tcp_read_write_multi_001",
+        "读写多寄存器:读 6 个 @3、写 3 个 @14(规范 §6.17 示例)",
+        mbap(1, 1, rw_request),
+        mbap(1, 1, rw_response),
+        {"values": [0x00FE, 0x0ACD, 0x0001, 0x0003, 0x000D, 0x00FF]},
+        {
+            "station": 1,
+            "transaction_id": 1,
+            "read_address": 3,
+            "read_count": 6,
+            "write_address": 14,
+            "write_values": [0x00FF, 0x00FF, 0x00FF],
+        },
+    )
+    add(
+        "modbus_rtu_read_write_multi_001",
+        "读写多寄存器(RTU 走线):读 6 个 @3、写 3 个 @14",
+        rtu(1, rw_request),
+        rtu(1, rw_response),
+        {"values": [0x00FE, 0x0ACD, 0x0001, 0x0003, 0x000D, 0x00FF]},
+        {
+            "station": 1,
+            "read_address": 3,
+            "read_count": 6,
+            "write_address": 14,
+            "write_values": [0x00FF, 0x00FF, 0x00FF],
+        },
+    )
+    add(
+        "modbus_tcp_read_write_multi_exception_001",
+        "读写多寄存器返回异常码 02(写地址越界)",
+        mbap(1, 1, rw_request),
+        mbap(1, 1, bytes([0x97, 0x02])),
+        {"error_code": 2},
+        {"station": 1, "transaction_id": 1},
+    )
+
+    # ---- FC 43/14 读设备标识(规范 §6.21 结构:基本标识三对象) ----------
+    # 注:规范正文示例的打印长度与文本不完全自洽(PDF 排版所致),
+    # 此处按规范**结构**用自洽内容生成(长度由 len() 计算)
+    basic_objects = [
+        (0x00, b"OmniPLC Industries"),
+        (0x01, b"MDL-2024"),
+        (0x02, b"V2.11"),
+    ]
+    basic_response = device_id_pdu(0x01, 0x00, 0x01, basic_objects)
+    add(
+        "modbus_tcp_device_id_001",
+        "读设备标识:基本标识单页三对象(VendorName/ProductCode/MajorMinorRevision)",
+        mbap(1, 1, device_id_request(0x01, 0x00)),
+        mbap(1, 1, basic_response),
+        {
+            "conformity_level": 0x01,
+            "more_follows": False,
+            "next_object_id": 0x00,
+            "objects": [
+                [0x00, b"OmniPLC Industries".hex()],
+                [0x01, b"MDL-2024".hex()],
+                [0x02, b"V2.11".hex()],
+            ],
+        },
+        {"station": 1, "transaction_id": 1, "object_id": 0x00},
+    )
+    add(
+        "modbus_rtu_device_id_001",
+        "读设备标识(RTU 走线):基本标识单页三对象",
+        rtu(1, device_id_request(0x01, 0x00)),
+        rtu(1, basic_response),
+        {
+            "conformity_level": 0x01,
+            "more_follows": False,
+            "next_object_id": 0x00,
+            "objects": [
+                [0x00, b"OmniPLC Industries".hex()],
+                [0x01, b"MDL-2024".hex()],
+                [0x02, b"V2.11".hex()],
+            ],
+        },
+        {"station": 1, "object_id": 0x00},
+    )
+    add(
+        "modbus_tcp_device_id_more_001",
+        "读设备标识:首页带 MoreFollows=FF(后续对象从 0x02 起)",
+        mbap(1, 1, device_id_request(0x01, 0x00)),
+        mbap(
+            1,
+            1,
+            device_id_pdu(
+                0x01,
+                0x00,
+                0x01,
+                [(0x00, b"OmniPLC Industries"), (0x01, b"MDL-2024")],
+                more_follows=0xFF,
+                next_object_id=0x02,
+            ),
+        ),
+        {
+            "conformity_level": 0x01,
+            "more_follows": True,
+            "next_object_id": 0x02,
+            "objects": [
+                [0x00, b"OmniPLC Industries".hex()],
+                [0x01, b"MDL-2024".hex()],
+            ],
+        },
+        {"station": 1, "transaction_id": 1, "object_id": 0x00},
+    )
+    add(
+        "modbus_tcp_device_id_exception_001",
+        "读设备标识返回异常码 01(设备不支持该访问码)",
+        mbap(1, 1, device_id_request(0x01, 0x00)),
+        mbap(1, 1, bytes([0xAB, 0x01])),
+        {"error_code": 1},
+        {"station": 1, "transaction_id": 1},
     )
 
     for sample in samples:

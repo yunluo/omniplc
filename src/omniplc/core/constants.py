@@ -100,11 +100,45 @@ MODBUS_MAX_READ_REGISTERS: int = 125
 MODBUS_MAX_WRITE_BITS: int = 1968
 """单次写线圈的数量上限(协议规定)。"""
 MODBUS_MAX_WRITE_REGISTERS: int = 123
-"""单次写寄存器的数量上限(协议规定)。"""
+"""单次写寄存器的数量上限(协议规定,FC16)。"""
+MODBUS_ADDRESS_MAX: int = 0xFFFF
+"""单条 PDU 的地址空间上限(规范 4.4:数据地址 0~65535)。"""
 MODBUS_COMMAND_MASK_WRITE: int = 0x16
 """掩码写保持寄存器命令(FC22,设备侧原子 AND/OR 位修改)。"""
 MODBUS_MASK_WRITE_PDU_SIZE: int = 7
 """FC22 请求/响应 PDU 长度:功能码(1) + 地址(2) + AND 掩码(2) + OR 掩码(2)。"""
+MODBUS_COMMAND_READ_WRITE_MULTIPLE: int = 0x17
+"""读写多寄存器命令(FC23,单事务"先写后读")。"""
+MODBUS_MAX_RW_WRITE_REGISTERS: int = 121
+"""FC23 单次写入的寄存器数量上限(规范 6.17:0x0001~0x0079)。"""
+MODBUS_COMMAND_READ_DEVICE_ID: int = 0x2B
+"""读设备标识命令(FC43,MEI 隧道)。"""
+MODBUS_MEI_TYPE_DEVICE_ID: int = 0x0E
+"""MEI 类型:设备标识接口(FC43 子码 0x0E)。"""
+MODBUS_DEVICE_ID_CODE_BASIC: int = 0x01
+"""读设备标识访问码:基本标识(流式访问)。"""
+MODBUS_DEVICE_ID_CODE_REGULAR: int = 0x02
+"""读设备标识访问码:常规标识(流式访问)。"""
+MODBUS_DEVICE_ID_CODE_EXTENDED: int = 0x03
+"""读设备标识访问码:扩展标识(流式访问)。"""
+MODBUS_DEVICE_ID_CODE_INDIVIDUAL: int = 0x04
+"""读设备标识访问码:单个对象(个体访问)。"""
+MODBUS_DEVICE_ID_PDU_HEAD_SIZE: int = 7
+"""FC43 响应固定头长度:功能码(1) + MEI(1) + 读取码(1) + 符合级别(1) + MoreFollows(1) + 下一对象号(1) + 对象数(1)。"""
+MODBUS_DEVICE_ID_FIXED_HEAD_SIZE: int = MODBUS_DEVICE_ID_PDU_HEAD_SIZE - 1
+"""FC43 响应**功能码之后**的固定头长度(6):MEI 到对象数;RTU 增量收包首段读此长度。"""
+MODBUS_DEVICE_ID_OBJECT_NAMES: Dict[int, str] = {
+    0x00: "vendor_name",
+    0x01: "product_code",
+    0x02: "major_minor_revision",
+    0x03: "vendor_url",
+    0x04: "product_name",
+    0x05: "model_name",
+    0x06: "user_application_name",
+}
+"""FC43 标准标识对象号 → 名称(0x07~0x7F 保留,0x80~0xFF 厂商私有)。"""
+MODBUS_DEVICE_ID_MAX_PAGES: int = 8
+"""FC43 流式访问翻页次数上限(防设备重复下发同一页导致死循环)。"""
 MODBUS_MAX_ADU_SIZE: int = 260
 """MBAP 最大帧长 = 帧头 7 + 最大 PDU 253(UDP 整包接收缓冲)。"""
 MODBUS_MBAP_LENGTH_MAX: int = MODBUS_MAX_ADU_SIZE - MBAP_HEADER_SIZE + 1

@@ -37,6 +37,28 @@ _WRITE_CASES: List[Tuple[str, int, int, List[int]]] = [
 _EXCEPTION_CASES: List[Tuple[str, int, int]] = [
     ("modbus_tcp_exception_001", 3, 2),
     ("modbus_rtu_exception_001", 3, 2),
+    ("modbus_tcp_read_write_multi_exception_001", 0x17, 2),
+    ("modbus_tcp_device_id_exception_001", 0x2B, 1),
+]
+# (文件名, 读起始, 读数量, 写起始, 写值)
+_RW_CASES: List[Tuple[str, int, int, int, List[int]]] = [
+    ("modbus_tcp_read_write_multi_001", 3, 6, 14, [0x00FF, 0x00FF, 0x00FF]),
+    ("modbus_rtu_read_write_multi_001", 3, 6, 14, [0x00FF, 0x00FF, 0x00FF]),
+]
+# (文件名, 读取码, 对象号, 符合级别, more_follows, 下一对象号, 对象列表)
+_DEVICE_ID_CASES: List[Tuple[str, int, int, int, bool, int, List[Tuple[int, bytes]]]] = [
+    (
+        "modbus_tcp_device_id_001", 0x01, 0x00, 0x01, False, 0x00,
+        [(0x00, b"OmniPLC Industries"), (0x01, b"MDL-2024"), (0x02, b"V2.11")],
+    ),
+    (
+        "modbus_rtu_device_id_001", 0x01, 0x00, 0x01, False, 0x00,
+        [(0x00, b"OmniPLC Industries"), (0x01, b"MDL-2024"), (0x02, b"V2.11")],
+    ),
+    (
+        "modbus_tcp_device_id_more_001", 0x01, 0x00, 0x01, True, 0x02,
+        [(0x00, b"OmniPLC Industries"), (0x01, b"MDL-2024")],
+    ),
 ]
 
 
@@ -110,8 +132,71 @@ def test_golden_exception_response(stem: str, function_code: int, code: int) -> 
     response = bytes.fromhex(data["response_hex"])
     _, pdu = _unwrap(stem, response)
     with pytest.raises(DeviceError) as exc_info:
-        codec.parse_read_response(pdu, function_code, 2)
+        if function_code == 3:
+            codec.parse_read_response(pdu, function_code, 2)
+        elif function_code == 0x17:
+            codec.parse_read_write_registers_response(pdu, 6)
+        else:
+            codec.parse_device_id_response(pdu)
     assert exc_info.value.code == code
+
+
+@pytest.mark.parametrize(
+    ("stem", "read_offset", "read_count", "write_offset", "values"), _RW_CASES
+)
+def test_golden_read_write_registers_roundtrip(
+    stem: str,
+    read_offset: int,
+    read_count: int,
+    write_offset: int,
+    values: List[int],
+) -> None:
+    """FC23 样本(规范 §6.17 示例):请求逐字节一致,响应解析出读数据。"""
+    data = _load(stem)
+    request = bytes.fromhex(data["request_hex"])
+    response = bytes.fromhex(data["response_hex"])
+    pdu = codec.build_read_write_registers_pdu(
+        read_offset, read_count, write_offset, values
+    )
+    assert _wrap(stem, pdu) == request
+    _, response_pdu = _unwrap(stem, response)
+    assert codec.parse_read_write_registers_response(response_pdu, read_count) == data[
+        "expect"
+    ]["values"]
+
+
+@pytest.mark.parametrize(
+    (
+        "stem",
+        "code",
+        "object_id",
+        "conformity",
+        "more_follows",
+        "next_object_id",
+        "objects",
+    ),
+    _DEVICE_ID_CASES,
+)
+def test_golden_device_id_roundtrip(
+    stem: str,
+    code: int,
+    object_id: int,
+    conformity: int,
+    more_follows: bool,
+    next_object_id: int,
+    objects: List[Tuple[int, bytes]],
+) -> None:
+    """FC43/14 样本:请求逐字节一致,响应解析出符合级别/翻页标记/对象列表。"""
+    data = _load(stem)
+    request = bytes.fromhex(data["request_hex"])
+    response = bytes.fromhex(data["response_hex"])
+    assert _wrap(stem, codec.build_device_id_pdu(code, object_id)) == request
+    _, response_pdu = _unwrap(stem, response)
+    parsed = codec.parse_device_id_response(response_pdu)
+    assert parsed.conformity_level == conformity
+    assert parsed.more_follows is more_follows
+    assert parsed.next_object_id == next_object_id
+    assert parsed.objects == objects
 
 
 def test_mbap_header_and_response_length_helpers() -> None:

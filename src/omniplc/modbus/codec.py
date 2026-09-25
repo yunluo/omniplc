@@ -16,23 +16,32 @@ from __future__ import annotations
 
 import struct
 from enum import IntEnum
-from typing import List, Tuple
+from typing import List, NamedTuple, Tuple
 
 from ..convert import crc16
 from ..core.constants import (
     MBAP_HEADER_SIZE,
+    MODBUS_ADDRESS_MAX,
     MODBUS_COMMAND_MASK_WRITE,
+    MODBUS_COMMAND_READ_DEVICE_ID,
+    MODBUS_COMMAND_READ_WRITE_MULTIPLE,
     MODBUS_COIL_OFF,
     MODBUS_COIL_ON,
+    MODBUS_DEVICE_ID_CODE_BASIC,
+    MODBUS_DEVICE_ID_CODE_INDIVIDUAL,
+    MODBUS_DEVICE_ID_FIXED_HEAD_SIZE,
+    MODBUS_DEVICE_ID_PDU_HEAD_SIZE,
     MODBUS_EXCEPTION_FLAG,
     MODBUS_EXCEPTION_TEXT,
     MODBUS_MASK_WRITE_PDU_SIZE,
     MODBUS_MAX_ADU_SIZE,
     MODBUS_MAX_READ_BITS,
     MODBUS_MAX_READ_REGISTERS,
+    MODBUS_MAX_RW_WRITE_REGISTERS,
     MODBUS_MAX_WRITE_BITS,
     MODBUS_MAX_WRITE_REGISTERS,
     MODBUS_MBAP_LENGTH_MAX,
+    MODBUS_MEI_TYPE_DEVICE_ID,
     MODBUS_PROTOCOL_ID,
 )
 from ..core.debug import format_hex
@@ -40,7 +49,10 @@ from ..core.errors import DeviceError, ProtocolFrameError
 
 
 class ModbusFunction(IntEnum):
-    """Modbus 功能码(枚举化,便于 IDE 补全与类型检查)。"""
+    """Modbus 功能码(枚举化,便于 IDE 补全与类型检查)。
+
+    值与 :mod:`omniplc.core.constants` 的常量同源(单一来源,避免漂移)。
+    """
 
     READ_COILS = 0x01
     READ_DISCRETE_INPUTS = 0x02
@@ -50,7 +62,9 @@ class ModbusFunction(IntEnum):
     WRITE_SINGLE_REGISTER = 0x06
     WRITE_MULTIPLE_COILS = 0x0F
     WRITE_MULTIPLE_REGISTERS = 0x10
-    MASK_WRITE_REGISTER = 0x16
+    MASK_WRITE_REGISTER = MODBUS_COMMAND_MASK_WRITE
+    READ_WRITE_MULTIPLE_REGISTERS = MODBUS_COMMAND_READ_WRITE_MULTIPLE
+    READ_DEVICE_IDENTIFICATION = MODBUS_COMMAND_READ_DEVICE_ID
 
 
 _READ_BIT_FUNCTIONS = (ModbusFunction.READ_COILS, ModbusFunction.READ_DISCRETE_INPUTS)
@@ -80,6 +94,7 @@ def build_read_pdu(function_code: int, offset: int, count: int) -> bytes:
     else:
         raise ValueError(f"读功能码必须是 1/2/3/4,收到:{function_code}")
     _check_offset(offset)
+    _check_span(offset, count)
     if not 1 <= count <= limit:
         raise ValueError(f"读数量超出范围 1~{limit}:{count}")
     return struct.pack(">BHH", function_code, offset, count)
@@ -119,6 +134,7 @@ def build_write_multi_pdu(function_code: int, offset: int, values: List[int]) ->
             raise ValueError(
                 "写线圈数量超出范围 1~{}:{}".format(MODBUS_MAX_WRITE_BITS, len(values))
             )
+        _check_span(offset, len(values))
         packed = bytearray((len(values) + 7) // 8)
         for index, flag in enumerate(values):
             if flag:
@@ -129,6 +145,7 @@ def build_write_multi_pdu(function_code: int, offset: int, values: List[int]) ->
             raise ValueError(
                 "写寄存器数量超出范围 1~{}:{}".format(MODBUS_MAX_WRITE_REGISTERS, len(values))
             )
+        _check_span(offset, len(values))
         for value in values:
             if not 0 <= value <= 0xFFFF:
                 raise ValueError(f"寄存器写入值超出范围 0~65535:{value}")
@@ -267,8 +284,215 @@ def parse_mask_write_response(pdu: bytes, request_pdu: bytes) -> None:
         )
 
 # ----------------------------------------------------------------------
-# MBAP 帧(TCP/UDP 共用)
+# FC 23 读写多寄存器(单事务"先写后读")
 # ----------------------------------------------------------------------
+
+def build_read_write_registers_pdu(
+    read_offset: int,
+    read_count: int,
+    write_offset: int,
+    values: List[int],
+) -> bytes:
+    """构造读写多寄存器请求 PDU(FC 23)。
+
+    规范 §6.17:一个事务内先执行写、再执行读,仅适用于保持寄存器。
+    PDU = 功能码(1) + 读起始地址(2) + 读数量(2) + 写起始地址(2)
+    + 写数量(2) + 写字节数(1) + 写数据(2N,大端)。
+
+    :param read_offset: 读起始地址(0 基)
+    :param read_count: 读数量(1~125)
+    :param write_offset: 写起始地址(0 基)
+    :param values: 写入的寄存器原始值序列(1~121 个,每个 0~65535)
+    :raises ValueError: 地址/数量/数值非法
+    """
+    _check_offset(read_offset)
+    _check_offset(write_offset)
+    if not 1 <= read_count <= MODBUS_MAX_READ_REGISTERS:
+        raise ValueError(
+            "FC23 读数量超出范围 1~{}:{}".format(MODBUS_MAX_READ_REGISTERS, read_count)
+        )
+    if not 1 <= len(values) <= MODBUS_MAX_RW_WRITE_REGISTERS:
+        raise ValueError(
+            "FC23 写数量超出范围 1~{}:{}".format(MODBUS_MAX_RW_WRITE_REGISTERS, len(values))
+        )
+    _check_span(read_offset, read_count)
+    _check_span(write_offset, len(values))
+    for value in values:
+        if not 0 <= value <= 0xFFFF:
+            raise ValueError(f"寄存器写入值超出范围 0~65535:{value}")
+    head = struct.pack(
+        ">BHHHHB",
+        ModbusFunction.READ_WRITE_MULTIPLE_REGISTERS,
+        read_offset,
+        read_count,
+        write_offset,
+        len(values),
+        len(values) * 2,
+    )
+    return head + struct.pack(">{:d}H".format(len(values)), *values)
+
+
+def parse_read_write_registers_response(pdu: bytes, read_count: int) -> List[int]:
+    """解析读写多寄存器响应 PDU(FC 23),返回读到的寄存器原始值。
+
+    响应 = 功能码(1) + 字节计数(1,= 2 × 读数量) + 读数据(2N,大端)。
+
+    :param pdu: 响应 PDU
+    :param read_count: 请求的读数量(用于校验字节计数)
+    :raises DeviceError: PLC 返回异常码
+    :raises ProtocolFrameError: 帧长度/字节计数不符
+    """
+    check_response_exception(pdu, ModbusFunction.READ_WRITE_MULTIPLE_REGISTERS)
+    if len(pdu) < 2:
+        raise ProtocolFrameError(
+            "FC23 响应 PDU 长度不足(收到的原始数据:{})".format(format_hex(pdu))
+        )
+    byte_count = pdu[1]
+    expected = read_count * 2
+    if byte_count != expected or len(pdu) != expected + 2:
+        raise ProtocolFrameError(
+            "FC23 响应长度不符:字节计数域 {},期望 {},实际 PDU {} 字节(收到的原始数据:{})".format(
+                byte_count, expected, len(pdu), format_hex(pdu)
+            )
+        )
+    return list(struct.unpack(f">{read_count:d}H", pdu[2:2 + expected]))
+
+
+# ----------------------------------------------------------------------
+# FC 43 / 14 读设备标识(MEI 隧道)
+# ----------------------------------------------------------------------
+
+class DeviceIdentification(NamedTuple):
+    """设备标识响应(FC 43/14,不可变值对象)。
+
+    :ivar conformity_level: 符合级别(0x01/0x02/0x03 = 仅流式访问;
+        0x81/0x82/0x83 = 流式 + 个体访问)
+    :ivar more_follows: 是否还有后续对象(需再发一次请求,对象号用
+        :attr:`next_object_id`)
+    :ivar next_object_id: 下一批对象的起始对象号(``more_follows`` 为
+        假时无意义)
+    :ivar objects: ``[(对象号, 对象原始字节)]``,按响应顺序
+    """
+
+    conformity_level: int
+    more_follows: bool
+    next_object_id: int
+    objects: List[Tuple[int, bytes]]
+
+
+def build_device_id_pdu(read_device_id_code: int, object_id: int) -> bytes:
+    """构造读设备标识请求 PDU(FC 43 / MEI 0x0E)。
+
+    规范 §6.21:PDU = 功能码(1) + MEI 类型(1) + 读取码(1) + 对象号(1)。
+
+    :param read_device_id_code: 访问类型 1~4(1 基本/2 常规/3 扩展为
+        流式访问,4 为单个对象的个体访问)
+    :param object_id: 起始对象号(0~255;首次流式访问传 0)
+    :raises ValueError: 读取码/对象号非法
+    """
+    if (
+        not MODBUS_DEVICE_ID_CODE_BASIC
+        <= read_device_id_code
+        <= MODBUS_DEVICE_ID_CODE_INDIVIDUAL
+    ):
+        raise ValueError(
+            f"读设备标识访问码必须是 1~4,收到:{read_device_id_code}"
+        )
+    if not 0 <= object_id <= 0xFF:
+        raise ValueError(f"设备标识对象号超出范围 0~255:{object_id}")
+    return bytes(
+        [
+            ModbusFunction.READ_DEVICE_IDENTIFICATION,
+            MODBUS_MEI_TYPE_DEVICE_ID,
+            read_device_id_code,
+            object_id,
+        ]
+    )
+
+
+def parse_device_id_response(pdu: bytes) -> DeviceIdentification:
+    """解析读设备标识响应 PDU(FC 43 / MEI 0x0E)。
+
+    响应 = 功能码(1) + MEI(1) + 读取码(1) + 符合级别(1) +
+    MoreFollows(1) + 下一对象号(1) + 对象数(1)
+    + 对象数 × [对象号(1) + 长度(1) + 值(长度)]。
+
+    :raises DeviceError: PLC 返回异常码
+    :raises ProtocolFrameError: MEI 回显不符、响应截断或对象长度自洽校验失败
+    """
+    check_response_exception(pdu, ModbusFunction.READ_DEVICE_IDENTIFICATION)
+    if len(pdu) < MODBUS_DEVICE_ID_PDU_HEAD_SIZE:
+        raise ProtocolFrameError(
+            "设备标识响应不完整:至少 {} 字节,实际 {}(收到的原始数据:{})".format(
+                MODBUS_DEVICE_ID_PDU_HEAD_SIZE, len(pdu), format_hex(pdu)
+            )
+        )
+    if pdu[1] != MODBUS_MEI_TYPE_DEVICE_ID:
+        raise ProtocolFrameError(
+            "设备标识响应 MEI 类型不符:期望 0x{:02X},收到 0x{:02X}(收到的原始数据:{})".format(
+                MODBUS_MEI_TYPE_DEVICE_ID, pdu[1], format_hex(pdu)
+            )
+        )
+    conformity_level = pdu[3]
+    more_follows = pdu[4] == 0xFF
+    next_object_id = pdu[5]
+    object_count = pdu[6]
+    objects: List[Tuple[int, bytes]] = []
+    cursor = MODBUS_DEVICE_ID_PDU_HEAD_SIZE
+    for index in range(object_count):
+        if cursor + 2 > len(pdu):
+            raise ProtocolFrameError(
+                "设备标识响应第 {} 个对象头被截断(期望 2 字节,剩余 {} 字节)"
+                "(收到的原始数据:{})".format(
+                    index + 1, len(pdu) - cursor, format_hex(pdu)
+                )
+            )
+        object_id = pdu[cursor]
+        length = pdu[cursor + 1]
+        start = cursor + 2
+        if start + length > len(pdu):
+            raise ProtocolFrameError(
+                "设备标识响应第 {} 个对象(号 0x{:02X})值被截断:声明 {} 字节,"
+                "实际剩余 {}(收到的原始数据:{})".format(
+                    index + 1, object_id, length, len(pdu) - start, format_hex(pdu)
+                )
+            )
+        objects.append((object_id, pdu[start:start + length]))
+        cursor = start + length
+    if cursor != len(pdu):
+        raise ProtocolFrameError(
+            "设备标识响应长度不符:解析 {} 字节,实际 PDU {} 字节(收到的原始数据:{})".format(
+                cursor, len(pdu), format_hex(pdu)
+            )
+        )
+    return DeviceIdentification(
+        conformity_level=conformity_level,
+        more_follows=more_follows,
+        next_object_id=next_object_id,
+        objects=objects,
+    )
+
+
+def device_id_object_count(head: bytes) -> int:
+    """取设备标识响应固定头中的对象个数(内部函数,RTU 增量收包用)。
+
+    ``head`` 为功能码之后的固定头(MEI/读取码/符合级别/MoreFollows/
+    下一对象号/对象数共 6 字节)。因对象长度随响应变化,RTU 须逐个对象
+    头读长度:走线层先按本函数取对象个数,再逐个读「对象号 + 长度」与
+    其后的值。
+
+    :param head: 功能码之后的 6 字节固定头
+    :return: 响应中的对象个数
+    :raises ProtocolFrameError: 头部长度不足
+    """
+    if len(head) < MODBUS_DEVICE_ID_FIXED_HEAD_SIZE:
+        raise ProtocolFrameError(
+            "设备标识响应头不足 {} 字节:{}".format(
+                MODBUS_DEVICE_ID_FIXED_HEAD_SIZE, format_hex(head)
+            )
+        )
+    return head[MODBUS_DEVICE_ID_FIXED_HEAD_SIZE - 1]
+
 
 def build_mbap(transaction_id: int, station: int, pdu: bytes) -> bytes:
     """把 PDU 封装为 MBAP 帧(Modbus TCP/UDP)。
@@ -402,6 +626,11 @@ def expected_response_length(request_pdu: bytes) -> int:
     异常响应恒为 2 字节(功能码|0x80 + 异常码),由走线层在读到
     功能码后先行分支处理,不经本函数。
 
+    FC 43(读设备标识)响应长度随对象数与对象长度变化,**无法**事先
+    推算——走线层对 FC 43 走增量收包路径,不会调用本函数;此处直接
+    抛错而非静默返回错误长度。FC 23(读写多寄存器)长度由读数量决定,
+    正常推算。
+
     :param request_pdu: 请求 PDU
     :return: 响应 PDU 的期望字节数
     :raises ProtocolFrameError: 请求 PDU 非法或功能码未知
@@ -422,6 +651,13 @@ def expected_response_length(request_pdu: bytes) -> int:
     if function_code in _READ_REGISTER_FUNCTIONS:
         count = struct.unpack(">H", request_pdu[3:5])[0]
         return 2 + count * 2
+    if function_code == ModbusFunction.READ_WRITE_MULTIPLE_REGISTERS:
+        if len(request_pdu) < 5:
+            raise ProtocolFrameError(
+                "FC23 请求 PDU 长度不足:{}".format(len(request_pdu))
+            )
+        read_count = struct.unpack(">H", request_pdu[3:5])[0]
+        return 2 + read_count * 2
     if function_code in (
         ModbusFunction.WRITE_SINGLE_COIL,
         ModbusFunction.WRITE_SINGLE_REGISTER,
@@ -431,10 +667,30 @@ def expected_response_length(request_pdu: bytes) -> int:
         return 5
     if function_code == ModbusFunction.MASK_WRITE_REGISTER:
         return MODBUS_MASK_WRITE_PDU_SIZE
+    if function_code == ModbusFunction.READ_DEVICE_IDENTIFICATION:
+        raise ProtocolFrameError(
+            "FC43 响应长度随标识对象数与对象长度变化,无法按请求推算:"
+            "由走线层按对象头增量收包(codec.device_id_object_count)"
+        )
     raise ProtocolFrameError(f"未知功能码 0x{function_code:02X}")
 
 
 def _check_offset(offset: int) -> None:
     """校验 0 基地址偏移(内部函数)。"""
-    if not 0 <= offset <= 0xFFFF:
-        raise ValueError(f"地址偏移超出范围 0~65535:{offset}")
+    if not 0 <= offset <= MODBUS_ADDRESS_MAX:
+        raise ValueError(f"地址偏移超出范围 0~{MODBUS_ADDRESS_MAX}:{offset}")
+
+
+def _check_span(offset: int, count: int) -> None:
+    """校验起始地址 + 数量不越过地址空间顶端(内部函数)。
+
+    规范的状态图(§6.1 Figure 11 等)把 ``Starting Address + Quantity``
+    作为服务端校验项,越界返回异常码 02(ILLEGAL DATA ADDRESS)。客户端
+    在组帧期直接拒绝,避免发出必然被拒的请求(如 ``hr65535`` 读 2 字)。
+    """
+    if offset + count > MODBUS_ADDRESS_MAX + 1:
+        raise ValueError(
+            "起始地址 + 数量超出 Modbus 地址空间 0~{}:{}+{}={}".format(
+                MODBUS_ADDRESS_MAX, offset, count, offset + count
+            )
+        )

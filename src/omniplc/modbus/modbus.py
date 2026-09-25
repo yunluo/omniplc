@@ -29,6 +29,13 @@ from ..core.constants import (
     MBAP_HEADER_SIZE,
     MODBUS_DEFAULT_PORT,
     MODBUS_DEFAULT_STATION,
+    MODBUS_DEVICE_ID_CODE_BASIC,
+    MODBUS_DEVICE_ID_CODE_EXTENDED,
+    MODBUS_DEVICE_ID_CODE_INDIVIDUAL,
+    MODBUS_DEVICE_ID_CODE_REGULAR,
+    MODBUS_DEVICE_ID_FIXED_HEAD_SIZE,
+    MODBUS_DEVICE_ID_MAX_PAGES,
+    MODBUS_DEVICE_ID_OBJECT_NAMES,
     MODBUS_EXCEPTION_FLAG,
     MODBUS_MAX_WRITE_BITS,
     MODBUS_MAX_WRITE_REGISTERS,
@@ -574,6 +581,134 @@ class ModbusBaseClient(BaseClient):
         )
         return ok
 
+    def read_write_registers(
+        self,
+        read_address: str,
+        read_count: int,
+        write_address: str,
+        values: Sequence[int],
+    ) -> Tuple[bool, Optional[List[int]]]:
+        """单事务「先写后读」多寄存器(FC 23,规范 §6.17)。
+
+        一个事务内先写一组连续保持寄存器、再读一组连续保持寄存器,读到的
+        是**写入生效后**的值——控制场景常用("写控制字 + 读状态字"在同一
+        事务内完成,省一个往返且无中间态插入;相比 :meth:`write_many` +
+        :meth:`read_many` 两次调用,也避免被其他线程在两次事务间插入)。
+
+        仅支持保持寄存器区域(规范限定),两段地址都必须落在同一地址空间
+        (起始地址 + 数量 ≤ 65536)。读数量 1~125、写数量 1~121(规范上限
+        比 FC 16 的 123 小 2)。需设备支持 FC 23(部分老设备/网关不支持,
+        失败见 last_error)。
+
+        :param read_address: 读起始地址,如 ``"hr0"``
+        :param read_count: 读寄存器数量(1~125)
+        :param write_address: 写起始地址,如 ``"hr100"``
+        :param values: 写入的寄存器原始值序列(1~121 个,每个 0~65535)
+        :return: ``(是否成功, 读到的寄存器原始值列表)``;失败为 ``(False, None)``
+        :raises ValueError: 地址非保持寄存器 / 带位号后缀 / 数量或值非法
+        """
+        read_parsed = _check_holding_register(read_address, "FC23 读地址")
+        write_parsed = _check_holding_register(write_address, "FC23 写地址")
+        self._reject_broadcast_read()
+        data = [int(value) for value in values]
+        pdu = codec.build_read_write_registers_pdu(
+            read_parsed.offset, int(read_count), write_parsed.offset, data
+        )
+        return self._execute(
+            lambda: codec.parse_read_write_registers_response(
+                self._transact(pdu), int(read_count)
+            )
+        )
+
+    def read_device_id(
+        self, level: Union[str, int] = "basic"
+    ) -> Tuple[bool, Optional[Dict[str, str]]]:
+        """读设备标识(FC 43 / MEI 0x0E,规范 §6.21)。
+
+        设备的厂商标识:厂商名 / 产品代码 / 版本号(基本标识为强制项),
+        以及厂商 URL、产品名、型号名、用户应用名等可选对象。响应放不下
+        时设备用 More Follows 标记分段,本方法**自动翻页**直到收敛(整段
+        在一次 ``_execute`` 内完成,中途失败即整体失败)。
+
+        :param level: 标识层次——``"basic"``(强制对象)/``"regular"``/
+            ``"extended"``(厂商私有对象,对象号 0x80~0xFF);也接受
+            整数 1/2/3
+        :return: ``(是否成功, {对象名: 文本值})``。键为规范对象名
+            (``vendor_name``/``product_code``/``major_minor_revision``/
+            ``vendor_url``/``product_name``/``model_name``/
+            ``user_application_name``),厂商私有对象用 ``object_0xNN``;
+            值为按 ASCII 解码的文本(非法字节以 U+FFFD 替换)。失败为
+            ``(False, None)``
+        :raises ValueError: ``level`` 非法
+        """
+        code = _device_id_code(level)
+        self._reject_broadcast_read()
+        return self._execute(lambda: self._read_device_id_pages(code))
+
+    def read_device_object(self, object_id: int) -> Tuple[bool, Optional[bytes]]:
+        """读单个设备标识对象(FC 43/14 个体访问,读取码 04)。
+
+        与 :meth:`read_device_id` 的流式访问相对,本方法按对象号精确取一个
+        对象;对象号不存在时设备返回异常码 02(ILLEGAL DATA ADDRESS)。
+
+        :param object_id: 对象号(0~255;0x00~0x06 为标准对象,
+            0x80~0xFF 为厂商私有对象)
+        :return: ``(是否成功, 对象原始字节)``;失败为 ``(False, None)``。
+            标准对象为 ASCII 文本,私有对象由厂商定义(可能为二进制),
+            需要文本时自行 ``value.decode("ascii", "replace")``
+        :raises ValueError: 对象号非法
+        """
+        if not 0 <= int(object_id) <= 0xFF:
+            raise ValueError(f"设备标识对象号超出范围 0~255:{object_id}")
+        self._reject_broadcast_read()
+        return self._execute(
+            lambda: self._read_device_object_once(int(object_id))
+        )
+
+    def _read_device_id_pages(self, code: int) -> Dict[str, str]:
+        """按流式读取码循环翻页,合并所有页的对象(内部方法,仅事务锁内)。
+
+        :raises DeviceError: PLC 返回异常码
+        :raises ProtocolFrameError: 响应结构非法或翻页不收敛
+        """
+        collected: Dict[int, bytes] = {}
+        object_id = 0
+        for _ in range(MODBUS_DEVICE_ID_MAX_PAGES):
+            pdu = codec.build_device_id_pdu(code, object_id)
+            parsed = codec.parse_device_id_response(self._transact(pdu))
+            for item_id, raw in parsed.objects:
+                collected.setdefault(item_id, raw)
+            if not parsed.more_follows:
+                return _device_id_to_text(collected)
+            if parsed.next_object_id == object_id:
+                raise ProtocolFrameError(
+                    "设备标识翻页不收敛:对象号停在 0x{:02X}".format(object_id)
+                )
+            object_id = parsed.next_object_id
+        raise ProtocolFrameError(
+            "设备标识翻页次数超过上限 {}:疑似设备重复下发同一页".format(
+                MODBUS_DEVICE_ID_MAX_PAGES
+            )
+        )
+
+    def _read_device_object_once(self, object_id: int) -> bytes:
+        """读单个标识对象(读取码 04),返回对象原始字节(内部方法)。
+
+        :raises DeviceError: PLC 返回异常码(对象不存在为异常码 02)
+        """
+        pdu = codec.build_device_id_pdu(
+            MODBUS_DEVICE_ID_CODE_INDIVIDUAL, object_id
+        )
+        parsed = codec.parse_device_id_response(self._transact(pdu))
+        for item_id, raw in parsed.objects:
+            if item_id == object_id:
+                return raw
+        raise ProtocolFrameError(
+            "设备标识个体访问未返回请求对象:期望 0x{:02X},收到 {}".format(
+                object_id, [hex(item) for item, _ in parsed.objects]
+            )
+        )
+
     def _write_pdu(self, pdu: bytes) -> None:
         """发送写 PDU;具备广播语义的走线在广播站号下不等响应(内部方法)。"""
         if self._station == 0 and self._BROADCAST_WITHOUT_RESPONSE:
@@ -711,6 +846,10 @@ class ModbusRtuClient(ModbusBaseClient):
         广播写(expect_response=False)发送后不等响应,设备不回包。
         站号不匹配属坏帧(多为总线上其他从站的迟到响应),异常文本带
         收到的原始帧。
+
+        收包长度分三种:异常响应固定 3 字节;FC 43(读设备标识)响应长度
+        随对象数变化,按对象头**增量收包**(见 :func:`_recv_device_id_tail`);
+        其余按请求 PDU 推算(见 :func:`codec.expected_response_length`)。
         """
         transport = self._require_transport()
         station = self.station
@@ -720,6 +859,8 @@ class ModbusRtuClient(ModbusBaseClient):
         head = transport.recv(2)
         if head[1] & MODBUS_EXCEPTION_FLAG:
             frame = head + transport.recv(3)
+        elif pdu[0] == codec.ModbusFunction.READ_DEVICE_IDENTIFICATION:
+            frame = head + _recv_device_id_tail(transport)
         else:
             frame = head + transport.recv(codec.expected_response_length(pdu) + 1)
         received_station, response_pdu = codec.parse_rtu_frame(frame)
@@ -923,6 +1064,88 @@ def _check_address(address: str, data_type: DataType) -> ModbusAddress:
     if data_type is not DataType.BOOL and parsed.bit is not None:
         raise ValueError(f"仅布尔类型支持位访问:{address!r}")
     return parsed
+
+
+def _check_holding_register(address: str, label: str) -> ModbusAddress:
+    """校验地址为不带位号后缀的保持寄存器(内部函数,FC23 用)。
+
+    :raises ValueError: 非保持寄存器区域或带位号后缀
+    """
+    parsed = parse_address(address)
+    if parsed.area != ModbusArea.HOLDING_REGISTER:
+        raise ValueError(f"{label}只支持保持寄存器区域(hr),收到:{address!r}")
+    if parsed.bit is not None:
+        raise ValueError(f"{label}不支持位号后缀:{address!r}")
+    return parsed
+
+
+_DEVICE_ID_LEVELS: Dict[str, int] = {
+    "basic": MODBUS_DEVICE_ID_CODE_BASIC,
+    "regular": MODBUS_DEVICE_ID_CODE_REGULAR,
+    "extended": MODBUS_DEVICE_ID_CODE_EXTENDED,
+}
+
+
+def _device_id_code(level: Union[str, int]) -> int:
+    """把标识层次名/编号统一为流式访问码(内部函数)。
+
+    :raises ValueError: 层次名或编号非法
+    """
+    if isinstance(level, str):
+        try:
+            return _DEVICE_ID_LEVELS[level.strip().lower()]
+        except KeyError:
+            raise ValueError(
+                "设备标识层次未知:{!r},支持 basic / regular / extended"
+                "(单个对象请用 read_device_object)".format(level)
+            )
+    try:
+        code = int(level)
+    except (TypeError, ValueError):
+        raise ValueError(f"设备标识层次非法:{level!r}")
+    if code == MODBUS_DEVICE_ID_CODE_INDIVIDUAL:
+        raise ValueError(
+            "个体访问(读取码 4)请用 read_device_object(object_id)"
+        )
+    if code not in (
+        MODBUS_DEVICE_ID_CODE_BASIC,
+        MODBUS_DEVICE_ID_CODE_REGULAR,
+        MODBUS_DEVICE_ID_CODE_EXTENDED,
+    ):
+        raise ValueError(f"设备标识层次非法:{level!r}(流式访问仅 1/2/3)")
+    return code
+
+
+def _device_id_to_text(objects: Dict[int, bytes]) -> Dict[str, str]:
+    """设备标识对象号 → ``{规范对象名: ASCII 文本}``(内部函数)。
+
+    标准对象(0x00~0x06)用规范名;其余(保留/厂商私有)用 ``object_0xNN``。
+    """
+    result: Dict[str, str] = {}
+    for object_id, raw in objects.items():
+        name = MODBUS_DEVICE_ID_OBJECT_NAMES.get(
+            object_id, "object_0x{:02X}".format(object_id)
+        )
+        result[name] = raw.decode("ascii", "replace")
+    return result
+
+
+def _recv_device_id_tail(transport: BaseTransport) -> bytes:
+    """设备标识响应按对象长度增量收包(内部函数,RTU 走线专用)。
+
+    FC 43 响应长度随对象数与对象长度变化,无法按请求推算:先读固定头
+    (MEI/读取码/符合级别/MoreFollows/下一对象号/对象数 共 6 字节),
+    再按对象数逐个读「对象号 + 长度」两字节头与其后的值,最后补 CRC。
+
+    :return: 功能码之后的全部字节(含 CRC,交由走线层统一校验)
+    """
+    tail = bytearray(transport.recv(MODBUS_DEVICE_ID_FIXED_HEAD_SIZE))
+    for _ in range(codec.device_id_object_count(bytes(tail))):
+        header = transport.recv(2)
+        tail += header
+        tail += transport.recv(header[1])
+    tail += transport.recv(2)
+    return bytes(tail)
 
 
 def _decode_32bit(registers: List[int], data_type: DataType, word_order: WordOrder) -> PrimitiveValue:
