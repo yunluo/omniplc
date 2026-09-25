@@ -1132,6 +1132,14 @@ Selector 与 Proactor 上都有实现(后者走 IOCP),3.7~3.13 通用,形态与�
 POSIX 下超长数据报的静默截断**无法在传输层探测**(同步层会打 WARNING),由协议层
 长度校验兜底;Windows 的 `WSAEMSGSIZE`(10040)照旧映射为 `DeviceError`。
 
+**主机名与节点推导(2026-09-26)**:UDP 传输的 `connect()` 用 `loop.getaddrinfo`
+**异步**解析(地址族钉 `AF_INET`,与同步层同族),并把结果以
+`AsyncUdpTransport.peer_ip` 暴露出来;FINS/UDP 的自动节点号推导一律用这个
+**IP 字面量**,不把主机名交给 `_node_from_host`/`_local_ip_for`——那两个助手
+(与同步层共用)对主机名会做 `socket.gethostbyname` **阻塞解析**,在事件循环里
+会把整段 `await` 卡住(实测 `localhost` 目标下停顿 260ms,慢 DNS 更久)。
+IP 字面量目标本就无解析步骤,故取值与同步层逐值一致。
+
 **一个 3.7 真缺陷的规避**:取消 `loop.sock_recv_into` 后 3.7 不会立即摘掉
 selector 的读注册(要等该 fd 下次可读才自清理),期间若关闭套接字,Windows 的
 `select` 会对已关闭句柄抛 `WSAENOTSOCK`(10038)把事件循环带崩(**3.7 在 Windows
