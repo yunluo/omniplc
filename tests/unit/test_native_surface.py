@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import inspect
 
+import pytest
+
 import omniplc as pkg
 import omniplc.native as native
 
@@ -29,6 +31,9 @@ _MODBUS_PENDING = {
     "write_mask_register",
 }
 """同步 Modbus TCP 里尚未进入原生首批的公开面(批量/扩展功能码)。"""
+
+_MELSEC_PENDING = {"read_batch", "read_many", "write_many"}
+"""同步 MC 客户端里尚未进入原生首批的公开面(0406 多块批量读)。"""
 
 
 def _public(cls: type) -> set:
@@ -67,6 +72,27 @@ def test_modbus_client_surface_mirrored_or_pending() -> None:
             sorted(gap), sorted(_MODBUS_PENDING)
         )
     )
+
+
+def test_melsec_clients_surface_mirrored_or_pending() -> None:
+    """MC 客户端(TCP/UDP)公开面 = 原生已镜像面 ∪ 声明的未到批次表。"""
+    for sync_cls, async_cls in (
+        (pkg.MelsecMcTcpClient, native.AsyncMelsecMcTcpClient),
+        (pkg.MelsecMcUdpClient, native.AsyncMelsecMcUdpClient),
+    ):
+        gap = _public(sync_cls) - _public(async_cls)
+        assert gap == _MELSEC_PENDING, "{},实际 {}".format(
+            sync_cls.__name__, sorted(gap)
+        )
+
+
+def test_melsec_native_supports_first_batch_frames_only() -> None:
+    """原生 MC 首批 1E/3E:4E 与串口帧构造期显式拒绝(不留半成品)。"""
+    for frame in ("1E", "3E"):
+        assert native.AsyncMelsecMcTcpClient("127.0.0.1", 2000, frame).frame.value == frame
+    for frame in ("4E", "3C", "4C", "1C"):
+        with pytest.raises(ValueError):
+            native.AsyncMelsecMcTcpClient("127.0.0.1", 2000, frame)
 
 
 def test_native_async_methods_are_coroutines() -> None:

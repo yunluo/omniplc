@@ -35,6 +35,7 @@ FINS 0104 多存储区读等)留后续批次,按需从 :mod:`omniplc.aio` 或同
 from __future__ import annotations
 
 from .base import AsyncBaseClient
+from .melsec import AsyncMelsecMcTcpClient, AsyncMelsecMcUdpClient
 from .modbus import AsyncModbusTcpClient
 from .transport import AsyncBaseTransport, AsyncTcpTransport, AsyncUdpTransport
 
@@ -46,6 +47,9 @@ __all__ = [
     "AsyncBaseClient",
     # ---- Modbus 客户端 ----
     "AsyncModbusTcpClient",
+    # ---- 三菱 MC 客户端(1E/3E,TCP + UDP)----
+    "AsyncMelsecMcTcpClient",
+    "AsyncMelsecMcUdpClient",
     # ---- 传输层 ----
     "AsyncBaseTransport",
     "AsyncTcpTransport",

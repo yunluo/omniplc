@@ -80,37 +80,28 @@ class ScriptedAsyncTransport(AsyncBaseTransport):
         return self._chunks.pop(0)
 
 
-class TcpResponder:
-    """进程内 asyncio TCP 应答器(Modbus MBAP 语义)。
+class RawTcpServer:
+    """进程内 asyncio TCP 服务端:连接处理逻辑由用例提供。
 
-    回显请求的 MBAP 事务号与单元号,PDU 由 ``pdu_handler`` 按请求 PDU 合成。
     :meth:`stop` 会取消未结束的连接任务——否则事件循环关闭时那些"还在等
     下一个请求"的协程会抛 ``Event loop is closed`` 噪声,掩盖真正的失败。
     """
 
-    def __init__(
-        self,
-        pdu_handler: Callable[[bytes], bytes],
-        delay: float = 0.0,
-    ) -> None:
-        """:param pdu_handler: 请求 PDU → 响应 PDU
-        :param delay: 收到请求后延迟多久应答(模拟慢 PLC)
-        """
-        self._handler = pdu_handler
-        self._delay = delay
-        self.sent: List[bytes] = []
+    def __init__(self, handler: Callable[[object, object], object]) -> None:
+        """:param handler: ``async def handler(reader, writer)`` 连接处理协程"""
+        self._connection_handler = handler
         self.port = 0
         self._server: Optional[asyncio.AbstractServer] = None
         self._tasks: List[asyncio.Task] = []
 
     async def start(self) -> int:
         """启动服务端,返回监听端口。"""
-        self._server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
+        self._server = await asyncio.start_server(self._dispatch, "127.0.0.1", 0)
         self.port = self._server.sockets[0].getsockname()[1]
         return self.port
 
     async def stop(self) -> None:
-        """关闭服务端并取消在等请求的连接任务(幂等)。"""
+        """关闭服务端并取消在等数据的连接任务(幂等)。"""
         if self._server is not None:
             self._server.close()
             await self._server.wait_closed()
@@ -124,12 +115,42 @@ class TcpResponder:
             except (asyncio.CancelledError, Exception):
                 pass
 
-    async def _handle(
+    async def _dispatch(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         task = asyncio.current_task()
         if task is not None:
             self._tasks.append(task)
+        try:
+            await self._connection_handler(reader, writer)
+        finally:
+            if task is not None and task in self._tasks:
+                self._tasks.remove(task)
+            writer.close()
+
+
+class TcpResponder(RawTcpServer):
+    """进程内 asyncio TCP 应答器(Modbus MBAP 语义)。
+
+    回显请求的 MBAP 事务号与单元号,PDU 由 ``pdu_handler`` 按请求 PDU 合成。
+    """
+
+    def __init__(
+        self,
+        pdu_handler: Callable[[bytes], bytes],
+        delay: float = 0.0,
+    ) -> None:
+        """:param pdu_handler: 请求 PDU → 响应 PDU
+        :param delay: 收到请求后延迟多久应答(模拟慢 PLC)
+        """
+        self.sent: List[bytes] = []
+        self._pdu_handler = pdu_handler
+        self._delay = delay
+        super().__init__(self._serve_requests)
+
+    async def _serve_requests(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
         try:
             while True:
                 header = await reader.readexactly(7)
@@ -138,7 +159,7 @@ class TcpResponder:
                 self.sent.append(header + body)
                 if self._delay:
                     await asyncio.sleep(self._delay)
-                pdu = self._handler(body[1:])
+                pdu = self._pdu_handler(body[1:])
                 writer.write(
                     header[:2]
                     + b"\x00\x00"
@@ -149,10 +170,6 @@ class TcpResponder:
                 await writer.drain()
         except (asyncio.IncompleteReadError, ConnectionError, OSError):
             pass  # 对端关闭(用例结束)属正常收尾
-        finally:
-            if task is not None and task in self._tasks:
-                self._tasks.remove(task)
-            writer.close()
 
 
 class UdpResponder:
