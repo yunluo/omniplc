@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import List, Optional, Union
+from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple, Union, cast
 
 from . import codec
 from .address import ModbusAddress, ModbusArea, parse_address
@@ -166,6 +166,134 @@ class ModbusBaseClient(BaseClient):
         ]
         self._write_registers_impl(parsed, registers)
         return value
+
+    # ------------------------------------------------------------------
+    # 批量读取:按 (area, kind, width, dtype) 分组合并连续地址
+    # ------------------------------------------------------------------
+
+    def read_many(
+        self,
+        addresses: Sequence[str],
+        data_type: Union[DataType, str],
+    ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
+        """按数据类型批量读:同 (区, 类型) 连续地址合一笔 FC,事务最少化。
+
+        与 :class:`BaseClient` 基类逐点循环相比——同 FC + 同数据类型 +
+        偏移连续/相邻的条目合一笔 FC 事务,把 N 个点从 N 笔事务压到 K
+        笔(K ≤ N,典型 1 笔);跨区 / 跨类型 / 地址空洞各起一笔。Modbus
+        协议本身不支持跨 FC 单事务合并,这是协议上限——比 MC 0406 /
+        FINS 0104 / AB 0x0A 的"单事务多区"目标弱一档,但远比基类逐点
+        循环高效。
+
+        失败语义:
+
+        - 任一笔 FC 失败 → 整批失败,返回与 addresses 等长的 ``(False, None)`` 列表
+        - 地址 / 类型非法 → 同步抛 :class:`ValueError`,不进入事务锁(零字节发送)
+
+        :param addresses: 地址列表(全部使用同一 ``data_type``)
+        :param data_type: 数据类型,推荐 :class:`omniplc.types.DataType` 枚举
+        :return: 与地址顺序对应的 ``[(是否成功, 值)]`` 列表;失败为全
+            ``(False, None)``
+        :raises ValueError: ``data_type`` 非法 / 任一地址无法解析
+        """
+        data_type_enum = DataType.coerce(data_type)
+        # 入参合法性前置校验:任一地址非法即同步抛出,不进事务
+        parsed = [(parse_address(addr), data_type_enum) for addr in addresses]
+        ok, values = self._execute(lambda: self._coalesce_and_read(parsed))
+        if not ok or values is None:
+            return [(False, None) for _ in addresses]
+        return [(True, value) for value in values]
+
+    def read_batch(
+        self,
+        items: Sequence[Tuple[str, Union[DataType, str]]],
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """混类型批量读:按 (区, 类型) 分组,组内连续地址合一笔 FC。
+
+        利用 Modbus 单条 FC 01/02/03/04 可读连续 N 个位/字的协议能力,
+        把 N 个混类型条目压缩到 K 笔 FC 事务(K ≤ N),与 MC 0406 / FINS
+        0104 / AB 0x0A / OPC-UA UA Read 的"单事务多条目"目标对齐。
+        Modbus 协议本身**不支持跨 FC 单事务合并**,所以 K 取决于跨区 /
+        跨类型 / 地址空洞数(同 (区, 类型) 且连续地址→合一笔)。
+
+        失败语义:
+
+        - 任一笔 FC 失败 → ``(False, None)``(整批失败,不放出部分值)
+        - 空列表 / 任意地址非法 / 类型非法 → 同步 :class:`ValueError`,
+          不进入事务锁(零字节发送)
+
+        :param items: ``(地址, 数据类型)`` 序列
+        :return: ``(是否成功, 与 items 顺序对应的值列表)``;失败为
+            ``(False, None)``
+        :raises ValueError: 列表为空 / 地址或类型非法
+        """
+        if not items:
+            raise ValueError("read_batch 至少需要一个 (地址, 数据类型) 项")
+        parsed = [(parse_address(addr), DataType.coerce(dt)) for addr, dt in items]
+        return self._execute(lambda: self._coalesce_and_read(parsed))
+
+    def _coalesce_and_read(
+        self,
+        items: List[Tuple["ModbusAddress", DataType]],
+    ) -> List[PrimitiveValue]:
+        """批量读核心算法(内部方法):分组合并 → 读 → 切片回填。
+
+        算法分四步:
+
+        1. **分类**:每个 ``(parsed, dtype)`` 按 :func:`_classify` 得到
+           ``(kind, width)``;同组内 ``width`` 统一(决定 FC 与单条 PDU
+           宽度)。
+        2. **分组**:key = ``(area, kind, width, dtype)`` —— 决定走哪个
+           FC(01/02/03/04)、读多少个字 / 位、怎么解码。
+        3. **合并**:每组内按 offset 升序,同 offset(同字 / 同位)与相邻
+           offset(gap = 0)合,留空洞立即切块;合并后单 chunk 范围超
+           FC 上限(位 2000 / 字 125)在连续区内二次切片。
+        4. **读 + 回填**:每个 chunk 发 1 笔 FC,按条目各自的 dtype 解码,
+           用 :attr:`_CoalesceEntry.item_index` 写回入参原位。
+
+        5 类分组(每类 FC 与字宽统一):
+
+        =====  ========================  =========  =========
+        组      区域 × 数据类型            kind       width
+        =====  ========================  =========  =========
+        A      线圈/离散 × BOOL           ``bit``    1 bit
+        B      寄存器 × BOOL              ``word``   1 word
+        C      寄存器 × SHORT/USHORT      ``word``   1 word
+        D      寄存器 × INT/UINT/FLOAT    ``word``   2 words
+        E      寄存器 × LONG/ULONG/DOUBLE ``word``   4 words
+        =====  ========================  =========  =========
+        """
+        # 1) 分类:每个条目登记到 _CoalesceEntry,记录原序索引
+        plan: List[_CoalesceEntry] = []
+        for item_index, (parsed, dtype) in enumerate(items):
+            kind, width = _classify(parsed, dtype)
+            plan.append(
+                _CoalesceEntry(
+                    item_index=item_index,
+                    parsed=parsed,
+                    dtype=dtype,
+                    kind=kind,
+                    width=width,
+                )
+            )
+
+        # 2) 分组:area × kind × width × dtype 决定 FC 与字宽
+        groups: Dict[Tuple[ModbusArea, str, int, DataType], List[_CoalesceEntry]] = {}
+        for entry in plan:
+            key = (entry.parsed.area, entry.kind, entry.width, entry.dtype)
+            groups.setdefault(key, []).append(entry)
+
+        # 用 None 占位便于按 item_index 回填;末次断言全填
+        result: List[Optional[PrimitiveValue]] = [None] * len(items)
+
+        # 3) 每组:排序 → 合并 → 逐 chunk 读 + 切片回填
+        for (area, kind, _width, _dtype), group in groups.items():
+            group.sort(key=lambda e: e.parsed.offset)
+            chunks = _coalesce_group(group, kind)
+            for chunk in chunks:
+                _read_and_fill(self, area, kind, chunk, result)
+
+        return cast(List[PrimitiveValue], result)
 
     # ------------------------------------------------------------------
     # 位与寄存器原语(基于 PDU 编解码 + 走线事务)
@@ -413,6 +541,173 @@ def _coerce_word_order(value: Union[WordOrder, str]) -> WordOrder:
     except ValueError:
         valid = ", ".join(order.value for order in WordOrder)
         raise ValueError(f"未知字序:{value!r},支持:{valid}")
+
+
+class _CoalesceEntry(NamedTuple):
+    """批量读合并条目(内部类型,不可变):保存单条 (地址, 类型) 在合并
+    阶段所需的全部信息,用于按 ``item_index`` 回填到入参原序。
+
+    字段:
+
+    - ``item_index``:入参 ``items`` 中的位置(用于结果按原序回填)
+    - ``parsed``:已解析的 Modbus 地址(含 area / offset / bit)
+    - ``dtype``:数据目标类型
+    - ``kind``:``"bit"``(位设备,FC 01/02)或 ``"word"``(寄存器,FC 03/04)
+    - ``width``:单条占用的协议单位数——位设备恒为 1 bit,寄存器为
+      1/2/4 word(由 dtype 决定)
+    """
+
+    item_index: int
+    parsed: "ModbusAddress"
+    dtype: DataType
+    kind: str
+    width: int
+
+
+def _classify(parsed: "ModbusAddress", dtype: DataType) -> Tuple[str, int]:
+    """按 (区, 类型) 决定读取粒度:``(kind, width)``(内部函数)。
+
+    返回 ``(kind, width)``:
+
+    =====  ========================  =========  =========
+    区域 × 类型                      kind       width
+    =====  ========================  =========  =========
+    线圈 / 离散 × BOOL               ``bit``    1 bit
+    寄存器 × BOOL                    ``word``   1 word(读字后提位)
+    寄存器 × SHORT / USHORT          ``word``   1 word
+    寄存器 × INT / UINT / FLOAT      ``word``   2 words
+    寄存器 × LONG / ULONG / DOUBLE   ``word``   4 words
+    =====  ========================  =========  =========
+
+    :raises ValueError: Modbus 不支持的数据类型
+    """
+    if dtype is DataType.BOOL:
+        if parsed.area in (ModbusArea.COIL, ModbusArea.DISCRETE_INPUT):
+            return "bit", 1
+        return "word", 1
+    if dtype in (DataType.SHORT, DataType.USHORT):
+        return "word", 1
+    if dtype in (DataType.INT, DataType.UINT, DataType.FLOAT):
+        return "word", 2
+    if dtype in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
+        return "word", 4
+    raise ValueError(f"Modbus 不支持的数据类型:{dtype}")
+
+
+def _coalesce_group(
+    group: List[_CoalesceEntry],
+    kind: str,
+) -> List[List[_CoalesceEntry]]:
+    """把同组条目按"相邻偏移"合并为多个 chunk(内部函数)。
+
+    同组内宽度统一(``kind=="bit"`` 全部宽 1 bit;``kind=="word"`` 全部
+    宽 ``width`` words),按 offset 升序遍历。三条规则:
+
+    1. **同 offset 合并**:同字位 / 同位(位设备),属于同一 FC 读覆盖区
+    2. **相邻 offset 合并**(``offset == current_end``):gap = 0,合并不切
+    3. **空洞立即切块**(``offset > current_end``):协议只能读连续地址,
+       空洞必须独立 FC
+
+    合并后单 chunk 范围超 FC 上限(位 2000 / 字 125)再按上限切为多段
+    (连续区内二次切片)。
+
+    :return: 每个子列表是一个连续地址区间内的所有条目,合并为 1 笔 FC
+    """
+    max_unit = 2000 if kind == "bit" else 125
+    chunks: List[List[_CoalesceEntry]] = []
+    current: List[_CoalesceEntry] = []
+    current_end = 0  # 当前 chunk 的"独占上界"(offset+width,半开)
+    for entry in group:
+        offset = entry.parsed.offset
+        if not current:
+            current = [entry]
+            current_end = offset + entry.width
+            continue
+        if offset > current_end:
+            # 规则 3:留空洞 → 切块,新开 chunk
+            chunks.append(current)
+            current = [entry]
+            current_end = offset + entry.width
+            continue
+        # 规则 1 + 2:同字 / 相邻 offset,合并不切
+        current.append(entry)
+        current_end = max(current_end, offset + entry.width)
+        # 连续区内若累计跨 FC 上限,二次切片
+        if current_end - current[0].parsed.offset > max_unit:
+            chunks.append(current)
+            current = []
+            current_end = 0
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _read_and_fill(
+    client: "ModbusBaseClient",
+    area: ModbusArea,
+    kind: str,
+    chunk: List[_CoalesceEntry],
+    result: List[Optional[PrimitiveValue]],
+) -> None:
+    """对合并区间执行单笔 FC 读,按各条目 dtype 解码并回填 result(内部函数)。
+
+    流程:
+
+    1. 计算 chunk 覆盖范围 ``[start_offset, end_offset)`` 与 ``count``
+    2. 按 ``kind`` 发单笔 FC:
+       - ``"bit"`` → 调 :meth:`_read_bits`,按条目 offset 取位
+       - ``"word"`` → 调 :meth:`_read_registers`,按条目 dtype 解码字数据
+    3. 解码按 dtype 分派,所有解码共用 ``word_order`` 处理多字类型
+    4. 用 :attr:`_CoalesceEntry.item_index` 把值写到 result 原位
+
+    解码映射:
+
+    - BOOL(寄存器位)→ :func:`convert.get_bit` 提位
+    - SHORT → :func:`convert.to_signed`(16 位有符号)
+    - USHORT → 原值(0~65535)
+    - INT/UINT/FLOAT → :func:`_decode_32bit` × 2 字,字序感知
+    - LONG/ULONG/DOUBLE → :func:`_decode_64bit` × 4 字,字序感知
+    """
+    start_offset = chunk[0].parsed.offset
+    # end_offset 是最后条目的 offset + width(位设备 width=1)
+    end_offset = chunk[-1].parsed.offset + chunk[-1].width
+    count = end_offset - start_offset
+
+    if kind == "bit":
+        # 位设备:占位 COIL/DISCRETE_INPUT 地址,跑一遍 _read_bits
+        probe = ModbusAddress(area=area, offset=start_offset)
+        bits = client._read_bits(probe, count)
+        for entry in chunk:
+            idx = entry.parsed.offset - start_offset
+            result[entry.item_index] = bool(bits[idx])
+        return
+
+    # 寄存器访问:1 笔 FC 03/04 读 count 个字
+    probe = ModbusAddress(area=area, offset=start_offset)
+    words = client._read_registers(probe, count)
+    for entry in chunk:
+        word_idx = entry.parsed.offset - start_offset
+        dtype = entry.dtype
+        if dtype is DataType.BOOL:
+            # 寄存器位:从对应字提位
+            bit_index = entry.parsed.bit or 0
+            result[entry.item_index] = bool(convert.get_bit(words[word_idx], bit_index))
+            continue
+        if dtype is DataType.SHORT:
+            result[entry.item_index] = convert.to_signed(words[word_idx], 16)
+            continue
+        if dtype is DataType.USHORT:
+            result[entry.item_index] = words[word_idx]
+            continue
+        if dtype in (DataType.INT, DataType.UINT, DataType.FLOAT):
+            slice_words = words[word_idx : word_idx + 2]
+            result[entry.item_index] = _decode_32bit(slice_words, dtype, client.word_order)
+            continue
+        if dtype in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
+            slice_words = words[word_idx : word_idx + 4]
+            result[entry.item_index] = _decode_64bit(slice_words, dtype, client.word_order)
+            continue
+        raise ValueError(f"Modbus 不支持的数据类型:{dtype}")
 
 
 def _check_address(address: str, data_type: DataType) -> ModbusAddress:
