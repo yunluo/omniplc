@@ -37,6 +37,7 @@ from __future__ import annotations
 from .base import AsyncBaseClient
 from .melsec import AsyncMelsecMcTcpClient, AsyncMelsecMcUdpClient
 from .modbus import AsyncModbusTcpClient
+from .omron import AsyncOmronFinsTcpClient, AsyncOmronFinsUdpClient
 from .transport import AsyncBaseTransport, AsyncTcpTransport, AsyncUdpTransport
 
 # 本包公开面:**不进** ``omniplc.__all__``——根包的镜像守卫测试要求
@@ -50,6 +51,9 @@ __all__ = [
     # ---- 三菱 MC 客户端(1E/3E,TCP + UDP)----
     "AsyncMelsecMcTcpClient",
     "AsyncMelsecMcUdpClient",
+    # ---- 欧姆龙 FINS 客户端(TCP + UDP)----
+    "AsyncOmronFinsTcpClient",
+    "AsyncOmronFinsUdpClient",
     # ---- 传输层 ----
     "AsyncBaseTransport",
     "AsyncTcpTransport",

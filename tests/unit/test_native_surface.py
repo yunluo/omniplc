@@ -35,6 +35,9 @@ _MODBUS_PENDING = {
 _MELSEC_PENDING = {"read_batch", "read_many", "write_many"}
 """同步 MC 客户端里尚未进入原生首批的公开面(0406 多块批量读)。"""
 
+_FINS_PENDING = {"read_batch", "read_many", "write_many"}
+"""同步 FINS 客户端里尚未进入原生首批的公开面(0104 多存储区读)。"""
+
 
 def _public(cls: type) -> set:
     """类上的公开名(方法/属性,排除下划线内部)。"""
@@ -82,6 +85,18 @@ def test_melsec_clients_surface_mirrored_or_pending() -> None:
     ):
         gap = _public(sync_cls) - _public(async_cls)
         assert gap == _MELSEC_PENDING, "{},实际 {}".format(
+            sync_cls.__name__, sorted(gap)
+        )
+
+
+def test_fins_clients_surface_mirrored_or_pending() -> None:
+    """FINS 客户端(TCP/UDP)公开面 = 原生已镜像面 ∪ 声明的未到批次表。"""
+    for sync_cls, async_cls in (
+        (pkg.OmronFinsTcpClient, native.AsyncOmronFinsTcpClient),
+        (pkg.OmronFinsUdpClient, native.AsyncOmronFinsUdpClient),
+    ):
+        gap = _public(sync_cls) - _public(async_cls)
+        assert gap == _FINS_PENDING, "{},实际 {}".format(
             sync_cls.__name__, sorted(gap)
         )
 
