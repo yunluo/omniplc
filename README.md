@@ -335,6 +335,21 @@ asyncio.run(main())
 异步客户端是**多设备并发**的手段,不是单连接提速(单设备逐笔轮询用同步即可,异步只多线程切换开销):
 协议事务在单连接内本就是"一问一答"串行,收益来自把多台设备的等待重叠——10 台设备并发采集约等于顺序轮询的 1/10 耗时。
 
+**实现方式与边界(重要,先读再选型)**:异步客户端**不是原生 asyncio 协议栈**,
+而是"**同步 I/O + 单线程 `ThreadPoolExecutor`**"的包装——每个 `await` 把同步调用
+投递到该客户端自己的单工作线程,协议编解码只有一份代码。由此有三条硬边界:
+
+- **同一客户端仍是串行的**:协议调用在工作线程里按 FIFO 排队(与同步侧同一把
+  事务锁),并发不会让单台设备变快;收益只来自跨设备重叠等待,需要单设备并发
+  吞吐请多开实例(连接池留 v1.x)。
+- **事件循环不被 I/O 阻塞,但同步属性是直读**:`await` 期间 I/O 在工作线程;
+  而 `connected` / `last_error*` / `stats` / `receive_timeout` 读写是同步直读
+  同步实例——不发报文、不切线程,读到的可能不是原子快照。
+- **没有 asyncio 原生取消**:`asyncio.wait_for` 超时只是放弃等待,已提交的
+  **写事务仍会在工作线程里跑完**(写动作不可回滚);要硬性限时请用同步侧的
+  `receive_timeout` / 事务 deadline。`close()` 则相反:它会**排空**已提交任务
+  (不锯断在途事务)再释放线程,因此关闭后不会再有帧落线。
+
 ```python
 import asyncio
 from omniplc.aio import AMelsecMcTcpClient, AOmronFinsTcpClient, AAllenBradleyEthIpClient

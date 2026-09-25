@@ -295,6 +295,10 @@ unconnected 消息),欧姆龙 NJ/NX CIP(继承 AB 客户端,三钩子覆写),
    故障(OSError / 坏帧)才标记断开。
 6. **Transport 自身非线程安全**,只由持有事务锁的客户端串行访问;
    异步侧所有调用经**单线程 executor** 串行执行,与同步侧同一把 RLock,双保险且保序。
+   异步层是"同步 I/O + 单线程池"的**包装而非原生 asyncio 协议栈**:同一客户端
+   串行、同步属性直读、无原生取消(`wait_for` 超时后写事务仍在工作线程跑完);
+   `close()` 关闸 → 排空已提交任务(不锯断在途事务)→ `shutdown(wait=True)`
+   (在默认执行器里等,不阻塞事件循环)。选型与并发边界详见 README「异步」节。
 7. **订阅回调线程(v0.35,OPC-UA)**:DataChange/Event 回调在 asyncua
    内部线程触发,不经事务锁——同步版直接执行用户回调(异常吞掉记
    `last_error`,category=UNKNOWN,不杀订阅);aio 版经
