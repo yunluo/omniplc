@@ -432,6 +432,53 @@ class TestAioCloseLifecycle:
         # 调用同步 disconnect 不抛错
         assert async_client._executor is None
 
+    def test_close_drains_in_flight_transaction(self) -> None:
+        """close 排空在途事务:不锯断帧,返回时该事务已跑完。"""
+        sync = _ScriptedSyncForAio()
+        finished: List[str] = []
+
+        def slow_read(_address: str, _data_type: object) -> int:
+            time.sleep(0.15)
+            finished.append("read-done")
+            return 1
+
+        sync._read = slow_read
+        client = aio.AModbusTcpClient.__new__(aio.AModbusTcpClient)
+        aio.ABaseClient.__init__(client, sync)
+        sync.connect()
+
+        async def scenario() -> None:
+            pending = asyncio.ensure_future(client.read_short("hr0"))
+            await asyncio.sleep(0.02)  # 让读真正进入工作线程
+            await client.close()
+            # close 返回时在途事务已跑完(未被锯断)
+            assert finished == ["read-done"]
+            assert (await pending) == (True, 1)
+            assert client._executor is None
+
+        asyncio.run(scenario())
+
+    def test_close_gate_refuses_new_calls_while_draining(self) -> None:
+        """close 起步即关闸:新调用不再排队到关闭之后执行。"""
+        sync = _ScriptedSyncForAio()
+        sync._read = lambda _a, _t: (time.sleep(0.15), 1)[1]  # noqa: E731
+        client = aio.AModbusTcpClient.__new__(aio.AModbusTcpClient)
+        aio.ABaseClient.__init__(client, sync)
+        sync.connect()
+
+        async def scenario() -> None:
+            pending = asyncio.ensure_future(client.read_short("hr0"))
+            await asyncio.sleep(0.02)
+            closing = asyncio.ensure_future(client.close())
+            await asyncio.sleep(0.01)  # 让 close 起步(关闸 + 投递 disconnect)
+            with pytest.raises(RuntimeError, match="客户端已关闭"):
+                await client.read_short("hr0")
+            await closing
+            assert (await pending) == (True, 1)
+            assert client._executor is None
+
+        asyncio.run(scenario())
+
 
 class _ScriptedSyncForAio(BaseClient):
     """最简 BaseClient 子类供 aio 镜像测试,不走真传输。"""

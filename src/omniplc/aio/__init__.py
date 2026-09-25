@@ -6,11 +6,22 @@
 实现方式:组合对应同步实例,所有协议调用经**单线程**
 :class:`~concurrent.futures.ThreadPoolExecutor` 串行执行——协议
 编解码只有一份代码,顺序与同步版的线程安全语义一致。
+
+**这不是原生 asyncio 协议栈**(预期管理,详见 README「异步」节):
+
+- 每个 ``await`` 把同步调用投递到该客户端自己的单工作线程;I/O 期间事件
+  循环不被阻塞,但**同一客户端仍串行**(并发收益来自跨设备重叠等待);
+- 同步属性(``connected``/``last_error*``/``stats``/``receive_timeout``
+  读写)直读同步实例,不发报文也不切线程;
+- **无 asyncio 原生取消**:``asyncio.wait_for`` 超时只是放弃等待,已提交的
+  写事务仍会在工作线程里跑完(写动作不可回滚);
+- :meth:`ABaseClient.close` 关闸后**排空**已提交任务(不锯断在途事务),
+  再释放线程。
 """
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import CancelledError, ThreadPoolExecutor
 from types import TracebackType
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
 
@@ -424,21 +435,39 @@ class ABaseClient:
     async def close(self) -> None:
         """断开连接并释放单工作线程(幂等;关闭后客户端不可复用)。
 
-        先尽力断开同步客户端(释放 socket/会话),再关闭 executor;
-        关闭后任何协议调用(含 :meth:`disconnect` 与 :meth:`close`)
-        抛 ``RuntimeError`` 或安全返回。与 :meth:`disconnect` 的区别:
-        disconnect 只断同步侧、客户端仍可用;close 是彻底收尾。
+        关闭顺序与语义:
+
+        1. **立刻关闸**:``self._executor`` 先置 ``None``,此后任何协议调用
+           (含 :meth:`disconnect` / :meth:`close`)抛 ``RuntimeError``——
+           不再向工作线程排队,避免任务在关闭返回之后才执行(关闭后仍写 PLC)。
+        2. **排空**:已提交的任务照常跑完(单线程池 FIFO,各任务自带事务超时
+           上界),最后排队的是同步侧 ``disconnect``(释放 socket/会话);
+           在途事务**不会被锯断**。
+        3. **释放线程**:``shutdown(wait=True)`` 在事件循环的默认执行器里等待,
+           不阻塞事件循环;返回时保证没有任务会在关闭之后落线。
+
+        与 :meth:`disconnect` 的区别:disconnect 只断同步侧、客户端仍可用;
+        close 是彻底收尾(不可复用)。
         """
         if self._executor is None:
             return
         executor = self._executor
+        self._executor = None  # 关闸:新调用立即 RuntimeError
+        loop = asyncio.get_running_loop()
         try:
-            await self._run(self._sync.disconnect)
+            # 绕过闸门直接投递:断开排在所有已提交任务之后执行
+            await loop.run_in_executor(executor, self._sync.disconnect)
         except Exception:
             pass  # 尽力断开,失败不阻断释放
         finally:
-            self._executor = None
-            executor.shutdown(wait=False)
+            try:
+                # wait=True 等线程排空;放在默认执行器里等 → 不阻塞事件循环
+                await loop.run_in_executor(None, executor.shutdown)
+            except CancelledError:
+                # close 自身被取消:退化为同步等待,线程不悬在关闭之后
+                # (CancelledError 即 asyncio.CancelledError,3.7~3.12 同一类)
+                executor.shutdown(wait=True)
+                raise
 
     async def __aenter__(self: _A) -> _A:
         """进入 async with 时自动连接,失败抛 ConnectionError。"""
