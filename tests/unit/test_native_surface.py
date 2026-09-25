@@ -164,6 +164,28 @@ def test_constructors_match_sync_twin() -> None:
         ], sync_name
 
 
+def test_cancelled_error_covers_asyncio_class() -> None:
+    """取消异常口径必须覆盖 asyncio 的取消异常(3.8 起与 futures 版**不同类**)。
+
+    3.7 里 ``asyncio.CancelledError is concurrent.futures.CancelledError`` 为真
+    (别名,均为 ``Exception`` 子类);3.8 起 asyncio 的改为**内建**
+    ``BaseException`` 子类、与 futures 版不再是同一个类——只捕后者会让任务取消与
+    "超时取消内层任务"落地时的 ``CancelledError`` 全部漏网(native 超时/取消路径
+    静默失效,CI 的 3.12 腿实测 7 例 FAILED)。本机 .venv 是 3.7.9,两条类天然
+    同一,故这里改为断言"口径里含 asyncio 的那一条"。
+    """
+    from omniplc import aio as aio_module
+    from omniplc.core import errors as errors_module
+    from omniplc.native import base as base_module
+    from omniplc.native import transport as transport_module
+
+    assert asyncio.CancelledError in errors_module._CANCELLED_ERRORS
+    # 三层用同一份口径(不是各自捕各自的类)
+    assert base_module._CANCELLED_ERRORS is errors_module._CANCELLED_ERRORS
+    assert transport_module._CANCELLED_ERRORS is errors_module._CANCELLED_ERRORS
+    assert aio_module._CANCELLED_ERRORS is errors_module._CANCELLED_ERRORS
+
+
 def test_typed_signatures_match_sync_twin() -> None:
     """类型化读写的方法签名(参数名与默认值)与同步基类逐一对齐。"""
     checked = [

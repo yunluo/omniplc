@@ -29,7 +29,6 @@ import asyncio
 import random
 import time
 from abc import ABC, abstractmethod
-from concurrent.futures import CancelledError
 from types import TracebackType
 from typing import Awaitable, Callable, Dict, Optional, Tuple, Type, TypeVar, Union, cast
 
@@ -57,6 +56,7 @@ from ..core.errors import (
     OmniPLCInternalError,
     TransportClosedError,
     TransportTimeoutError,
+    _CANCELLED_ERRORS,
 )
 from ..tag import Tag, TagTable
 from ..types import DataType, PrimitiveValue
@@ -160,7 +160,7 @@ class AsyncBaseClient(ABC):
             transport.connect_timeout = self._connect_timeout
             transport.receive_timeout = self._receive_timeout
             await transport.connect()
-        except CancelledError:
+        except _CANCELLED_ERRORS:
             # 取消必须传播:半开传输直接关掉(尚未发过字节,链路无需重同步)
             try:
                 transport.close()
@@ -186,7 +186,7 @@ class AsyncBaseClient(ABC):
         self._transport = transport
         try:
             await self._after_connect()
-        except CancelledError:
+        except _CANCELLED_ERRORS:
             try:
                 transport.close()
             except Exception:
@@ -626,7 +626,7 @@ class AsyncBaseClient(ABC):
                 transport = self._transport
                 try:
                     value = await operation()
-                except CancelledError:
+                except _CANCELLED_ERRORS:
                     if transport is not None and transport.pending:
                         self._mark_disconnected()
                     raise

@@ -14,7 +14,36 @@
 """
 from __future__ import annotations
 
+import asyncio
 import enum
+from concurrent.futures import CancelledError as _FuturesCancelledError
+from typing import Tuple, Type
+
+# 取消异常口径(3.7 与 3.8+ **不是同一个类**,必须两条一起捕):
+#
+# - **3.7**:``asyncio.CancelledError`` 就是 ``concurrent.futures.CancelledError``
+#   (同一个类,``Exception`` 子类);
+# - **3.8 起**:asyncio 的取消异常改为自己的 ``BaseException`` 子类
+#   (``asyncio.exceptions.CancelledError``),与 futures 版不再是同一个类。
+#
+# 只捕其中一个,任务取消、以及"超时后取消内层任务"落地时的 ``CancelledError``
+# 都会漏网(native 的超时与取消路径会因此静默失效:超时抛 CancelledError 而非
+# ``socket.timeout``/``TransportTimeoutError``,取消也不再保守拆连)——本地 .venv
+# 是 3.7.9,天然看不出来,由 CI 的 3.12 腿抓到(实测 7 例 FAILED)。故这里给出
+# 跨代元组供 ``except`` 直接用;需要连普通异常一起吞时用
+# ``_CANCELLED_ERRORS + (Exception,)``。
+#
+# 注意取 asyncio 那一条要走 ``getattr``:它的类名**不在 builtins 里**,
+# 且 3.11+ 的类型库把它建模成内建名,直接 ``from asyncio import CancelledError``
+# 会被 ty 判为"模块无此成员"。
+_CANCELLED_ERRORS: Tuple[Type[BaseException], ...] = tuple(
+    cls
+    for cls in (
+        _FuturesCancelledError,
+        getattr(asyncio, "CancelledError", None),
+    )
+    if cls is not None
+)
 
 
 class OmniPLCInternalError(Exception):

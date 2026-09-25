@@ -40,12 +40,16 @@ from __future__ import annotations
 import asyncio
 import socket
 from abc import ABC, abstractmethod
-from concurrent.futures import CancelledError
 from typing import Awaitable, List, Optional, Tuple, TypeVar
 
 from ..core.constants import DEFAULT_CONNECT_TIMEOUT, DEFAULT_RECEIVE_TIMEOUT
 from ..core.debug import RECV_MARK, SEND_MARK, log_frame, log_op, log_warning
-from ..core.errors import DeviceError, TransportClosedError, TransportTimeoutError
+from ..core.errors import (
+    DeviceError,
+    TransportClosedError,
+    TransportTimeoutError,
+    _CANCELLED_ERRORS,
+)
 from ..transport.tcp import _enable_keepalive
 
 # Windows ``recv`` 对超长 UDP 报文抛 ``WSAEMSGSIZE``(errno 10040),与同步
@@ -66,7 +70,7 @@ async def _await_with_timeout(
     task = asyncio.ensure_future(awaitable)
     try:
         done, _pending = await asyncio.wait({task}, timeout=timeout)
-    except CancelledError:
+    except _CANCELLED_ERRORS:
         # 外层被取消:内层任务一起取消——否则它会继续跑(TCP 读还在等数据),
         # 正是本层要消灭的"取消不生效"行为
         task.cancel()
@@ -76,7 +80,7 @@ async def _await_with_timeout(
     task.cancel()
     try:
         await task
-    except (CancelledError, Exception):
+    except (_CANCELLED_ERRORS + (Exception,)):
         pass  # 我们自己取消的,取消落地即可(inner 异常此处无需关心)
     return False, None
 

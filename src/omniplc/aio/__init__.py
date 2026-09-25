@@ -21,12 +21,12 @@
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import CancelledError, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from types import TracebackType
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
 
 from ..core.base_client import BaseClient, ClientStats
-from ..core.errors import ErrorCategory
+from ..core.errors import ErrorCategory, _CANCELLED_ERRORS
 from ..cnc import MTConnectClient
 from ..core.constants import (
     AB_EIP_DEFAULT_PORT,
@@ -468,9 +468,11 @@ class ABaseClient:
             try:
                 # wait=True 等线程排空;放在默认执行器里等 → 不阻塞事件循环
                 await loop.run_in_executor(None, executor.shutdown)
-            except CancelledError:
-                # close 自身被取消:退化为同步等待,线程不悬在关闭之后
-                # (CancelledError 即 asyncio.CancelledError,3.7~3.12 同一类)
+            except _CANCELLED_ERRORS:
+                # close 自身被取消:退化为同步等待,线程不悬在关闭之后。
+                # 口径见 `core/errors._CANCELLED_ERRORS`:3.8 起 asyncio 的取消
+                # 异常与 ``concurrent.futures.CancelledError`` **不再是同一个类**,
+                # 捕错会漏掉任务取消。
                 executor.shutdown(wait=True)
                 raise
 
