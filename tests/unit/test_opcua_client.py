@@ -378,7 +378,36 @@ if _HAVE_ASYNCUA:
         try:
             yield server, idx
         finally:
-            server.stop()
+            _stop_sync_server(server)
+
+    def _stop_sync_server(server, timeout=15.0):
+        """停 asyncua sync Server;stop 挂起时强停其事件循环线程(内部助手)。
+
+        asyncua 1.1.5 的 ``sync.Server.stop()`` 偶发挂起(post 的 future
+        120s 不完成,实测命中过一次),且其 ``tloop.stop()`` 不在 finally
+        里——超时抛异常后非守护 ThreadLoop 线程泄漏,解释器退出被卡死。
+        兜底:后台线程跑 stop,超时未归则 ``call_soon_threadsafe(loop.stop)``
+        强停事件循环(run_forever 返回 → 线程自然终结,不拦进程退出)。
+        """
+        done = _threading.Event()
+
+        def _run():
+            try:
+                server.stop()
+            except Exception:
+                pass
+            done.set()
+
+        t = _threading.Thread(target=_run, daemon=True)
+        t.start()
+        if not done.wait(timeout):
+            print("!! asyncua server.stop() 挂起,已强停事件循环", file=sys.stderr)
+            try:
+                loop = server.tloop.loop
+                loop.call_soon_threadsafe(loop.stop)
+            except Exception:
+                pass
+        t.join(timeout=5.0)
 
     def _make_variable(server, idx, name, value=42):
         """在服务端 Objects 下加 Variable 节点,返回 (SyncNode, node_id 文本)。
