@@ -10,13 +10,14 @@
 """
 from __future__ import annotations
 
+import socket
 import struct
 
 import pytest
 
 from omniplc import ModbusRtuClient, ModbusTcpClient
 from omniplc.core.debug import format_hex
-from omniplc.core.errors import DeviceError, ErrorCategory
+from omniplc.core.errors import DeviceError, ErrorCategory, TransportTimeoutError
 from omniplc.modbus import codec
 from scripted import ScriptedTransport as _ScriptedTransport, mount_real_tcp
 
@@ -135,6 +136,48 @@ def test_rtu_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> N
     assert client.last_error_code == 2
     assert client.last_error_category is ErrorCategory.DEVICE
     assert client.stats["device_error_count"] == 1
+
+
+def test_rtu_timeout_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> None:
+    """RTU:接收超时不拆线(0 字节已读 = 链路无残渣),与 TCP 超时拆连相区分。
+
+    超时不是 PLC 返回的错误码:分类 TIMEOUT、``last_error_code`` 为 None、
+    ``device_error_count`` 不增;串口/UDP 与 TCP 的 ``retries`` 语义就此统一。
+    """
+    client = ModbusRtuClient(station=1)
+    client.configure_serial("COM3")
+
+    class TimeoutTransport(_ScriptedTransport):
+        def recv(self, size: int) -> bytes:
+            raise TransportTimeoutError("串口读取超时(receive_timeout=1.0)", 0)
+
+    scripted = TimeoutTransport([])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("hr0") == (False, None)
+    assert client.connected is True
+    assert client.last_error_category is ErrorCategory.TIMEOUT
+    assert client.last_error_code is None
+    assert client.last_error == "串口读取超时(receive_timeout=1.0)"
+    assert client.stats["device_error_count"] == 0
+    assert client.stats["error_count"] == 1
+
+
+def test_tcp_timeout_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TCP:接收超时(OSError 语义)仍拆连——迟到响应可能残留在 socket 缓冲。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+
+    class TimeoutTransport(_ScriptedTransport):
+        def recv(self, size: int) -> bytes:
+            raise socket.timeout("timed out")
+
+    scripted = TimeoutTransport([])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("hr0") == (False, None)
+    assert client.connected is False
+    assert client.last_error_category is ErrorCategory.TIMEOUT
+    assert client.stats["device_error_count"] == 0
 
 
 def test_rtu_exception_function_code_mismatch_marks_disconnected(

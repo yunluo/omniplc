@@ -13,6 +13,7 @@
 - A9 FINS/TCP 重连刷新自动节点号
 - A10 MX COM Close 调用顺序与 COM 计数配对
 - B1 BaseClient 健康统计快照
+- B2 超时/错误码口径(超时不计设备错误码、``code=0`` 归 ``None``、超时跨走线重试)
 """
 from __future__ import annotations
 
@@ -702,3 +703,99 @@ class TestAioStatsForwarding:
             assert s["transactions"] == 1
         finally:
             asyncio.run(async_client.close())
+
+
+# ----------------------------------------------------------------------
+# B2 超时/错误码口径(契约矛盾批)
+# ----------------------------------------------------------------------
+
+
+class TestTimeoutAndCodeSemantics:
+    """``_execute`` 的超时分支与 ``last_error_code`` 口径。"""
+
+    def test_transport_timeout_keeps_link_and_skips_device_error_count(self) -> None:
+        """超时:0 字节已读 = 链路无残渣 → 不拆连、不计 device_error_count。"""
+        client = _ScriptedSyncForAio()
+        client.connect()
+
+        def boom(_address: str, _data_type: object) -> None:
+            raise errors.TransportTimeoutError("串口读取超时(receive_timeout=1.0)", 0)
+
+        client._read = boom
+        assert client.read_short("hr0") == (False, None)
+        s = client.stats
+        assert s["device_error_count"] == 0  # 超时不是设备返回的错误码
+        assert s["error_count"] == 1  # 但仍算一次失败
+        assert client.last_error_category is errors.ErrorCategory.TIMEOUT
+        assert client.last_error_code is None  # code=0 → 无码
+        assert client.connected is True  # 不拆连
+        # 传输层自撰文本原样进 last_error(不加类名前缀)
+        assert client.last_error == "串口读取超时(receive_timeout=1.0)"
+
+    def test_transport_timeout_retries_without_reconnect(self) -> None:
+        """超时与其他传输失败一样按 ``retries`` 重试,且全程不拆连。"""
+        client = _ScriptedSyncForAio()
+        client.connect()
+        client.retries = 1
+        calls: List[int] = []
+
+        def boom(_address: str, _data_type: object) -> None:
+            calls.append(1)
+            raise errors.TransportTimeoutError("UDP 接收超时(1.0s)", 0)
+
+        client._read = boom
+        assert client.read_short("hr0") == (False, None)
+        assert len(calls) == 2  # retries=1 → 两次尝试
+        assert client.connected is True  # 每次都在原连接上重发
+        assert client.stats["device_error_count"] == 0
+        assert client.stats["error_count"] == 2  # 每次尝试各记一次失败
+
+    def test_device_error_without_code_maps_to_none(self) -> None:
+        """``DeviceError(code=0)`` = 无具体错误码,不写进 ``last_error_code``。"""
+        client = _ScriptedSyncForAio()
+        client.connect()
+
+        def boom(_address: str, _data_type: object) -> None:
+            raise errors.DeviceError("当前驱动暂不支持字符串读取", 0)
+
+        client._read = boom
+        assert client.read_short("hr0") == (False, None)
+        assert client.last_error_code is None
+        assert client.last_error_category is errors.ErrorCategory.DEVICE
+        assert client.connected is True  # 能力缺失不断线
+        assert client.stats["device_error_count"] == 1
+
+    def test_device_error_code_preserved(self) -> None:
+        """有码的 ``DeviceError`` 照原样写进 ``last_error_code``。"""
+        client = _ScriptedSyncForAio()
+        client.connect()
+
+        def boom(_address: str, _data_type: object) -> None:
+            raise errors.DeviceError("PLC 错误 0x02", 2)
+
+        client._read = boom
+        assert client.read_short("hr0") == (False, None)
+        assert client.last_error_code == 2
+        assert client.stats["device_error_count"] == 1
+
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            ConnectionRefusedError(10061, "连接被拒绝"),
+            ConnectionResetError(10054, "连接被重置"),
+            socket.gaierror(-2, "名称解析失败"),
+        ],
+    )
+    def test_connection_errors_still_transport_category(self, exc: OSError) -> None:
+        """``_categorize`` 收敛后,连接类 OSError 仍归 TRANSPORT 并拆连。"""
+        client = _ScriptedSyncForAio()
+        client.connect()
+
+        def boom(_address: str, _data_type: object) -> None:
+            raise exc
+
+        client._read = boom
+        assert client.read_short("hr0") == (False, None)
+        assert client.last_error_category is errors.ErrorCategory.TRANSPORT
+        assert client.connected is False
+        assert client.stats["device_error_count"] == 0

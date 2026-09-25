@@ -42,13 +42,18 @@ class DeviceError(OmniPLCInternalError):
 
 
 class TransportTimeoutError(DeviceError):
-    """传输层接收超时(链路可能完好,按 DeviceError 语义:不断线不重连)。
+    """传输层接收超时(链路完好,按"不断线"语义处理)。
 
     与连接死亡(OSError)区分:**0 字节已读**的超时无残留字节错位风险
     (UDP 整数据报、串口 0 字节已读),不拆连可避免慢链路上的重连+握手
     抖动;串口**部分字节已读后超时**(帧截断)由 SerialTransport 主动
     关闭串口抛 TransportClosedError,借重连重新同步;TCP 超时保持
     OSError 语义拆连——迟到响应残留在 socket 缓冲,拆连正是防串帧的机制。
+
+    计数与重试口径(``BaseClient._execute``):**不计入**
+    ``device_error_count``("设备返回错误码的次数"不含传输超时),但与其他
+    传输失败一样按 ``retries``/``write_retries`` 重试(0 字节已读,原连接
+    上重发安全)。
     """
 
 

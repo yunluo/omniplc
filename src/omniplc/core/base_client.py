@@ -255,6 +255,8 @@ class BaseClient(ABC):
         """读操作失败后的重试次数(默认 0 = 不重试)。
 
         重试与**惰性重连**配合:传输失败会标记断开,重试前自动重建连接。
+        接收超时(``TransportTimeoutError``,串口/UDP 的 0 字节超时)不拆连,
+        直接在原连接上重发——与 TCP 超时的拆连重试口径一致。
         """
         return self._retries
 
@@ -337,7 +339,8 @@ class BaseClient(ABC):
           传输失败后的拆连都计)
         - ``transactions``:已执行的协议事务数(含失败尝试)
         - ``error_count``:失败总数(设备错误 + 传输错误 + 建连失败)
-        - ``device_error_count``:PLC 明确返回错误码的次数(链路完好)
+        - ``device_error_count``:PLC 明确返回错误码的次数(链路完好;
+          接收超时不计入——它不是设备返回的码)
         - ``last_error_at`` / ``last_connect_at`` / ``last_success_at``:
           ``time.monotonic()`` 时间戳(秒)
         - ``last_rtt``:最近一次成功事务的往返耗时(秒,含 PLC 等待)
@@ -618,8 +621,13 @@ class BaseClient(ABC):
 
         - 断线时先惰性重连(失败则本次直接返回失败)
         - 传输/协议失败标记断开,并按 ``retries``/``write_retries`` 重试
+        - 接收超时(:class:`TransportTimeoutError`,0 字节已读 = 链路无残渣)
+          不拆连、不计 ``device_error_count``(它不是 PLC 错误码),但与其他
+          传输失败一样按 ``retries``/``write_retries`` 重试
         - PLC 明确返回错误码(DeviceError)不断线、不重试——链路是好的
-        - 所有内部异常转换为 ``(False, None)``,原因写入 :attr:`last_error`
+        - 传输/协议/设备类异常转换为 ``(False, None)``,原因写入
+          :attr:`last_error`;调用方错误(``ValueError`` 等)与编程错误
+          (``struct.error``/``KeyError``)仍直接抛出(锁正常释放)
 
         :param operation: 无参可调用,成功返回值,失败抛内部异常/OSError
         :param is_write: 是否写操作(决定重试次数与防重复写入语义)
@@ -644,6 +652,11 @@ class BaseClient(ABC):
                     self._timestamps["last_success_at"] = time.monotonic()
                     self._timestamps["last_rtt"] = time.perf_counter() - started
                     return True, value
+                except TransportTimeoutError as exc:
+                    # 超时但 0 字节已读:链路无残渣,不拆连也不计设备错误码;
+                    # 与其他传输失败一致进入重试(串口/UDP 与 TCP 口径统一)
+                    self._set_error(_describe(exc), _categorize(exc), _extract_code(exc))
+                    continue
                 except DeviceError as exc:
                     self._set_error(_describe(exc), _categorize(exc), _extract_code(exc))
                     self._counters["device_error_count"] += 1
@@ -761,8 +774,15 @@ class BaseClient(ABC):
 
 
 def _describe(exc: BaseException) -> str:
-    """把异常转换为可读的 last_error 文本(内部函数)。"""
+    """把异常转换为可读的 last_error 文本(内部函数)。
+
+    超时类文本不加类名前缀:``TransportTimeoutError`` 的消息由传输层自撰
+    且已含上下文(如"串口读取超时(receive_timeout=1.0)"),
+    ``socket.timeout`` 统一表述为"通信超时:…"。
+    """
     text = str(exc).strip()
+    if isinstance(exc, TransportTimeoutError):
+        return text or "通信超时"
     if isinstance(exc, socket.timeout):
         return f"通信超时:{text or 'receive_timeout 到期'}"
     return f"{type(exc).__name__}:{text}" if text else type(exc).__name__
@@ -772,7 +792,9 @@ def _categorize(exc: BaseException) -> ErrorCategory:
     """把异常映射为失败分类(内部函数;规则顺序敏感,勿调换)。
 
     ``TransportTimeoutError`` 是 ``DeviceError`` 子类、``socket.timeout``
-    是 ``OSError`` 子类,必须先判窄类型;新增异常类型须同步本表
+    是 ``OSError`` 子类,必须先判窄类型;连接被拒/被重置/DNS 失败
+    (``ConnectionRefusedError``/``ConnectionResetError``/``socket.gaierror``)
+    同为 ``OSError`` 子类,归入传输类无需单列;新增异常类型须同步本表
     (见 ``ErrorCategory`` docstring)。
     """
     if isinstance(exc, (TransportTimeoutError, socket.timeout)):
@@ -781,8 +803,6 @@ def _categorize(exc: BaseException) -> ErrorCategory:
         return ErrorCategory.PROTOCOL
     if isinstance(exc, DeviceError):
         return ErrorCategory.DEVICE
-    if isinstance(exc, (ConnectionRefusedError, ConnectionResetError, socket.gaierror)):
-        return ErrorCategory.TRANSPORT
     if isinstance(exc, (OSError, TransportClosedError)):
         return ErrorCategory.TRANSPORT
     return ErrorCategory.UNKNOWN
@@ -791,13 +811,12 @@ def _categorize(exc: BaseException) -> ErrorCategory:
 def _extract_code(exc: BaseException) -> Optional[int]:
     """提取原始错误码:DeviceError 取协议码,OSError 取 errno,其余 None。
 
-    注意:``TransportTimeoutError`` 虽是 DeviceError 子类,但其 code
-    (传输层构造传 0)不是 PLC 协议码,按无码处理。
+    ``DeviceError`` 的 ``code=0`` 表示"无具体错误码"(链路正常——能力缺失、
+    设备应答异常、超时等),按无码返回 ``None``;有码的照原样返回
+    (协议原始码,或 UDP 报文超长的 ``WSAEMSGSIZE`` errno)。
     """
-    if isinstance(exc, TransportTimeoutError):
-        return None
     if isinstance(exc, DeviceError):
-        return exc.code
+        return exc.code or None
     if isinstance(exc, OSError):
         return exc.errno
     return None
