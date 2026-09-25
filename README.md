@@ -54,6 +54,12 @@ AOmronFinsUdpClient / AOmronCipClient / ABeckhoffAdsClient / AAllenBradleyEthIpC
 AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient / APanasonicMcTcpClient / APanasonicMewtocolTcpClient
 APanasonicMewtocolUdpClient / AKeyenceSrClient / AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient
 AOpenTcpClient / AMTConnectClient / ASiemensS7Client
+
+原生异步(omniplc.native):独立层,类名 = 同步类名前加 Async,首批 5 个
+AsyncBaseClient(异步基类,事务模板与同步层同口径)
+AsyncModbusTcpClient
+AsyncMelsecMcTcpClient / AsyncMelsecMcUdpClient(1E/3E)
+AsyncOmronFinsTcpClient / AsyncOmronFinsUdpClient
 ```
 
 详细架构设计见 [docs/architecture.md](docs/architecture.md)。
@@ -317,27 +323,28 @@ omniplc.set_debug(False)  # 关闭
   logging 时自动汇入既有日志体系;未配置时自动挂 stderr 处理器,开箱即用
 - 进程级开关,同步与异步客户端共用;连接建立/断开也会输出,便于观察惰性重连
 
-#### 异步(类名前加 A)
-
-```python
-import asyncio
-from omniplc.aio import AModbusTcpClient
-
-async def main():
-    client = AModbusTcpClient("192.168.0.10", 502, 1)
-    await client.connect()
-    ok, value = await client.read_float("hr100")
-    await client.disconnect()
-
-asyncio.run(main())
-```
+#### 异步(两套:包装层 `omniplc.aio` / 原生层 `omniplc.native`)
 
 异步客户端是**多设备并发**的手段,不是单连接提速(单设备逐笔轮询用同步即可,异步只多线程切换开销):
 协议事务在单连接内本就是"一问一答"串行,收益来自把多台设备的等待重叠——10 台设备并发采集约等于顺序轮询的 1/10 耗时。
 
-**实现方式与边界(重要,先读再选型)**:异步客户端**不是原生 asyncio 协议栈**,
-而是"**同步 I/O + 单线程 `ThreadPoolExecutor`**"的包装——每个 `await` 把同步调用
-投递到该客户端自己的单工作线程,协议编解码只有一份代码。由此有三条硬边界:
+**选哪套**(先读再选型):
+
+| | `omniplc.aio`(**包装层**,类名前加 `A`) | `omniplc.native`(**原生层**,类名前加 `Async`) |
+|---|---|---|
+| 实现 | 同步 I/O + 单线程 `ThreadPoolExecutor` 包装 | 原生 `asyncio` 协议栈(零第三方依赖) |
+| 覆盖面 | **全部**协议(自动镜像的过渡层) | 首批:Modbus TCP / 三菱 MC 1E·3E(TCP/UDP)/ 欧姆龙 FINS(TCP/UDP) |
+| 能力面 | 与同步层同面 | 单点读写 + 类型化方法 + 字符串 + 点位表(**批量留后续批次**) |
+| 属性读取 | 抢事务锁,最长阻塞一个 `receive_timeout` | 直接读字段、不阻塞事件循环(单线程下是真原子快照) |
+| 取消 | `wait_for` 超时只放弃等待,已提交事务照跑完 | **真中断**:取消时按"是否已发出请求"决定是否拆连 |
+| 适用 | 协议尚未进原生首批、或需要该协议的批量/扩展方法 | 首批协议的新代码,尤其是需要原生取消与严格超时的场景 |
+
+两套都保留:包装层继续覆盖全部协议(过渡期用),原生层逐批补齐;同一个
+`import asyncio` 项目里可以混用(互不影响)。
+
+**包装层 `omniplc.aio` 的实现方式与边界**:它**不是原生 asyncio 协议栈**,
+每个 `await` 把同步调用投递到该客户端自己的单工作线程,协议编解码只有一份代码。
+由此有三条硬边界:
 
 - **同一客户端仍是串行的**:协议调用在工作线程里按 FIFO 排队(与同步侧同一把
   事务锁),并发不会让单台设备变快;收益只来自跨设备重叠等待,需要单设备并发
@@ -373,6 +380,35 @@ async def main():
 
 asyncio.run(main())
 ```
+
+**原生层 `omniplc.native`**(方法名与同步版同名同型,`await` 即可):
+
+```python
+import asyncio
+from omniplc.native import AsyncModbusTcpClient
+
+async def main():
+    # 支持 async with:失败抛 ConnectionError,退出自动断开
+    async with AsyncModbusTcpClient("192.168.0.10", 502, 1) as client:
+        ok, value = await client.read_float("hr100")
+        print(client.stats["transactions"])     # 属性是同步读取,不阻塞事件循环
+
+asyncio.run(main())
+```
+
+- **同一客户端串行、多客户端真并发**(与包装层一致):同一实例的协议调用
+  排在一把 `asyncio.Lock` 后面,跨实例天然并行。
+- **取消是真中断**:`asyncio.wait_for` 超时会取消事务;若请求已发出,连接按
+  "链路可能残留未配对应答"保守拆连重同步(下次事务惰性重连),仅排队未发出
+  则保持连接。
+- **超时口径与同步层一致**:TCP 读超时按连接死亡拆连;UDP 超时不拆连
+  (数据报整收,无残渣)。
+- **一个实例绑定一个事件循环**(事务锁按首次使用时的循环惰性创建,模块级
+  构造再 `asyncio.run` 也正常);跨循环/跨线程共享同一实例不支持。
+- **能力面**:单点读写 + 类型化方法 + `read_string`/`write_string` + 点位表;
+  批量(`read_many`/`read_batch`)与各家扩展方法(FC 22/23/43、MC 0406、
+  FINS 0104 等)**尚未进入原生层**,需要时用包装层或同步客户端。
+
 
 #### 点位表(可选)
 

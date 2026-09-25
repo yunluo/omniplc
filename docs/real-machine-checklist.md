@@ -26,6 +26,7 @@
 - 实现完成但缺真机条件/排队中的项:`README.md`「真机联测待做」表
 - 协议帧级实现引用:`docs/architecture.md` §11 路线图与版本履历表
 - 第三方审查参考:`docs/review.md`(v0.37.0 基准:修复批次逐 diff 复核 §7.7 + **K1 待核项**(Keyence MC 位组地址);含 v0.35.0/v0.36.0 基线与增量复审)
+- **原生异步层(omniplc.native)**:首批 5 个客户端(Modbus TCP / MC 1E·3E over TCP·UDP / FINS TCP·UDP)是**独立于同步层的代码路径**——帧级已由"同步 × 异步对拍"测试锁死,但**真机尚未联测**,需与对应同步行一并核证(见 `docs/architecture.md` §12)
 - 提交新真机记录:PR 模板「测试」节勾选"真机联测",并在 `CHANGELOG.md` 加条目
 
 ---

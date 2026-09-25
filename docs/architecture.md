@@ -13,7 +13,7 @@ omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7
 ```mermaid
 flowchart TB
     subgraph UserApi["用户 API 层"]
-        Clients["协议 × 走线 具体客户端类<br/>28 个同步 + 28 个异步(A 前缀镜像)<br/>scanner:KeyenceSrClient 扫码枪 · cnc:MTConnectClient 机床数采<br/>Tag / TagTable 可选点位表层"]
+        Clients["协议 × 走线 具体客户端类<br/>28 个同步 + 28 个异步(A 前缀镜像,omniplc.aio 线程池包装)<br/>5 个原生异步(Async 前缀,omniplc.native 真 asyncio 协议栈,零第三方依赖)<br/>scanner:KeyenceSrClient 扫码枪 · cnc:MTConnectClient 机床数采<br/>Tag / TagTable 可选点位表层"]
     end
     subgraph Drivers["驱动层 drivers(协议编解码 + 地址解析)"]
         Modbus["modbus/<br/>codec + address + client"]
@@ -305,6 +305,15 @@ unconnected 消息),欧姆龙 NJ/NX CIP(继承 AB 客户端,三钩子覆写),
    `loop.call_soon_threadsafe` 桥接到调用方事件循环线程(回调内可安全
    做 asyncio 操作,loop 已关闭则静默丢弃)。`disconnect()` 先退订清
    `active_subscriptions` 索引再走基类断开;断线不自动重订。
+8. **原生异步层(`omniplc.native`)的并发模型**:每个实例一把 `asyncio.Lock`
+   按事务粒度持锁(与同步侧同一口径),实例内串行、实例间天然并发;`asyncio.Lock`
+   **非重入**,故只有公开入口取锁、内部 `_*_locked` 助手假定锁已持有(替代同步侧
+   RLock 的作用)。锁**按首次使用时的事件循环惰性创建**(3.7 的 `asyncio.Lock`
+   构造即绑循环,模块级构造客户端再 `asyncio.run` 会在旧实现下直接炸)。
+   属性(`connected`/`last_error*`/`stats`/超时/重试)是**直接读字段、不取锁**:
+   单线程事件循环里字段更新与读取之间没有 `await` 间隙,读到的就是原子快照
+   ——这正是包装层"读属性要抢事务锁、最长阻塞一个 `receive_timeout`"的解法。
+   原生异步层的完整口径(复用边界、传输选型、超时/取消表、3.7 坑)见 §12。
 
 ## 4. 连接状态机与惰性重连
 
@@ -974,18 +983,31 @@ FINS 协议复审(2026-09,对照欧姆龙 FINS 手册 W340):FINS 帧头 10 字�
 4. **脚本化传输链路测试**(已就位):假传输按脚本应答,验证各走线的
    组帧、按长收包、事务号/站号/CRC 校验、坏帧断线重连、异常码不断线、
    寄存器位"读-改-写"。
-5. **外部联调(本地,不进 CI)**:用户自有模拟器工具;可选专用软件——
+5. **同步 × 异步对拍**(已就位,`tests/unit/test_native_*.py`):同一张用例表
+   (地址/类型/值/异常注入)分别喂同步客户端(脚本化假传输)与原生异步客户端,
+   断言**请求帧逐字节相同** + 解析结果 + 连接态 + `last_error` 三件套 +
+   `stats` 计数完全一致——原生层只重写了薄分发层,帧与错误口径不许漂移;
+   原生用例还在 **Selector 与 Proactor 两种事件循环**上各跑一遍(3.7 的
+   Proactor 不支持数据报端点,必须双跑才能证明 UDP 走线选型正确)。
+6. **外部联调(本地,不进 CI)**:用户自有模拟器工具;可选专用软件——
    Modbus:`Modbus Slave`、`diagslave`、`ModRSSim2`、`OpenPLC`;
    三菱:GX Works + GX Simulator3(面向 GX Works 内部仿真,对外以太网
    MC 联调依版本/SLMP 配置);欧姆龙:CX-Simulator(接受外部 FINS 命令,
    基本仅 UDP/9600,FINS/TCP 建议真机验证)。
-6. **真机手动验证清单**:发版前用真实 PLC 过一遍(不进 CI)。
+7. **真机手动验证清单**:发版前用真实 PLC 过一遍(不进 CI)。
 
 ## 10. Python 3.7 兼容纪律
 
 - 运行期注解:`typing.Optional/Union/...` + `from __future__ import annotations`;
 - 不用 walrus(3.8)、`X | Y` 类型(3.10)、`asyncio.to_thread`(3.9)、
   `str.removeprefix`(3.9);异步用 `loop.run_in_executor` + 单线程池;
+- **asyncio 可用面按 3.7 取(原生异步层,§12)**:不用 `asyncio.timeout`(3.11)、
+  `loop.sock_recvfrom`/`sock_sendto`(3.11)、`typing.TypedDict`(3.8,见 §6.2);
+  UDP 走线**不用** `loop.create_datagram_endpoint`——3.7 的 `ProactorEventLoop`
+  没有数据报端点实现(`_make_datagram_transport` 默认 `NotImplementedError`,
+  唯一实现只在 selector 路径),而 Windows 3.8+ 默认就是 Proactor;
+  改用已连接 socket + `loop.sock_recv_into`/`sock_sendall`(两种循环都有实现,
+  3.7~3.13 通用),并以**双事件循环测试**守这条选型;
 - **常量集中管理**:所有默认端口/超时/站号边界/报文常量统一定义在
   `core/constants.py`(大写下划线命名,运行期只读),业务代码禁止内联
   魔法数字;
@@ -1054,3 +1076,55 @@ FINS 协议复审(2026-09,对照欧姆龙 FINS 手册 W340):FINS 帧头 10 字�
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
 | v1.x | MC 2C 帧(A 兼容串口)、FINS Host Link、FINS 运维命令(0103 填充/0105 传送/0401·0402 启停/2301 强制置复位)与 EM bank≥16 扩展区、TOYOPUC 扩展区/PC10/中继/时钟、AB UDT 整体读取与分片读写(0x52)、松下 MEWTOCOL-COM 串口、Modbus ASCII 走线与文件记录/FIFO/串行诊断类功能码(14/15/18、07/08/0B/0C/11/17)、通用 TCP 长度域成帧/空闲切块成帧、FANUC FOCAS 与三菱 CNC EZSocket DLL 封装、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 更多品牌/协议按需扩展(drivers 插槽沿用 BaseClient 原语模式) | 规划 |
+
+## 12. 原生异步层(`omniplc.native`)
+
+与 `omniplc.aio`(同步 I/O + 线程池包装)**并存**的第二套异步实现:原生
+`asyncio` 协议栈,零第三方依赖,首批 Modbus TCP / 三菱 MC 1E·3E(TCP+UDP)/
+欧姆龙 FINS(TCP+UDP),能力面为单点读写 + 类型化方法 + 字符串 + 点位表。
+并发模型(锁纪律、属性直读)见 §3 第 8 条;选型对比见 README「异步」节。
+
+**复用边界(为什么异步侧只有薄薄一层)**:协议逻辑与传输的交界在每个驱动里
+只有一个方法(MC/Modbus/FINS 的 `_transact`),组帧/解析/地址/字序早已是纯
+模块,因此异步层**100% 复用** codec、地址解析、`convert`/`validation`,
+以及同步基类的 `_describe`/`_categorize`/`_extract_code`/`_narrow_*` 与
+`ClientStats`——不存在第二套帧语义,也不存在第二套错误口径。
+
+**口径一致性靠对拍测试锁死**:同一张用例表(地址/类型/值/异常注入)分别喂
+同步客户端(脚本化假传输)与异步客户端,断言**请求帧逐字节相同** + 解析结果 +
+连接态 + `last_error` 三件套 + `stats` 计数完全一致(见 §9)。
+
+**超时与取消**:
+
+| 场景 | 行为 |
+|---|---|
+| TCP 读超时 | 抛 `socket.timeout`(OSError 语义)→ 分类 `TIMEOUT` + **拆连**重试(与同步 TCP 同口径) |
+| UDP 读超时 | 抛 `TransportTimeoutError`(0 字节已读)→ 分类 `TIMEOUT` + **不拆连**(数据报无残渣) |
+| 取消(请求已发出) | 真中断;**保守拆连**(应答可能残留在链路/内核缓冲),`CancelledError` 原样传播 |
+| 取消(仅排队未发出) | 真中断;连接保持(链路干净) |
+
+超时不用 `asyncio.wait_for` 而用自建等待器(`native/transport.py`):后者的
+超时类跨版本变过(3.7 是 `concurrent.futures.TimeoutError`,3.11+ 是内建
+`TimeoutError`),而本库要求把超时翻译成自己的两种口径;自建等待器还能在
+**外层被取消时显式取消内层任务**(只用 `asyncio.wait` 时内层任务会继续跑,
+那正是本层要消灭的"取消之后还在跑")。
+
+**UDP 走线选型(3.7 实测依据)**:Python 3.7 的 `ProactorEventLoop` **不支持**
+`create_datagram_endpoint`(`base_events.py` 的 `_make_datagram_transport` 默认
+`NotImplementedError`,唯一实现只在 selector 路径),且 3.7 没有
+`loop.sock_recvfrom`/`sock_sendto`(3.11 才加)。因此原生 UDP 走
+**已连接 socket + `loop.sock_recv_into`/`sock_sendall`**——这两个 API 在 3.7 的
+Selector 与 Proactor 上都有实现(后者走 IOCP),3.7~3.13 通用,形态与同步 UDP
+传输一致。测试在两种事件循环上各跑一遍(Windows 上都能显式构造)。
+
+与同步层的**能力差异(文档明示)**:asyncio 数据报路径拿不到 `MSG_TRUNC` 真长,
+POSIX 下超长数据报的静默截断**无法在传输层探测**(同步层会打 WARNING),由协议层
+长度校验兜底;Windows 的 `WSAEMSGSIZE`(10040)照旧映射为 `DeviceError`。
+
+**一个 3.7 真缺陷的规避**:取消 `loop.sock_recv_into` 后 3.7 不会立即摘掉
+selector 的读注册(要等该 fd 下次可读才自清理),期间若关闭套接字,Windows 的
+`select` 会对已关闭句柄抛 `WSAENOTSOCK`(10038)把事件循环带崩——UDP 超时路径
+显式 `remove_reader` 清一次(Proactor 无 selector 注册,忽略)。
+
+**实例绑定一个事件循环**:跨循环/跨线程共享同一实例不支持(事务锁按首次使用时
+的循环创建,这是刻意的:跨循环使用会得到"锁在前一个循环上"的隐晦错误)。
