@@ -18,7 +18,7 @@ import socket
 import time
 from typing import Optional, Tuple
 
-from ..core.base_client import BaseClient, _categorize, _describe, _extract_code, validate_endpoint
+from ..core.base_client import BaseClient, validate_endpoint
 from ..core.constants import (
     SR_BANK_MAX,
     SR_CMD_BUFFER_CLEAR,
@@ -32,7 +32,7 @@ from ..core.constants import (
     SR_RESP_ERROR,
     SR_RESP_OK,
 )
-from ..core.errors import DeviceError, ErrorCategory, OmniPLCInternalError
+from ..core.errors import DeviceError, ErrorCategory, OmniPLCInternalError, TransportTimeoutError
 from ..transport import BaseTransport, TcpTransport
 from ..types import DataType, PrimitiveValue
 
@@ -79,7 +79,11 @@ class KeyenceSrClient(BaseClient):
     # ------------------------------------------------------------------
 
     def scan(self, bank: Optional[int] = None, timeout: Optional[float] = None) -> Tuple[bool, Optional[str]]:
-        """触发一次扫码(锁内完成 LON → 窗口 → LOFF → 读应答)。
+        """触发一次扫码(事务模板内完成 LON → 窗口 → LOFF → 读应答)。
+
+        扫码是**动作型**操作(触发一次激光读出),按写语义走事务模板——
+        重试次数用 :attr:`write_retries`(默认 0),避免重试造成重复触发;
+        事务计数、退避门控与错误分类与全库其他驱动一致。
 
         :param bank: 预设 bank 号(0~15),不同 bank 存储不同的解码/曝光/对焦配置;
             ``None`` 使用扫码枪当前 bank
@@ -93,50 +97,64 @@ class KeyenceSrClient(BaseClient):
         read_timeout = self._receive_timeout if timeout is None else float(timeout)
         if read_timeout <= 0:
             raise ValueError(f"timeout 必须大于 0,收到:{read_timeout}")
-        with self._lock:
-            if not self._connected and not self.connect():
-                return False, None  # connect() 已记录 last_error
-            transport = self._require_transport()
-            try:
-                lon = f"LON,{bank:02d}\r".encode("ascii") if bank is not None else SR_CMD_LON
-                transport.send(lon)
-                time.sleep(self._scan_dwell)
-                transport.send(SR_CMD_LOFF)
-                # 应答在 LOFF 之后才发送;临时收紧收包超时
-                previous_timeout = transport.receive_timeout
-                transport.receive_timeout = read_timeout
-                try:
-                    text = self._read_line(transport, read_timeout)
-                finally:
-                    transport.receive_timeout = previous_timeout
-            except socket.timeout:
-                # 读码窗口内无应答:链路仍然完好,不断线
-                self._drain_line(transport)
-                self._set_error(f"扫码读超时({read_timeout}s),未收到应答", ErrorCategory.TIMEOUT, None)
-                return False, None
-            except (OSError, OmniPLCInternalError) as exc:
-                self._set_error(_describe(exc), _categorize(exc), _extract_code(exc))
-                self._mark_disconnected()
-                return False, None
-            text = text.strip()
-            if text == SR_RESP_ERROR:
-                self._set_error("扫码枪返回 ERROR(未读到条码或距离过远)", ErrorCategory.DEVICE, None)
-                return False, None
-            if text == SR_RESP_OK or not text:
-                self._set_error("扫码枪无读出(OK)", ErrorCategory.DEVICE, None)
-                return False, None
-            self._clear_error()
-            return True, text
+        ok, text = self._execute(
+            lambda: self._scan_once(bank, read_timeout), is_write=True
+        )
+        if not ok or text is None:
+            return False, None
+        text = text.strip()
+        if text == SR_RESP_ERROR or text == SR_RESP_OK or not text:
+            # 链路成功但无读出:记错误分类但不计入 device_error_count
+            # (扫码枪正常应答,不算设备返回错误码)
+            message = (
+                "扫码枪返回 ERROR(未读到条码或距离过远)"
+                if text == SR_RESP_ERROR
+                else "扫码枪无读出(OK)"
+            )
+            with self._lock:
+                self._set_error(message, ErrorCategory.DEVICE, None)
+            return False, None
+        return True, text
+
+    def _scan_once(self, bank: Optional[int], read_timeout: float) -> str:
+        """LON → 扫码窗口 → LOFF → 读一行应答(内部方法,须事务内调用)。
+
+        LOFF 之后才发应答,故读超时(LOFF 后 ``read_timeout`` 内无应答)时
+        先尽力清掉半行残留,再抛 :class:`TransportTimeoutError`:0 字节
+        可回退、链路无残渣,基类按"不断线"处理(与串口/UDP 超时同口径)。
+        """
+        transport = self._require_transport()
+        lon = f"LON,{bank:02d}\r".encode("ascii") if bank is not None else SR_CMD_LON
+        transport.send(lon)
+        time.sleep(self._scan_dwell)
+        transport.send(SR_CMD_LOFF)
+        # 应答在 LOFF 之后才发送;临时收紧收包超时
+        previous_timeout = transport.receive_timeout
+        transport.receive_timeout = read_timeout
+        try:
+            return self._read_line(transport, read_timeout)
+        except socket.timeout:
+            # 读码窗口内无应答:链路仍然完好,不断线
+            self._drain_line(transport)
+            raise TransportTimeoutError(
+                f"扫码读超时({read_timeout}s),未收到应答", 0
+            )
+        finally:
+            transport.receive_timeout = previous_timeout
 
     def reset(self) -> bool:
-        """清缓冲(BCLR)并复位扫码枪(RESET),两步都应答 OK 才算成功。"""
+        """清缓冲(BCLR)并复位扫码枪(RESET),两步都应答 OK 才算成功。
+
+        复位是动作型命令,按写语义走事务模板(重试用 :attr:`write_retries`,
+        默认 0,避免重复复位)。
+        """
         def operation() -> bool:
             transport = self._require_transport()
             self._command_expect_ok(transport, SR_CMD_BUFFER_CLEAR)
             self._command_expect_ok(transport, SR_CMD_RESET)
             return True
 
-        ok, _ = self._execute(operation)
+        ok, _ = self._execute(operation, is_write=True)
         return ok
 
     # ------------------------------------------------------------------
@@ -211,9 +229,13 @@ class KeyenceSrClient(BaseClient):
     # ------------------------------------------------------------------
 
     def _read(self, address: str, data_type: DataType) -> PrimitiveValue:
-        """SR 为触发式设备,不支持 PLC 数据读写(内部方法)。"""
-        raise OmniPLCInternalError("SR 扫码枪不支持数据读取,请使用 scan()")
+        """SR 为触发式设备,不支持 PLC 数据读写(内部方法)。
+
+        能力缺失按基类约定抛 :class:`DeviceError`(``code=0`` 无具体错误码),
+        链路正常不断线——与 :meth:`_read_string` 的缺省实现同语义。
+        """
+        raise DeviceError("SR 扫码枪不支持数据读取,请使用 scan()", 0)
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
-        """SR 为触发式设备,不支持 PLC 数据写入(内部方法)。"""
-        raise OmniPLCInternalError("SR 扫码枪不支持数据写入")
+        """SR 为触发式设备,不支持 PLC 数据写入(内部方法),语义同 :meth:`_read`。"""
+        raise DeviceError("SR 扫码枪不支持数据写入", 0)

@@ -14,7 +14,7 @@ import time
 
 import pytest
 
-from omniplc import KeyenceSrClient
+from omniplc import ErrorCategory, KeyenceSrClient
 from omniplc.aio import AKeyenceSrClient
 from scripted import ScriptedTransport
 
@@ -70,6 +70,9 @@ def test_scan_error_response(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrC
     assert client.scan() == (False, None)
     assert client.last_error is not None and "ERROR" in client.last_error
     assert client.connected is True
+    # 无读出是链路成功的正常结果,不计入设备错误码
+    assert client.stats["device_error_count"] == 0
+    assert client.stats["transactions"] == 1
 
 
 def test_scan_ok_no_read(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient) -> None:
@@ -83,7 +86,7 @@ def test_scan_ok_no_read(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClien
 
 
 def test_scan_read_timeout(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient) -> None:
-    """LOFF 后无应答(读超时)= 链路完好,不断线。"""
+    """LOFF 后无应答(读超时)= 链路完好,不断线,且不计设备错误码。"""
 
     class TimeoutTransport(ScriptedTransport):
         def recv(self, size: int) -> bytes:
@@ -95,6 +98,33 @@ def test_scan_read_timeout(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrCli
     assert client.scan(timeout=0.5) == (False, None)
     assert client.last_error is not None and "超时" in client.last_error
     assert client.connected is True
+    # 超时是 TIMEOUT 分类、无错误码,不计入 device_error_count
+    assert client.last_error_category is ErrorCategory.TIMEOUT
+    assert client.last_error_code is None
+    assert client.stats["device_error_count"] == 0
+    assert client.stats["error_count"] == 1
+    assert client.stats["transactions"] == 1
+    # 默认 write_retries=0:不重试,不重复触发激光
+    assert bytes(scripted.sent) == b"LON\rLOFF\r"
+
+
+def test_scan_retry_uses_write_retries(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient) -> None:
+    """扫码按动作型操作走事务模板:重试次数取 write_retries,不是 retries。"""
+
+    class TimeoutTransport(ScriptedTransport):
+        def recv(self, size: int) -> bytes:
+            raise socket.timeout("接收超时")
+
+    scripted = TimeoutTransport([])
+    _mount(monkeypatch, client, scripted)
+    client.retries = 3  # 读重试不参与扫码
+    client.write_retries = 1  # 写重试 → 超时后重复触发一次
+    client.connect()
+    assert client.scan(timeout=0.5) == (False, None)
+    # 1 次原始 + 1 次重试,各触发一轮 LON/LOFF(retries=3 未被采用)
+    assert bytes(scripted.sent) == b"LON\rLOFF\rLON\rLOFF\r"
+    assert client.stats["device_error_count"] == 0
+    assert client.connected is True  # 每次都在原连接上重发
 
 
 def test_scan_send_failure_lazy_reconnect(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -143,13 +173,16 @@ def test_reset_failure(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient)
 
 
 def test_data_read_write_rejected(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient) -> None:
-    """扫码枪不支持 PLC 数据读写。"""
+    """扫码枪不支持 PLC 数据读写:能力缺失 = DeviceError,不断线。"""
     scripted = ScriptedTransport([])
     _mount(monkeypatch, client, scripted)
     client.connect()
     assert client.read_short("DM100") == (False, None)
     assert client.last_error is not None and "scan()" in client.last_error
+    assert client.connected is True  # 能力缺失不拆线(旧实现误走断线分支)
+    assert client.last_error_code is None  # code=0 → 无码
     assert client.write_ushort("DM100", 1) is False
+    assert client.connected is True
 
 
 def test_constructor_validation() -> None:
