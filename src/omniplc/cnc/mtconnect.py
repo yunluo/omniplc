@@ -75,13 +75,33 @@ def _local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
 
+def _fromstring_rejecting_doctype(body: bytes) -> ElementTree.Element:
+    """``ElementTree.fromstring`` 的安全包装:拒绝任何 DOCTYPE 子集(内部助手)。
+
+    ``<!DOCTYPE>`` 子集是 XML 实体炸弹(XXE / Billion Laughs)的唯一载体——
+    恶意 Agent 借此声明内部实体或 SYSTEM 外部实体,expat 会**默认展开**内部
+    实体到解析流中。Python 3.8 起 ``XMLParser`` 提供 ``forbid_dtd``/
+    ``forbid_external`` 关键字参数(纵深防御),3.7.9 缺失这两参,只能靠
+    解析前扫描字节拒绝。MTConnect 协议合法负载从不使用 DOCTYPE,扫描
+    零误伤。命中 DOCTYPE 抛 :class:`xml.etree.ElementTree.ParseError`,由
+    调用方既有 ``ParseError`` 处理路径收口为 :class:`ProtocolFrameError` 或
+    :class:`OSError`(响应路径语义不变)。
+    """
+    lowered = body.lower()
+    if b"<!doctype" in lowered:
+        raise ElementTree.ParseError(
+            "DOCTYPE 不允许(XML 实体炸弹 / XXE 防御:纵深防护)"
+        )
+    return ElementTree.fromstring(body)
+
+
 def _parse_document(body: bytes) -> ElementTree.Element:
     """解析 XML 并校验为 MTConnect 文档,返回根元素(内部函数)。
 
     :raises ProtocolFrameError: 非法 XML 或非 MTConnect 文档(断线重同步)
     """
     try:
-        root = ElementTree.fromstring(body)
+        root = _fromstring_rejecting_doctype(body)
     except ElementTree.ParseError as exc:
         raise ProtocolFrameError(f"MTConnect 响应不是合法 XML:{exc}") from exc
     name = _local_name(root.tag)
@@ -194,7 +214,7 @@ class _MtConnectSession(BaseTransport):
         if status == 200:
             return body
         try:
-            root = ElementTree.fromstring(body)
+            root = _fromstring_rejecting_doctype(body)
         except ElementTree.ParseError:
             raise OSError(
                 f"MTConnect HTTP 状态 {status}:{body[:120].decode('utf-8', 'replace')}"

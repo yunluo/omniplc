@@ -451,3 +451,68 @@ def test_overlong_numeric_text_rejected(monkeypatch: pytest.MonkeyPatch) -> None
     assert client.connect() is True
     with pytest.raises(ValueError):
         client.read_float("Xact")
+
+
+# ----------------------------------------------------------------------
+# 安全面:XXE / 实体炸弹——DOCTYPE 子集拒绝(3.7.9 stdlib 纵深防御)
+# ----------------------------------------------------------------------
+
+
+def _xxe_payload(kind: str) -> bytes:
+    """构造带 DOCTYPE 的恶意 MTConnect 文档(测试夹具)。
+
+    :param kind: ``xxe_system`` / ``billion_laughs`` / ``internal_entity``
+    """
+    if kind == "xxe_system":
+        return (
+            b"<?xml version='1.0'?>\n"
+            b"<!DOCTYPE foo [<!ENTITY xxe SYSTEM 'file:///etc/passwd'>]>\n"
+            b"<MTConnectStreams xmlns='urn:mtconnect.org:MTConnectStreams:1.3'>"
+            b"<Streams>&xxe;</Streams></MTConnectStreams>"
+        )
+    if kind == "billion_laughs":
+        return (
+            b"<?xml version='1.0'?>\n"
+            b"<!DOCTYPE lolz [\n"
+            b"  <!ENTITY lol 'lol'>\n"
+            b"  <!ENTITY lol2 '&lol;&lol;&lol;&lol;'>\n"
+            b"  <!ENTITY lol3 '&lol2;&lol2;&lol2;&lol2;'>\n"
+            b"  <!ENTITY lol4 '&lol3;&lol3;&lol3;&lol3;'>\n"
+            b"]>\n"
+            b"<MTConnectStreams xmlns='urn:mtconnect.org:MTConnectStreams:1.3'>"
+            b"<Streams>&lol4;</Streams></MTConnectStreams>"
+        )
+    if kind == "internal_entity":
+        return (
+            b"<?xml version='1.0'?>\n"
+            b"<!DOCTYPE foo [<!ENTITY hi 'hello'>]>\n"
+            b"<MTConnectStreams xmlns='urn:mtconnect.org:MTConnectStreams:1.3'>"
+            b"<Streams>&hi;</Streams></MTConnectStreams>"
+        )
+    raise ValueError(kind)
+
+
+@pytest.mark.parametrize("kind", ["xxe_system", "billion_laughs", "internal_entity"])
+def test_doctype_payload_rejected_as_bad_frame(
+    monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    """DOCTYPE 子集(XML 实体炸弹 / XXE 唯一载体)→ 解析前按坏帧拒绝,断线。
+
+    3.7.9 stdlib ``ElementTree`` 在 DOCTYPE 内声明的**内部实体**会默认展开到
+    解析流中(如 ``&hi;`` → ``'hello'``);``<!ENTITY SYSTEM>`` 引用外部资源。
+    仓库 ``requires-python>=3.7.9``,无法使用 3.8+ ``XMLParser`` 的
+    ``forbid_dtd=True`` / ``forbid_external=True`` 关键字——唯一可靠的
+    stdlib 防御是解析前扫 ``<!DOCTYPE`` 直接拒。MTConnect 协议合法负载从不
+    使用 DOCTYPE,扫描零误伤。
+    """
+    conn = FakeHTTPConnection("127.0.0.1", 5000)
+    conn.responses = {
+        "/current": (200, _xxe_payload(kind)),
+        "/probe": (200, _PROBE_XML.encode("utf-8")),
+    }
+    monkeypatch.setattr(mtc_module, "_new_connection", lambda ip, port, timeout: conn)
+    client = MTConnectClient("127.0.0.1", 5000)
+    assert client.connect() is True
+    assert client.snapshot() == (False, None)
+    assert client.connected is False
+    assert "DOCTYPE" in (client.last_error or "")
