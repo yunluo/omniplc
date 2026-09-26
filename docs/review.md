@@ -679,7 +679,7 @@ v1 评审稿逐条对源码复核后形成本版:
 ### 4.1 CI 仅 Python 3.12,声明支持 3.7.9 — **已修复(2026-09-26)**
 - `pyproject.toml:6` + `.github/workflows/ci.yml`
 - 版本策略已裁决:**3.7 必保**(现场老设备 vendor SDK 依赖 3.7),**3.12 覆盖新环境**(能装 3.8~3.11 的设备同样兼容 3.12),3.7 + 3.12 两点即覆盖全区间,**不砍 3.7**。
-- CI 改为矩阵 `["3.7.9", "3.12"]`:3.7 腿用 `actions/setup-python` 安装(uv 托管下载不含 3.7),`UV_PYTHON_DOWNLOADS=never` 仅限 `uv sync`/`uv run` 两步(设 job 级会挡住 `uvx mypy` 建工具环境),`uv sync`/`uv run` 一律显式 `--python`(压过 `.python-version` 的 3.7.9);**ruff / mypy / ty 两条腿都跑**——ruff 与 ty 为 Rust 独立二进制(不依赖解释器),mypy 经 `uvx` 在独立工具环境执行(检查目标仍由 `python_version=3.9` 决定)。
+- CI 改为矩阵 `["3.7.9", "3.12"]`:3.7 腿用 `actions/setup-python` 安装(uv 托管下载不含 3.7),`UV_PYTHON_DOWNLOADS=never` 仅限 `uv sync`/`uv run` 两步(设 job 级会挡住 `uvx` 建工具环境),`uv sync`/`uv run` 一律显式 `--python`(压过 `.python-version` 的 3.7.9);**ruff / mypy / ty 两条腿都跑**——ruff 与 ty 为 Rust 独立二进制(不依赖解释器),mypy 用 `uvx --python 3.12` 固定在 3.12 工具环境执行(否则 3.7 腿会回退到 3.7 时代的 mypy 1.4.1 + typed-ast,其 tokenizer 解析 UTF-8 中文源码误报 `non-utf8 code starting with '\xc8'`);检查目标仍由 `python_version` 决定。
 - **残留**:GitHub Actions 行为只能由推送后实跑验证;`windows-latest` 未来若移除 3.7 构建需改 `windows-2019`。
 
 ### 4.2 无故障注入测试 — **P1(实锤)**

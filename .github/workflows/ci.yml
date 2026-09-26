@@ -59,10 +59,11 @@ jobs:
         run: uvx ruff check src tests
 
       - name: mypy
-        # uvx 独立工具环境(自带 ≥3.9 解释器);检查目标由 pyproject 的
-        # python_version=3.9 决定(新版 mypy 不支持 3.7 目标),3.7 真兼容由
-        # pytest 腿实跑验证;两条腿都跑
-        run: uvx mypy src/omniplc
+        # 两条腿都跑;但固定在现代工具解释器(3.12)执行——3.7 腿若让 uvx 回退到
+        # 3.7 时代的 mypy(mypy 1.4.1 + typed-ast),其 tokenizer 解析 UTF-8 中文
+        # 源码会误报 `non-utf8 code starting with '\xc8'`。检查目标由 pyproject 的
+        # python_version 决定;3.7 真兼容由 pytest 腿实跑验证
+        run: uvx --python 3.12 mypy src/omniplc
 
       - name: ty
         # 第二类型检查器(Astral 的 Rust 实现的 mypy 替代):与 mypy 互补,
