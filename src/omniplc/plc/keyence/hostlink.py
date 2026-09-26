@@ -73,7 +73,7 @@ class _KeyenceHostLinkBase(BaseClient):
             if not raw or raw[-1] not in (10, 13):
                 raise ProtocolFrameError(
                     "UDP 响应缺少 CR/LF 结束符(收到的原始数据:{})".format(
-                        format_hex(raw)
+                        _truncate_hex(raw)
                     )
                 )
             text = codec.parse_response(raw)
@@ -101,10 +101,9 @@ class _KeyenceHostLinkBase(BaseClient):
                     received += 1
                     if received > KV_MAX_LINE:
                         raise ProtocolFrameError(
-                            "KV Host Link 响应行超过 {} 字节上限(前 {} 字节:{})".format(
+                            "KV Host Link 响应行超过 {} 字节上限(头部字节:{})".format(
                                 KV_MAX_LINE,
-                                KV_MAX_LINE,
-                                format_hex(b"".join(chunks[:KV_MAX_LINE])),
+                                _truncate_hex(b"".join(chunks)),
                             )
                         )
             finally:
@@ -386,3 +385,10 @@ def _expect_ok(response: str) -> None:
         raise ProtocolFrameError(
             f"写命令应答异常:期望 OK,收到 {response!r}"
         )
+
+
+def _truncate_hex(data: bytes, limit: int = 64) -> str:
+    """十六进制转储截断(内部函数):超长只显示前 ``limit`` 字节,防刷屏。"""
+    if len(data) <= limit:
+        return format_hex(data)
+    return "{}...(共 {} 字节,其余省略)".format(format_hex(data[:limit]), len(data))

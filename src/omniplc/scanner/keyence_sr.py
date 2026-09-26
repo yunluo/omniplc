@@ -187,11 +187,15 @@ class KeyenceSrClient(BaseClient):
             transport.receive_timeout = previous_timeout
         return b"".join(chunks).decode("utf-8", errors="replace")
 
-    def _drain_line(self, transport: BaseTransport) -> None:
+    def _drain_line(self, transport: BaseTransport) -> bool:
         """尽力读掉已到达的半行残留,防下一事务从流中间续读(内部方法)。
 
         超时此刻 LOFF 已发且无新应答,链路上只可能是旧残留;读到行尾
-        即止,整体受 ``SR_DRAIN_TIMEOUT`` 预算约束(读不完交给下次调用)。
+        即止,整体受 ``SR_DRAIN_TIMEOUT`` 预算约束。
+
+        :return: 是否已读净——读到行尾或**一个字节都没读到**返回 ``True``
+            (无残留);读到了字节却未达行尾返回 ``False``(留半行,调用方
+            可据此判定残字节风险)
         """
         previous_timeout = transport.receive_timeout
         deadline = time.monotonic() + SR_DRAIN_TIMEOUT
@@ -205,11 +209,12 @@ class KeyenceSrClient(BaseClient):
                 byte = transport.recv(1)
                 received += 1
                 if byte in (b"\r", b"\n"):
-                    break
+                    return True
         except socket.timeout:
             pass
         finally:
             transport.receive_timeout = previous_timeout
+        return received == 0
 
     def _command_expect_ok(self, transport: BaseTransport, command: bytes) -> None:
         """发送命令并校验 OK 应答(内部方法)。"""

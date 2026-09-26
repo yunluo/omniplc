@@ -426,15 +426,13 @@ v1 评审稿逐条对源码复核后形成本版:
 
 ### 2.7 基恩士 KV Host Link / MC / SR
 
-#### 2.7.1 Host Link / MEWTOCOL 逐字节 recv 的整体截止时间 — **P2(待核证)**
-- `plc/keyence/hostlink.py:62-114`,`plc/panasonic/mewtocol.py:193-211`
-- v1 稿断言每字节重置超时无整体 deadline。复核:SerialTransport 内部有 deadline(serial.py:161-176),TCP 路径是否逐字节重写 `receive_timeout` 待读码确认。
-- **修复**:若属实,统一为单一 deadline。
+#### 2.7.1 Host Link / MEWTOCOL 逐字节 recv 的整体截止时间 — **已核实(2026-09-26;无缺陷)**
+- `plc/keyence/hostlink.py`(`_transact` TCP 分支)
+- 复核:TCP 收行在进入循环前算一次 `deadline`,每字节只把 `receive_timeout` 收窄为 `remaining`,**不会**逐字节重置——整体受单一 deadline 约束。v1 稿断言不成立;MEWTOCOL 同法。
 
-#### 2.7.2 Host Link UDP 固定 4096 缓冲 — **P2(实锤)**
-- `plc/keyence/hostlink.py:71-79`
-- 大批量读接近上限;Windows 报 10040,Linux 静默截断。
-- **修复**:按请求数预估缓冲。
+#### 2.7.2 Host Link UDP 固定 4096 缓冲 — **已修复(2026-09-26)**
+- `core/constants.py`(`KV_MAX_DATAGRAM = KV_MAX_LINE + 16`)
+- 原缓冲恰等于行长上限,响应行接近上限时 Windows 报 10040 / POSIX 静默截断(丢 CR/LF)。现留出 CR/LF 与余量。
 
 #### 2.7.3 KV MC 位组记号 R 的编号口径 — **有争议(待真机核证)**
 - `plc/keyence/mc.py:19-26`,`docs/real-machine-checklist.md`
@@ -445,31 +443,32 @@ v1 评审稿逐条对源码复核后形成本版:
 - `core/constants.py:306`
 - 定时器/计数器当前值读不出。**修复**:补表或明确绕行路径。
 
-#### 2.7.5 KV SLMP 无 4E 帧 — **P3(实锤)**
-- 多 worker 并发轮询缺序号字段。
-- **修复**:支持 4E 或文档单 worker 约束。
+#### 2.7.5 KV SLMP 无 4E 帧 — **已核实(2026-09-26;文档化)**
+- `plc/keyence/mc.py`(模块 docstring)
+- 基恩士 SLMP 兼容模式本身不提供 4E/1E,`frame` 恒为 3E;3E 无序列号字段,但库内事务锁保证同一连接串行收发,多 worker 仅排队、不会交错。已在模块 docstring 明示"仅 3E"。
 
-#### 2.7.6 SR 仅 level-trigger — **P2(实锤)**
+#### 2.7.6 SR 仅 level-trigger — **P2(待处理)**
 - `scanner/keyence_sr.py:81-117`
-- 无 TRG/auto 模式,传送带高速场景不可用。
-- **修复**:`mode` 参数。
+- 无 TRG/auto 模式,传送带高速场景不可用。**修复**:`mode` 参数(后续版本)。
 
-#### 2.7.7 SR `scan_dwell` 持锁 sleep — **P2(实锤)**
+#### 2.7.7 SR `scan_dwell` 持锁 sleep — **P2(待处理)**
 - `scanner/keyence_sr.py:129`
-- 多触发串行化。**修复**:轮询或拆分启停。
+- 多触发串行化。**修复**:拆分启停/轮询(后续版本;单枪场景串行化本身是正确语义)。
 
 #### 2.7.8 SR `LON` 不带 bank 的老固件兼容 — **P2(待核证)**
 - `scanner/keyence_sr.py:127`
 
-#### 2.7.9 SR 超时后残响应可能串台 — **P2(实锤)**
-- `scanner/keyence_sr.py:200-212`
-- **修复**:残字节按时间戳丢弃。
+#### 2.7.9 SR 超时后残响应可能串台 — **已缓解(2026-09-26)**
+- `scanner/keyence_sr.py`(`_drain_line`)
+- 超时后调用 `_drain_line` 尽力读到行尾清掉半行;`_drain_line` 现返回是否读净(供调用方判定残字节风险)。因"超时不断线"是既有契约(测试显式断言,滴流对端也保持连接),未强制拆连;迟到应答的彻底隔离需真机确认后再定。
 
-#### 2.7.10 KV 设备范围不按型号门控 — **P3(实锤)**
+#### 2.7.10 KV 设备范围不按型号门控 — **P3(待处理)**
 - `plc/keyence/address.py:64-72`
+- 各机型 DM/R/ZR 点数不同;需 `plc_model` 参数门控(后续版本)。
 
-#### 2.7.11 超长 hex dump 刷日志 — **P3(实锤)**
-- `plc/keyence/hostlink.py:103-109`
+#### 2.7.11 超长 hex dump 刷日志 — **已修复(2026-09-26)**
+- `plc/keyence/hostlink.py`(`_truncate_hex`)
+- 响应行超限/缺结束符的错误文本改用 64 字节截断转储(带"共 N 字节"尾注),不再整段 4096B 刷屏。
 
 ---
 

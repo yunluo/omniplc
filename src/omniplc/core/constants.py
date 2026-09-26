@@ -695,8 +695,9 @@ KV_DEFAULT_PORT: int = 8000
 """KV Host Link TCP/UDP 默认端口(KEYENCE 惯例值,可在 PLC 侧修改)。"""
 KV_MAX_LINE: int = 4096
 """ASCII 响应行长度上限(驱动单次最多读 8 个字,远小于该上限)。"""
-KV_MAX_DATAGRAM: int = 4096
-"""UDP 整包接收缓冲上限(与 :data:`KV_MAX_LINE` 对齐,防超长行被截断)。"""
+KV_MAX_DATAGRAM: int = KV_MAX_LINE + 16
+"""UDP 整包接收缓冲上限(在 :data:`KV_MAX_LINE` 基础上留出 CR/LF 与余量,
+避免响应行接近上限时 Windows 报 10040 / POSIX 静默截断)。"""
 KV_BITS_PER_GROUP: int = 16
 """KV 位组(组号+位号)与 X/Y 组每组位数;X/Y 编号为组号*16+位号。"""
 KV_BIT_BANK_PACK: int = 100
