@@ -52,7 +52,9 @@ jobs:
       - name: pytest
         env:
           UV_PYTHON_DOWNLOADS: never
-        run: uv run --python ${{ matrix.python-version }} python -m pytest tests -q
+        # 必须带 --extra dev:否则 `uv run` 会按默认依赖重新同步、把上一步装的
+        # extras(含 pytest)卸掉 → "No module named pytest"
+        run: uv run --extra dev --python ${{ matrix.python-version }} python -m pytest tests -q
 
       - name: ruff
         # Rust 独立二进制,不依赖解释器;两条腿都跑
