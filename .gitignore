@@ -149,9 +149,9 @@ cython_debug/
   
 
 # Mitsubishi copyrighted manuals stay local only
-docs/*.pdf
-docs/*.pptx
-docs/*.ppt
+docs/**/*.pdf
+docs/**/*.pptx
+docs/**/*.ppt
 
 # 参考项目源码仅本地留档(tools/_ref_*)
 tools/_ref_*/

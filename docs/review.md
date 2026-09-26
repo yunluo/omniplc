@@ -132,6 +132,20 @@ v1 评审稿逐条对源码复核后形成本版:
 - **Python 3.7**:全量 `py_compile` 通过,无 3.8+ 语法/API。唯一 3.7 特有缺陷:`aio/__init__.py:468` `except Exception` 在 3.7 会吞掉 `CancelledError`(3.7 里它是 `Exception` 子类),使取消 `close()` 返回正常;3.8+ 不受影响。
 - `modbus/address.py`、`core/errors.py`、`types.py`、`transport/base.py` 无新发现。
 
+### 手册复核(docs/protocol,2026-09-26)
+
+以 `docs/protocol/` 收录的官方手册/规范复核二轮「待核证」项(文本层用 pypdf 抽取;FINS W342 为扫描件、无文本层):
+
+- **§2.2.3 / 二轮 P0 `L=92H`(SLMP 手册)**:**「Latch relay (L) L*** … (92H)」** —— 独立证实 P0 修复值正确。
+- **§2.2.6 0406(SH-080008 §8.4 + §8.1)**:子命令 0000 标准 / 0080·0082 设备扩展;「bit device is **16-bit for one point**」;位字打包**首软元件在 bit15**(M10~M14 首点占最高 nibble,32 点 M16~M47 的 `AB1234CD` 以 M16 为最高 nibble);块数上限 `01H~78H`(1~120)。→ 与本库 `codec_qna.py:13` 口径一致,二轮「只能由黄金向量自洽」的疑虑**消除**。
+- **§2.5.1 ADS 错误码(TE1000)**:`0x6`=Target port not found、`0xD`=Port not connected、Router 组 `0x500+`;而**`0x705`=ADSERR_DEVICE_INVALIDSIZE「Parameter size not correct」**。→ 手册独立印证二轮 P1:现码集把「参数尺寸」当 transport,漏了真通断码。
+- **§2.2.11 MX 32 位批读(MX Component 手册)**:存在 `ReadDeviceBlock2`/`ReadDeviceRandom2`(32 位版)。→ 本库拒绝 32/64 位批量属真实功能缺口。
+- **§2.12.1/2.12.4 MTConnect(Part 1 标准)**:定义 `/probe`、`/current`、`/sample`、`/assets`、`/asset/{id}`。→ 缺 `/sample`、`/asset` 属实。
+- **§2.7.8 SR `LON` bank(SR-2000 手册)**:存在 `LON,b`(b=01~16 库编号)。→ 带 bank 的 LON 为设备能力;老固件兼容需按机型。
+- **§2.8.2 Inovance C200~C255(H3U 手册)**:C200~C255 为 32 位计数器,占两个 16 位寄存器。→ 型号事实确认。
+
+仍待核(无对应手册或扫描件):FINS W342(§2.3.9 EM bank / §2.3.13-14)、松下 MEWTOCOL(§2.9.2-3)、TOYOPUC(§2.10.x)、基恩士 KV Host Link/MC(§2.7.3-4)、OPC-UA Part 2-6(§2.11.x 细节)。相关手册 PDF 仅本地留存(`.gitignore` 的 `docs/**/*.pdf|pptx|ppt`),索引见 `docs/protocol/README.md`。
+
 ---
 
 ## 一、总体架构层面
@@ -270,6 +284,8 @@ v1 评审稿逐条对源码复核后形成本版:
 - `plc/melsec/codec_qna.py`
 - 复核(Omron… 实为 Mitsubishi **SH-080008 §8.4 + Appendix 1**):子命令 **0000** 为标准多块读(总块数 ≤120);**0002(iQ-R)/0080(iQ-L·Q/L)** 是「**设备扩展指定**」——用于链接直接 `Jn\…`、模块访问 `Un\G`(智能功能模块缓冲)、CPU 缓冲 `U3En\G/HG`,总块数 ≤60。**并非 v1 评审所述的“跨网单事务”**(原表述有误)。
 - **结论**:本库按 0000 + 标准软元件寻址,标准软元件(D/M/X/Y/…)**无功能缺失**;设备扩展(`Un\G` 模块缓冲等)需新增地址语法 + 扩展块格式,与既有寻址模型正交,列为 **v1.x 特性**(MC 手册 SH-080008 已下载至 `docs/`,gitignore 本地留存)。
+- **手册复核二期(2026-09-26,SH-080008 文本层已抽取)**:§8.4 明示「bit device is **16-bit for one point**」;§8.1 位字打包**首软元件在 bit15**(M10~M14 首点占最高 nibble;32 点 M16~M47 的 `AB1234CD` 以 M16 为最高 nibble);块数上限 `01H~78H`(1~120)。→ 与本库 `codec_qna.py:13`「位块 1 点=16 位、首软元件在 bit15」及 120 块上限完全一致。
+- **设备码 (SLMP 手册)**:`Latch relay (L) L*** … (92H)` —— 独立证实 §2.2.3 中 `L` 应为 `0x92`。
 
 #### 2.2.7 0406 位块每条目仅 1 点 — **已修复(2026-09-26)**
 - `plc/melsec/melsec.py`(`read_batch` + `_merge_bit_blocks`)
