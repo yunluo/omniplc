@@ -14,7 +14,11 @@ import pytest
 
 from omniplc import OpenTcpClient
 from omniplc.aio import AOpenTcpClient
-from omniplc.core.constants import OPEN_TCP_DEFAULT_PORT
+from omniplc.core.constants import (
+    OPEN_TCP_DEFAULT_PORT,
+    OPEN_TCP_MAX_FRAME_LIMIT,
+)
+from omniplc.core.errors import ErrorCategory
 from omniplc.transport import TcpTransport
 from omniplc.transport.base import BaseTransport
 from scripted import ScriptedTransport
@@ -132,11 +136,12 @@ def test_empty_frame_is_valid() -> None:
 
 
 def test_receive_timeout_keeps_connection() -> None:
-    """接收超时:DeviceError 契约,链路完好不断线。"""
+    """接收超时:TransportTimeoutError 契约(category=TIMEOUT),链路完好不断线。"""
     client = OpenTcpClient("127.0.0.1", 9000)
     _attach(client, _TimeoutTransport())
     assert client.receive() == (False, None)
     assert "接收超时" in (client.last_error or "")
+    assert client.last_error_category is ErrorCategory.TIMEOUT
     assert client.connected is True
     with pytest.raises(ValueError):
         client.receive(timeout=0)
@@ -580,3 +585,20 @@ def test_transact_uses_write_retries(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert client.transact_text("PING") == (False, None)
     assert len(counter) == 1
+
+
+def test_send_text_prepends_length_prefix() -> None:
+    """长度前缀成帧:发送端同样补上长度域(与收帧对称)。"""
+    client = OpenTcpClient(
+        "127.0.0.1", 9000, delimiter=None, append_delimiter=False, length_prefix=2
+    )
+    scripted = ScriptedTransport([])
+    _attach(client, scripted)
+    assert client.send_text("ABC") is True
+    assert bytes(scripted.sent) == b"\x00\x03ABC"
+
+
+def test_max_frame_upper_bound_rejected() -> None:
+    """max_frame 有上界,防止配置成天文数字导致缓冲无界增长。"""
+    with pytest.raises(ValueError):
+        OpenTcpClient("127.0.0.1", 9000, max_frame=OPEN_TCP_MAX_FRAME_LIMIT + 1)

@@ -33,10 +33,11 @@ from ..core.constants import (
     OPEN_TCP_DEFAULT_ENCODING,
     OPEN_TCP_DEFAULT_PORT,
     OPEN_TCP_MAX_FRAME,
+    OPEN_TCP_MAX_FRAME_LIMIT,
     OPEN_TCP_RECV_CHUNK,
 )
 from ..core.debug import format_hex
-from ..core.errors import DeviceError, ProtocolFrameError
+from ..core.errors import DeviceError, ProtocolFrameError, TransportTimeoutError
 from ..transport import BaseTransport, TcpTransport
 from ..types import DataType, PrimitiveValue
 
@@ -124,7 +125,13 @@ class OpenTcpClient(BaseClient):
             self._coerce_encoding(item) for item in (encoding_fallback or [])
         ]
         if int(max_frame) < 1:
-            raise ValueError(f"max_frame 必须大于 0,收到:{max_frame}")
+            raise ValueError(f"max_frame 不能小于 1(字节),收到:{max_frame}")
+        if int(max_frame) > OPEN_TCP_MAX_FRAME_LIMIT:
+            raise ValueError(
+                "max_frame 不能超过 {} 字节,收到:{}".format(
+                    OPEN_TCP_MAX_FRAME_LIMIT, max_frame
+                )
+            )
         self._max_frame = int(max_frame)
         if int(recv_chunk_size) < 1:
             raise ValueError(f"recv_chunk_size 必须大于 0,收到:{recv_chunk_size}")
@@ -318,12 +325,20 @@ class OpenTcpClient(BaseClient):
         return self._send_payload(self._encode_outgoing(text))
 
     def _encode_outgoing(self, text: str) -> bytes:
-        """文本 → 发送字节(编码 + 可选分隔符,内部方法)。"""
+        """文本 → 发送字节(编码 + 可选分隔符/长度前缀,内部方法)。"""
         payload = text.encode(self._encoding)
         if self._append_delimiter:
             delimiter = self._delimiter
             assert delimiter is not None  # append_delimiter 仅分隔符成帧可用(构造期保证)
             payload += delimiter
+        elif self._length_prefix is not None:
+            # 长度前缀成帧:发送端补长度域(与收帧对称)
+            payload = (
+                len(payload).to_bytes(
+                    self._length_prefix, self._length_prefix_byteorder
+                )
+                + payload
+            )
         return payload
 
     def _send_payload(self, payload: bytes) -> bool:
@@ -455,7 +470,7 @@ class OpenTcpClient(BaseClient):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     self._last_partial_frame = bytes(self._buffer)
-                    raise DeviceError(
+                    raise TransportTimeoutError(
                         f"接收超时({timeout}s),已收 {len(self._buffer)} 字节未成帧",
                         0,
                     )
@@ -466,7 +481,7 @@ class OpenTcpClient(BaseClient):
                 self._buffer.extend(chunk)
         except socket.timeout:
             self._last_partial_frame = bytes(self._buffer)
-            raise DeviceError(
+            raise TransportTimeoutError(
                 f"接收超时({timeout}s),已收 {len(self._buffer)} 字节未成帧",
                 0,
             )

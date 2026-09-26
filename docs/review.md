@@ -46,6 +46,7 @@ v1 评审稿逐条对源码复核后形成本版:
 - **二轮复审 P0 MC `L` 设备码撞码(2026-09-26)**:`core/constants.py` `MC_DEVICE_CODES["L"]` 由 `0xA0` 改为 **`0x92`**(原值与 `B` 同码,致 3E/4E/4C 下所有 `L` 读写静默打进 `B` 空间);新增回归门禁 `test_mc_codec.py::test_mc_device_code_table_l_is_92_and_no_collisions`(锁 `L=0x92` 且设备码表无重码)。
 - **二轮复审 P1 批(2026-09-26)**:①**ADS transport 码集**——改用 TE1000 §8 全局组 `0x06/0x07/0x0D/0x12/0x1B/0x1D` + Router 组 `0x0500~0x050D`,回归测试 `test_translate_ads_error_transport_codes` / `..._parameter_codes_are_device`;②**S7 `read_wstring` ASCII 返空**——`convert.decode_string` 对 UTF-16/UTF-32 改为「解码后按 NUL 字符截断」(字节层截断会把 `b"\x00A\x00B"` 整串截空),回归 `test_convert.py::TestString::test_utf16_ascii_not_truncated_by_high_nul` 与 `test_siemens_s7_clients.py::test_wstring_ascii_roundtrip`;③**`read_tag`/`write_tag` 64 位精度**——`scale=1.0/offset=0.0` 时原值直通,不经 float64 往返(>2^53 曾静默丢低位),回归 `test_base_client.py::TestTagScaling::test_{read,write}_tag_identity_scale_preserves_int64`;④**aio 属性读阻塞事件循环**——`connected/last_error/last_error_category/last_error_code/stats/next_connect_in` 同步 getter 改**无锁快照**(固定键集值级拷贝,GIL 下安全),aio 转发不再进事务锁,回归 `test_v034_reliability.py::TestAioBackoffAndErrorSurfaces::test_property_reads_do_not_block_on_transaction_lock`。门禁 1150 → **1158**。
 - **二轮复审 P2 批 1(2026-09-26)**:①**native 镜像**——`native/modbus.py` 字符串补 `.bit` 拒绝、`native/omron.py` 位读补 0x1101 回退;②**Modbus 批量读 `.bit`**——`read_many`/`read_batch` 改用 `_check_address`(兼补跨度校验);③**写语义 `is_write=True`**——Modbus FC23/FC08-A/FC21 + OpenTcp `transact`/`transact_text`;④**FINS `read_batch`** 拒绝非 BOOL 位号;⑤**AB 0x0A 预算**补偏移表 2×n;⑥**MTConnect DOCTYPE** 防 UTF-16 绕过(剔 NUL 后扫描);⑦**退避指数**按 32 封顶防 `OverflowError`。门禁 1158 → **1169**。
+- **二轮复审 P2 批 2 + P3(2026-09-26)**:①**convert**——`word_order` 校验/归一化 + `registers_to_*` 寄存器数量校验;②**OPC-UA**——browse 默认深度上限(10)、`_coerce_read` 整数范围收窄、NodeId 组件切分(`s=` 含分号 / `srv=`/`nsu=`);③**OpenTcp**——接收超时归 TIMEOUT、`length_prefix` 发送补前缀、`max_frame` 上界 16MiB;④**Modbus FC20** 子响应边界校验(坏帧不再裸 `IndexError`);⑤**aio `close()`** 不再吞 `CancelledError`(3.7 专属)。门禁 1169 → **1179**。
 
 ---
 
@@ -53,7 +54,7 @@ v1 评审稿逐条对源码复核后形成本版:
 
 > 范围:76 个源文件 / ~21k 行,分 6 域(核心 / 异步 / Modbus+OpenTcp / MC 家族 / Omron·AB·S7·ADS / OPC-UA·MTConnect·工程)。
 > 方法:逐行读源 + 只读探针(Python 3.7.9)+ 与 pyads/asyncua 安装源比对。标「已核验」者为二轮亲自复现。
-> 结论:新增 **1 条 P0、4 条 P1** 及若干 P2/P3;并纠正上一轮 **5 条已关闭项 / 3 条记录不实**。其中 P0(MC `L` 撞码)与 **P1 四项(ADS 码集 / S7 WString ASCII / Tag 64 位精度 / aio 属性读锁)均已于 2026-09-26 修复**,P2 前七项(native 镜像 / Modbus 批量 `.bit` / `is_write` / FINS 批量 `.bit` / AB 0x0A 预算 / MTConnect DOCTYPE / 退避溢出)同日修复(见「修复记录」与各条「修复」小节)。
+> 结论:新增 **1 条 P0、4 条 P1** 及若干 P2/P3;并纠正上一轮 **5 条已关闭项 / 3 条记录不实**。其中 P0(MC `L` 撞码)与 **P1 四项(ADS 码集 / S7 WString ASCII / Tag 64 位精度 / aio 属性读锁)均已于 2026-09-26 修复**,P2 前七项(native 镜像 / Modbus 批量 `.bit` / `is_write` / FINS 批量 `.bit` / AB 0x0A 预算 / MTConnect DOCTYPE / 退避溢出)同日修复(见「修复记录」与各条「修复」小节);另 P2 批 2(convert / OPC-UA / OpenTcp / Modbus FC20)与 P3 的 aio `close()` 取消吞没亦同日修复。
 
 ### P0
 
@@ -96,10 +97,10 @@ v1 评审稿逐条对源码复核后形成本版:
 - **MTConnect DOCTYPE 防护可被 UTF-16 绕过(已核验)——已修复(2026-09-26)**:`cnc/mtconnect.py` 同时扫描剔除 NUL 字节后的形式(响应体上限在 `_read_body` 读取期已强制,先于解析)。回归 `test_doctype_utf16_payload_rejected`。
 - **连接退避指数无界(已核验)——已修复(2026-09-26)**:`core/base_client.py:730` 指数先按 `RECONNECT_BACKOFF_MAX_EXPONENT=32` 封顶再算。回归 `test_backoff_exponent_bounded`。
 - **MC `read_batch` 字软元件 `.bit` 静默忽略** `plc/melsec/melsec.py:269`;**MEWTOCOL 字段溢出** `plc/panasonic/codec_mewtocol.py:85/90/96/103`(§2.9.2/§2.9.3 未修);**MX 32/64 位批读未支持** `plc/melsec/mx.py:727`。
-- **`convert`(已核验)**:`convert.py:426` `_reorder_bytes` 对任何非法 `word_order`(字符串/`None`)静默走 BADC,与 `docs/architecture.md:443`「非法值抛 ValueError」矛盾;`registers_to_int32/int64` 等不校验寄存器数量。
-- **OPC-UA**:`browse` 默认递归、`max_depth=None` 无上限(`opcua/client.py:614`,§2.11.5 只加形参未改实现);`_coerce_read` 不做范围收窄(`:828`,与写路径不对称);NodeId 正则拒 `s=` 内含分号及 `srv=`/`nsu=`(`opcua/address.py:25`)。
-- **OpenTcp**:接收超时抛 `DeviceError` → 归类 DEVICE 而非 TIMEOUT(`opentcp/client.py:458`);`length_prefix` 只定义收帧、发送端不加前缀(`:320`);`max_frame` 无上界(§1.12 未修)。
-- **Modbus FC20 坏帧抛裸 `IndexError` 逃逸**:`modbus/codec.py:935` `body[offset+1]` 越界,违「坏帧 → ProtocolFrameError」。
+- **`convert`(已核验)——已修复(2026-09-26)**:`_reorder_bytes` 校验/归一化 `word_order`(非法抛 `ValueError`,字符串按枚举归一化,不再静默走 BADC);`registers_to_int32/uint32/int64/uint64/float32/float64` 校验寄存器数量。回归 `TestWordOrder32::test_bad_word_order_rejected` + 计数回归。
+- **OPC-UA——已修复(2026-09-26)**:`browse` 在 `max_depth=None` 时应用 `OPCUA_BROWSE_DEFAULT_MAX_DEPTH=10` 安全上限;`_coerce_read` 按声明类型做整数范围收窄(与写路径对称);NodeId 解析改组件切分,`s=` 吞掉其余(可含 `;`/`=`)、支持 `srv=`/`nsu=`。回归 `test_coerce_read_narrows_integer_range`、`test_browse_none_max_depth_uses_default_cap`、`test_parse_nodeid`。
+- **OpenTcp——已修复(2026-09-26)**:接收超时改抛 `TransportTimeoutError`(归类 TIMEOUT 而非 DEVICE);`length_prefix` 发送端补长度域(与收帧对称);`max_frame` 增上界 `OPEN_TCP_MAX_FRAME_LIMIT=16MiB`。回归 `test_receive_timeout_keeps_connection`、`test_send_text_prepends_length_prefix`、`test_max_frame_upper_bound_rejected`。
+- **Modbus FC20 坏帧抛裸 `IndexError` 逃逸——已修复(2026-09-26)**:`modbus/codec.py` 引用类型字节读取前先做子响应长度边界校验。回归 `test_fc20_truncated_subresponse_is_frame_error`。
 
 ### P3(合并)
 
@@ -130,12 +131,12 @@ v1 评审稿逐条对源码复核后形成本版:
 
 - §2.5.1 标「已修复」实为错误码集合未修正(见 P1)。**已订正并修复(2026-09-26)**。
 - §2.3.3 修复记录称「批量读经 `_batch_bool_array_address` 定制点同口径」,但 `OmronCipClient` 从未覆写该方法;实际机制是 `ab.py:645-649` 的自描述类型分支。功能无误,记录失实。
-- §2.13.1/2「长度域成帧留 v1.x」与 v0.42.0 已落地的 `length_prefix` 不符(`docs/architecture.md:687` 需订正)。
+- §2.13.1/2「长度域成帧留 v1.x」与 v0.42.0 已落地的 `length_prefix` 不符(`docs/architecture.md:` 描述过时)。**已订正(2026-09-26)**:架构文档改述三种成帧 + 收发双向对称。
 
 ### 一致性 / 无问题
 
 - **版本五落点一致**:pyproject `0.42.0`、`__init__.__version__` `0.42.0`、CHANGELOG 首条 v0.42.0、architecture 头 v0.42.0、uv.lock `omniplc 0.42.0`、tag `v0.42.0`。
-- **Python 3.7**:全量 `py_compile` 通过,无 3.8+ 语法/API。唯一 3.7 特有缺陷:`aio/__init__.py:468` `except Exception` 在 3.7 会吞掉 `CancelledError`(3.7 里它是 `Exception` 子类),使取消 `close()` 返回正常;3.8+ 不受影响。
+- **Python 3.7**:全量 `py_compile` 通过,无 3.8+ 语法/API。唯一 3.7 特有缺陷:`aio/__init__.py:468` `except Exception` 在 3.7 会吞掉 `CancelledError`(3.7 里它是 `Exception` 子类),使取消 `close()` 返回正常;3.8+ 不受影响。**已修复(2026-09-26)**:该处先 `except _CANCELLED_ERRORS: raise` 再捕 `Exception`,取消向上传播;回归 `test_close_propagates_cancellation`。
 - `modbus/address.py`、`core/errors.py`、`types.py`、`transport/base.py` 无新发现。
 
 ### 手册复核(docs/protocol,2026-09-26)
@@ -210,9 +211,9 @@ v1 评审稿逐条对源码复核后形成本版:
 - `"floot"` 错字运行时才炸。
 - **修复**:`_tag_from_record` 内即时调 `DataType` 校验。
 
-### 1.12 `OpenTcpClient.max_frame` 无上限 — **P3(实锤)**
+### 1.12 `OpenTcpClient.max_frame` 无上限 — **P3(已修复:2026-09-26)**
 - `opentcp/client.py:88-124, 331`
-- **修复**:硬上限(如 16 MB)。
+- **修复**:新增 `OPEN_TCP_MAX_FRAME_LIMIT=16 MiB` 构造期上界校验。回归 `test_max_frame_upper_bound_rejected`。
 
 ---
 
@@ -890,4 +891,4 @@ v1 评审稿逐条对源码复核后形成本版:
 
 ---
 
-> 本文档仅记录问题与现场影响。v2 复核删除 8 条误报、修正 12 条口径;条目按"实锤 / 文档化限制 / 待核证"分档。2026-09-26 二轮全量复审新增 P0/P1/P2/P3 清单及台账纠偏,见文首「二轮复审」;同日修复 P0(MC `L` 撞码)与 P1 四项(ADS 码集依 TE1000 §8、S7 WString ASCII、Tag 64 位精度、aio 属性读锁)、P2 前七项(native 镜像、Modbus 批量 `.bit`、`is_write`、FINS 批量 `.bit`、AB 0x0A 预算、MTConnect DOCTYPE、退避溢出)。修复路线图不列入,按项目排期另起 `docs/fix-roadmap.md`。
+> 本文档仅记录问题与现场影响。v2 复核删除 8 条误报、修正 12 条口径;条目按"实锤 / 文档化限制 / 待核证"分档。2026-09-26 二轮全量复审新增 P0/P1/P2/P3 清单及台账纠偏,见文首「二轮复审」;同日修复 P0(MC `L` 撞码)与 P1 四项(ADS 码集依 TE1000 §8、S7 WString ASCII、Tag 64 位精度、aio 属性读锁)、P2 批 1(native 镜像、Modbus 批量 `.bit`、`is_write`、FINS 批量 `.bit`、AB 0x0A 预算、MTConnect DOCTYPE、退避溢出)、P2 批 2(convert 校验、OPC-UA 深度/收窄/NodeId、OpenTcp 超时/前缀/上界、FC20 边界)与 P3 的 aio `close()` 取消吞没。修复路线图不列入,按项目排期另起 `docs/fix-roadmap.md`。

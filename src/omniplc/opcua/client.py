@@ -38,6 +38,7 @@ from ..core.constants import (
     INT32_MIN,
     INT64_MAX,
     INT64_MIN,
+    OPCUA_BROWSE_DEFAULT_MAX_DEPTH,
     OPCUA_DEFAULT_PORT,
     OPCUA_DEFAULT_SAMPLING_INTERVAL_MS,
     PORT_MAX,
@@ -48,7 +49,13 @@ from ..core.constants import (
 )
 from ..core.debug import log_op
 from ..core.errors import DeviceError, ErrorCategory, OmniPLCInternalError, TransportClosedError
-from ..core.validation import require_bool, require_float, require_int
+from ..core.validation import (
+    check_range,
+    check_uint16,
+    require_bool,
+    require_float,
+    require_int,
+)
 from ..types import DataType, PrimitiveValue
 from ..transport.base import BaseTransport
 from .address import parse_opcua_nodeid
@@ -554,7 +561,8 @@ class OpcUaClient(BaseClient):
 
         :param node_text: 起始 NodeId 字符串(默认 ``"Root"`` 即服务端根节点)
         :param recursive: True 递归到叶子;False 仅顶层
-        :param max_depth: 递归深度上限(``None`` = 无限制);防服务端巨大树爆栈
+        :param max_depth: 递归深度上限(``None`` = 用安全默认上限
+            :data:`OPCUA_BROWSE_DEFAULT_MAX_DEPTH`);防服务端巨大树爆栈
         :return: ``(成功, 嵌套 dict)``;嵌套结构::
 
             {node_id_str: {
@@ -591,7 +599,13 @@ class OpcUaClient(BaseClient):
         current_depth: int,
         max_depth: Optional[int],
     ) -> dict:
-        """递归枚举单层;子节点失败跳过,不影响父级(内部方法)。"""
+        """递归枚举单层;子节点失败跳过,不影响父级(内部方法)。
+
+        ``max_depth is None`` 时应用 :data:`OPCUA_BROWSE_DEFAULT_MAX_DEPTH`
+        安全上限,防止服务端巨大树无限递归。
+        """
+        if recursive and max_depth is None:
+            max_depth = OPCUA_BROWSE_DEFAULT_MAX_DEPTH
         try:
             children = node.get_children()
         except Exception:
@@ -810,11 +824,33 @@ def _validate_endpoint_url(endpoint: str) -> None:
         raise ValueError(f"OPC-UA 端点端口必须在 {PORT_MIN}~{PORT_MAX} 之间,收到:{port_text}")
 
 
+_OPCUA_INT_RANGES: Dict[DataType, Tuple[int, int, str]] = {
+    DataType.INT: (INT32_MIN, INT32_MAX, "int"),
+    DataType.UINT: (0, UINT32_MAX, "uint"),
+    DataType.LONG: (INT64_MIN, INT64_MAX, "long"),
+    DataType.ULONG: (0, UINT64_MAX, "ulong"),
+}
+
+
+def _narrow_int(value: int, data_type: DataType) -> int:
+    """把服务端整数收窄到声明类型范围(内部函数)。
+
+    :raises ValueError: 超出声明类型范围(与写路径对称)
+    """
+    if data_type is DataType.SHORT:
+        return check_range(value, INT16_MIN, INT16_MAX, "short")
+    if data_type is DataType.USHORT:
+        return check_uint16(value)
+    low, high, name = _OPCUA_INT_RANGES[data_type]
+    return check_range(value, low, high, name)
+
+
 def _coerce_read(value: Any, data_type: DataType, address: str) -> PrimitiveValue:
     """把服务端返回值收窄为本库基础类型(内部函数)。
 
     :raises ValueError: 返回值类型与目标数据类型不符(调用方参数错误,
-        与 AB 标签"实际类型不符"同口径,直接抛出,不断线)
+        与 AB 标签"实际类型不符"同口径,直接抛出,不断线),或整数超出
+        声明类型范围(与写路径对称)
     :raises DeviceError: 节点值为空(设备侧条件,链路正常,不断线不重试)
     """
     if value is None:
@@ -831,7 +867,7 @@ def _coerce_read(value: Any, data_type: DataType, address: str) -> PrimitiveValu
             raise ValueError(
                 f"OPC-UA 节点返回类型不符(期望整数):{address} ← {value!r}"
             )
-        return value
+        return _narrow_int(value, data_type)
     if data_type in (DataType.FLOAT, DataType.DOUBLE):
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError(

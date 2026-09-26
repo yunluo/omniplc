@@ -465,6 +465,10 @@ class ABaseClient:
         try:
             # 绕过闸门直接投递:断开排在所有已提交任务之后执行
             await loop.run_in_executor(executor, self._sync.disconnect)
+        except _CANCELLED_ERRORS:
+            # 3.7 下 CancelledError 是 Exception 子类,不可被下面的
+            # `except Exception` 吞掉,否则取消 close() 会静默变成正常返回
+            raise
         except Exception:
             pass  # 尽力断开,失败不阻断释放
         finally:

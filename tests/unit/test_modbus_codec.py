@@ -184,6 +184,17 @@ def test_fc20_response_length_and_fields() -> None:
         codec.parse_read_file_record_response(response[:-1], [(4, 1, 2), (3, 9, 2)])
 
 
+def test_fc20_truncated_subresponse_is_frame_error() -> None:
+    """FC20 子响应被截断 → ProtocolFrameError,而非裸 IndexError。
+
+    pdu[1](byte count)=1、body=``b"\\x03"``:子响应长度域合法但引用类型字节
+    缺失,越界读 ``body[offset+1]``。
+    """
+    pdu = bytes([0x14, 0x01, 0x03])
+    with pytest.raises(ProtocolFrameError):
+        codec.parse_read_file_record_response(pdu, [(4, 1, 1)])
+
+
 def test_device_id_object_range_reserved_rejected() -> None:
     """FC43:对象号落在保留区间 0x07~0x7F 时请求与响应都拒绝。"""
     with pytest.raises(ValueError):

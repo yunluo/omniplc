@@ -67,7 +67,7 @@ def test_opentcp_stall_times_out_without_hanging() -> None:
         elapsed = time.monotonic() - started
         assert ok is False and raw is None
         assert elapsed < 0.8  # 远小于对端 1.0s 静默
-        assert client.last_error_category is ErrorCategory.DEVICE  # 超时归 DeviceError
+        assert client.last_error_category is ErrorCategory.TIMEOUT  # 超时归 TIMEOUT
         assert client.connected is True  # 链路完好,不断线
 
 

@@ -817,6 +817,8 @@ OPCUA_DEFAULT_PORT: int = 4840
 """OPC-UA 标准默认端口(opc.tcp 端点未显式带端口时提示用)。"""
 OPCUA_DEFAULT_SAMPLING_INTERVAL_MS: int = 1000
 """OPC-UA DataChange 订阅默认采样间隔(毫秒;1000 = 1Hz,常见工业采样需求)。"""
+OPCUA_BROWSE_DEFAULT_MAX_DEPTH: int = 10
+"""``browse(recursive=True, max_depth=None)`` 的安全默认递归深度上限(防巨大树爆栈)。"""
 
 # ---------------------------------------------------------------- AB(罗克韦尔)
 AB_EIP_DEFAULT_PORT: int = 44818
@@ -988,6 +990,8 @@ OPEN_TCP_DEFAULT_ENCODING: str = "utf-8"
 """OpenTcpClient 文本收发默认字符编码(与 BaseClient 字符串 'ascii' 区分,通用 TCP 多为现代设备/上位机自定协议)。"""
 OPEN_TCP_MAX_FRAME: int = 4096
 """OpenTcpClient 帧内容字节上限(不含分隔符;超限未见到分隔符按坏帧断线惰性重连)。"""
+OPEN_TCP_MAX_FRAME_LIMIT: int = 16 * 1024 * 1024
+"""OpenTcpClient ``max_frame`` 配置上界(16 MiB):防止缓冲硬上限无界增长。"""
 OPEN_TCP_RECV_CHUNK: int = 256
 """OpenTcpClient 接收缓冲单次读取字节数(内部实现参数)。"""
 

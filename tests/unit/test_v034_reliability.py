@@ -277,6 +277,31 @@ class TestReconnectBackoff:
         client._register_connect_failure()  # 不应抛 OverflowError
         assert client.next_connect_in is not None
 
+
+class TestAioCloseCancellation:
+    """aio close() 不得吞掉取消(3.7 下 CancelledError 是 Exception 子类)。"""
+
+    def test_close_propagates_cancellation(self) -> None:
+        """close() 内 disconnect 被取消时须向上传播,不静默返回。"""
+        import asyncio
+
+        import omniplc.aio as aio
+
+        sync = _ScriptedClient()
+
+        def cancel_disconnect() -> bool:
+            raise asyncio.CancelledError()
+
+        sync.disconnect = cancel_disconnect  # type: ignore[method-assign]
+        async_client = aio.AModbusTcpClient.__new__(aio.AModbusTcpClient)
+        aio.ABaseClient.__init__(async_client, sync)
+
+        async def scenario() -> None:
+            with pytest.raises(asyncio.CancelledError):
+                await async_client.close()
+
+        asyncio.run(scenario())
+
     def test_backoff_resets_on_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(base_client_mod.random, "uniform", lambda a, b: 0.05)
         client = _ScriptedClient(fail_connect_times=1)

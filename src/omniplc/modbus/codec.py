@@ -932,6 +932,8 @@ def parse_read_file_record_response(
                     1 + 2 * record_length, file_resp_len
                 )
             )
+        if offset + 1 + file_resp_len > len(body):
+            raise ProtocolFrameError("FC20 子响应长度超出响应体")
         if body[offset + 1] != MODBUS_FILE_REFERENCE_TYPE:
             raise ProtocolFrameError(
                 "FC20 引用类型非 0x06:0x{:02X}".format(body[offset + 1])

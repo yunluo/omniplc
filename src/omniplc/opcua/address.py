@@ -20,12 +20,10 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
-from typing import NamedTuple
+from typing import Dict, NamedTuple
 
-_NODEID_RE = re.compile(
-    r"^(?:ns=(\d+);)?(i=\d+|s=[^;]+|b=[A-Za-z0-9+/=]*|g=[0-9A-Fa-f-]+)$",
-    re.IGNORECASE,
-)
+_BASE64_RE = re.compile(r"^[A-Za-z0-9+/=]*$")
+_GUID_RE = re.compile(r"^[0-9A-Fa-f-]+$")
 
 
 class OpcUaNodeId(NamedTuple):
@@ -39,10 +37,22 @@ class OpcUaNodeId(NamedTuple):
     text: str
 
 
+def _bad_nodeid(address: str) -> str:
+    """构造非法 NodeId 的统一错误文本(内部函数)。"""
+    return (
+        "无法解析 OPC-UA NodeId:{!r}"
+        "(示例:ns=2;s=Device.Tag / ns=4;i=100 / i=2258)".format(address)
+    )
+
+
 # 地址串 → 解析结果缓存(结果类型不可变):高频轮询同址免重复正则解析
 @lru_cache(maxsize=4096)
 def parse_opcua_nodeid(address: str) -> OpcUaNodeId:
     """解析 OPC-UA NodeId 字符串。
+
+    与 asyncua ``NodeId.from_string`` 对齐:``;`` 分隔组件;``s=`` 之后的
+    内容(可含 ``;`` 与 ``=``)整体作为字符串标识符;支持 ``ns=``/``i=``/
+    ``s=``/``b=``/``g=`` 以及扩展的 ``nsu=``/``srv=``。
 
     :param address: NodeId,如 ``"ns=2;s=Device.Tag"``、``"i=2258"``
     :return: :class:`OpcUaNodeId`
@@ -51,18 +61,71 @@ def parse_opcua_nodeid(address: str) -> OpcUaNodeId:
     if not address or not address.strip():
         raise ValueError("OPC-UA NodeId 不能为空")
     normalized = address.strip()
-    match = _NODEID_RE.match(normalized)
-    if match is None:
-        raise ValueError(
-            "无法解析 OPC-UA NodeId:{!r}"
-            "(示例:ns=2;s=Device.Tag / ns=4;i=100 / i=2258)".format(address)
-        )
-    namespace = int(match.group(1)) if match.group(1) is not None else 0
-    identifier = match.group(2)
-    kind, _, id_body = identifier.partition("=")
-    kind = kind.lower()
-    if kind == "i" and int(id_body) > 0xFFFFFFFF:
-        raise ValueError(f"OPC-UA 数字标识符超出 32 位范围:{address!r}")
-    text = f"{kind}={id_body}" if namespace == 0 \
-        else f"ns={namespace};{kind}={id_body}"
-    return OpcUaNodeId(namespace=namespace, text=text)
+    elements = normalized.split(";")
+    namespace = 0
+    kind = None
+    body = None
+    extras: Dict[str, str] = {}
+    index = 0
+    while index < len(elements):
+        element = elements[index]
+        index += 1
+        if not element:
+            continue
+        key, sep, value = element.partition("=")
+        if not sep:
+            raise ValueError(_bad_nodeid(address))
+        key = key.strip().lower()
+        if key == "ns":
+            try:
+                namespace = int(value.strip())
+            except ValueError as exc:
+                raise ValueError(_bad_nodeid(address)) from exc
+        elif key in ("i", "b", "g"):
+            if kind is not None:
+                raise ValueError(_bad_nodeid(address))
+            kind, body = key, value.strip()
+        elif key == "s":
+            if kind is not None:
+                raise ValueError(_bad_nodeid(address))
+            # s= 吞掉其余全部组件(字符串标识符可含 ; 与 =)
+            body = ";".join([value] + elements[index:])
+            index = len(elements)
+            kind = "s"
+        elif key == "srv":
+            if not value.strip().isdigit():
+                raise ValueError(_bad_nodeid(address))
+            extras[key] = value.strip()
+        elif key == "nsu":
+            if not value.strip():
+                raise ValueError(_bad_nodeid(address))
+            extras[key] = value.strip()
+        else:
+            raise ValueError(_bad_nodeid(address))
+    if kind is None or body is None:
+        raise ValueError(_bad_nodeid(address))
+    if kind == "i":
+        try:
+            number = int(body)
+        except ValueError as exc:
+            raise ValueError(_bad_nodeid(address)) from exc
+        if number < 0 or number > 0xFFFFFFFF:
+            raise ValueError(f"OPC-UA 数字标识符超出 32 位范围:{address!r}")
+        body = str(number)
+    elif kind == "s":
+        if body == "":
+            raise ValueError(_bad_nodeid(address))
+    elif kind == "b":
+        if not _BASE64_RE.match(body):
+            raise ValueError(_bad_nodeid(address))
+    elif kind == "g":
+        if not _GUID_RE.match(body):
+            raise ValueError(_bad_nodeid(address))
+    parts = []
+    if namespace != 0:
+        parts.append("ns={}".format(namespace))
+    for extra_key in ("nsu", "srv"):
+        if extra_key in extras:
+            parts.append("{}={}".format(extra_key, extras[extra_key]))
+    parts.append("{}={}".format(kind, body))
+    return OpcUaNodeId(namespace=namespace, text=";".join(parts))

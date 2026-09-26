@@ -100,6 +100,20 @@ class TestWordOrder32:
     def test_uint32(self) -> None:
         assert convert.registers_to_uint32([0xFFFF, 0xFFFF]) == 4294967295
 
+    def test_int32_requires_two_registers(self) -> None:
+        with pytest.raises(ValueError):
+            convert.registers_to_int32([0x0001], WordOrder.ABCD)
+
+    def test_bad_word_order_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            convert.int32_to_registers(1, None)  # type: ignore[arg-type]
+        with pytest.raises(ValueError):
+            convert.registers_to_float32([0, 0], "NOPE")  # type: ignore[arg-type]
+        # 合法字符串按枚举值与名归一化
+        assert convert.int32_to_registers(1, "ABCD") == convert.int32_to_registers(
+            1, WordOrder.ABCD
+        )
+
 
 class TestWordOrder64:
     """64 位字序。"""
@@ -123,6 +137,14 @@ class TestWordOrder64:
         assert raw == data
         regs_cdab = convert.float64_to_registers(1.0, WordOrder.CDAB)
         assert regs_cdab == (0x0000, 0x0000, 0x0000, 0x3FF0)
+
+    def test_int64_requires_four_registers(self) -> None:
+        with pytest.raises(ValueError):
+            convert.registers_to_int64([0, 0, 0])
+
+    def test_float64_requires_four_registers(self) -> None:
+        with pytest.raises(ValueError):
+            convert.registers_to_float64([0, 0, 0])
 
 
 class TestString:

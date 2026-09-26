@@ -27,9 +27,11 @@ from omniplc.opcua.address import parse_opcua_nodeid
 from omniplc.opcua.client import (
     OpcUaSubscription,
     _OpcUaSession,
+    _coerce_read,
     _translate_ua_error,
     _validate_endpoint_url,
 )
+from omniplc.types import DataType
 
 
 class FakeSession(_OpcUaSession):
@@ -80,6 +82,11 @@ def test_parse_nodeid() -> None:
     # 前缀大小写规范化,标识符值保留原文
     assert parse_opcua_nodeid("NS=3;S=My.Tag").text == "ns=3;s=My.Tag"
     assert parse_opcua_nodeid("ns=2;S=My.Tag").text == "ns=2;s=My.Tag"
+    # 字符串标识符可含分号与等号(asyncua 语义:s= 吞掉其余全部)
+    assert parse_opcua_nodeid("ns=2;s=a;b=c").text == "ns=2;s=a;b=c"
+    # 扩展 NodeId:nsu= / srv=
+    assert parse_opcua_nodeid("nsu=urn:x;s=Tag").namespace == 0
+    assert parse_opcua_nodeid("ns=2;srv=3;s=Tag").text == "ns=2;srv=3;s=Tag"
 
 
 def test_parse_nodeid_errors() -> None:
@@ -92,10 +99,20 @@ def test_parse_nodeid_errors() -> None:
         "ns=2;t=abc",    # 未知标识符类型
         "s=",            # 空字符串标识符
         "i=abc",         # 数字标识符非数字
-        "ns=2;s=a;b=c",  # 标识符内含分号
     ):
         with pytest.raises(ValueError):
             parse_opcua_nodeid(bad)
+
+
+def test_coerce_read_narrows_integer_range() -> None:
+    """读回收窄:服务端整数超出声明类型范围 → ValueError(与写路径对称)。"""
+    assert _coerce_read(100, DataType.SHORT, "ns=1;s=x") == 100
+    with pytest.raises(ValueError):
+        _coerce_read(40000, DataType.SHORT, "ns=1;s=x")
+    with pytest.raises(ValueError):
+        _coerce_read(-1, DataType.USHORT, "ns=1;s=x")
+    with pytest.raises(ValueError):
+        _coerce_read(2 ** 32, DataType.UINT, "ns=1;s=x")
 
 
 def test_validate_endpoint_url() -> None:
@@ -521,6 +538,51 @@ def test_browse_nonexistent_node_returns_empty_tree(opcua_client: OpcUaClient) -
     ok, tree = opcua_client.browse("ns=99;s=NoSuchNode")
     assert ok is True
     assert tree == {}
+
+
+class _FakeBrowseNode:
+    """单链假节点:browse 深度上限测试用(无 asyncua)。"""
+
+    def __init__(self, remaining: int) -> None:
+        self._remaining = remaining
+
+    def get_children(self) -> list:
+        if self._remaining <= 0:
+            return []
+        return [_FakeBrowseNode(self._remaining - 1)]
+
+    def read_browse_name(self) -> object:
+        class _Name:
+            Name = "N"
+
+        return _Name()
+
+    def read_node_class(self) -> object:
+        class _Class:
+            name = "Object"
+
+        return _Class()
+
+    def __str__(self) -> str:
+        return "node{}".format(self._remaining)
+
+
+def test_browse_none_max_depth_uses_default_cap() -> None:
+    """max_depth=None 时应用安全默认上限,防服务端巨大树的无限递归。"""
+    from omniplc.core.constants import OPCUA_BROWSE_DEFAULT_MAX_DEPTH
+
+    client = OpcUaClient.__new__(OpcUaClient)
+    root = _FakeBrowseNode(OPCUA_BROWSE_DEFAULT_MAX_DEPTH + 5)
+    tree = client._browse_node(root, recursive=True, current_depth=0, max_depth=None)
+    depth = 0
+    node = tree
+    while node:
+        (entry,) = node.values()
+        if entry["children"] is None:
+            break
+        node = entry["children"]
+        depth += 1
+    assert depth == OPCUA_BROWSE_DEFAULT_MAX_DEPTH
 
 
 # ----------------------------------------------------------------------

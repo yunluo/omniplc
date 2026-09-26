@@ -180,23 +180,40 @@ def ushort_to_bytes(value: int, byteorder: Union[ByteOrder, str] = ByteOrder.BIG
     return number.to_bytes(2, _byteorder(byteorder), signed=False)
 
 
+def _require_register_count(
+    registers: Sequence[int], count: int, name: str
+) -> None:
+    """校验寄存器数量(内部函数)。
+
+    :raises ValueError: 数量不符
+    """
+    if len(registers) != count:
+        raise ValueError(
+            "{} 需要 {} 个寄存器,收到 {}".format(name, count, len(registers))
+        )
+
+
 def registers_to_int32(registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD) -> int:
     """把 2 个寄存器按指定字序解码为 32 位有符号整数。"""
+    _require_register_count(registers, 2, "registers_to_int32")
     return int.from_bytes(registers_to_canonical(registers, word_order), "big", signed=True)
 
 
 def registers_to_uint32(registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD) -> int:
     """把 2 个寄存器按指定字序解码为 32 位无符号整数。"""
+    _require_register_count(registers, 2, "registers_to_uint32")
     return int.from_bytes(registers_to_canonical(registers, word_order), "big", signed=False)
 
 
 def registers_to_int64(registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD) -> int:
     """把 4 个寄存器按指定字序解码为 64 位有符号整数(字序映射同 float64)。"""
+    _require_register_count(registers, 4, "registers_to_int64")
     return int.from_bytes(registers_to_canonical(registers, word_order), "big", signed=True)
 
 
 def registers_to_uint64(registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD) -> int:
     """把 4 个寄存器按指定字序解码为 64 位无符号整数(字序映射同 float64)。"""
+    _require_register_count(registers, 4, "registers_to_uint64")
     return int.from_bytes(registers_to_canonical(registers, word_order), "big", signed=False)
 
 
@@ -216,6 +233,7 @@ def uint32_to_registers(value: int, word_order: WordOrder = WordOrder.ABCD) -> T
 
 def registers_to_float32(registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD) -> float:
     """把 2 个寄存器按指定字序解码为 32 位浮点数(float32)。"""
+    _require_register_count(registers, 2, "registers_to_float32")
     return struct.unpack(">f", registers_to_canonical(registers, word_order))[0]
 
 
@@ -232,6 +250,7 @@ def registers_to_float64(registers: Sequence[int], word_order: WordOrder = WordO
     字序按语义映射到 8 字节排列:ABCD→ABCDEFGH、CDAB→GHEFCDAB、
     BADC→BADCFEHG、DCBA→HGFEDCBA。
     """
+    _require_register_count(registers, 4, "registers_to_float64")
     return struct.unpack(">d", registers_to_canonical(registers, word_order))[0]
 
 
@@ -437,7 +456,16 @@ def _reorder_bytes(data: bytes, word_order: WordOrder) -> bytes:
     """在"大端规范序"与"设备实际字节排列"之间互相转换(内部函数)。
 
     四种字序变换都是对合变换(做两次回到自身),因此编解码共用。
+
+    :raises ValueError: ``word_order`` 非 :class:`WordOrder` 且无法归一化
     """
+    if not isinstance(word_order, WordOrder):
+        try:
+            word_order = WordOrder(word_order)
+        except (ValueError, TypeError) as exc:
+            raise ValueError(
+                "非法字序:{!r}(可选 ABCD/CDAB/BADC/DCBA)".format(word_order)
+            ) from exc
     if word_order is WordOrder.ABCD:
         return data
     if word_order is WordOrder.DCBA:

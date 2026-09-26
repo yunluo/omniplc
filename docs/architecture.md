@@ -680,13 +680,13 @@ CIP/EtherNet/IP 规范核证(见 §8.1);真机联测待做。
 空行,合法)。**重连/超时不新增参数**,沿用 BaseClient 属性机制:
 ``connect_timeout``/``receive_timeout``/``retries``/``write_retries``;
 ``receive``/``receive_text``/``transact*`` 另支持 per-call ``timeout``。
-错误契约映射:接收超时 → DeviceError 不断线(慢设备不触发重连);
+错误契约映射:接收超时 → TransportTimeoutError(category=TIMEOUT)不断线(慢设备不触发重连);
 连接错误/对端关闭 → 标记断开待重连;解码失败/帧超限 → ProtocolFrameError
 断线重同步。**重连时清空接收缓冲**(``_after_connect`` 钩子),旧连接的
 残字节不得串入新会话。无点位语义,``read``/``write`` 系列返回失败并
-提示使用 ``receive``/``transact``(DeviceError,不断线)。长度域成帧
-(头 + 长度字段:偏移/字节数/字节序/是否含头)与空闲切块成帧留 v1.x,
-待具体设备核证后再定配置面。
+提示使用 ``receive``/``transact``(DeviceError,不断线)。成帧模式:分隔符
+(可选 ``start_marker``)、定长 ``frame_length``、长度前缀 ``length_prefix``
+(1/2/4 字节长度域 + 载荷,字节序可配,收发双向对称);空闲切块成帧留 v1.x。
 
 倍福 TwinCAT ADS 说明(2026-09):**选封装不自研**(用户确认)——ADS 帧
 本身不复杂(AMS 头 + 0xF005 符号句柄三次事务),难点在部署面:AMS
