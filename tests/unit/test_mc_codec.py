@@ -271,3 +271,21 @@ def test_serial_bit_suffix_rejected() -> None:
         codec_serial_a.build_1c_request(
             0, 0xFF, 0, parse_mc_address("M10.5"), 1, True, False
         )
+
+
+def test_mc_device_code_table_l_is_92_and_no_collisions() -> None:
+    """MC 设备码表:L=0x92(锁存继电器),且任一设备码不得两区共用。
+
+    回归:设备码表扩容时 ``L`` 曾被误写为 ``0xA0``(与 ``B`` 链接继电器同码),
+    导致 3E/4E/4C 路径下所有 ``L`` 读写静默打到 ``B`` 空间。
+    """
+    from collections import defaultdict
+
+    from omniplc.core.constants import MC_DEVICE_CODES
+
+    assert MC_DEVICE_CODES["L"] == (0x92, 1, 10)
+    by_code = defaultdict(list)
+    for device, (code, _words, _base) in MC_DEVICE_CODES.items():
+        by_code[code].append(device)
+    collisions = {hex(code): devices for code, devices in by_code.items() if len(devices) > 1}
+    assert not collisions, "MC 设备码重码:{}".format(collisions)
