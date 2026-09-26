@@ -29,9 +29,6 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.7.9", "3.12"]
-    env:
-      # 禁止 uv 自动下载解释器:3.7 无托管构建,找不到即失败,绝不静默换版本
-      UV_PYTHON_DOWNLOADS: never
     steps:
       - uses: actions/checkout@v4
 
@@ -45,25 +42,29 @@ jobs:
 
       - name: Sync dev dependencies
         # dev 定义在 [project.optional-dependencies](extra),非 [dependency-groups],
-        # 故必须用 --extra;--group dev 会报 "Group dev is not defined" 退出码 2
+        # 故必须用 --extra;--group dev 会报 "Group dev is not defined" 退出码 2。
+        # env 仅限本步:`never` 防 uv 静默换版本(3.7 无托管构建),但若设成 job 级会
+        # 连 `uvx mypy` 的工具环境也挡住(它需要 ≥3.9 解释器)。
+        env:
+          UV_PYTHON_DOWNLOADS: never
         run: uv sync --extra dev --python ${{ matrix.python-version }}
 
       - name: pytest
+        env:
+          UV_PYTHON_DOWNLOADS: never
         run: uv run --python ${{ matrix.python-version }} python -m pytest tests -q
 
       - name: ruff
-        # 静态检查与目标解释器无关,仅在 3.12 腿跑一遍,省 CI 分钟
-        if: matrix.python-version == '3.12'
+        # Rust 独立二进制,不依赖解释器;两条腿都跑
         run: uvx ruff check src tests
 
       - name: mypy
-        # mypy 目标为 3.9(新版 mypy 最低支持),py3.7 真兼容由 3.7 腿实跑测试验证
-        if: matrix.python-version == '3.12'
+        # uvx 独立工具环境(自带 ≥3.9 解释器);检查目标由 pyproject 的
+        # python_version=3.9 决定(新版 mypy 不支持 3.7 目标),3.7 真兼容由
+        # pytest 腿实跑验证;两条腿都跑
         run: uvx mypy src/omniplc
 
       - name: ty
         # 第二类型检查器(Astral 的 Rust 实现的 mypy 替代):与 mypy 互补,
-        # 抓不同的检查侧;mypy 守 3.7 兼容目标,ty 守更严格推断路径。
-        # 配置见 pyproject.toml [tool.ty.src]
-        if: matrix.python-version == '3.12'
+        # 抓不同的检查侧。配置见 pyproject.toml [tool.ty.src];两条腿都跑
         run: uvx ty check src/omniplc
