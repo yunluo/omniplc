@@ -32,6 +32,12 @@ def test_version_matches_pyproject() -> None:
     assert omniplc.__version__ == match.group(1)
 
 
+def test_description_covers_supported_protocols() -> None:
+    """__description__ 与 pyproject 描述同步(不残留旧协议清单)。"""
+    for token in ("Modbus", "三菱 MC", "FINS", "OPC-UA", "MTConnect", "S7"):
+        assert token in omniplc.__description__, "__description__ 缺:{}".format(token)
+
+
 def test_all_async_clients_have_mirror() -> None:
     """根包每个 *Client 客户端都有 A 前缀异步镜像,反之亦然。"""
     sync_clients = {name for name in omniplc.__all__ if name.endswith("Client")}

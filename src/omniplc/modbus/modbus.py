@@ -563,11 +563,18 @@ class ModbusBaseClient(BaseClient):
         return codec.parse_read_response(response, parsed.read_function_code, count)
 
     def _write_bool_impl(self, parsed: ModbusAddress, value: bool) -> None:
-        """写一个布尔量:线圈走 FC5;寄存器位走"读-改-写"(同一事务锁内原子完成)。"""
+        """写一个布尔量:线圈走 FC5;保持寄存器位走"读-改-写"(同一事务锁内原子完成)。"""
         if parsed.area == ModbusArea.COIL:
             pdu = codec.build_write_single_pdu(parsed.write_single_function_code, parsed.offset, 1 if value else 0)
             self._write_pdu(pdu)
             return
+        if parsed.area != ModbusArea.HOLDING_REGISTER:
+            # 输入寄存器/离散输入不可写:在读-改-写之前拒绝,避免先发一次读
+            raise ValueError(
+                "位写只支持线圈(c)与保持寄存器(hr)区域,收到:{!r}".format(
+                    parsed.area.value
+                )
+            )
         bit = parsed.bit or 0
         registers = self._read_registers(parsed, 1)
         updated = convert.set_bit(registers[0], bit, value)

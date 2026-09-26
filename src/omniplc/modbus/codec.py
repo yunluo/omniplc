@@ -47,6 +47,7 @@ from ..core.constants import (
     MODBUS_MASK_WRITE_PDU_SIZE,
     MODBUS_MAX_ADU_SIZE,
     MODBUS_MAX_FIFO_REGISTERS,
+    MODBUS_MAX_FILE_RECORD_LENGTH,
     MODBUS_MAX_FILE_RECORDS,
     MODBUS_MAX_READ_BITS,
     MODBUS_MAX_READ_FILE_BYTES,
@@ -777,7 +778,7 @@ def parse_diagnostics_response(pdu: bytes, sub_function: int) -> int:
 
     :raises ProtocolFrameError: PDU 过短/功能码或子功能回显不符
     """
-    if len(pdu) < MODBUS_DIAGNOSTICS_PDU_SIZE or pdu[0] != ModbusFunction.DIAGNOSTICS:
+    if len(pdu) != MODBUS_DIAGNOSTICS_PDU_SIZE or pdu[0] != ModbusFunction.DIAGNOSTICS:
         raise ProtocolFrameError(
             "FC08 响应非法:{}(收到的原始 PDU:{})".format(len(pdu), format_hex(pdu))
         )
@@ -800,7 +801,7 @@ def parse_comm_event_counter_pdu(pdu: bytes) -> Tuple[int, int]:
     :raises ProtocolFrameError: PDU 过短/功能码不符
     """
     if (
-        len(pdu) < MODBUS_EVENT_COUNTER_PDU_SIZE
+        len(pdu) != MODBUS_EVENT_COUNTER_PDU_SIZE
         or pdu[0] != ModbusFunction.GET_COMM_EVENT_COUNTER
     ):
         raise ProtocolFrameError(
@@ -846,8 +847,7 @@ def _check_file_record_fields(
 ) -> None:
     """文件记录子请求字段范围校验(内部函数;规范 §6.14)。
 
-    File number 1~0xFFFF、Record number 0~0x270F、Record length ≥1(上限由
-    整体 PDU 长度约束)。
+    File number 1~0xFFFF、Record number 0~0x270F、Record length 1~0x7D。
     """
     if not 0x0001 <= file_number <= 0xFFFF:
         raise ValueError(f"文件号超出范围 1~65535:{file_number}")
@@ -855,6 +855,10 @@ def _check_file_record_fields(
         raise ValueError(f"记录号超出范围 0~9999:{record_number}")
     if record_length < 1:
         raise ValueError(f"记录长度必须大于 0:{record_length}")
+    if record_length > MODBUS_MAX_FILE_RECORD_LENGTH:
+        raise ValueError(
+            "记录长度超出上限 {}:{}".format(MODBUS_MAX_FILE_RECORD_LENGTH, record_length)
+        )
 
 
 def build_read_file_record_pdu(requests: "Sequence[Tuple[int, int, int]]") -> bytes:

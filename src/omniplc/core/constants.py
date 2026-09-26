@@ -139,6 +139,8 @@ MODBUS_MAX_WRITE_FILE_BYTES: int = 0xFB
 """FC21 请求 data length 上限(规范 0xFB)。"""
 MODBUS_MAX_FILE_RECORDS: int = 35
 """FC20 单次子请求条数上限(= 0xF5 // 7)。"""
+MODBUS_MAX_FILE_RECORD_LENGTH: int = 0x7D
+"""FC20/FC21 单条记录长度上限(规范 0x7D = 125 个寄存器)。"""
 MODBUS_MEI_TYPE_DEVICE_ID: int = 0x0E
 """MEI 类型:设备标识接口(FC43 子码 0x0E)。"""
 MODBUS_DEVICE_ID_CODE_BASIC: int = 0x01

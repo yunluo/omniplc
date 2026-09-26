@@ -195,6 +195,26 @@ def test_fc20_truncated_subresponse_is_frame_error() -> None:
         codec.parse_read_file_record_response(pdu, [(4, 1, 1)])
 
 
+def test_fc20_record_length_upper_bound() -> None:
+    """FC20 单条记录长度有上界(规范 0x7D)。"""
+    with pytest.raises(ValueError):
+        codec.build_read_file_record_pdu([(1, 0, 126)])
+
+
+def test_fc08_response_rejects_trailing_bytes() -> None:
+    """FC08 响应长须精确为 5 字节,尾部多余字节按坏帧拒绝。"""
+    pdu = bytes([0x08, 0x00, 0x00, 0x00, 0x01, 0x00])
+    with pytest.raises(ProtocolFrameError):
+        codec.parse_diagnostics_response(pdu, 0x0000)
+
+
+def test_fc11_response_rejects_trailing_bytes() -> None:
+    """FC11 响应长须精确为 5 字节,尾部多余字节按坏帧拒绝。"""
+    pdu = bytes([0x0B, 0x00, 0x00, 0x00, 0x05, 0x00])
+    with pytest.raises(ProtocolFrameError):
+        codec.parse_comm_event_counter_pdu(pdu)
+
+
 def test_device_id_object_range_reserved_rejected() -> None:
     """FC43:对象号落在保留区间 0x07~0x7F 时请求与响应都拒绝。"""
     with pytest.raises(ValueError):

@@ -1736,3 +1736,16 @@ def test_write_semantics_gate_retries(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.diagnostics(0x0000) == (False, None)  # 回显查询 = 读
     assert len(counter) == 2  # 读按 retries=1 重试
 
+
+def test_write_bool_register_bit_requires_holding(monkeypatch: pytest.MonkeyPatch) -> None:
+    """位写只支持线圈与保持寄存器:输入寄存器/离散输入拒绝且零字节发送。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    scripted = _ScriptedTransport([])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    with pytest.raises(ValueError):
+        client.write_bool("ir0.0", True)
+    with pytest.raises(ValueError):
+        client.write_bool("di0.0", True)
+    assert bytes(scripted.sent) == b""  # 校验在组帧前,零字节下发
+

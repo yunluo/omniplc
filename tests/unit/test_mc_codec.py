@@ -299,3 +299,12 @@ def test_check_byte_field_rejects_non_int() -> None:
     for bad in (True, 1.5, "5"):
         with pytest.raises(ValueError):
             check_byte_field("pc", bad)
+
+
+def test_parse_response_1e_trailing_bytes_rejected() -> None:
+    """1E 读响应尾部多余字节 → ProtocolFrameError(与 3E/4E 口径一致)。"""
+    from omniplc.core.constants import MC_1E_READ_WORD
+
+    frame = bytes([MC_1E_READ_WORD + 0x80, 0x00]) + (20).to_bytes(2, "little") + b"\x00"
+    with pytest.raises(ProtocolFrameError):
+        codec_a.parse_response(frame, 1, False, True)

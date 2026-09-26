@@ -48,6 +48,7 @@ v1 评审稿逐条对源码复核后形成本版:
 - **二轮复审 P2 批 1(2026-09-26)**:①**native 镜像**——`native/modbus.py` 字符串补 `.bit` 拒绝、`native/omron.py` 位读补 0x1101 回退;②**Modbus 批量读 `.bit`**——`read_many`/`read_batch` 改用 `_check_address`(兼补跨度校验);③**写语义 `is_write=True`**——Modbus FC23/FC08-A/FC21 + OpenTcp `transact`/`transact_text`;④**FINS `read_batch`** 拒绝非 BOOL 位号;⑤**AB 0x0A 预算**补偏移表 2×n;⑥**MTConnect DOCTYPE** 防 UTF-16 绕过(剔 NUL 后扫描);⑦**退避指数**按 32 封顶防 `OverflowError`。门禁 1158 → **1169**。
 - **二轮复审 P2 批 2 + P3(2026-09-26)**:①**convert**——`word_order` 校验/归一化 + `registers_to_*` 寄存器数量校验;②**OPC-UA**——browse 默认深度上限(10)、`_coerce_read` 整数范围收窄、NodeId 组件切分(`s=` 含分号 / `srv=`/`nsu=`);③**OpenTcp**——接收超时归 TIMEOUT、`length_prefix` 发送补前缀、`max_frame` 上界 16MiB;④**Modbus FC20** 子响应边界校验(坏帧不再裸 `IndexError`);⑤**aio `close()`** 不再吞 `CancelledError`(3.7 专属)。门禁 1169 → **1179**。
 - **二轮复审 P2 批 3 + P3(2026-09-26)**:①**MC `read_batch`** 非 BOOL 位号入参期拒绝;②**MEWTOCOL** 按字段宽度校验(字号 3 位/位号 1 位/起止 5 位/字值 16 位);③**convert** 整数编码越界/非整数改抛 `ValueError`(不再 `struct.error`/静默截断);④**`check_byte_field`** 改 `require_int`(拒绝 bool/float/str);并记录 Modbus `read_many` 跨度校验已随 P2 批 1 修复。门禁 1179 → **1183**。
+- **二轮复审 P3 批 4(2026-09-26)**:①**MC 1E** 响应尾部严格长度校验;②**Modbus** FC20/21 记录长度上界 0x7D、FC08/11 响应定长(拒尾字节)、位写仅线圈/保持寄存器(输入寄存器/离散输入前置拒绝、零字节下发);③**`__description__`** 与 pyproject 描述同步。门禁 1183 → **1189**。
 
 ---
 
@@ -107,14 +108,14 @@ v1 评审稿逐条对源码复核后形成本版:
 
 - `convert` 越界整数编码抛 `struct.error` 而非 `ValueError` — **已修复(2026-09-26)**:`int32/uint32/int64/uint64_to_registers` 先 `require_int` + `check_range`,回归 `test_encode_overflow_raises_value_error`。`words_to_bytes`/`registers_to_canonical` 对超范围字静默 `&0xFFFF`(`convert.py:129/318`)仍待办。
 - `core/validation.py:60` `check_byte_field` 用 `int()` 收窄,静默接受 float/bool/str — **已修复(2026-09-26)**:改 `require_int`,回归 `test_check_byte_field_rejects_non_int`。
-- Modbus:~~`read_many` 地址跨度溢出不满足「零字节发送」~~(**已随 P2 批 1 的 `_check_address` 一并修复**);file-record 长度无上界;FC08/11 接受尾字节;FC43 不回显读码;缺 FC07/FC17;RTU 增量长度字段无 cap;`write_bool("ir0.0")`/`di` 先发一次读再抛。
+- Modbus:~~`read_many` 地址跨度溢出不满足「零字节发送」~~(**已随 P2 批 1 的 `_check_address` 一并修复**);~~file-record 长度无上界~~ / ~~FC08/11 接受尾字节~~ / ~~`write_bool("ir0.0")`/`di` 先发一次读再抛~~(**已修复 2026-09-26**:记录长度上界 0x7D、FC08/11 响应定长、位写区域前置校验);FC43 不回显读码;缺 FC07/FC17;RTU 增量长度字段无 cap。
 - OpenTcp:缓冲头 `del self._buffer[:n]` O(n);无发送进度回调;无 IPv6(§2.13.4/6/8)。
-- MC 1E 帧不校验尾多余字节(`codec_a.py:139`);MX `get_error_message` 新建 COM 控件不释放(`mx.py:877`);`MX_SUPPORT_MSG_PROG_ID` 存疑(`constants.py:679`)。
+- ~~MC 1E 帧不校验尾多余字节(`codec_a.py:139`)~~(**已修复 2026-09-26**:尾部长度严格匹配,回归 `test_parse_response_1e_trailing_bytes_rejected`);MX `get_error_message` 新建 COM 控件不释放(`mx.py:877`);`MX_SUPPORT_MSG_PROG_ID` 存疑(`constants.py:679`)。
 - TOYOPUC 打包段校验口径不一致(`toyopuc/address.py:133` vs `:141`)。
 - OPC-UA:回调线程无锁写 `last_error`(`client.py:254`);`unsubscribe` 非线程安全(`:356`);`browse` 单点失败吞成 `{}`;aio 回调异常不落 `last_error`(与 README:485 矛盾);`browse` 仅 Hierarchical。
 - MTConnect:缺 `/sample`/`/asset`;`/probe` 仅首 Device;条件项无过滤;空元素 UNAVAILABLE 误报「不存在」;keep-alive 异常集偏窄(`mtconnect.py:49`)。
 - S7 缺多变量批读;ADS 缺 >32KB 分块与句柄失效(0x1D)处理。
-- 工程:`pyproject.toml:112` `python_version="3.9"` 与运行时 3.7.9 错位;ruff 未含 B;`Development Status Alpha`;`dev` extra 的 `comtypes` 缺 `platform_system`;无 `pytest-timeout`;`CONTRIBUTING.md:9/36/38` 数字 stale;`src/omniplc/__init__.py:79` `__description__` 未同步;`docs/architecture.md:687` OpenTcp 长度域「留 v1.x」过时、`§6.2` 静态检查描述过时。
+- 工程:`pyproject.toml:112` `python_version="3.9"` 与运行时 3.7.9 错位;ruff 未含 B;`Development Status Alpha`;`dev` extra 的 `comtypes` 缺 `platform_system`;无 `pytest-timeout`;`CONTRIBUTING.md:9/36/38` 数字 stale;~~`src/omniplc/__init__.py:79` `__description__` 未同步~~(**已修复 2026-09-26**,回归 `test_description_covers_supported_protocols`);~~`docs/architecture.md:687` OpenTcp 长度域「留 v1.x」过时~~(**已订正**)、`§6.2` 静态检查描述过时。
 
 ### 台账纠偏(二轮)
 

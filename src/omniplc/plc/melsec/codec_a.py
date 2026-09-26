@@ -144,6 +144,12 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
         raise ProtocolFrameError(
             "1E 响应数据不足:期望 {} 字节,实际 {}".format(expected, len(data))
         )
+    if len(frame) != MC_1E_RESPONSE_HEAD_SIZE + expected:
+        raise ProtocolFrameError(
+            "1E 响应尾部有冗余字节:期望 {} 字节,实际 {}".format(
+                MC_1E_RESPONSE_HEAD_SIZE + expected, len(frame)
+            )
+        )
     if is_bit:
         return [
             1 if data[index // 2] & (0x10 if index % 2 == 0 else 0x01) else 0
