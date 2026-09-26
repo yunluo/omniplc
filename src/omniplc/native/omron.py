@@ -59,7 +59,8 @@ class AsyncOmronFinsBase(AsyncBaseClient):
 
     走线子类只实现 :meth:`_create_transport`、:meth:`_transact` 与(需要握手的
     TCP 走线)：meth:`_after_connect`。路由字段范围校验与同步层同口径
-    (network/node 0~127、unit 0~255,越界构造期拒绝,不做 ``& 0xFF`` 静默截断)。
+    (network 0~127、node 0~254、unit 0~255,越界构造期拒绝,不做 ``& 0xFF``
+    静默截断)。
     """
 
     def __init__(

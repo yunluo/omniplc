@@ -173,6 +173,21 @@ def test_udp_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> N
     assert client.last_error is not None and "结束码 0x0001" in client.last_error
 
 
+def test_udp_end_code_flag_bits_decoded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """结束码含标志位(0x9005):屏蔽 bit15 中继标志后按 0x1005 查表并注明标志。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport([_fins_error_response(0x9005)])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("D100") == (False, None)
+    err = client.last_error or ""
+    assert "0x9005" in err          # 原始码保留
+    assert "头错误" in err           # 0x1005 主/子码文本
+    assert "网络中继错误" in err      # bit15 标志
+    assert client.last_error_code == 0x9005
+    assert client.connected is True  # 设备错误不断线
+
+
 def test_udp_timer_counter_word_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """UDP:T/C 区:字访问为当前值 PV(操作码 0x89),可读写。"""
     client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
@@ -322,26 +337,36 @@ def test_async_mirror_read_batch() -> None:
     [
         ({"destination_network": 128}, "目标网络号"),
         ({"destination_network": -1}, "目标网络号"),
-        ({"destination_node": 128}, "目标节点号"),
+        ({"destination_node": 255}, "目标节点号"),
         ({"destination_unit": 256}, "目标单元号"),
         ({"source_network": 128}, "源网络号"),
-        ({"source_node": 128}, "源节点号"),
+        ({"source_node": 255}, "源节点号"),
         ({"source_unit": 256}, "源单元号"),
     ],
 )
 def test_fins_constructor_rejects_out_of_range_route(
     kwargs: dict, label: str
 ) -> None:
-    """构造期路由字段范围校验:network 0~127,node 0~127,unit 0~255,越界 ValueError。"""
+    """构造期路由字段范围校验:network 0~127,node 0~254,unit 0~255,越界 ValueError。"""
     with pytest.raises(ValueError) as exc_info:
         OmronFinsUdpClient("192.168.250.1", **kwargs)
     assert label in exc_info.value.args[0]
 
 
 def test_tcp_constructor_rejects_local_node_out_of_range() -> None:
-    """TCP local_node:0~127 范围校验,越界 ValueError。"""
+    """TCP local_node:0~254 范围校验,越界 ValueError。"""
     with pytest.raises(ValueError):
-        OmronFinsTcpClient("192.168.250.1", local_node=128)
+        OmronFinsTcpClient("192.168.250.1", local_node=255)
+
+
+def test_fins_constructor_accepts_node_254() -> None:
+    """节点号上限为 254(Ethernet 口径 1~254):254 原样接受。"""
+    client = OmronFinsUdpClient(
+        "192.168.250.1", destination_node=254, source_node=254
+    )
+    assert client.destination_node == 254
+    assert client.source_node == 254
+    assert client._auto_destination_node is False
 
 
 def test_fins_constructor_accepts_auto_mode_zero() -> None:
@@ -361,12 +386,14 @@ def test_fins_constructor_accepts_auto_mode_zero() -> None:
 
 
 def test_node_from_host_rejects_out_of_range_last_octet() -> None:
-    """IP 末段推导节点号超 1~126(以太网 FINS 合法范围)抛 ValueError,提示显式指定。"""
+    """IP 末段推导节点号须在 1~254(以太网 FINS 合法范围);0/255 抛 ValueError。"""
+    assert omron_module._node_from_host("192.168.250.192") == 192  # 末段 192 合法
+    assert omron_module._node_from_host("192.168.250.254") == 254
     with pytest.raises(ValueError) as exc_info:
-        omron_module._node_from_host("192.168.250.200")
+        omron_module._node_from_host("192.168.250.255")
     assert "节点号" in exc_info.value.args[0]
     with pytest.raises(ValueError):
-        omron_module._node_from_host("192.168.250.127")
+        omron_module._node_from_host("192.168.250.0")
     with pytest.raises(ValueError):
         omron_module._node_from_host("192.168.250.0")
 
@@ -374,12 +401,12 @@ def test_node_from_host_rejects_out_of_range_last_octet() -> None:
 def test_udp_connect_fails_when_derived_node_out_of_range(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """UDP 自动模式:PLC IP 末段超 1~126 时,connect 经推导失败语义拒绝。
+    """UDP 自动模式:PLC IP 末段超 1~254 时,connect 经推导失败语义拒绝。
 
     与 v0.30 A4 一致——``_after_connect`` 在 connect 的异常收口段调用,
     ValueError 经清理落到干净状态,``connected`` 仍为 False。
     """
-    client = OmronFinsUdpClient("192.168.250.200")  # 末段 200 超出 1~126
+    client = OmronFinsUdpClient("192.168.250.255")  # 末段 255 超出 1~254
     scripted = ScriptedTransport([])
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     assert client.connect() is False

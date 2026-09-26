@@ -461,12 +461,17 @@ FINS_ICF_RESPONSE: int = 0xC0
 """响应 ICF:响应位 + 要求响应(应答帧 ICF 必须等于此值,串话/迟到识别)。"""
 FINS_NETWORK_MAX: int = 127
 """FINS 网络号上限(0~127,协议口径)。"""
-FINS_NODE_MAX: int = 127
-"""FINS 节点号上限(0~127;0/127 在 Ethernet 口径下为保留/广播,0 仍可用作"自动"标记)。"""
+FINS_NODE_MAX: int = 254
+"""FINS 节点号上限(Ethernet 口径 1~254,即 0x01~0xFE;0 仍用作"自动"标记)。
+
+来源:Omron W342-E1-18 §5-2/§5-3「01 to FE: Ethernet (1 to 254 decimal)」
+「Node address 1 to 254」。"""
 FINS_UNIT_MAX: int = 0xFF
 """FINS 单元号上限(0~255,0xFE/0xFF 等为广播保留)。"""
-FINS_NODE_DERIVED_MAX: int = 126
-"""以太网 FINS 节点号合法范围上限(1~126,IP 末段推导结果的硬上限——末段 127/0 不合法)。"""
+FINS_NODE_DERIVED_MAX: int = 254
+"""以太网 FINS 节点号合法范围上限(1~254;节点号 = IP 末段,末段 0 非法)。
+
+来源:Omron W342-E1-18「Node address 1 to 254 (01 to FE Hex)」。"""
 FINS_RSV: int = 0x00
 """RSV 恒为 0。"""
 FINS_GCT: int = 0x02
@@ -486,6 +491,10 @@ FINS_END_CODE_SIZE: int = 2
 """结束码长度(大端两字节,紧跟 MRC/SRC)。"""
 FINS_END_CODE_OK: int = 0
 """结束码:正常完成。"""
+FINS_END_CODE_RELAY_ERROR_FLAG: int = 0x8000
+"""结束码标志位:bit15 = 网络中继错误(W342 5-1-3;查主/子码表前须屏蔽)。"""
+FINS_END_CODE_CPU_ERROR_FLAGS: int = 0x00C0
+"""结束码标志位:子码 bit7/bit6 = 目标 CPU 单元出错(W342 5-1-3;查表前须屏蔽)。"""
 FINS_END_CODE_TEXT: Dict[int, str] = {
     0x0000: "正常完成",
     0x0001: "服务被中断",

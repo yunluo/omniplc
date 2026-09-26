@@ -27,6 +27,8 @@ from ...core.constants import (
     FINS_EM_BIT_CODE_BASE,
     FINS_EM_WORD_CODE_BASE,
     FINS_END_CODE_OK,
+    FINS_END_CODE_CPU_ERROR_FLAGS,
+    FINS_END_CODE_RELAY_ERROR_FLAG,
     FINS_END_CODE_SIZE,
     FINS_END_CODE_TEXT,
     FINS_GCT,
@@ -216,7 +218,7 @@ def parse_multiple_area_read(
         )
     end_code = int.from_bytes(frame[12:14], "big")
     if end_code != FINS_END_CODE_OK:
-        text = FINS_END_CODE_TEXT.get(end_code, "详见 Omron FINS 手册")
+        text = _end_code_text(end_code)
         raise DeviceError(f"FINS 结束码 0x{end_code:04X}({text})", end_code)
     expected = len(codes) * 3
     data = frame[14:14 + expected]
@@ -270,7 +272,7 @@ def parse_response(
         )
     end_code = int.from_bytes(frame[12:14], "big")
     if end_code != FINS_END_CODE_OK:
-        text = FINS_END_CODE_TEXT.get(end_code, "详见 Omron FINS 手册")
+        text = _end_code_text(end_code)
         raise DeviceError(f"FINS 结束码 0x{end_code:04X}({text})", end_code)
     if not is_read:
         return []
@@ -409,6 +411,26 @@ def extract_tcp_payload(content: bytes) -> bytes:
 # ----------------------------------------------------------------------
 # 内部函数
 # ----------------------------------------------------------------------
+
+def _end_code_text(end_code: int) -> str:
+    """结束码 → 可读文本,先屏蔽标志位再查表(内部函数)。
+
+    W342-E1-18 §5-1-3:结束码 = 主码(高字节)+ 子码(低字节);主码 bit15
+    表示**网络中继错误**,子码 bit7/6 表示**目标 CPU 单元出错**。这些位与
+    主/子码值叠加(如 ``0x9005`` = 网络中继错误标志 + 主码 0x10/子码 0x05
+    「头错误」),故查表前须屏蔽,否则会落入"未知码"。标志同时附在文本末尾。
+    """
+    flags = []
+    if end_code & FINS_END_CODE_RELAY_ERROR_FLAG:
+        flags.append("网络中继错误")
+    if end_code & FINS_END_CODE_CPU_ERROR_FLAGS:
+        flags.append("目标 CPU 单元出错")
+    base = end_code & ~(FINS_END_CODE_RELAY_ERROR_FLAG | FINS_END_CODE_CPU_ERROR_FLAGS)
+    text = FINS_END_CODE_TEXT.get(base, "详见 Omron FINS 手册")
+    if flags:
+        return "{} [{}]".format(text, "、".join(flags))
+    return text
+
 
 def _build_frame(
     destination_network: int,

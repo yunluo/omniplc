@@ -33,6 +33,8 @@ v1 评审稿逐条对源码复核后形成本版:
 - **§2.2.5 串口 3C/4C 路由回显(P1)**:解析端校验响应路由与请求一致(对齐 1C);build/parse 共用路由构造函数。
 - **§2.5.2 ADS STRING 写预检(P1)**:写前按符号声明长度拦截,取不到符号信息则跳过。
 - **§4.2 故障注入测试(P1)**:新增真回环故障注入服务 `tests/unit/chaos.py` 与 6 例 `tests/unit/test_fault_injection.py`(半帧/慢速/错长度/断管/惰性重连)。
+- **§2.3.13 FINS 结束码标志位(P1,真机带出)**:`0x9005` 等含 bit15 中继标志/bit6-7 目标 CPU 标志的码先屏蔽再查表;依据 W342-E1-18 §5-1-3。
+- **§2.3.14 FINS 节点号范围(P1,真机带出)**:以太网节点范围由 126/127 修正为 **1~254**(W342-E1-18)。
 
 ---
 
@@ -142,7 +144,7 @@ v1 评审稿逐条对源码复核后形成本版:
 
 ### 2.2 三菱 MC / MX Component
 
-#### 2.2.1 MC 客户端静默丢弃位软元件上的 `.bit` 后缀 — **P0(实锤)**
+#### 2.2.1 MC 客户端静默丢弃位软元件上的 `.bit` 后缀 — **已修复(2026-09-26)**
 - `plc/melsec/melsec.py:327-329, 333-337`
 - 复核确认:`_read_bool_impl` 对位软元件直接 `_read_bits(parsed, 1)`,`M10.5` 的位号 5 在组帧时被丢弃,实际读写 M10。写路径(`melsec.py:155-168`)同病。MX Component 有校验(`mx.py:915-917`),MC 侧没有——两套驱动行为不一致。
 - **现场影响**:位号后缀对位软元件完全失效且无任何报错,最危险的"对得上但错位"型 bug。
@@ -153,7 +155,7 @@ v1 评审稿逐条对源码复核后形成本版:
 - 复核:docstring 明写"仅 iQ-F(FX5U)的 X/Y 为八进制,v1 按 Q/L/R 口径处理"。已知限制,但 FX5U 用户 `X17` 被当 0x17=23 处理,静默错位风险真实。
 - **修复**:地址解析层检测(如 X/Y 编号含 8/9 时报错提示 iQ-F 口径),或加 `cpu_family` 参数。
 
-#### 2.2.3 MC 设备码表缺大量 Q/L/R 软元件 — **P1(实锤)**
+#### 2.2.3 MC 设备码表缺大量 Q/L/R 软元件 — **已修复(2026-09-26)**
 - `core/constants.py:218-229`
 - 仅 X/Y/M/S/B/D/W/R/Z/ZR。缺:L/F/V/TS/TC/TN/CS/CC/CN/SM/SB/SD/SW/DX/DY/G。
 - **现场影响**:定时器/计数器(TS/TC/TN/CS/CC/CN)、特殊继电器 SM/SD、模拟量模块缓冲 G、报警器 F 全部"未支持设备"。
@@ -217,13 +219,13 @@ v1 评审稿逐条对源码复核后形成本版:
 - 多网卡/VPN 切换后源节点漂移,PLC 偶发返 0x0106(节点重复)。
 - **修复**:实际发包后 `getsockname` 复核;文档推荐显式 `source_node`。
 
-#### 2.3.3 NJ BOOL 数组沿用 AB 的 DWORD 32 位打包 — **P1(实锤)**
+#### 2.3.3 NJ BOOL 数组沿用 AB 的 DWORD 32 位打包 — **已修复(2026-09-26)**
 - `plc/ab/ab.py:530-535`,经 `plc/omron/cip.py` 继承
 - 复核确认:`OmronCipClient` 仅覆写路由/String,未覆写 `_read_bool_array_element`。NJ BOOL 数组 1 元素/字节,`下标//32` 定词使 `BoolArray[5]` 永远落到 BoolArray[0] 的 bit5。
 - **现场影响**:NJ 上每条 BOOL 数组元素读写都是错的。
 - **修复**:NJ 侧重写为 `下标//8` 口径或按元素类型探测。
 
-#### 2.3.4 NJ STRING 读写直接拒绝 — **P1(实锤;刻意保守)**
+#### 2.3.4 NJ STRING 读写直接拒绝 — **已修复(2026-09-26)**
 - `plc/omron/cip.py:77-85`
 - 复核确认:显式抛 `DeviceError`,代码注释明说"布局待真机核证"——是刻意的保守闸,不是隐藏 bug。但 NJ STRING 布局(`len(u32)+chars[N]`)无 82 字节限制,可实现。
 - **现场影响**:HMI 批号/报警文本场景 NJ 客户端不可用。
@@ -263,11 +265,19 @@ v1 评审稿逐条对源码复核后形成本版:
 #### 2.3.12 Connected messaging `vendor_id=0x1337` — **P3(待核证)**
 - 部分 NJ 固件刷警告。**修复**:改注册厂商 ID 或暴露参数。
 
+#### 2.3.13 FINS 结束码未处理标志位(bit15 / bit6-7)— **已修复(2026-09-26)**
+- `plc/omron/codec.py`、`core/constants.py`
+- 真机 `0x9005` = 网络中继错误标志(bit15)+ 主码 0x10/子码 0x05「头错误」;原实现按原始 16 位查表 → 落入"未知码"。现 `_end_code_text` 先屏蔽 `FINS_END_CODE_RELAY_ERROR_FLAG(0x8000)` 与 `FINS_END_CODE_CPU_ERROR_FLAGS(0x00C0)` 再查表,并把标志附于文本末尾(依据 Omron W342-E1-18 §5-1-3)。`last_error_code` 仍保留 PLC 原始码。
+
+#### 2.3.14 FINS 以太网节点号范围过窄(126/127)— **已修复(2026-09-26)**
+- `core/constants.py`、`plc/omron/omron.py`、`native/omron.py`
+- 原 `FINS_NODE_DERIVED_MAX=126` / `FINS_NODE_MAX=127`,致本机/PLC IP 末段 >126(如 `192.168.0.192`)被误拒或推导失败。Omron W342-E1-18 明文「01 to FE: Ethernet (1 to 254 decimal)」「Node address 1 to 254」→ 改为 **254**;`_node_from_host` 与构造期路由校验随常量生效(显式节点 1~254、0 仍为自动标记；网络号仍 0~127、单元号 0~255)。
+
 ---
 
 ### 2.4 罗克韦尔 AB / Logix CIP
 
-#### 2.4.1 0x0A 多服务包不查 504 字节非连接缓冲预算 — **P1(实锤)**
+#### 2.4.1 0x0A 多服务包不查 504 字节非连接缓冲预算 — **已修复(2026-09-26)**
 - `plc/ab/codec_cip.py:429-460`,`plc/ab/ab.py:571-595`
 - 仅限 32 条数;504B 缓冲扣 UC 包裹后约 480B,长标签名 32 条必超,PLC 返资源错误,报错不指因。
 - **修复**:按标签路径字节数估算,双约束切块。
@@ -329,7 +339,7 @@ v1 评审稿逐条对源码复核后形成本版:
 
 ### 2.5 倍福 TwinCAT ADS
 
-#### 2.5.1 transport 类 ADS 错误误分类为设备错误 — **P1(实锤)**
+#### 2.5.1 transport 类 ADS 错误误分类为设备错误 — **已修复(2026-09-26)**
 - `plc/beckhoff/ads.py:97-113, 202-232`
 - 0x0705/0x0706/0x0725(device/router removed)被当 DeviceError,不触发断线标记;TwinCAT 重启后客户端持续在死连接上失败。
 - **修复**:transport 集错误抛 OSError 走惰性重连。
@@ -366,12 +376,12 @@ v1 评审稿逐条对源码复核后形成本版:
 
 ### 2.6 西门子 S7
 
-#### 2.6.1 STRING 读实际长超 `length` 时静默返空串 — **P1(实锤)**
+#### 2.6.1 STRING 读实际长超 `length` 时静默返空串 — **已修复(2026-09-26)**
 - `plc/siemens/client.py:414-416`
 - `if actual <= 0 or actual > length: return ""` — 声明长大于入参时拿到空串,HMI 显示空白且无告警。
 - **修复**:按 `length` 截断返回;读长改按 PLC 侧声明 max。
 
-#### 2.6.2 STRING 写把声明 max 字段一并覆盖 — **P1(实锤)**
+#### 2.6.2 STRING 写把声明 max 字段一并覆盖 — **已修复(2026-09-26)**
 - `plc/siemens/client.py:419-429`
 - `header = bytes([len(encoded), len(encoded)])` 声明长字节被改为实际长;后续按声明长处理的客户端判超长。docstring 自认"均按本次编码长度"。
 - **修复**:先读声明 max,仅覆盖实际长字节。

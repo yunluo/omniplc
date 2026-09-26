@@ -45,9 +45,9 @@ def _node_from_host(host: str) -> int:
     """取 IPv4 地址末段作为 FINS 节点号;主机名先解析(内部函数)。
 
     Omron 以太网 FINS 节点号惯例 = IP 地址最后一段(如
-    ``192.168.250.1`` → 节点 1);末段须在以太网 FINS 合法范围 1~126 内
-    (0/127 为保留/广播),超限抛 :class:`ValueError`,提示调用方改用
-    显式 ``destination_node``/``source_node``。
+    ``192.168.250.1`` → 节点 1);末段须在以太网 FINS 合法范围 **1~254**
+    内(0 非法),超限抛 :class:`ValueError`,提示调用方改用
+    显式 ``destination_node``/``source_node``(W342-E1-18「1 to 254」)。
     """
     text = host
     if not text.rsplit(".", 1)[-1].isdigit():
@@ -97,7 +97,7 @@ class _OmronFinsBase(BaseClient):
         """
         validate_endpoint(ip_address, port)
         super().__init__(ip_address, port)
-        # FINS 路由字段范围校验:network 0~127,node 0~127(0 留给"自动"
+        # FINS 路由字段范围校验:network 0~127,node 0~254(0 留给"自动"
         # 标记),unit 0~255——越界在构造期显式拒绝,避免到组帧时被
         # ``& 0xFF`` 静默截断发出语义错位的报文。
         self._destination_network = check_range(
