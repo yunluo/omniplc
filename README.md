@@ -570,7 +570,7 @@ dump(client.stats)   # 键名拼错、字段用错类型在 mypy/pyright 阶段�
 
 #### 变更历史
 
-按版本号降序的完整变更日志已迁出至 [`CHANGELOG.md`](CHANGELOG.md)(从 v0.40.1 到 v0.1 的详细说明);当前发布版本以 Git 标签为准(`git tag -l 'v*'`)。
+按版本号降序的完整变更日志已迁出至 [`CHANGELOG.md`](CHANGELOG.md)(从 v0.41.0 到 v0.1 的详细说明);当前发布版本以 Git 标签为准(`git tag -l 'v*'`)。
 
 #### 开发
 
