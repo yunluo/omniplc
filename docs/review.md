@@ -26,7 +26,7 @@ v1 评审稿逐条对源码复核后形成本版:
 - **§2.3.4 NJ STRING(P1)**:按 `len(u32)+字符` 布局实现读写;写入前先读模板实例号与声明尺寸,写入类型域回带实际模板号,值超声明尺寸拒绝。
 - **§2.4.1 AB 0x0A 字节预算(P1)**:`read_batch` 改为按 (条数 ≤32, 估算字节 ≤480B) 双约束自动拆分事务,长标签名不再触顶未连接缓冲;条数硬上限取消。
 - **§2.6.1/2.6.2 S7 STRING(P1)**:读超长按请求 length 截断返回(不再静默返空串);写保留 PLC 侧声明长字节、仅覆盖实际长,超声明长拒绝(防溢出污染相邻变量),未初始化区(声明长 0)兼容旧口径。
-- **§2.5.1 ADS transport 错误分流(P1)**:0x705/0x706/0x725 归内部异常(标记断线走惰性重连),其余 ADSError 仍为 DeviceError 不断线。
+- **§2.5.1 ADS transport 错误分流(P1)**:transport 码集原误用 0x705/0x706/0x725(参数尺寸错/数据非法/许可过期,均属设备语义),经 **TE1000 §8「ADS Return Codes」**核实后改为全局组 `0x06/0x07/0x0D/0x12/0x1B/0x1D` + Router 组 `0x0500~0x050D`;参数/许可类 ADSError 回归 `DeviceError` 不断线。**二轮曾记「已修」但码集未动,此处订正。**
 - **§2.2.2 FX5U X/Y 八进制(P2)**:新增 `xy_octal` 构造参数(同步 TCP/UDP + native 同名参数),X/Y 按八进制换算组帧;默认仍为 Q/L/R 十六进制口径。
 - **§4.1 CI 版本矩阵(P1)**:按"3.7 必保、3.12 覆盖新环境"裁决,CI 改矩阵 `["3.7.9", "3.12"]`(3.7 腿用 `actions/setup-python`,uv 禁下载、显式 `--python`);**四道门禁(pytest / ruff / mypy / ty)两条腿都跑**;mypy 固定 `--python 3.12` 工具环境(防 3.7 腿回退旧 mypy 误报编码);pytest 步骤补 `--extra dev`。
 - **§2.2.4 MC `read_batch` 位软元件字块(P1)**:计划段拒绝位软元件 + 非 BOOL(`_bit_device_word_access_allowed` 定制点,松下置 True)。
@@ -44,6 +44,7 @@ v1 评审稿逐条对源码复核后形成本版:
 - **§2.1.6 Modbus FC08/11/12(P2)**:诊断/事件计数/事件日志(含 aio 镜像)。
 - **§2.1.7 Modbus FC20/21 文件记录(P2)**:读写文件记录(含 aio 镜像)。
 - **二轮复审 P0 MC `L` 设备码撞码(2026-09-26)**:`core/constants.py` `MC_DEVICE_CODES["L"]` 由 `0xA0` 改为 **`0x92`**(原值与 `B` 同码,致 3E/4E/4C 下所有 `L` 读写静默打进 `B` 空间);新增回归门禁 `test_mc_codec.py::test_mc_device_code_table_l_is_92_and_no_collisions`(锁 `L=0x92` 且设备码表无重码)。
+- **二轮复审 P1 批(2026-09-26)**:①**ADS transport 码集**——改用 TE1000 §8 全局组 `0x06/0x07/0x0D/0x12/0x1B/0x1D` + Router 组 `0x0500~0x050D`,回归测试 `test_translate_ads_error_transport_codes` / `..._parameter_codes_are_device`;②**S7 `read_wstring` ASCII 返空**——`convert.decode_string` 对 UTF-16/UTF-32 改为「解码后按 NUL 字符截断」(字节层截断会把 `b"\x00A\x00B"` 整串截空),回归 `test_convert.py::TestString::test_utf16_ascii_not_truncated_by_high_nul` 与 `test_siemens_s7_clients.py::test_wstring_ascii_roundtrip`;③**`read_tag`/`write_tag` 64 位精度**——`scale=1.0/offset=0.0` 时原值直通,不经 float64 往返(>2^53 曾静默丢低位),回归 `test_base_client.py::TestTagScaling::test_{read,write}_tag_identity_scale_preserves_int64`;④**aio 属性读阻塞事件循环**——`connected/last_error/last_error_category/last_error_code/stats/next_connect_in` 同步 getter 改**无锁快照**(固定键集值级拷贝,GIL 下安全),aio 转发不再进事务锁,回归 `test_v034_reliability.py::TestAioBackoffAndErrorSurfaces::test_property_reads_do_not_block_on_transaction_lock`。门禁 1150 → **1158**。
 
 ---
 
@@ -51,7 +52,7 @@ v1 评审稿逐条对源码复核后形成本版:
 
 > 范围:76 个源文件 / ~21k 行,分 6 域(核心 / 异步 / Modbus+OpenTcp / MC 家族 / Omron·AB·S7·ADS / OPC-UA·MTConnect·工程)。
 > 方法:逐行读源 + 只读探针(Python 3.7.9)+ 与 pyads/asyncua 安装源比对。标「已核验」者为二轮亲自复现。
-> 结论:新增 **1 条 P0、4 条 P1** 及若干 P2/P3;并纠正上一轮 **5 条已关闭项 / 3 条记录不实**。其中 P0(MC `L` 撞码)已于 2026-09-26 修复。
+> 结论:新增 **1 条 P0、4 条 P1** 及若干 P2/P3;并纠正上一轮 **5 条已关闭项 / 3 条记录不实**。其中 P0(MC `L` 撞码)与 **P1 四项(ADS 码集 / S7 WString ASCII / Tag 64 位精度 / aio 属性读锁)均已于 2026-09-26 修复**(见「修复记录」与各条「修复」小节)。
 
 ### P0
 
@@ -63,22 +64,26 @@ v1 评审稿逐条对源码复核后形成本版:
 
 ### P1
 
-- **ADS transport 错误码集合错误,§2.5.1 名为已修实为未修(已核验)**
+- **ADS transport 错误码集合错误,§2.5.1 名为已修实为未修(已核验)——已修复(2026-09-26)**
   - `plc/beckhoff/ads.py:98` `_ADS_TRANSPORT_ERROR_CODES = {0x705, 0x706, 0x725}`,`:119` 据此决定是否断线重连。
   - pyads 3.5.1 `errorcodes.py`:`0x705`=「parameter size not correct」、`0x706`=「invalid parameter value(s)」属**参数错误**;真正的通断码为 `0x06`(Target port not found)/`0x07`(Target machine not found)/`0x0D`(Port not connected)/router `0x0500~0x050D`。
   - 后果:TwinCAT 重启/路由丢失**不触发重连**;普通参数错误反而**误判断线重连**。v0.42.0 CHANGELOG 将本条列为已修,记录不实。
+  - **修复(2026-09-26,依 TE1000 §8)**:码集改为全局组 `0x06/0x07/0x0D/0x12/0x1B/0x1D` + Router 组 `0x0500~0x050D`;`0x705/0x706/0x725` 回归 `DeviceError`。回归测试 2 条。
 
-- **S7 `read_wstring` 对纯 ASCII/拉丁文本返回空串(已核验)**
+- **S7 `read_wstring` 对纯 ASCII/拉丁文本返回空串(已核验)——已修复(2026-09-26)**
   - `plc/siemens/client.py:532` 调 `convert.decode_string(data[4:4+actual*2], "utf-16-be")`;`convert.py:280` 先 `data.split(b"\x00", 1)[0]`。UTF-16BE 的 ASCII 字符高字节恒为 `0x00`(`"AB" == b"\x00A\x00B"`),split 后为空 → 返回 `""`。
   - 现有 `test_wstring_roundtrip` 仅用中文(无 `\x00`),未覆盖。§2.6.6 修复遗漏 ASCII。
+  - **修复(2026-09-26)**:`decode_string` 对 UTF-16/UTF-32 改在**解码后**按首个 NUL 字符截断;单字节编码维持字节层截断。回归 `test_convert.py::TestString::test_utf16_ascii_not_truncated_by_high_nul` + `test_wstring_ascii_roundtrip`。
 
-- **`read_tag` / `write_tag` 让 64 位整数经 float64 往返,静默丢低位(已核验)**
+- **`read_tag` / `write_tag` 让 64 位整数经 float64 往返,静默丢低位(已核验)——已修复(2026-09-26)**
   - `core/base_client.py:626` `value * resolved.scale + resolved.offset`、`:639` `(value - offset) / scale`;即便 `scale=1.0/offset=0.0` 也强制过 float64。
   - `LONG/ULONG` 且值 > 2^53 时静默丢精度;32 位类型安全。标签常由 CSV/JSON 省略 scale,故可达。
+  - **修复(2026-09-26)**:`scale=1.0/offset=0.0` 时原值直通(读返回原值、写不逆缩放),非恒等缩放仍走 float。回归 `test_base_client.py::TestTagScaling::test_{read,write}_tag_identity_scale_preserves_int64`。
 
-- **aio 属性读仍进入同步事务锁,阻塞事件循环(§3.1,复核仍在,已核验)**
+- **aio 属性读仍进入同步事务锁,阻塞事件循环(§3.1,复核仍在,已核验)——已修复(2026-09-26)**
   - `aio/__init__.py:223` `return self._sync.connected` → `core/base_client.py:250` `with self._lock`;`connected / last_error* / stats / next_connect_in` 与 timeout setter 同病。
   - 探针:持锁 0.5s 期间 `aio_client.connected` 卡住事件循环 0.458s。修复记录未触及。
+  - **修复(2026-09-26)**:上述只读 getter 改**无锁快照**(`stats` 依赖固定键集,值级拷贝 GIL 安全);timeout **setter** 仍持锁(需串行化传输层写)。回归 `test_property_reads_do_not_block_on_transaction_lock`。
 
 ### P2
 
@@ -122,7 +127,7 @@ v1 评审稿逐条对源码复核后形成本版:
 
 **记录不实(需订正):**
 
-- §2.5.1 标「已修复」实为错误码集合未修正(见 P1)。
+- §2.5.1 标「已修复」实为错误码集合未修正(见 P1)。**已订正并修复(2026-09-26)**。
 - §2.3.3 修复记录称「批量读经 `_batch_bool_array_address` 定制点同口径」,但 `OmronCipClient` 从未覆写该方法;实际机制是 `ab.py:645-649` 的自描述类型分支。功能无误,记录失实。
 - §2.13.1/2「长度域成帧留 v1.x」与 v0.42.0 已落地的 `length_prefix` 不符(`docs/architecture.md:687` 需订正)。
 
@@ -138,7 +143,7 @@ v1 评审稿逐条对源码复核后形成本版:
 
 - **§2.2.3 / 二轮 P0 `L=92H`(SLMP 手册)**:**「Latch relay (L) L*** … (92H)」** —— 独立证实 P0 修复值正确。
 - **§2.2.6 0406(SH-080008 §8.4 + §8.1)**:子命令 0000 标准 / 0080·0082 设备扩展;「bit device is **16-bit for one point**」;位字打包**首软元件在 bit15**(M10~M14 首点占最高 nibble,32 点 M16~M47 的 `AB1234CD` 以 M16 为最高 nibble);块数上限 `01H~78H`(1~120)。→ 与本库 `codec_qna.py:13` 口径一致,二轮「只能由黄金向量自洽」的疑虑**消除**。
-- **§2.5.1 ADS 错误码(TE1000)**:`0x6`=Target port not found、`0xD`=Port not connected、Router 组 `0x500+`;而**`0x705`=ADSERR_DEVICE_INVALIDSIZE「Parameter size not correct」**。→ 手册独立印证二轮 P1:现码集把「参数尺寸」当 transport,漏了真通断码。
+- **§2.5.1 ADS 错误码(TE1000)**:`0x6`=Target port not found、`0x7`=Target machine not found、`0xD`=Port not connected、`0x12`=Port disabled、`0x1B`=Host unreachable、`0x1D`=TLS send error;Router 组 `0x500+`;而 **`0x705`=ADSERR_DEVICE_INVALIDSIZE「Parameter size not correct」**(`0x706`=Invalid data / `0x725`=License expired 同属设备语义)。→ 手册独立印证二轮 P1:原码集把「参数尺寸」当 transport,漏了真通断码。**已据此修复(2026-09-26)。**
 - **§2.2.11 MX 32 位批读(MX Component 手册)**:存在 `ReadDeviceBlock2`/`ReadDeviceRandom2`(32 位版)。→ 本库拒绝 32/64 位批量属真实功能缺口。
 - **§2.12.1/2.12.4 MTConnect(Part 1 标准)**:定义 `/probe`、`/current`、`/sample`、`/assets`、`/asset/{id}`。→ 缺 `/sample`、`/asset` 属实。
 - **§2.7.8 SR `LON` bank(SR-2000 手册)**:存在 `LON,b`(b=01~16 库编号)。→ 带 bank 的 LON 为设备能力;老固件兼容需按机型。
@@ -448,11 +453,12 @@ v1 评审稿逐条对源码复核后形成本版:
 
 ### 2.5 倍福 TwinCAT ADS
 
-#### 2.5.1 transport 类 ADS 错误误分类为设备错误 — **P1(二轮复审:名为已修实为未修,2026-09-26)**
+#### 2.5.1 transport 类 ADS 错误误分类为设备错误 — **P1(已修复:2026-09-26,依 TE1000 §8)**
 - `plc/beckhoff/ads.py:97-113, 202-232`
 - 0x0705/0x0706/0x0725(device/router removed)被当 DeviceError,不触发断线标记;TwinCAT 重启后客户端持续在死连接上失败。
 - **修复**:transport 集错误抛 OSError 走惰性重连。
-- **二轮复审订正(2026-09-26)**:上述修复所用错误码集 **0x705/0x706/0x725 本身是错的**——pyads 3.5.1 `errorcodes.py` 中它们是「parameter size / invalid parameter value」参数错误;真正的通断码是 `0x06`(Target port not found)/`0x07`(Target machine not found)/`0x0D`(Port not connected)/router `0x0500~0x050D`。现状:TwinCAT 重启不重连,参数错误反而误判断线重连。**本条退回未修**,详见「二轮复审」P1。
+- **二轮复审订正(2026-09-26)**:上述修复所用错误码集 **0x705/0x706/0x725 本身是错的**——pyads 3.5.1 `errorcodes.py` 中它们是「parameter size / invalid parameter value」参数错误;真正的通断码是 `0x06`(Target port not found)/`0x07`(Target machine not found)/`0x0D`(Port not connected)/`0x12`(Port disabled)/`0x1B`(Host unreachable)/`0x1D`(TLS send)/router `0x0500~0x050D`。
+- **最终修复(2026-09-26,TE1000 §8)**:码集改为上述正确集合,`0x705/0x706/0x725` 回归 `DeviceError`;回归测试 `test_translate_ads_error_transport_codes` + `test_translate_ads_error_parameter_codes_are_device`。
 
 #### 2.5.2 STRING 写不预检声明长度 — **已修复(2026-09-26)**
 - `plc/beckhoff/ads.py`
@@ -856,16 +862,16 @@ v1 评审稿逐条对源码复核后形成本版:
 - `tests/conftest.py:30-38`,`tests/unit/test_native_transport.py:163-194`
 - Windows Proactor(产线默认)路径未覆盖。
 
-### 4.13 属性读不阻塞事件循环的断言缺失 — **P3(实锤)**
+### 4.13 属性读不阻塞事件循环的断言缺失 — **P3(已修复:2026-09-26)**
 - §3.1 的主张无测试保护。
-- **修复**:`test_property_reads_do_not_block_event_loop`。
+- **修复**:连同 P1「aio 属性读阻塞」一并落地——同步只读 getter 改无锁快照,回归测试 `test_v034_reliability.py::TestAioBackoffAndErrorSurfaces::test_property_reads_do_not_block_on_transaction_lock`(事务锁被占时逐一断言 `connected/last_error*/stats/next_connect_in` 读取不阻塞)。
 
 ---
 
 ## 五、按优先级排的"先修这 10 条"(复核后)
 
 > 状态(2026-09-26):本表 10 条**均已落地**(9 条代码修复 + CI 版本矩阵已按"3.7 必保"裁决修改)。
-> **二轮复审(2026-09-26)修正**:其中 §2.5.1(ADS transport 错误码)落地有误——所用错误码集本身是错的,已退回未修;另新增 MC `L` 设备码撞码 P0。详见文首「二轮复审」。
+> **二轮复审(2026-09-26)修正**:其中 §2.5.1(ADS transport 错误码)落地有误——所用错误码集本身是错的(2026-09-26 **已依 TE1000 §8 订正修复**);另新增 MC `L` 设备码撞码 P0(同日修复)。详见文首「二轮复审」。
 > 下一批候选见「二轮复审」与对话记录。
 
 | 优先级 | 项 | 章节 | 现场影响 |
@@ -877,10 +883,10 @@ v1 评审稿逐条对源码复核后形成本版:
 | P1 | AB 0x0A 不查 504B 预算(`plc/ab/codec_cip.py:429-460`) | §2.4.1 | 长标签名批量读必失败 |
 | P1 | S7 STRING 读超长返空串(`plc/siemens/client.py:414-416`) | §2.6.1 | HMI 文本静默空白 |
 | P1 | S7 STRING 写覆盖声明长(`plc/siemens/client.py:425`) | §2.6.2 | 破坏声明 max,跨客户端读全错 |
-| P1 | ADS transport 错误误分类(`plc/beckhoff/ads.py:97-113`) | §2.5.1 | TwinCAT 重启后客户端卡死 |
+| P1 | ADS transport 错误误分类(`plc/beckhoff/ads.py:97-113`) | §2.5.1 | TwinCAT 重启后客户端卡死(**已修复:TE1000 §8 码集**) |
 | P1 | CI 仅 3.12 + 无故障注入(`.github/workflows/ci.yml:30`) | §4.1/4.2 | 3.7 产线环境与真实网络工况未验证 |
 | P2 | FX5U X/Y 十六进制口径(`core/constants.py:232-234`) | §2.2.2 | 文档化限制,但 FX5U 静默错位风险真实 |
 
 ---
 
-> 本文档仅记录问题与现场影响。v2 复核删除 8 条误报、修正 12 条口径;条目按"实锤 / 文档化限制 / 待核证"分档。2026-09-26 二轮全量复审新增 P0/P1/P2/P3 清单及台账纠偏,见文首「二轮复审」。修复路线图不列入,按项目排期另起 `docs/fix-roadmap.md`。
+> 本文档仅记录问题与现场影响。v2 复核删除 8 条误报、修正 12 条口径;条目按"实锤 / 文档化限制 / 待核证"分档。2026-09-26 二轮全量复审新增 P0/P1/P2/P3 清单及台账纠偏,见文首「二轮复审」;同日修复 P0(MC `L` 撞码)与 P1 四项(ADS 码集依 TE1000 §8、S7 WString ASCII、Tag 64 位精度、aio 属性读锁)。修复路线图不列入,按项目排期另起 `docs/fix-roadmap.md`。

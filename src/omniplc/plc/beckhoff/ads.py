@@ -95,10 +95,26 @@ def _load_pyads() -> Optional[Any]:
         return None
 
 
-_ADS_TRANSPORT_ERROR_CODES = frozenset({0x00000705, 0x00000706, 0x00000725})
-"""transport 类 ADS 错误码:TwinCAT 侧连接失效(不断线会导致后续调用
-持续失败)——0x0705 目标端口未找到 / 0x0706 目标 AMS NetId 不可达 /
-0x0725 本机路由器端口已关闭,出现即标记断线走惰性重连。"""
+_ADS_TRANSPORT_ERROR_CODES = frozenset(
+    {
+        0x06,  # ERR_TARGETPORTNOTFOUND  ADS 服务未启动/不可达
+        0x07,  # ERR_TARGETMACHINENOTFOUND  未找到 AMS 路由
+        0x0D,  # ERR_PORTNOTCONNECTED  端口未连接
+        0x12,  # ERR_PORTDISABLED  TwinCAT 系统服务未启动
+        0x1B,  # ERR_HOSTUNREACHABLE  主机不可达
+        0x1D,  # ERR_TLSSEND  安全 ADS 连接建立失败
+    }
+) | frozenset(range(0x0500, 0x050E))
+"""transport 类 ADS 错误码(TE1000 §8「ADS Return Codes」):链路/路由/服务
+不可用,出现即标记断线走惰性重连。
+
+- 全局组 ``0x06/0x07/0x0D/0x12/0x1B/0x1D``:目标端口未找到 / 目标机器未
+  找到 / 端口未连接 / 端口禁用 / 主机不可达 / TLS 发送失败。
+- Router 组 ``0x0500~0x050D``:本机 AMS 路由器侧错误。
+
+注意 ``0x0705``(参数尺寸错)/``0x0706``(数据非法)/``0x0725``(许可过期)
+属**设备语义错误**,不得归入此类——否则普通参数错误会误判断线重连。
+"""
 
 
 def _translate_ads_error(exc: BaseException) -> OmniPLCInternalError:

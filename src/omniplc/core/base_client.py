@@ -247,9 +247,12 @@ class BaseClient(ABC):
 
     @property
     def connected(self) -> bool:
-        """当前是否处于已连接状态(加锁快照,不发报文)。"""
-        with self._lock:
-            return self._connected
+        """当前是否处于已连接状态(无锁快照,不发报文)。
+
+        只读原子布尔量,不取事务锁——aio 层属性转发依赖此保证:事务进行
+        中读取不得阻塞事件循环。
+        """
+        return self._connected
 
     # ------------------------------------------------------------------
     # 可配置属性(超时/重试)
@@ -327,43 +330,39 @@ class BaseClient(ABC):
 
     @property
     def next_connect_in(self) -> Optional[float]:
-        """距下次允许连接的剩余秒数;None = 无门控,可立即连接。"""
-        with self._lock:
-            if not self._reconnect_backoff:
-                return None
-            remaining = self._next_connect_at - time.monotonic()
-            return remaining if remaining > 0 else None
+        """距下次允许连接的剩余秒数;None = 无门控,可立即连接(无锁快照)。"""
+        if not self._reconnect_backoff:
+            return None
+        remaining = self._next_connect_at - time.monotonic()
+        return remaining if remaining > 0 else None
 
     @property
     def last_error(self) -> Optional[str]:
-        """最近一次失败的错误描述;成功执行读写后清空为 None。"""
-        with self._lock:
-            return self._last_error
+        """最近一次失败的错误描述;成功执行读写后清空为 None(无锁快照)。"""
+        return self._last_error
 
     @property
     def last_error_category(self) -> Optional[ErrorCategory]:
-        """最近一次失败的分类(成功读写后清空为 None)。
+        """最近一次失败的分类(成功读写后清空为 None,无锁快照)。
 
         取值见 :class:`~omniplc.core.errors.ErrorCategory`;传输类错误
         为 ``TRANSPORT``,PLC 明确报错为 ``DEVICE``(配
         :attr:`last_error_code` 取原始码),超时独立为 ``TIMEOUT``。
         """
-        with self._lock:
-            return self._last_error_category
+        return self._last_error_category
 
     @property
     def last_error_code(self) -> Optional[int]:
-        """最近一次失败的原始错误码(成功读写后清空为 None)。
+        """最近一次失败的原始错误码(成功读写后清空为 None,无锁快照)。
 
         PLC 报错取协议原始码(MC 结束码/FINS 结束码/Modbus 异常码),
         传输类错误取 ``errno``,无码为 ``None``。
         """
-        with self._lock:
-            return self._last_error_code
+        return self._last_error_code
 
     @property
     def stats(self) -> ClientStats:
-        """连接健康统计快照(:class:`ClientStats`,锁内取)。
+        """连接健康统计快照(:class:`ClientStats`,无锁快照)。
 
         返回的是 ``ClientStats``(TypedDict,运行期即普通 dict;字段见下),
         每次拷贝一份,改动返回值不影响内部计数。
@@ -381,9 +380,11 @@ class BaseClient(ABC):
 
         时间戳为单调钟相对值,跨重启无意义;用于现场判断"多久前
         出错/多久没成功"。
+
+        无锁读取:GIL 下对固定键字典做值级拷贝安全(键集在构造期固定),
+        故 aio 层转发不会阻塞事件循环。
         """
-        with self._lock:
-            return cast(ClientStats, dict(self._counters, **self._timestamps))
+        return cast(ClientStats, dict(self._counters, **self._timestamps))
 
     def _record_error(self) -> None:
         """登记一次失败(错误计数 + 时间戳,内部方法,须锁内调用)。"""
@@ -614,6 +615,9 @@ class BaseClient(ABC):
     def read_tag(self, tag: Union[str, Tag]) -> Tuple[bool, Optional[PrimitiveValue]]:
         """按点位(或标识)读取,数值自动应用 ``scale``/``offset``。
 
+        ``scale=1.0`` 且 ``offset=0.0``(默认)时原值直通,不做 float64
+        往返,保留 64 位整数(``LONG``/``ULONG``)精度。
+
         :param tag: :class:`omniplc.tag.Tag` 实例,或已绑定表中的点位标识
         :raises ValueError: 传入标识但未绑定 TagTable,或标识不存在
         """
@@ -623,10 +627,15 @@ class BaseClient(ABC):
             return False, None
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return True, value
+        if resolved.scale == 1.0 and resolved.offset == 0.0:
+            return True, value
         return True, value * resolved.scale + resolved.offset
 
     def write_tag(self, tag: Union[str, Tag], value: PrimitiveValue) -> bool:
         """按点位(或标识)写入,数值自动做逆缩放 ``值 = (目标 - offset) / scale``。
+
+        ``scale=1.0`` 且 ``offset=0.0``(默认)时不做逆缩放 float64 往返,
+        保留 64 位整数精度。
 
         :param tag: Tag 实例或已绑定表中的点位标识
         :param value: 目标工程量
@@ -636,10 +645,11 @@ class BaseClient(ABC):
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             if resolved.scale == 0:
                 raise ValueError(f"点位 {resolved.tag_id!r} 的 scale 不能为 0,无法逆缩放")
-            value = (value - resolved.offset) / resolved.scale
-            if isinstance(value, float) and value.is_integer():
-                # 真除法恒为 float,还原整数,否则底层整数类型校验拒收
-                value = int(value)
+            if not (resolved.scale == 1.0 and resolved.offset == 0.0):
+                value = (value - resolved.offset) / resolved.scale
+                if isinstance(value, float) and value.is_integer():
+                    # 真除法恒为 float,还原整数,否则底层整数类型校验拒收
+                    value = int(value)
         return self.write(resolved.address, resolved.data_type, value)
 
     def _resolve_tag(self, tag: Union[str, Tag]) -> Tag:

@@ -531,6 +531,18 @@ def test_wstring_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     assert dump[4:] == raw
 
 
+def test_wstring_ascii_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """WString 纯 ASCII:高字节 0x00 不得被当终止符(回归:曾返回空串)。"""
+    client, fake = _client(monkeypatch)
+    text = "AB"
+    encoded = text.encode("utf-16-be")
+    fake.seed(
+        _AREA_DB, 1, 20,
+        (32).to_bytes(2, "big") + len(text).to_bytes(2, "big") + encoded,
+    )
+    assert client.read_wstring("DB1.DBW20", length=32) == (True, "AB")
+
+
 def test_wstring_overflow_and_bad_length(monkeypatch: pytest.MonkeyPatch) -> None:
     """超过 PLC 侧声明长拒绝;length<=0 拒绝。"""
     client, fake = _client(monkeypatch)

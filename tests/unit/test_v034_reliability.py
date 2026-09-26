@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import socket
+import threading
 import time
 from typing import List
 
@@ -355,3 +356,34 @@ class TestAioBackoffAndErrorSurfaces:
         assert async_client.last_error_code is None
         assert async_client.next_connect_in == sync.next_connect_in
         assert async_client.next_connect_in is not None
+
+    def test_property_reads_do_not_block_on_transaction_lock(self) -> None:
+        """事务锁被占时,aio 只读属性仍应立即返回(不得进同步事务锁)。
+
+        回归:旧实现直接从 aio 属性转发进同步 getter,getter 内
+        ``with self._lock``;事务进行中读取会同步阻塞调用线程(事件循环)。
+        """
+        import omniplc.aio as aio
+
+        sync = _ScriptedClient()
+        async_client = aio.AModbusTcpClient.__new__(aio.AModbusTcpClient)
+        aio.ABaseClient.__init__(async_client, sync)
+        readers = (
+            lambda: async_client.connected,
+            lambda: async_client.last_error,
+            lambda: async_client.last_error_category,
+            lambda: async_client.last_error_code,
+            lambda: async_client.stats,
+            lambda: async_client.next_connect_in,
+        )
+        sync._lock.acquire()
+        try:
+            for reader in readers:
+                done: List[bool] = []
+                thread = threading.Thread(target=lambda r=reader: (r(), done.append(True)))
+                thread.start()
+                thread.join(timeout=1.0)
+                assert not thread.is_alive(), "aio 属性读被事务锁阻塞"
+                assert done == [True]
+        finally:
+            sync._lock.release()

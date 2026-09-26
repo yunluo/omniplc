@@ -51,6 +51,7 @@ class _ScriptedClient(BaseClient):
         self._fail_next_op: List[BaseException] = []
         self._read_calls = 0
         self._write_calls = 0
+        self.scalar: PrimitiveValue = 3.14
         self.last_written: Optional[PrimitiveValue] = None
         self.transports: List[_ScriptedTransport] = []
 
@@ -70,7 +71,7 @@ class _ScriptedClient(BaseClient):
             raise self._fail_next_op.pop(0)
         if data_type is DataType.BOOL:
             return True
-        return 3.14
+        return self.scalar
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         self._write_calls += 1
@@ -319,6 +320,24 @@ class TestTagScaling:
         ok, value = client.read_tag(Tag("温度", "hr0", "float"))
         assert ok is True
         assert value == pytest.approx(3.14)
+
+    def test_read_tag_identity_scale_preserves_int64(self) -> None:
+        """scale=1/offset=0 时不得过 float64(回归:>2^53 静默丢低位)。"""
+        client = _ScriptedClient()
+        client.scalar = 2 ** 63 - 1
+        client.bind_tags(TagTable([Tag("累计", "d0", "long")]))
+        ok, value = client.read_tag("累计")
+        assert ok is True
+        assert value == 2 ** 63 - 1
+        assert isinstance(value, int)
+
+    def test_write_tag_identity_scale_preserves_int64(self) -> None:
+        """写入侧逆缩放同样不得过 float64(2^63-1 会被舍入成 2^63)。"""
+        client = _ScriptedClient()
+        client.bind_tags(TagTable([Tag("累计", "d0", "long")]))
+        assert client.write_tag("累计", 2 ** 63 - 1) is True
+        assert client.last_written == 2 ** 63 - 1
+        assert isinstance(client.last_written, int)
 
 
 class TestCategorizeOrder:

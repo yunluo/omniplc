@@ -271,12 +271,22 @@ def uint64_to_registers(
     )
 
 
+_MULTIBYTE_ENCODING_PREFIXES = ("utf-16", "utf-32", "ucs-2", "ucs-4")
+
+
 def decode_string(data: bytes, encoding: str = "ascii") -> str:
     """把寄存器字节解码为字符串,自动截断 ``\\x00`` 填充。
 
     :param data: 原始字节
     :param encoding: 字符编码,默认 ASCII
+
+    单字节编码按首个 ``\\x00`` 字节截断;UTF-16/UTF-32 等多字节编码的
+    ASCII 字符高字节恒为 ``\\x00``(``"AB" == b"\\x00A\\x00B"``),若仍在
+    字节层截断会把整串截成空串,故对多字节编码改为**解码后**按首个 NUL
+    字符截断。
     """
+    if encoding.replace("_", "-").lower().startswith(_MULTIBYTE_ENCODING_PREFIXES):
+        return data.decode(encoding, errors="replace").split("\x00", 1)[0]
     return data.split(b"\x00", 1)[0].decode(encoding, errors="replace")
 
 

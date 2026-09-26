@@ -141,6 +141,26 @@ class TestString:
         raw = convert.encode_string("炉温", 8, encoding="utf-8")
         assert convert.decode_string(raw, encoding="utf-8") == "炉温"
 
+    def test_utf16_ascii_not_truncated_by_high_nul(self) -> None:
+        """UTF-16 的 ASCII 字符高字节为 0x00,不得在字节层当终止符截断。
+
+        回归:旧实现 ``data.split(b"\\x00", 1)[0]`` 会把整串截成空串
+        (S7 WString 读 ASCII 时返回 "")。
+        """
+        assert convert.decode_string(b"\x00A\x00B", "utf-16-be") == "AB"
+        assert convert.decode_string(b"\x00A\x00B\x00\x00", "utf-16-be") == "AB"
+        assert convert.decode_string(b"\x00\x41\x00\x00", "utf-16-be") == "A"
+        assert convert.decode_string(b"A\x00B\x00", "utf-16-le") == "AB"
+
+    def test_utf16_nul_terminated_after_multibyte(self) -> None:
+        """多字节编码:按解码后的 NUL 字符截断,中文照常保留。"""
+        raw = "炉温".encode("utf-16-be") + b"\x00\x00"
+        assert convert.decode_string(raw, encoding="utf-16-be") == "炉温"
+
+    def test_ascii_still_truncates_at_first_nul(self) -> None:
+        """单字节编码维持旧口径:首个 NUL 之前为有效内容。"""
+        assert convert.decode_string(b"AB\x00CD") == "AB"
+
 
 class TestWordsValue:
     """字序列 ↔ 值的通用转换(数值类型)。"""

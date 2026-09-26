@@ -262,13 +262,36 @@ def test_translate_ads_error(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_translate_ads_error_transport_codes(monkeypatch: pytest.MonkeyPatch) -> None:
-    """transport 类错误码(0x705/0x706/0x725)→ 内部异常,标记断线走惰性重连。"""
+    """TE1000 §8 通断类错误码 → 内部异常,标记断线走惰性重连。
+
+    全局组:0x06 目标端口未找到 / 0x07 目标机器未找到 / 0x0D 端口未连接 /
+    0x12 端口禁用(服务未启)/ 0x1B 主机不可达 / 0x1D TLS 发送失败;
+    Router 组:0x0500~0x050D。
+    """
     ads_error_class = _install_pyads_stub(monkeypatch)
-    for code in (0x705, 0x706, 0x725):
+    transport_codes = (
+        0x06, 0x07, 0x0D, 0x12, 0x1B, 0x1D,
+        0x500, 0x505, 0x50A, 0x50D,
+    )
+    for code in transport_codes:
         translated = _translate_ads_error(ads_error_class(code, "transport down"))
-        assert isinstance(translated, OmniPLCInternalError)
-        assert not isinstance(translated, DeviceError)
-        assert "0x0000" in str(translated)
+        assert isinstance(translated, OmniPLCInternalError), hex(code)
+        assert not isinstance(translated, DeviceError), hex(code)
+
+
+def test_translate_ads_error_parameter_codes_are_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TE1000 §8 参数/许可类错误码 → DeviceError 不断线。
+
+    回归:旧码集把 0x0705(参数尺寸错)/0x0706(数据非法)/0x0725(许可过期)
+    当作 transport,导致普通参数错误误判断线重连。
+    """
+    ads_error_class = _install_pyads_stub(monkeypatch)
+    for code in (0x705, 0x706, 0x725, 0x712):
+        translated = _translate_ads_error(ads_error_class(code, "param error"))
+        assert isinstance(translated, DeviceError), hex(code)
+        assert translated.code == code
 
 
 def test_session_connect_failure_translated(monkeypatch: pytest.MonkeyPatch) -> None:
