@@ -291,7 +291,7 @@ ok, text = s7.read_string("DB1.DBS20", length=32)  # S7 String(头 2 字节声�
 
 - 三菱 MC 3E/4E:`0406` 多块批量读(混软元件,总块数 ≤120);KV/汇川/松下 MC 兼容子类经继承同享
 - 欧姆龙 FINS:`0104` 多存储区读(以太网上限 167 条)
-- AB / 欧姆龙 NJ-NX CIP:`0x0A` 多服务包(上限 32 条;BOOL 首次批量读做一次类型发现后缓存)
+- AB / 欧姆龙 NJ-NX CIP:`0x0A` 多服务包(单事务 ≤32 条且估算字节 ≤480B,超限自动拆多个事务按序执行;BOOL 首次批量读做一次类型发现后缓存)
 - OPC-UA:UA Read 服务原生多节点(asyncua `read_values` 单请求);**任一节点非法或服务端拒绝则整批失败**,原因进 `last_error`,需要逐点容错请逐点 `read`
 - MX Component:`ReadDeviceRandom`(软元件列表换行分隔;仅 16 位类型)
 - Modbus:`read_batch`/`write_batch` 按 (区域, 类型) 分组、组内**连续地址合并**为单条 FC(读 01/02/03/04,写 15/16)——Modbus 协议不支持跨 FC 单事务,故为 **K 笔**而非 1 笔(K ≤ 地址数,典型 1 笔);`read_write_registers`(FC23)可在一个事务内先写后读
@@ -524,17 +524,18 @@ def dump(s: ClientStats) -> None:
 dump(client.stats)   # 键名拼错、字段用错类型在 mypy/pyright 阶段即报
 ```
 
-#### 真机联测待做(v0.30.0 整理)
+#### 真机联测待做(v0.41.0 更新)
 
 下表汇总散落各处的真机核证项(实现已完成,缺真机条件或排队中):
 
 | 项                | 驱动               | 现状态                            |
 |------------------|------------------|--------------------------------|
-| AB 0x0A 多服务包批量读  | AB Logix         | 已实现,通用模拟器不支持,待真机核证           |
+| AB 0x0A 多服务包批量读  | AB Logix         | 已实现(超 32 条/480B 自动拆包),通用模拟器不支持,待真机核证 |
 | NJ CIP 0x0A 多服务包 | 欧姆龙 NJ/NX CIP    | 继承 AB,理论同,待真机核证                |
-| 倍福 ADS           | TwinCAT          | 封装 pyads,需 TwinCAT 运行时         |
-| 西门子 S7           | S7-300/1200/1500 | 封装 python-snap7,需 PLC 或 PLCSIM |
-| NJ STRING 拒绝     | 欧姆龙 NJ/NX CIP    | 编码已禁,待真机复核边界                   |
+| 倍福 ADS           | TwinCAT          | 封装 pyads,需 TwinCAT 运行时;transport 错误码 0x705/0x706/0x725 分流待真机核证 |
+| 西门子 S7           | S7-300/1200/1500 | 封装 python-snap7,需 PLC 或 PLCSIM;STRING 读截断/写保留声明长待真机核证 |
+| NJ STRING / BOOL 数组 | 欧姆龙 NJ/NX CIP    | 已实现(STRING 按 `len(u32)+字符`、BOOL 按元素自描述,回 DWORD 时 `//32` 回退),待真机核证 |
+| MC 新设备码          | 三菱 Q/L/R         | L/F/SB/V/DX/DY/TS/TC/TN/CS/CC/CN/SM/SD/SW 已实现,待真机核证(TN=0xC3/CN=0xC6 为推定) |
 | KV MC 0406 批量读   | 基恩士 KV MC        | 继承 MelsecMc,码表已覆写,待真机          |
 | OPC-UA           | opc.tcp          | 封装 asyncua,需 OPC-UA 服务器        |
 | MTConnect        | MTConnect Agent  | 标准库 HTTP/XML,需 CNC 端 Agent     |
