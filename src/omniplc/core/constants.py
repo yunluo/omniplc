@@ -825,6 +825,11 @@ AB_EIP_SLOT_MAX: int = 31
 """AB/CIP 槽位号上限(端口段 link 单字节,0~31)。"""
 AB_EIP_MAX_FRAME: int = 8192
 """ENIP 长度域上限(24 字节头之后的字节数;合法最大约 2KB,防恶意声明拖长收包)。"""
+AB_EIP_DEFAULT_RPI_US: int = 100_000
+"""connected 消息 Forward Open 的默认 RPI(微秒,100ms)。
+
+原实现 ≈2.1s,连接空闲超时约 4×RPI≈8.4s;轮询间隔大于该值时连接被
+反复重建。降到 100ms 量级消除该问题;可按现场经 ``rpi_us`` 覆盖。"""
 AB_EIP_ORIGINATOR_VENDOR_ID: int = 0x1337
 """Forward Open 的发起方厂商号(目标侧不校验,任意非冲突值即可)。"""
 AB_EIP_STRING_STRUCT_ID: int = 0x0FCE

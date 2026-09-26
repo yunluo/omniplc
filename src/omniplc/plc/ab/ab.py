@@ -46,7 +46,7 @@ from ...core.constants import (
     INT32_MAX,
     UINT16_MAX,
 )
-from ...core.debug import format_hex
+from ...core.debug import format_hex, log_op
 from ...core.errors import DeviceError, OmniPLCInternalError, ProtocolFrameError
 from ...core.validation import require_bool
 from ...transport import BaseTransport, TcpTransport
@@ -70,6 +70,7 @@ class AllenBradleyEthIpClient(BaseClient):
         port: int = AB_EIP_DEFAULT_PORT,
         slot: int = AB_EIP_DEFAULT_SLOT,
         connected_messaging: bool = False,
+        rpi_us: int = codec_cip.FO_OT_RPI,
     ) -> None:
         """初始化 AB EtherNet/IP 客户端。
 
@@ -78,6 +79,8 @@ class AllenBradleyEthIpClient(BaseClient):
         :param slot: CPU 槽号(内置以太网口机型为 0;1756 背板按实际槽位)
         :param connected_messaging: True 走 connected 消息(Forward Open +
             SendUnitData);默认 False 走 unconnected 消息
+        :param rpi_us: connected 连接的请求包间隔 RPI(微秒),默认 100ms;
+            影响连接空闲超时(约 4×RPI),轮询间隔大时应相应调大
         :raises ValueError: 参数非法
         """
         validate_endpoint(ip_address, port)
@@ -87,6 +90,8 @@ class AllenBradleyEthIpClient(BaseClient):
             raise ValueError(
                 f"槽号超出范围 0~{AB_EIP_SLOT_MAX}:{slot}"
             )
+        if int(rpi_us) <= 0:
+            raise ValueError(f"rpi_us 必须大于 0,收到:{rpi_us}")
         self._slot = slot
         self._connected_messaging = bool(connected_messaging)
         self._session_handle = 0
@@ -96,6 +101,7 @@ class AllenBradleyEthIpClient(BaseClient):
         self._to_connection_id = 0
         self._connection_size: Optional[int] = None
         self._sequence = 0
+        self._rpi_us = int(rpi_us)
         self._originator_serial = random.randrange(1, UINT16_MAX)
 
     @property
@@ -165,6 +171,7 @@ class AllenBradleyEthIpClient(BaseClient):
                 AB_EIP_ORIGINATOR_VENDOR_ID,
                 self._originator_serial,
                 self._route_path(),
+                self._rpi_us,
             )
             service = (
                 codec_cip.CIP_SERVICE_LARGE_FORWARD_OPEN
@@ -188,7 +195,11 @@ class AllenBradleyEthIpClient(BaseClient):
         )
 
     def _forward_close(self) -> None:
-        """尽力发送 Forward Close(应答与异常一律忽略,内部方法)。"""
+        """尽力发送 Forward Close(异常静默,内部方法)。
+
+        应答解析后仅对**非 0 状态**记一条调试日志(关闭是尽力而为,不改变
+        流程);解析/收发异常一律吞掉。
+        """
         transport = self._transport
         ot_id = self._ot_connection_id
         self._ot_connection_id = None
@@ -209,7 +220,12 @@ class AllenBradleyEthIpClient(BaseClient):
                     ),
                 )
             )
-            self._recv_frame()
+            status = codec_cip.parse_forward_close_reply(self._recv_frame())
+            if status != 0:
+                log_op(
+                    "ab://{}:{}".format(self._ip_address, self._port),
+                    "forward-close 非 0 状态 0x{:02X}".format(status),
+                )
         except (OSError, OmniPLCInternalError):
             pass
 
@@ -291,12 +307,12 @@ class AllenBradleyEthIpClient(BaseClient):
                 self._recv_frame(), request_service, self._to_connection_id, sequence
             )
         except DeviceError as exc:
-            if exc.code == codec_cip.CIP_STATUS_CONNECTION_FAILURE:
-                # connected 会话已被 PLC 丢弃(空闲超时等):按坏帧断开,
-                # 下次事务惰性重连并重新 Forward Open;其余 CIP 状态
+            if codec_cip.is_connection_reset_status(exc.code):
+                # connected 会话已被 PLC 丢弃(空闲超时/连接丢失等):按坏帧
+                # 断开,下次事务惰性重连并重新 Forward Open;其余 CIP 状态
                 # (真实标签错误如只读)保持 DeviceError 不断线
                 raise ProtocolFrameError(
-                    f"connected 连接失效(CIP 状态 0x01):{exc}"
+                    f"connected 连接失效(CIP 状态 0x{exc.code:02X}):{exc}"
                 ) from exc
             raise
 

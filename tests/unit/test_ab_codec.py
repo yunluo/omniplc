@@ -327,8 +327,8 @@ def test_forward_open_golden() -> None:
         "00000000" "78560000"  # O->T CID(0=目标分配)+ T->O CID
         "3412" "3713" "2a000000"  # 连接序列号 + 厂商号 + 发起方序列号
         "03000000"  # 超时乘数 + 3 保留
-        "34122000" "f843"  # O->T RPI + 参数(P2P+固定+504)
-        "01402000" "f843"  # T->O RPI + 参数
+        "a0860100" "f843"  # O->T RPI(100ms) + 参数(P2P+固定+504)
+        "a0860100" "f843"  # T->O RPI(100ms) + 参数
         "a3" "03" "010020022401"  # 传输触发 + 路径字数 + 背板/槽/消息路由
     )
 
@@ -353,6 +353,24 @@ def test_forward_open_large_format() -> None:
     body = request[8:]
     assert body[24:28] == large_params
     assert body[32:36] == large_params
+
+
+def test_forward_open_rpi_param() -> None:
+    """RPI 可配:O->T/T->O 两处都写入给定值;非正拒绝。"""
+    rpi = struct.pack("<I", 500_000)
+    request = codec_cip.build_forward_open(
+        False, 504, 1, 2, 0x1337, 42, b"\x01\x00", rpi_us=500_000
+    )
+    assert request.count(rpi) == 2
+    with pytest.raises(ValueError):
+        codec_cip.build_forward_open(False, 504, 1, 2, 0x1337, 42, b"", rpi_us=0)
+
+
+def test_connection_reset_status_set() -> None:
+    """连接失效状态集:0x01/0x07 触发重连,其余(如 0x05)不触发。"""
+    assert codec_cip.is_connection_reset_status(0x01)
+    assert codec_cip.is_connection_reset_status(0x07)
+    assert not codec_cip.is_connection_reset_status(0x05)
 
 
 def test_forward_open_reply() -> None:

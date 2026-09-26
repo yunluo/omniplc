@@ -306,10 +306,9 @@ v1 评审稿逐条对源码复核后形成本版:
 - `plc/ab/codec_cip.py:345-374`
 - **修复**:0x91 路径 0x05 时回退 0x8B。
 
-#### 2.4.6 Forward Open RPI ≈ 2.1s — **P3(实锤)**
-- `plc/ab/codec_cip.py:108-111`(复核修正:v1 稿误标为 constants.py)
-- `FO_OT_RPI=0x00201234≈2.1s`。RPI 影响连接空闲超时(约 4×RPI≈8.4s),轮询间隔大于该值时连接反复重建;不影响首次握手时长(v1 稿"首次握手超时"说法有误)。
-- **修复**:RPI 降到 50-500ms 量级并暴露参数。
+#### 2.4.6 Forward Open RPI ≈ 2.1s — **已修复(2026-09-26)**
+- `plc/ab/codec_cip.py`(`FO_OT_RPI`/`FO_TO_RPI`)+ `plc/ab/ab.py`(`rpi_us` 参数)
+- 默认 RPI 由 ≈2.1s 降到 **100ms**(`AB_EIP_DEFAULT_RPI_US`),避免轮询间隔大于 ≈4×RPI 时连接被反复重建;新增构造参数 `rpi_us` 可按现场覆盖,`build_forward_open(..., rpi_us=...)` 同步暴露。
 
 #### 2.4.7 `parse_service_reply` 附加状态口径含混 — **P3(实锤)**
 - `plc/ab/codec_cip.py:853-857, 892-899`
@@ -320,17 +319,17 @@ v1 评审稿逐条对源码复核后形成本版:
 - `plc/ab/codec_cip.py:267-307`
 - 模拟器兼容的刻意放行,混杂网络下可能误配对。**修复**:可配开关。
 
-#### 2.4.9 Forward Close 应答不解析 — **P3(实锤)**
-- `plc/ab/ab.py:189-213`
-- **修复**:解析并记录。
+#### 2.4.9 Forward Close 应答不解析 — **已修复(2026-09-26)**
+- `plc/ab/ab.py`(`_forward_close`)
+- `codec_cip.parse_forward_close_reply` 现被调用:非 0 状态记一条调试日志(关闭仍尽力而为),解析异常照旧静默。
 
 #### 2.4.10 Slot 默认 0 对 1756-L8x 不适配 — **P3(文档化限制)**
 - `core/constants.py:746`
 - **修复**:文档强调。
 
-#### 2.4.11 CIP 0x07(connection lost)不触发重连 — **P2(待核证)**
-- `plc/ab/ab.py:289-300`
-- **修复**:加入重连触发集。
+#### 2.4.11 CIP 0x07(connection lost)不触发重连 — **已修复(2026-09-26)**
+- `plc/ab/codec_cip.py`(`CIP_STATUS_CONNECTION_LOST` + `is_connection_reset_status`)+ `plc/ab/ab.py`
+- 新增 0x07 Connection lost 常量并纳入"连接失效状态集"(0x01/0x07),connected 事务遇二者均按坏帧断开、下次惰性重连并重新 Forward Open。
 
 #### 2.4.12 缺标签枚举(0x6B/0x0100) — **P3(实锤)**
 - HMI 组态工具无法枚举标签。

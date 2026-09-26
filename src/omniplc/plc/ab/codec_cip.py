@@ -28,6 +28,7 @@ from .address import AbTag
 from ...core.constants import (
     AB_CIP_EXTENDED_STATUS_TEXT,
     AB_CIP_STATUS_TEXT,
+    AB_EIP_DEFAULT_RPI_US,
     AB_EIP_STATUS_TEXT,
     AB_EIP_STRING_MAX_CHARS,
     AB_EIP_STRING_STRUCT_ID,
@@ -84,6 +85,19 @@ CIP_STATUS_CONNECTION_FAILURE: int = 0x01
 
 connected 模式下该状态几乎总意味着 Class 3 连接被 PLC 丢弃(空闲
 超时等),事务层按坏帧断开触发惰性重连;其余状态保持 DeviceError。"""
+CIP_STATUS_CONNECTION_LOST: int = 0x07
+"""CIP 通用状态 0x07:Connection lost(连接已丢失)。
+
+与 0x01 同属"connected 连接失效",须一并触发惰性重连,否则
+TwinCAT/固件侧丢连后客户端会持续在死连接上失败。"""
+_CONNECTION_RESET_STATUSES: "frozenset" = frozenset(
+    (CIP_STATUS_CONNECTION_FAILURE, CIP_STATUS_CONNECTION_LOST)
+)
+
+
+def is_connection_reset_status(status: int) -> bool:
+    """CIP 状态是否表示 connected 连接失效(0x01/0x07),供事务层判定重连。"""
+    return status in _CONNECTION_RESET_STATUSES
 
 # ---- ENIP 封装命令扩展(发现/调试) ----
 EIP_COMMAND_LIST_IDENTITY: int = 0x0063
@@ -105,10 +119,15 @@ FO_TIMEOUT_TICKS: int = 0x0E
 FO_TIMEOUT_MULTIPLIER: int = 0x03
 FO_TRANSPORT_TRIGGER: int = 0xA3
 """传输类/触发器:Class 3(应用触发,显式报文连接)。"""
-FO_OT_RPI: int = 0x00201234
-"""O->T 请求包间隔 RPI(微秒粒度)。"""
-FO_TO_RPI: int = 0x00204001
-"""T->O 请求包间隔 RPI(微秒粒度)。"""
+FO_OT_RPI: int = AB_EIP_DEFAULT_RPI_US
+"""O->T 请求包间隔 RPI(微秒;默认 100ms)。
+
+原值 ≈2.1s 会使连接空闲超时约 4×RPI≈8.4s,轮询间隔大于该值时连接被
+反复重建;降到 100ms 量级可避免。可通过 :func:`build_forward_open`
+的 ``rpi_us`` 参数按现场覆盖。
+"""
+FO_TO_RPI: int = AB_EIP_DEFAULT_RPI_US
+"""T->O 请求包间隔 RPI(微秒;默认 100ms,同 O->T)。"""
 FO_PARAM_BASE: int = 0x4200
 """网络连接参数基底:点对点(bit14)+ 固定尺寸(bit9),低 9 位为连接尺寸。"""
 CONNECTION_SIZE_LARGE: int = 4002
@@ -561,6 +580,7 @@ def build_forward_open(
     vendor_id: int,
     originator_serial: int,
     route_path: bytes,
+    rpi_us: int = FO_OT_RPI,
 ) -> bytes:
     """构造 Forward Open(0x54)/ Large Forward Open(0x5B)请求 CIP 部分。
 
@@ -568,8 +588,12 @@ def build_forward_open(
     连接路径 = 路由段 + 消息路由对象(20 02 24 01);AB 传背板路由
     (端口 0x01 + 槽号),NJ/NX 等内置口目标即 CPU 传空字节串。
 
-    :raises ValueError: 路由段长度为奇数
+    :param rpi_us: 请求包间隔 RPI(微秒),O->T 与 T->O 同用;默认
+        :data:`FO_OT_RPI`(100ms)。RPI 影响连接空闲超时(约 4×RPI)
+    :raises ValueError: 路由段长度为奇数或 RPI 非正
     """
+    if rpi_us <= 0:
+        raise ValueError(f"rpi_us 必须大于 0,收到:{rpi_us}")
     service = CIP_SERVICE_LARGE_FORWARD_OPEN if is_large else CIP_SERVICE_FORWARD_OPEN
     frame = bytearray(
         struct.pack(
@@ -588,15 +612,15 @@ def build_forward_open(
     frame += struct.pack("<HH", connection_serial, vendor_id)
     frame += struct.pack("<I", originator_serial)
     frame += struct.pack("<B3x", FO_TIMEOUT_MULTIPLIER)  # 乘数 + 3 保留字节
-    frame += struct.pack("<I", FO_OT_RPI)
+    frame += struct.pack("<I", rpi_us)
     params = _forward_open_params(is_large, connection_size)
     if is_large:
         frame += struct.pack("<I", params)
-        frame += struct.pack("<I", FO_TO_RPI)
+        frame += struct.pack("<I", rpi_us)
         frame += struct.pack("<I", params)
     else:
         frame += struct.pack("<H", params)
-        frame += struct.pack("<I", FO_TO_RPI)
+        frame += struct.pack("<I", rpi_us)
         frame += struct.pack("<H", params)
     frame += struct.pack("<B", FO_TRANSPORT_TRIGGER)
     if len(route_path) % 2:

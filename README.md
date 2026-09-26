@@ -198,7 +198,7 @@ ok, values = ab.read_batch([("MyDint", "int"), ("MyReal", "float"), ("RecipeName
 ok, info = ab.get_plc_info()      # Identity Object:厂商/序列号/产品名
 ok, ident = ab.list_identity()    # ENIP 单播发现
 # connected 消息(Forward Open + SendUnitData,大批量轮询吞吐更高):
-ab_c = AllenBradleyEthIpClient(ip_address="192.168.1.20", connected_messaging=True)
+ab_c = AllenBradleyEthIpClient(ip_address="192.168.1.20", connected_messaging=True, rpi_us=100_000)  # RPI 默认 100ms
 
 # 基恩士 KV Host Link:ASCII 行式协议,地址如 DM100 / R515 / W100
 from omniplc import KeyenceHostLinkTcpClient

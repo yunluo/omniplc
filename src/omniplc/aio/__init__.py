@@ -30,6 +30,7 @@ from ..core.errors import ErrorCategory, _CANCELLED_ERRORS
 from ..cnc import MTConnectClient
 from ..core.constants import (
     AB_EIP_DEFAULT_PORT,
+    AB_EIP_DEFAULT_RPI_US,
     AB_EIP_DEFAULT_SLOT,
     ADS_DEFAULT_ADS_PORT,
     DEFAULT_STRING_ENCODING,
@@ -1722,6 +1723,7 @@ class AAllenBradleyEthIpClient(ABaseClient):
         port: int = AB_EIP_DEFAULT_PORT,
         slot: int = AB_EIP_DEFAULT_SLOT,
         connected_messaging: bool = False,
+        rpi_us: int = AB_EIP_DEFAULT_RPI_US,
     ) -> None:
         """初始化 AB EtherNet/IP 异步客户端。
 
@@ -1730,10 +1732,13 @@ class AAllenBradleyEthIpClient(ABaseClient):
         :param slot: CPU 槽号(内置以太网口机型为 0;1756 背板按实际槽位)
         :param connected_messaging: True 走 connected 消息(Forward Open +
             SendUnitData);默认 False 走 unconnected 消息
+        :param rpi_us: connected 连接的 RPI(微秒),默认 100ms
         :raises ValueError: 参数非法
         """
         super().__init__(
-            AllenBradleyEthIpClient(ip_address, port, slot, connected_messaging)
+            AllenBradleyEthIpClient(
+                ip_address, port, slot, connected_messaging, rpi_us
+            )
         )
 
     @property

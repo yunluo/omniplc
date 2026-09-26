@@ -645,6 +645,40 @@ def test_connected_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch
     assert sent.count(b"\x5b\x02\x20\x06\x24\x01\x0a\x0e") == 1
 
 
+def test_connected_connection_lost_triggers_reconnect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """connected 模式 CIP 状态 0x07(Connection lost)同 0x01:断线并惰性重连。"""
+    monkeypatch.setattr(
+        "omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID
+    )
+    client = _connected_client()
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _forward_open_chunks(codec_cip.CIP_SERVICE_LARGE_FORWARD_OPEN)
+        + _connected_reply_chunks(
+            b"", codec_cip.CIP_SERVICE_READ_TAG, 1, cip_status=0x07
+        )
+        # 重连:再次注册会话 + Forward Open,随后读取成功
+        + _session_chunks()
+        + _forward_open_chunks(codec_cip.CIP_SERVICE_LARGE_FORWARD_OPEN)
+        + _connected_reply_chunks(
+            _atomic_payload(0xC4, b"\x09\x00\x00\x00"),
+            codec_cip.CIP_SERVICE_READ_TAG,
+            1,
+        )
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_int("MyDint") == (False, None)
+    assert client.connected is False
+    assert client.read_int("MyDint") == (True, 9)
+    assert client.connected is True
+    sent = bytes(scripted.sent)
+    assert sent.count(codec_cip.build_register_session()) == 2
+    assert sent.count(b"\x5b\x02\x20\x06\x24\x01\x0a\x0e") == 2
+
+
 def test_connected_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """connected 写:类型发现读 + SendUnitData 写(回显 0x4D)。"""
     monkeypatch.setattr(

@@ -49,7 +49,7 @@
 | 欧姆龙 | NJ/NX CIP(unconnected) | | | BOOL 数组按元素访问(应答类型自描述,回 DWORD 时按 Logix `//32` 回退)与 STRING(`len(u32)+字符`,写入回带模板号)待真机核证 |
 | 欧姆龙 | NJ/NX CIP(connected, Forward Open) | | | |
 | 罗克韦尔 | EtherNet/IP(unconnected) | | | 0x0A 多服务包自动拆包预算(≤32 条 / ≤480B)待真机核证(connected Large 4002 下 480B 偏保守,仅影响拆包次数) |
-| 罗克韦尔 | EtherNet/IP(connected, Forward Open) | | | |
+| 罗克韦尔 | EtherNet/IP(connected, Forward Open) | | | RPI 默认 100ms(`rpi_us` 可覆盖)、CIP 0x01/0x07 断线重连、Forward Close 应答解析待真机核证 |
 | 倍福 | TwinCAT ADS | | | transport 类错误码 0x705/0x706/0x725 分流(断线惰性重连)待真机核证 |
 | 西门子 | S7-300/1200/1500 | | | STRING/WSTRING 读超长按 `length` 截断、写保留 PLC 侧声明长(超声明长拒绝);优化块访问错误提示、PUT/GET 缺失文本细分待真机核证 |
 | 汇川 | H3U/H5U Modbus TCP | | | |
