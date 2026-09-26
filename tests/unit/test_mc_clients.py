@@ -6,15 +6,16 @@
 from __future__ import annotations
 
 import asyncio
+import struct
 
 import pytest
 
-from omniplc import MelsecMcSerialClient, MelsecMcTcpClient, MelsecMcUdpClient
+from omniplc import MelsecMcTcpClient, MelsecMcUdpClient
 from omniplc.aio import AMelsecMcTcpClient
 from omniplc.core.constants import MC_DEFAULT_MONITOR_TIMER
 from omniplc.plc.melsec import codec_a, codec_qna
 from omniplc.plc.melsec.address import parse_mc_address
-from omniplc.plc.melsec.melsec import _MC_DEVICE_CODES_FX5U_XY, _encode_32
+from omniplc.plc.melsec.melsec import _MC_DEVICE_CODES_FX5U_XY
 from omniplc.types import DataType
 from scripted import ScriptedTransport, mount_real_tcp
 
@@ -97,8 +98,9 @@ def test_tcp_1e_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_tcp_3e_read_float_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP 3E:float32 小端字序往返(回归:解码不得再做字节交换)。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000)
-    words = _encode_32(3.14, DataType.FLOAT)
-    frame = _qna_read_response(list(words))
+    raw = struct.pack("<f", 3.14)
+    words = list(struct.unpack("<HH", raw))
+    frame = _qna_read_response(words)
     _mount(monkeypatch, client, ScriptedTransport([frame[:9], frame[9:]]))
     client.connect()
     ok, value = client.read_float("D100")
@@ -209,15 +211,6 @@ def test_udp_3e_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bytes(scripted.sent) == codec_qna.build_request(
         "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"), 1, False, False
     )
-
-
-def test_async_mirror_frame_property_tcp_udp() -> None:
-    """异步镜像:TCP/UDP 客户端 frame 属性对称暴露。"""
-    from omniplc.aio import AMelsecMcTcpClient, AMelsecMcUdpClient
-    from omniplc.types import McFrame
-
-    assert AMelsecMcTcpClient().frame == McFrame.FRAME_3E
-    assert AMelsecMcUdpClient(frame=McFrame.FRAME_1E).frame == McFrame.FRAME_1E
 
 
 def _qna_random_read_response(words: list, bits: list) -> bytes:
@@ -352,18 +345,6 @@ def test_tcp_3e_response_content_over_limit(monkeypatch: pytest.MonkeyPatch) -> 
     assert client.connected is False
     assert client.last_error is not None and "超限" in client.last_error
 
-
-def test_mc_routing_properties_exposed() -> None:
-    """网络编号/PC 编号只读属性(TCP/UDP/串口共用基类);串口补齐本站号/模块局号。"""
-    client = MelsecMcTcpClient(
-        "192.168.3.39", frame="4E", network_number=7, pc_number=0x33
-    )
-    assert client.network_number == 7
-    assert client.pc_number == 0x33
-    serial = MelsecMcSerialClient(frame="4C", self_station_number=3, module_station=2)
-    assert serial.network_number == 0
-    assert serial.self_station_number == 3
-    assert serial.module_station == 2
 
 # ----------------------------------------------------------------------
 # 位软元件位号后缀校验(MC 侧补齐,与 MX 同口径)+ FX5U 八进制

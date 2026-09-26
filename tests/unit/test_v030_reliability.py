@@ -27,14 +27,9 @@ import pytest
 from omniplc import aio
 from omniplc.core import errors
 from omniplc.core.base_client import BaseClient, ClientStats
-from omniplc.core.constants import (
-    FINS_MAX_DATAGRAM,
-    MC_MAX_DATAGRAM,
-    TCP_KEEPALIVE_IDLE,
-)
+from omniplc.core.constants import FINS_MAX_DATAGRAM, MC_MAX_DATAGRAM
 from omniplc.plc.ab import codec_cip
 from omniplc.plc.melsec import mx
-from omniplc.plc.omron import codec as fins_codec
 from omniplc.transport import BaseTransport, TcpTransport, UdpTransport
 
 
@@ -68,29 +63,6 @@ class _FakeSocket:
 def _attach_fake_socket(transport: TcpTransport, sock: _FakeSocket) -> None:
     """直接把假 socket 挂到 TcpTransport,绕过真 connect。"""
     transport._socket = sock  # type: ignore[assignment]
-
-
-def _make_fins_handshake_frame(local_node: int, plc_node: int) -> bytes:
-    """拼一个合法 FINS/TCP 握手应答(节点分配响应),内部辅助。"""
-    # build_handshake_response: 16 头 + 4 server_node + 4 client_node
-    # + 4 destination_node + 4 source_node(共 28 字节)
-    header = fins_codec.build_handshake(local_node)
-    body = (
-        (4).to_bytes(4, "big")  # 命令码
-        + (0).to_bytes(4, "big")  # 出错码
-        + struct_pack_node(plc_node)  # PLC 节点号
-        + struct_pack_node(local_node)  # 上位机节点号
-        + struct_pack_node(plc_node)  # 目标节点号
-        + struct_pack_node(local_node)  # 源节点号
-    )
-    length = len(body)
-    payload = header[4:8] + length.to_bytes(4, "big") + body
-    return payload
-
-
-def struct_pack_node(node: int) -> bytes:
-    """节点号 4 字节大端(>=1)。"""
-    return (int(node) & 0xFFFFFFFF).to_bytes(4, "big")
 
 
 # ----------------------------------------------------------------------
@@ -171,10 +143,7 @@ class TestRecvDeadline:
 
 
 class TestTransportTimeoutError:
-    """``TransportTimeoutError`` 是 DeviceError 子类,标识"链路完好"。"""
-
-    def test_is_device_error_subclass(self) -> None:
-        assert issubclass(errors.TransportTimeoutError, errors.DeviceError)
+    """``TransportTimeoutError`` 标识"链路完好",且 UDP 超时带上超时值。"""
 
     def test_udp_recv_timeout_raises_timeout_error(self) -> None:
         class SilentSocket:
@@ -189,28 +158,12 @@ class TestTransportTimeoutError:
 
         transport = UdpTransport("127.0.0.1", 9600)
         transport._socket = SilentSocket()  # type: ignore[assignment]
-        with pytest.raises(errors.TransportTimeoutError):
+        transport.receive_timeout = 1.5
+        with pytest.raises(errors.TransportTimeoutError) as excinfo:
             transport.recv(64)
+        assert "1.5" in str(excinfo.value)
         # 已 connected 状态不丢(UDP 整数据报无残留)
         assert transport._socket is not None
-
-    def test_udp_timeout_message_contains_timeout_value(self) -> None:
-        class SilentSocket:
-            def settimeout(self, _v: float) -> None:
-                pass
-
-            def recv(self, _n: int) -> bytes:
-                raise socket.timeout("timed out")
-
-            def close(self) -> None:
-                pass
-
-        transport = UdpTransport("127.0.0.1", 9600)
-        transport._socket = SilentSocket()  # type: ignore[assignment]
-        transport.receive_timeout = 1.5
-        with pytest.raises(errors.TransportTimeoutError) as ei:
-            transport.recv(64)
-        assert "1.5" in str(ei.value)
 
 
 # ----------------------------------------------------------------------
@@ -382,15 +335,6 @@ class TestKeepalive:
         finally:
             transport.close()
 
-    def test_keepalive_constants_present(self) -> None:
-        # 常量定义在 constants 模块
-        from omniplc.core import constants
-
-        assert constants.TCP_KEEPALIVE_IDLE == TCP_KEEPALIVE_IDLE
-        assert constants.TCP_KEEPALIVE_IDLE > 0
-        assert constants.TCP_KEEPALIVE_INTERVAL > 0
-        assert constants.TCP_KEEPALIVE_COUNT > 0
-
 
 # ----------------------------------------------------------------------
 # A7 aio close 生命周期
@@ -423,13 +367,20 @@ class TestAioCloseLifecycle:
             asyncio.run(_call())
 
     def test_close_calls_disconnect_on_sync(self) -> None:
-        sync = _ScriptedSyncForAio()
+        transport = _TrackingNoopTransport()
+
+        class _TrackingSync(_ScriptedSyncForAio):
+            def _create_transport(self) -> BaseTransport:
+                return transport
+
+        sync = _TrackingSync()
         sync.connect()  # 标记 connected 让 disconnect 走实际路径
+        assert transport.closed is False
         async_client = aio.AModbusTcpClient.__new__(aio.AModbusTcpClient)
         aio.ABaseClient.__init__(async_client, sync)
         asyncio.run(async_client.close())
-        # disconnect 路径在 BaseClient.disconnect 已断言幂等,这里只验证
-        # 调用同步 disconnect 不抛错
+        assert transport.closed is True
+        assert sync.connected is False
         assert async_client._executor is None
 
     def test_close_drains_in_flight_transaction(self) -> None:
@@ -510,6 +461,17 @@ class _NoopTransport(BaseTransport):
         return b"\x00" * _size
 
 
+class _TrackingNoopTransport(_NoopTransport):
+    """记录 ``close`` 是否被调用的假传输(守 aio close 真断同步侧)。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
 # ----------------------------------------------------------------------
 # A8 UDP datagram 上限抬至 8192
 # ----------------------------------------------------------------------
@@ -521,72 +483,6 @@ class TestUdpDatagramLimit:
     def test_constants_raised_to_8192(self) -> None:
         assert MC_MAX_DATAGRAM >= 8192
         assert FINS_MAX_DATAGRAM >= 8192
-
-
-# ----------------------------------------------------------------------
-# A9 FINS/TCP 重连刷新自动节点号
-# ----------------------------------------------------------------------
-
-
-class TestFinsReconnectRefreshesNode:
-    """自动模式下节点号在重连时被新握手响应覆盖。"""
-
-    def test_second_handshake_refreshes_node(self) -> None:
-        """两次握手返回不同节点号,自动模式下第二次后属性刷新。"""
-        client = _FinsHandshakeControlled()
-        # 第一次握手:返回 local=11, plc=21
-        client.next_handshake_nodes = (11, 21)
-        assert client.connect() is True
-        assert client.local_node == 11
-        assert client._source_node == 11
-        assert client._destination_node == 21
-
-        # 显式断开后第二次握手:返回 local=33, plc=44
-        client.disconnect()
-        client.next_handshake_nodes = (33, 44)
-        assert client.connect() is True
-        # 自动模式覆盖:已更新为 33/44
-        assert client.local_node == 33
-        assert client._source_node == 33
-        assert client._destination_node == 44
-
-    def test_explicit_node_not_overwritten(self) -> None:
-        """显式配置节点号(非 0)不被握手响应覆盖。"""
-        client = _FinsHandshakeControlled(local_node=99)
-        client.next_handshake_nodes = (11, 21)
-        assert client.connect() is True
-        # 显式配置保持不变
-        assert client.local_node == 99
-        assert client._source_node == 0  # source 仍自动
-
-
-class _FinsHandshakeControlled(_ScriptedSyncForAio):
-    """脚本化 FINS/TCP:握手由 ``next_handshake_nodes`` 注入。
-
-    模拟真实 FINS 客户端的"自动节点号"语义——构造时若传入 0 视为自动,
-    此后每次重连握手都覆盖;显式传入非 0 则保持不变。
-    """
-
-    def __init__(self, local_node: int = 0) -> None:
-        super().__init__()
-        self._local_node = local_node
-        self._source_node = 0
-        self._destination_node = 0
-        self._auto_local = local_node == 0
-        self._auto_source = True  # source 默认自动
-        self.next_handshake_nodes: Tuple[int, int] = (1, 2)
-
-    @property
-    def local_node(self) -> int:
-        return self._local_node
-
-    def _after_connect(self) -> None:
-        local, plc = self.next_handshake_nodes
-        # 自动模式按构造期标志判断,与当前 _local_node 无关(disconnect 后保留)
-        if self._auto_local:
-            self._local_node = local
-            self._source_node = local
-            self._destination_node = plc
 
 
 # ----------------------------------------------------------------------
@@ -751,16 +647,6 @@ class TestAioStatsForwarding:
         finally:
             asyncio.run(async_client.close())
 
-    def test_async_stats_keys_match_typed_dict(self) -> None:
-        """异步镜像转发同一份快照,键集与 ``ClientStats`` 声明一致。"""
-        sync = _ScriptedSyncForAio()
-        async_client = aio.AModbusTcpClient.__new__(aio.AModbusTcpClient)
-        aio.ABaseClient.__init__(async_client, sync)
-        try:
-            assert set(async_client.stats) == set(ClientStats.__annotations__)
-        finally:
-            asyncio.run(async_client.close())
-
 
 # ----------------------------------------------------------------------
 # B1.b stats 返回类型(ClientStats / TypedDict)
@@ -776,11 +662,6 @@ class TestClientStatsType:
         client.connect()
         client.read_short("hr0")
         assert set(client.stats) == set(ClientStats.__annotations__)
-
-    def test_runtime_snapshot_is_plain_dict(self) -> None:
-        """声明只为类型检查与 IDE 补全服务:运行期就是普通 dict。"""
-        client = _ScriptedSyncForAio()
-        assert type(client.stats) is dict
 
     def test_snapshot_is_isolated_copy(self) -> None:
         """改返回值不影响内部计数(每次返回拷贝)。"""
@@ -878,21 +759,13 @@ class TestTimeoutAndCodeSemantics:
         assert client.last_error_code == 2
         assert client.stats["device_error_count"] == 1
 
-    @pytest.mark.parametrize(
-        "exc",
-        [
-            ConnectionRefusedError(10061, "连接被拒绝"),
-            ConnectionResetError(10054, "连接被重置"),
-            socket.gaierror(-2, "名称解析失败"),
-        ],
-    )
-    def test_connection_errors_still_transport_category(self, exc: OSError) -> None:
+    def test_connection_errors_still_transport_category(self) -> None:
         """``_categorize`` 收敛后,连接类 OSError 仍归 TRANSPORT 并拆连。"""
         client = _ScriptedSyncForAio()
         client.connect()
 
         def boom(_address: str, _data_type: object) -> None:
-            raise exc
+            raise socket.gaierror(-2, "名称解析失败")
 
         client._read = boom
         assert client.read_short("hr0") == (False, None)

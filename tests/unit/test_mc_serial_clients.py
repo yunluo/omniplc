@@ -250,7 +250,7 @@ def test_4c_read_response_golden_vector() -> None:
         "1003"
         "3446"
     )
-    assert _chunks_4c(wire)  # 收包步长切分自检:附加码长度域为 3 字节
+    assert wire[2:5] == b"\x10\x10\x00"
     logical = b"\x10\x00" + wire[5:]
     assert codec_serial.parse_4c_response(logical, 2, False, True) == [0x1234, 0x0002]
 
@@ -586,8 +586,14 @@ def test_route_parameter_validation() -> None:
         MelsecMcSerialClient(pc_number=4)
     with pytest.raises(ValueError):
         MelsecMcSerialClient(module_io=0x10000)
-    client = MelsecMcSerialClient(station_number=31, pc_number=3)
+    client = MelsecMcSerialClient(
+        station_number=31, pc_number=3, self_station_number=3, module_station=2
+    )
     assert client.station_number == 31 and client.pc_number == 3
+    assert client.network_number == 0
+    assert client.self_station_number == 3
+    assert client.module_station == 2
+    assert MelsecMcTcpClient("192.168.3.39", network_number=7).network_number == 7
 
 
 def test_create_transport_requires_serial_config() -> None:

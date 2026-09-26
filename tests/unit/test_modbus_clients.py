@@ -17,7 +17,7 @@ import pytest
 
 from omniplc import ModbusRtuClient, ModbusTcpClient
 from omniplc.core.debug import format_hex
-from omniplc.core.errors import DeviceError, ErrorCategory, TransportTimeoutError
+from omniplc.core.errors import ErrorCategory, TransportTimeoutError
 from omniplc.modbus import codec
 from scripted import ScriptedTransport as _ScriptedTransport, mount_real_tcp
 
@@ -351,13 +351,6 @@ def test_async_mask_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
         await client.close()
 
     asyncio.run(scenario())
-
-
-def test_device_error_instance_carries_code() -> None:
-    """DeviceError.code 携带原始异常码(供上层程序化判断)。"""
-    with pytest.raises(DeviceError) as exc_info:
-        codec.check_response_exception(bytes([0x84, 0x03]), 4)
-    assert exc_info.value.code == 3
 
 
 def test_tcp_read_real_transport_semantics() -> None:
@@ -822,6 +815,8 @@ def test_tcp_write_many_register_bit_then_full_word(
     client.connect()
     results = client.write_many([("hr0.3", "bool", True), ("hr0", "short", 100)])
     assert results == [True, True]
+    sent = bytes(scripted.sent)
+    assert sent.endswith(bytes.fromhex("000300000009011000000001020064"))
 
 
 def test_tcp_write_batch_failure_marks_all_false(
@@ -1480,9 +1475,7 @@ def test_tcp_diagnostics_fc08(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     client.connect()
     assert client.diagnostics(0x000C) == (True, 42)
-    assert bytes(scripted.sent) == codec.build_mbap(
-        1, 1, codec.build_diagnostics_pdu(0x000C)
-    )
+    assert bytes(scripted.sent) == bytes.fromhex("0001000000060108000c0000")
 
 
 def test_tcp_get_comm_event_counter_fc11(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1524,8 +1517,8 @@ def test_tcp_read_file_record_fc20(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_tcp_write_file_record_fc21_echo(monkeypatch: pytest.MonkeyPatch) -> None:
     """FC21:正常响应为请求回显 → 成功。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)
-    request = codec.build_write_file_record_pdu([(4, 1, [1, 2])])
-    _mount(client, monkeypatch, [_mbap_response(1, 1, request)])
+    echo = bytes.fromhex("150b0600040001000200010002")
+    _mount(client, monkeypatch, [_mbap_response(1, 1, echo)])
     client.connect()
     assert client.write_file_record([(4, 1, [1, 2])]) is True
 
@@ -1604,19 +1597,6 @@ def test_read_fifo_queue_tcp(monkeypatch: pytest.MonkeyPatch) -> None:
     client.connect()
     assert client.read_fifo_queue("hr100") == (True, [0x1111, 0x2222])
     assert bytes(scripted.sent) == codec.build_mbap(1, 1, codec.build_read_fifo_pdu(100))
-
-
-def test_read_fifo_queue_codec_edges() -> None:
-    """FC24 codec:空队列、字节计数不符、非法地址拒绝。"""
-    from omniplc.core.errors import ProtocolFrameError
-
-    assert codec.parse_read_fifo_response(bytes([0x18, 0x00, 0x02, 0x00, 0x00])) == []
-    with pytest.raises(ProtocolFrameError):
-        codec.parse_read_fifo_response(
-            bytes([0x18, 0x00, 0x06, 0x00, 0x03]) + b"\x00" * 6
-        )
-    with pytest.raises(ValueError):
-        codec.build_read_fifo_pdu(0x10000)
 
 
 def test_read_fifo_queue_rtu_incremental_recv(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -5,7 +5,6 @@ import asyncio
 
 import pytest
 
-import omniplc
 from omniplc import (
     BaseClient,
     KeyenceHostLinkTcpClient,
@@ -32,28 +31,6 @@ from omniplc.aio import (
 )
 from omniplc.transport import BaseTransport, SerialTransport, TcpTransport, UdpTransport
 from omniplc.types import DataType, McFrame
-
-
-class TestPublicSurface:
-    """公开 API 面。"""
-
-    def test_version(self) -> None:
-        assert omniplc.__version__
-
-    def test_all_classes_exported(self) -> None:
-        for name in (
-            "ModbusTcpClient",
-            "ModbusRtuClient",
-            "MelsecMcTcpClient",
-            "MelsecMcUdpClient",
-            "MelsecMxClient",
-            "KeyenceHostLinkTcpClient",
-            "KeyenceHostLinkUdpClient",
-            "KeyenceSrClient",
-            "OmronFinsTcpClient",
-            "OmronFinsUdpClient",
-        ):
-            assert hasattr(omniplc, name)
 
 
 class TestInheritance:

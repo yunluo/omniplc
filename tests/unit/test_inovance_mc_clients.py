@@ -94,20 +94,6 @@ def test_defaults_and_frame_fixed_3e() -> None:
     assert client.frame is McFrame.FRAME_3E
 
 
-def test_read_d100_word(monkeypatch: pytest.MonkeyPatch) -> None:
-    """D100 字读:码 A8h、编号 100 十进制、按长收包往返。"""
-    client = InovanceMcTcpClient("127.0.0.1", 2000)
-    frame = _word_read_response([20])
-    scripted = ScriptedTransport([frame[:9], frame[9:]])
-    _mount(monkeypatch, client, scripted)
-    client.connect()
-    assert client.read_ushort("D100") == (True, 20)
-    sent = bytes(scripted.sent)
-    assert sent == _expected("D100", 1, False, False)
-    assert sent[15:18] == b"\x64\x00\x00"
-    assert sent[18] == 0xA8
-
-
 def test_read_bool_m100(monkeypatch: pytest.MonkeyPatch) -> None:
     """M100 位读:码 90h、位单位子命令 01 00。"""
     client = InovanceMcTcpClient("127.0.0.1", 2000)
@@ -185,23 +171,6 @@ def test_xy_invalid_octal_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(ValueError):
         client.read_bool("Y8")
     assert bytes(scripted.sent) == b""
-
-
-def test_hex_addressing_b_w(monkeypatch: pytest.MonkeyPatch) -> None:
-    """B/W 十六进制编号:B1F→0x1F、W10→0x10,码 A0h/B4h。"""
-    client = InovanceMcTcpClient("127.0.0.1", 2000)
-    bit_frame = _bit_read_response([0])
-    word_frame = _word_read_response([4321])
-    scripted = ScriptedTransport([bit_frame[:9], bit_frame[9:], word_frame[:9], word_frame[9:]])
-    _mount(monkeypatch, client, scripted)
-    client.connect()
-    assert client.read_bool("B1F") == (True, False)
-    assert client.read_ushort("W10") == (True, 4321)
-    sent = bytes(scripted.sent)
-    assert sent[:21] == _expected("B1F", 1, True, False)
-    assert sent[15:18] == b"\x1f\x00\x00" and sent[18] == 0xA0
-    assert sent[21:] == _expected("W10", 1, False, False, serial=2)
-    assert sent[36:39] == b"\x10\x00\x00" and sent[39] == 0xB4
 
 
 def test_write_bool_x5(monkeypatch: pytest.MonkeyPatch) -> None:

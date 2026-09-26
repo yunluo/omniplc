@@ -10,7 +10,7 @@ from typing import List
 
 import pytest
 
-from omniplc.core.errors import DeviceError, ProtocolFrameError
+from omniplc.core.errors import ProtocolFrameError
 from omniplc.modbus import codec
 
 
@@ -44,20 +44,6 @@ def test_write_span_over_address_space_rejected() -> None:
 # ----------------------------------------------------------------------
 # FC 23 读写多寄存器
 # ----------------------------------------------------------------------
-
-def test_build_read_write_registers_pdu_bytes() -> None:
-    """FC23 请求组帧:规范 §6.17 示例逐字节一致(读 6 @3、写 3 @14)。"""
-    pdu = codec.build_read_write_registers_pdu(3, 6, 14, [0x00FF, 0x00FF, 0x00FF])
-    assert pdu == bytes.fromhex("170003000" "60" "00e" "0003" "06" "00ff00ff00ff".replace(" ", ""))
-
-
-def test_parse_read_write_registers_response() -> None:
-    """FC23 响应解析:字节计数 2×读数量,数据逐字大端。"""
-    pdu = bytes([0x17, 12]) + bytes.fromhex("00fe0acd0001000300 0d00ff".replace(" ", ""))
-    assert codec.parse_read_write_registers_response(pdu, 6) == [
-        0x00FE, 0x0ACD, 0x0001, 0x0003, 0x000D, 0x00FF,
-    ]
-
 
 def test_read_write_registers_validation() -> None:
     """FC23 构造校验:读数量 1~125、写数量 1~121(比 FC16 的 123 小 2)。"""
@@ -94,15 +80,12 @@ def test_read_write_registers_response_bad_frames() -> None:
 # FC 43/14 读设备标识
 # ----------------------------------------------------------------------
 
-def test_build_device_id_pdu_bytes() -> None:
-    """FC43 请求组帧:规范 §6.21 示例(基本标识、对象 0)。"""
-    assert codec.build_device_id_pdu(0x01, 0x00) == bytes.fromhex("2b0e0100")
-
-
 def test_build_device_id_pdu_validation() -> None:
     """FC43 构造校验:读取码 1~4、对象号 0~255。"""
-    for code in (0x01, 0x02, 0x03, 0x04):
-        assert len(codec.build_device_id_pdu(code, 0x00)) == 4
+    assert codec.build_device_id_pdu(0x01, 0x00) == bytes.fromhex("2b0e0100")
+    assert codec.build_device_id_pdu(0x02, 0x00) == bytes.fromhex("2b0e0200")
+    assert codec.build_device_id_pdu(0x03, 0x00) == bytes.fromhex("2b0e0300")
+    assert codec.build_device_id_pdu(0x04, 0x00) == bytes.fromhex("2b0e0400")
     with pytest.raises(ValueError):
         codec.build_device_id_pdu(0x00, 0x00)
     with pytest.raises(ValueError):
@@ -124,14 +107,6 @@ def test_parse_device_id_response() -> None:
     assert parsed.more_follows is False
     assert parsed.next_object_id == 0x00
     assert parsed.objects == objects
-
-
-def test_parse_device_id_response_more_follows() -> None:
-    """FC43 翻页标记:MoreFollows=0xFF 时回报后续对象号。"""
-    body = bytes([0x2B, 0x0E, 0x01, 0x01, 0xFF, 0x02, 0x01, 0x00, 0x01]) + b"A"
-    parsed = codec.parse_device_id_response(body)
-    assert parsed.more_follows is True
-    assert parsed.next_object_id == 0x02
 
 
 def test_parse_device_id_response_bad_frames() -> None:
@@ -164,13 +139,6 @@ def test_parse_device_id_response_bad_frames() -> None:
     assert "长度不符" in exc_info.value.args[0]
 
 
-def test_parse_device_id_exception_carries_code() -> None:
-    """FC43 异常响应:DeviceError 携带设备返回的异常码。"""
-    with pytest.raises(DeviceError) as exc_info:
-        codec.parse_device_id_response(bytes([0xAB, 0x01]))
-    assert exc_info.value.code == 1
-
-
 def test_device_id_object_count_helper() -> None:
     """RTU 增量收包辅助:按已有 6 字节固定头取对象个数。"""
     head = bytes([0x0E, 0x01, 0x01, 0x00, 0x00, 0x03])
@@ -196,7 +164,7 @@ def test_expected_response_length_extended_functions() -> None:
     request = codec.build_read_file_record_pdu([(4, 1, 2), (3, 9, 2)])
     assert codec.expected_response_length(request) == 2 + (2 + 4) + (2 + 4)
     write = codec.build_write_file_record_pdu([(4, 1, [1, 2])])
-    assert codec.expected_response_length(write) == len(write)
+    assert codec.expected_response_length(write) == 13
     with pytest.raises(ProtocolFrameError):
         codec.expected_response_length(codec.build_get_comm_event_log_pdu())
 

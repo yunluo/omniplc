@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import socket
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, List, Optional, Sequence
 
 import pytest
 
@@ -280,13 +280,18 @@ def test_close_waits_for_in_flight_transaction() -> None:
 
 
 def test_typed_calls_share_one_transaction_template() -> None:
-    """类型化调用与 ``read``/``write`` 共用同一事务模板(计数与错误口径一致)。"""
-    transport = FakeTransport(_chunks(_RESP_TID1) + ["reset"])
-    client = _client(transport, retries=0)
+    """类型化调用与 ``read`` 共用同一事务模板:同地址/类型请求帧逐字节相同。"""
+    typed_transport = FakeTransport(_chunks(_RESP_TID1))
+    typed_client = _client(typed_transport, retries=0)
+    generic_transport = FakeTransport(_chunks(_RESP_TID1))
+    generic_client = _client(generic_transport, retries=0)
 
-    assert asyncio.run(client.read("hr0", DataType.USHORT)) == (True, 20)
-    assert asyncio.run(client.read_short("hr0")) == (False, None)
-    stats: Dict[str, Any] = dict(client.stats)
-    assert stats["transactions"] == 2
-    assert stats["error_count"] == 1
-    asyncio.run(client.close())
+    assert asyncio.run(typed_client.read_ushort("hr0")) == (True, 20)
+    assert asyncio.run(generic_client.read("hr0", DataType.USHORT)) == (True, 20)
+
+    assert len(typed_transport.sent) == 1
+    assert len(generic_transport.sent) == 1
+    assert typed_transport.sent[0] == generic_transport.sent[0], "类型化与泛化请求帧必须同模板"
+
+    asyncio.run(typed_client.close())
+    asyncio.run(generic_client.close())

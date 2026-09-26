@@ -106,8 +106,13 @@ class TestLazyReconnect:
 
     def test_disconnect_idempotent(self) -> None:
         client = _ScriptedClient()
+        assert client.connect() is True
+        transport = client.transports[0]
         assert client.disconnect() is True
         assert client.disconnect() is True
+        assert client.connected is False
+        assert client._transport is None
+        assert transport.close_calls == 1
 
 
 class TestStringSupport:
@@ -302,9 +307,7 @@ class TestTagScaling:
         client.bind_tags(TagTable([Tag("设定", "hr0", "float", scale=2.0, offset=10)]))
         ok = client.write_tag("设定", 30.0)
         assert ok is True
-        # 写入前逆缩放:(30 - 10) / 2 = 10,写入调用的值无法直接观察,
-        # 这里只验证成功路径
-        assert ok is True
+        assert client.last_written == 10
 
     def test_unbound_name_raises(self) -> None:
         client = _ScriptedClient()

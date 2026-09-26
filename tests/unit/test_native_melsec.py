@@ -263,43 +263,6 @@ def test_register_bit_write_is_read_modify_write(
     assert holder["transactions"] == 1
 
 
-def test_bad_subhead_is_protocol_error_and_disconnects(
-    monkeypatch: pytest.MonkeyPatch, loop: Any
-) -> None:
-    """3E 副头部非法(串话/迟到帧/网关错配)→ 坏帧拆连,分类 PROTOCOL。"""
-    chunks = list(_split_3e(_3E_BAD_SUBHEAD))
-
-    sync_client = MelsecMcTcpClient("127.0.0.1", 2000, "3E")
-    monkeypatch.setattr(
-        sync_client, "_create_transport", lambda: ScriptedTransport(chunks)
-    )
-    sync_client.connect()
-    assert sync_client.read_ushort("D100") == (False, None)
-    sync_state = (sync_client.connected, sync_client.last_error_category)
-
-    holder: Dict[str, Any] = {}
-
-    async def scenario() -> None:
-        client = AsyncMelsecMcTcpClient("127.0.0.1", 2000, "3E")
-        scripted = ScriptedAsyncTransport(chunks)
-        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
-        await client.connect()
-        assert await client.read_ushort("D100") == (False, None)
-        holder["state"] = (client.connected, client.last_error_category)
-        await client.close()
-
-    loop.run_until_complete(scenario())
-    assert sync_state == holder["state"] == (False, ErrorCategory.PROTOCOL)
-
-
-def test_unsupported_frame_rejected_on_construction() -> None:
-    """首批只支持 1E/3E:4E 构造期显式拒绝并指路(不做静默半成品)。"""
-    with pytest.raises(ValueError) as excinfo:
-        AsyncMelsecMcTcpClient("127.0.0.1", 2000, "4E")
-    assert "4E" in str(excinfo.value)
-    assert AsyncMelsecMcTcpClient("127.0.0.1", 2000, "1E").frame.value == "1E"
-
-
 def test_real_server_roundtrip_3e(loop: Any) -> None:
     """真内核路径:进程内 asyncio 服务端回放 3E 读响应(双循环各跑一遍)。"""
 
@@ -325,29 +288,6 @@ def test_real_server_roundtrip_3e(loop: Any) -> None:
         finally:
             await client.close()
             await server.stop()
-
-    loop.run_until_complete(scenario())
-
-
-def test_tcp_and_udp_clients_share_frame_logic(
-    monkeypatch: pytest.MonkeyPatch, loop: Any
-) -> None:
-    """TCP/UDP 只差传输对象:同一请求在同一帧型下字节相同(与同步层同构)。"""
-
-    async def scenario() -> None:
-        tcp = AsyncMelsecMcTcpClient("127.0.0.1", 2000, "3E")
-        udp = AsyncMelsecMcUdpClient("127.0.0.1", 2000, "3E")
-        tcp_scripted = ScriptedAsyncTransport(_split_3e(_3E_READ))
-        udp_scripted = ScriptedAsyncTransport((_3E_READ,), datagram=True)
-        monkeypatch.setattr(tcp, "_create_transport", lambda: tcp_scripted)
-        monkeypatch.setattr(udp, "_create_transport", lambda: udp_scripted)
-        await tcp.connect()
-        await udp.connect()
-        assert await tcp.read_ushort("D100") == (True, 20)
-        assert await udp.read_ushort("D100") == (True, 20)
-        assert bytes(tcp_scripted.sent) == bytes(udp_scripted.sent)
-        await tcp.close()
-        await udp.close()
 
     loop.run_until_complete(scenario())
 

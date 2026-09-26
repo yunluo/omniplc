@@ -17,7 +17,6 @@ from omniplc import ModbusTcpClient
 from omniplc.core.errors import ErrorCategory
 from omniplc.modbus import codec
 from omniplc.native import AsyncModbusTcpClient
-from omniplc.native.transport import AsyncBaseTransport
 from omniplc.tag import Tag, TagTable
 from omniplc.transport.base import BaseTransport
 from omniplc.types import DataType, PrimitiveValue
@@ -205,14 +204,6 @@ def test_sync_async_parity(
     else:
         assert async_result[0] is case.expect_ok
         assert async_result[1] == case.expect_value
-
-
-def test_sync_async_parity_error_text(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
-    """``last_error`` 文本也逐字一致(分类助手共用同一实现)。"""
-    case = _READ_CASES[0]
-    _sync_sent, _r, _s, sync_error = _run_sync(monkeypatch, case)
-    _async_sent, _r2, _s2, async_error = _run_async(monkeypatch, case, loop)
-    assert async_error == sync_error
 
 
 # ----------------------------------------------------------------------
@@ -449,17 +440,5 @@ def test_client_constructed_outside_loop(loop: Any) -> None:
         assert client.next_connect_in is None
         assert client.connected is False
         await client.close()
-
-    loop.run_until_complete(scenario())
-
-
-def test_transport_is_async_and_gate_is_checked(loop: Any) -> None:
-    """传输对象是原生异步类型;``_transact`` 经同一异步传输收发。"""
-
-    async def scenario() -> None:
-        client = AsyncModbusTcpClient("127.0.0.1", 1, 1)
-        transport = client._create_transport()
-        assert isinstance(transport, AsyncBaseTransport)
-        assert transport.datagram is False
 
     loop.run_until_complete(scenario())

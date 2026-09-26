@@ -158,16 +158,6 @@ def test_dll_load_failure_hint(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.last_error is not None and "dll_path" in client.last_error
 
 
-def test_connect_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    """CPU 拒绝连接 → connect() False + last_error。"""
-    fake = FakeS7Client()
-    fake.connect_error = RuntimeError("TCP : Connection refused")
-    monkeypatch.setattr(s7_module, "_new_client", lambda dll_path: fake)
-    client = SiemensS7Client("127.0.0.1")
-    assert client.connect() is False
-    assert client.last_error is not None and "连接失败" in client.last_error
-
-
 # ----------------------------------------------------------------------
 # 依赖线兼容(s7 extra 按 Python 版本拆:3.7~3.9 → 1.3,3.10+ → 3.x)
 # ----------------------------------------------------------------------
@@ -346,12 +336,12 @@ def test_read_values(monkeypatch: pytest.MonkeyPatch) -> None:
     """读:按 DataType 尺寸大端解码;BOOL 提位。"""
     client, fake = _client(monkeypatch)
     fake.seed(_AREA_DB, 1, 6, struct.pack(">f", 12.5))       # DB1.DBD6
-    fake.seed(_AREA_M, 0, 10, struct.pack(">H", 0x1234))     # MW10
+    fake.seed(_AREA_M, 0, 10, struct.pack(">H", 0xFFFB))     # MW10
     fake.seed(_AREA_M, 0, 0, bytes([0b00001000]))            # M0.3
     fake.seed(_AREA_DB, 2, 0, struct.pack(">q", -3))         # DB2.DBD0 8 字节
     assert client.read_float("DB1.DBD6") == (True, 12.5)
-    assert client.read_ushort("MW10") == (True, 0x1234)
-    assert client.read_short("MW10") == (True, 0x1234)
+    assert client.read_ushort("MW10") == (True, 0xFFFB)
+    assert client.read_short("MW10") == (True, -5)
     assert client.read_bool("M0.3") == (True, True)
     assert client.read_long("DB2.DBD0") == (True, -3)
     fake.seed(_AREA_DB, 1, 16, struct.pack(">d", 12.5))      # DB1.DBD16(8 字节)

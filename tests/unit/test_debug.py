@@ -128,18 +128,17 @@ def test_udp_frames_logged(udp_echo_port: int, caplog: pytest.LogCaptureFixture)
 # ----------------------------------------------------------------------
 
 class _FakeUaNode:
-    """假 asyncua 节点:读返回预置值,写记录调用。"""
+    """假 asyncua 节点:读返回预置值。"""
 
     def __init__(self, values: dict, text: str) -> None:
         self._values = values
         self.text = text
-        self.written: list = []
 
     def read_value(self) -> object:
         return self._values[self.text]
 
     def write_value(self, value: object, variant_type: object) -> None:
-        self.written.append((value, variant_type))
+        pass
 
 
 class _FakeUaClient:
@@ -183,18 +182,13 @@ def test_opcua_ops_logged(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCap
 
 
 class _FakeAdsConnection:
-    """假 pyads Connection:读回固定值,读写均记录。"""
-
-    def __init__(self) -> None:
-        self.reads: list = []
-        self.writes: list = []
+    """假 pyads Connection:读回固定值。"""
 
     def read_by_name(self, address: str, plctype: object) -> object:
-        self.reads.append((address, plctype))
         return 3.5
 
     def write_by_name(self, address: str, value: object, plctype: object) -> None:
-        self.writes.append((address, value, plctype))
+        pass
 
 
 def test_ads_ops_logged(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:

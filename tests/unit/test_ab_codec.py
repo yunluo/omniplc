@@ -350,6 +350,7 @@ def test_forward_open_large_format() -> None:
     )
     assert request[0] == 0x5B
     large_params = struct.pack("<I", (0x4200 << 16) + 4002)
+    assert large_params == bytes.fromhex("a20f0042")
     body = request[8:]
     assert body[24:28] == large_params
     assert body[32:36] == large_params

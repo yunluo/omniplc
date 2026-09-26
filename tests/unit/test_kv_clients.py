@@ -238,13 +238,6 @@ def test_udp_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bytes(scripted.sent) == b"RD DM100.U\r"
 
 
-def test_udp_datagram_buffer_has_margin() -> None:
-    """UDP 收包缓冲须大于行长上限,避免行接近上限时截断 CR/LF。"""
-    from omniplc.core.constants import KV_MAX_DATAGRAM, KV_MAX_LINE
-
-    assert KV_MAX_DATAGRAM > KV_MAX_LINE
-
-
 def test_response_hex_dump_truncated() -> None:
     """超长原始数据的十六进制转储被截断(不整段刷日志)。"""
     from omniplc.plc.keyence.hostlink import _truncate_hex

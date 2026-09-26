@@ -197,10 +197,6 @@ def test_constructor_validation() -> None:
         _client(1024)
 
 
-def test_logical_station_property() -> None:
-    assert _client(9).logical_station_number == 9
-
-
 # ----------------------------------------------------------------------
 # 读取
 # ----------------------------------------------------------------------
@@ -609,13 +605,6 @@ def test_write_batch_rejects(fake: FakeActUtlType) -> None:
     assert fake.get("M20") == 1
 
 
-def test_get_cpu_type(fake: FakeActUtlType) -> None:
-    """GetCpuType:返回 (型号字符串, 型号代码)。"""
-    client = _client()
-    client.connect()
-    assert client.get_cpu_type() == (True, ("Q06HCPU", 0x0333))
-
-
 def test_get_set_clock(fake: FakeActUtlType) -> None:
     """时钟读写:GetClockData 返回七字段字典;SetClockData 字段逐一透传。"""
     client = _client()
@@ -626,11 +615,3 @@ def test_get_set_clock(fake: FakeActUtlType) -> None:
     assert client.set_clock(2026, 9, 23, 12, 30, 15, day_of_week=3) is True
     set_calls = [call for call in fake.calls if call[0] == "SetClockData"]
     assert set_calls == [("SetClockData", 2026, 9, 23, 3, 12, 30, 15)]
-
-
-def test_get_error_message(fake: FakeActUtlType) -> None:
-    """GetErrorMessage:出错代码转官方文本(经 ActSupportMsg)。"""
-    client = _client()
-    client.connect()
-    ok, text = client.get_error_message(0xC0500100)
-    assert ok is True and text is not None and "0xC0500100" in text

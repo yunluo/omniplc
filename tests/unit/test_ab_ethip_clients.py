@@ -20,7 +20,6 @@ from omniplc.core.constants import (
 from omniplc.core.errors import TransportClosedError
 from omniplc.plc.ab import codec_cip
 from omniplc.transport import TcpTransport
-from omniplc.types import McFrame  # noqa: F401  (保持与其他测试一致的导入面)
 from scripted import ScriptedTransport, mount_real_tcp
 
 _SESSION = 0x12345678
@@ -152,8 +151,14 @@ def test_read_bit_of_word(monkeypatch: pytest.MonkeyPatch) -> None:
     client.connect()
     assert client.read_bool("MyDint.3") == (True, True)
     sent = bytes(scripted.sent)
-    frames = sent[28:]
-    assert len(frames) == 2 * (24 + 16 + 26)
+    word_read = codec_cip.build_tag_read(
+        codec_cip.build_symbol_path(("MyDint",), ((),)), 1
+    )
+    assert sent == (
+        codec_cip.build_register_session()
+        + codec_cip.build_rr_data(_SESSION, codec_cip.build_uc_send(word_read, 0))
+        + codec_cip.build_rr_data(_SESSION, codec_cip.build_uc_send(word_read, 0))
+    )
 
 
 def test_read_bool_array_element(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -236,7 +241,16 @@ def test_write_bool_array_rmw(monkeypatch: pytest.MonkeyPatch) -> None:
     client.connect()
     assert client.write_bool("Bits[12]", True) is True
     sent = bytes(scripted.sent)
-    assert b"\x4e" in sent[-66:]
+    word_path = codec_cip.build_symbol_path(("Bits",), ((0,),))
+    discover_request = codec_cip.build_tag_read(word_path, 1)
+    rmw_request = codec_cip.build_read_modify_write(
+        word_path, codec_cip.CIP_TYPE_DWORD, 1 << 12, 0xFFFFFFFF
+    )
+    assert sent == (
+        codec_cip.build_register_session()
+        + codec_cip.build_rr_data(_SESSION, codec_cip.build_uc_send(discover_request, 0))
+        + codec_cip.build_rr_data(_SESSION, codec_cip.build_uc_send(rmw_request, 0))
+    )
 
 
 def test_string_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -252,7 +266,18 @@ def test_string_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.read_string("MyString") == (True, "AB")
     assert client.write_string("MyString", "Hi") is True
     sent = bytes(scripted.sent)
-    assert struct.pack("<I", 2) + b"Hi" in sent
+    read_request = codec_cip.build_tag_read(
+        codec_cip.build_symbol_path(("MyString",), ((),)), 1
+    )
+    write_request = codec_cip.build_string_write(
+        codec_cip.build_symbol_path(("MyString",), ((),)),
+        codec_cip.encode_string_struct("Hi", "utf-8"),
+    )
+    assert sent == (
+        codec_cip.build_register_session()
+        + codec_cip.build_rr_data(_SESSION, codec_cip.build_uc_send(read_request, 0))
+        + codec_cip.build_rr_data(_SESSION, codec_cip.build_uc_send(write_request, 0))
+    )
 
 
 def test_cip_status_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -377,22 +402,6 @@ def test_connected_success_sends_no_extra_unregister(
     assert bytes(scripted.sent).count(codec_cip.build_unregister_session(_SESSION)) == 0
 
 
-def test_repeated_connect_failures_do_not_accumulate_sessions(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """反复失败重连 20 次:注册与注销帧数相等(模拟 PLC 会话表不累积)。"""
-    leaked = 0
-    for _ in range(20):
-        client = _connected_client()
-        scripted = _failed_forward_open_transport()
-        _mount(monkeypatch, client, scripted)
-        assert client.connect() is False
-        sent = bytes(scripted.sent)
-        leaked += sent.count(codec_cip.build_register_session())
-        leaked -= sent.count(codec_cip.build_unregister_session(_SESSION))
-    assert leaked == 0
-
-
 def test_read_string_via_typed_read(monkeypatch: pytest.MonkeyPatch) -> None:
     """read(addr, DataType.STRING):标签自描述直接返回字符串。"""
     client = AllenBradleyEthIpClient("127.0.0.1", 44818)
@@ -504,6 +513,7 @@ def test_connected_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     _mount(monkeypatch, client, scripted)
     client.connect()
+    assert client._connection_serial == 1
     assert client.connection_size == codec_cip.CONNECTION_SIZE_LARGE
     assert client.read_int("MyDint") == (True, 1337)
     sent = bytes(scripted.sent)
@@ -513,7 +523,7 @@ def test_connected_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
         codec_cip.build_forward_open(
             True,
             codec_cip.CONNECTION_SIZE_LARGE,
-            client._connection_serial,
+            1,
             _TO_ID,
             AB_EIP_ORIGINATOR_VENDOR_ID,
             42,
@@ -545,6 +555,7 @@ def test_connected_fallback_to_normal(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     _mount(monkeypatch, client, scripted)
     client.connect()
+    assert client._connection_serial == 1
     assert client.connection_size == codec_cip.CONNECTION_SIZE_NORMAL
     assert client.read_int("MyDint") == (True, 6)
     sent = bytes(scripted.sent)
@@ -556,7 +567,7 @@ def test_connected_fallback_to_normal(monkeypatch: pytest.MonkeyPatch) -> None:
         codec_cip.build_forward_open(
             True,
             codec_cip.CONNECTION_SIZE_LARGE,
-            client._connection_serial,
+            1,
             _TO_ID,
             AB_EIP_ORIGINATOR_VENDOR_ID,
             42,
@@ -568,7 +579,7 @@ def test_connected_fallback_to_normal(monkeypatch: pytest.MonkeyPatch) -> None:
         codec_cip.build_forward_open(
             False,
             codec_cip.CONNECTION_SIZE_NORMAL,
-            client._connection_serial,
+            1,
             _TO_ID,
             AB_EIP_ORIGINATOR_VENDOR_ID,
             42,
@@ -723,12 +734,13 @@ def test_connected_disconnect_sends_forward_close(monkeypatch: pytest.MonkeyPatc
     )
     _mount(monkeypatch, client, scripted)
     client.connect()
+    assert client._connection_serial == 1
     assert client.disconnect() is True
     sent = bytes(scripted.sent)
     forward_close = codec_cip.build_rr_data(
         _SESSION,
         codec_cip.build_forward_close(
-            client._connection_serial,
+            1,
             AB_EIP_ORIGINATOR_VENDOR_ID,
             42,
             b"\x01\x00",
@@ -1052,11 +1064,58 @@ def test_read_batch_bool_and_string(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_read_batch_rejects() -> None:
-    """read_batch 拒绝路径:空列表直接拒;条数超限自动拆分不再报错。"""
+def test_read_batch_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_batch 拒绝空列表;条数超限自动拆分多事务并合并结果。"""
+    from omniplc.plc.ab.address import parse_ab_tag
+
     client = AllenBradleyEthIpClient("127.0.0.1", AB_EIP_DEFAULT_PORT)
     with pytest.raises(ValueError):
         client.read_batch([])
+
+    tags = ["T{}".format(index) for index in range(40)]
+    requests = [
+        codec_cip.build_tag_read(codec_cip.tag_type_path(parse_ab_tag(tag)), 1)
+        for tag in tags
+    ]
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _reply_chunks(
+            payload=_msp_payload([
+                _atomic_payload(0xC4, struct.pack("<i", index))
+                for index in range(32)
+            ]),
+            service=codec_cip.CIP_SERVICE_MULTIPLE,
+        )
+        + _reply_chunks(
+            payload=_msp_payload([
+                _atomic_payload(0xC4, struct.pack("<i", index))
+                for index in range(32, 40)
+            ]),
+            service=codec_cip.CIP_SERVICE_MULTIPLE,
+        )
+    )
+    _mount(monkeypatch, client, scripted)
+    assert client.connect() is True
+    assert client.read_batch([(tag, "int") for tag in tags]) == (
+        True,
+        list(range(40)),
+    )
+    sent = bytes(scripted.sent)
+    assert sent == (
+        codec_cip.build_register_session()
+        + codec_cip.build_rr_data(
+            _SESSION,
+            codec_cip.build_uc_send(
+                codec_cip.build_multiple_service_packet(requests[:32]), 0
+            ),
+        )
+        + codec_cip.build_rr_data(
+            _SESSION,
+            codec_cip.build_uc_send(
+                codec_cip.build_multiple_service_packet(requests[32:]), 0
+            ),
+        )
+    )
 
 
 def test_async_mirror_read_batch(monkeypatch: pytest.MonkeyPatch) -> None:

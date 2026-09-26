@@ -59,6 +59,10 @@ def test_udp_nodes_default_derived_from_ip(monkeypatch: pytest.MonkeyPatch) -> N
     assert client.read_ushort("D100") == (True, 20)
     assert client._destination_node == 1  # 192.168.250.1 末段
     assert client._source_node == 33  # 本机出口 IP 末段
+    assert client.destination_network == 0
+    assert client.destination_unit == 0
+    assert client.source_network == 0
+    assert client.source_unit == 0
     sent = bytes(scripted.sent)
     assert sent[4] == 1  # DA1
     assert sent[7] == 33  # SA1
@@ -75,24 +79,6 @@ def test_udp_nodes_explicit_not_overridden(monkeypatch: pytest.MonkeyPatch) -> N
     assert (client._destination_node, client._source_node) == (5, 10)
     sent = bytes(scripted.sent)
     assert sent[4] == 5 and sent[7] == 10
-
-
-def test_udp_routing_properties_reflect_derivation(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """路由参数只读属性:自动推导后反映最新节点号(属性面镜像同步侧)。"""
-    client = OmronFinsUdpClient("192.168.250.1")
-    monkeypatch.setattr(omron_module, "_local_ip_for", lambda host, port: "10.1.2.33")
-    scripted = ScriptedTransport([_fins_read_response([20])])
-    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
-    client.connect()
-    assert client.read_ushort("D100") == (True, 20)
-    assert client.destination_network == 0
-    assert client.destination_node == 1
-    assert client.destination_unit == 0
-    assert client.source_network == 0
-    assert client.source_node == 33
-    assert client.source_unit == 0
 
 
 def test_node_from_host_resolves_hostname(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -202,7 +188,6 @@ def test_udp_d_area_bit_read_falls_back_on_1101(
     client.connect()
     assert client.read_bool("D100.3") == (True, True)
     assert client.connected is True
-    assert len(scripted.sent) >= 2  # 位读 + 回退字读两次事务
 
 
 def test_udp_end_code_routing_hint(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -419,8 +404,6 @@ def test_node_from_host_rejects_out_of_range_last_octet() -> None:
     with pytest.raises(ValueError) as exc_info:
         omron_module._node_from_host("192.168.250.255")
     assert "节点号" in exc_info.value.args[0]
-    with pytest.raises(ValueError):
-        omron_module._node_from_host("192.168.250.0")
     with pytest.raises(ValueError):
         omron_module._node_from_host("192.168.250.0")
 

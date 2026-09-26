@@ -86,11 +86,12 @@ def test_table_codes() -> None:
 
 
 def test_defaults_and_frame_fixed_3e() -> None:
-    """默认端口 5000、帧型固定 3E。"""
+    """默认端口 5000、帧型固定 3E;UDP 版走线为 UdpTransport。"""
     client = KeyenceMcTcpClient()
     assert client._ip_address == "192.168.1.22"
     assert client._port == KEYENCE_MC_DEFAULT_PORT == 5000
     assert client.frame is McFrame.FRAME_3E
+    assert isinstance(KeyenceMcUdpClient()._create_transport(), UdpTransport)
 
 
 def test_read_dm100_word(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -204,15 +205,6 @@ def test_mitsubishi_names_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(ValueError):
         client.read_ushort("D100")
     assert bytes(scripted.sent) == b""
-
-
-def test_udp_defaults_and_transport() -> None:
-    """UDP 版:默认端口 5000、帧型固定 3E、走线为 UdpTransport。"""
-    client = KeyenceMcUdpClient()
-    assert client._ip_address == "192.168.1.22"
-    assert client._port == KEYENCE_MC_DEFAULT_PORT == 5000
-    assert client.frame is McFrame.FRAME_3E
-    assert isinstance(client._create_transport(), UdpTransport)
 
 
 def test_udp_read_dm100_word(monkeypatch: pytest.MonkeyPatch) -> None:

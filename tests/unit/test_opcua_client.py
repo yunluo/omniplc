@@ -418,10 +418,6 @@ if _HAVE_ASYNCUA:
         node = server.nodes.objects.add_variable(idx, name, value)
         return node, str(node)
 
-    def _node_id_text(node) -> str:
-        """从 SyncNode 取 NodeId 文本(内部测试助手)。"""
-        return str(node)
-
     @pytest.fixture
     def opcua_client(_opcua_server_module):
         server, idx = _opcua_server_module
@@ -765,7 +761,7 @@ def test_aio_subscribe_data_change_callback_on_loop(_opcua_server_module) -> Non
 
 
 @pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
-def test_aio_browse_returns_dict(opcua_client: AOpcUaClient) -> None:
+def test_aio_browse_returns_dict() -> None:
     """aio browse:返回嵌套 dict。"""
     import asyncio as _asyncio
 

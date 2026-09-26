@@ -512,18 +512,28 @@ def test_last_partial_frame_recorded_on_timeout() -> None:
 
 
 def test_async_client_exposes_new_framing_options() -> None:
-    """异步镜像同步暴露新成帧参数与只读属性。"""
-    client = AOpenTcpClient(
-        "127.0.0.1",
-        9000,
-        delimiter=None,
-        append_delimiter=False,
-        length_prefix=2,
-        recv_chunk_size=64,
-        encoding_fallback=["gbk"],
-    )
-    assert client.length_prefix == 2
-    assert client.recv_chunk_size == 64
-    assert client.encoding_fallback == ("gbk",)
-    assert client.start_marker is None
-    assert client.last_partial_frame is None
+    """异步镜像同步暴露新成帧参数,且长度前缀成帧真实生效。"""
+
+    async def scenario() -> None:
+        client = AOpenTcpClient(
+            "127.0.0.1",
+            9000,
+            delimiter=None,
+            append_delimiter=False,
+            length_prefix=2,
+            recv_chunk_size=64,
+            encoding_fallback=["gbk"],
+        )
+        assert client.length_prefix == 2
+        assert client.recv_chunk_size == 64
+        assert client.encoding_fallback == ("gbk",)
+        assert client.start_marker is None
+        assert client.last_partial_frame is None
+        scripted = ScriptedTransport([b"\x00\x03ABC"])
+        scripted.receive_timeout = 5.0
+        client._sync._transport = scripted
+        client._sync._connected = True
+        assert await client.receive() == (True, b"ABC")
+        await client.close()
+
+    asyncio.run(scenario())

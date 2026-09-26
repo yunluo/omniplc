@@ -109,6 +109,12 @@ class TestWordOrder64:
             regs = convert.float64_to_registers(-123.456, order)
             assert len(regs) == 4
             assert convert.registers_to_float64(regs, order) == pytest.approx(-123.456)
+        assert convert.float64_to_registers(-123.456, WordOrder.BADC) == (
+            24256, 12253, 40730, 30654,
+        )
+        assert convert.float64_to_registers(-123.456, WordOrder.DCBA) == (
+            30654, 40730, 12253, 24256,
+        )
 
     def test_double_abcd_pattern(self) -> None:
         data = struct.pack(">d", 1.0)  # 3F F0 00 00 00 00 00 00

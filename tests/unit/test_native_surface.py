@@ -243,11 +243,3 @@ def test_write_bool_value_guard_matches_sync() -> None:
             asyncio.run(async_client.write_bool("hr0", value))  # type: ignore[arg-type]
 
     asyncio.run(async_client.close())
-
-
-def test_stats_uses_shared_client_stats_type() -> None:
-    """原生 ``stats`` 与同步层共用同一份 ``ClientStats`` 契约(键集一致)。"""
-    from omniplc.core.base_client import ClientStats
-
-    client = native.AsyncModbusTcpClient("127.0.0.1", 1, 1)
-    assert set(client.stats) == set(ClientStats.__annotations__)

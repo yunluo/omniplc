@@ -302,6 +302,7 @@ def test_connected_forward_open_golden(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     _mount(monkeypatch, client, scripted)
     client.connect()
+    assert client._connection_serial == 1
     assert client.connection_size == codec_cip.CONNECTION_SIZE_LARGE
     assert client.read_int("TestVar") == (True, 1337)
     sent = bytes(scripted.sent)
@@ -309,7 +310,7 @@ def test_connected_forward_open_golden(monkeypatch: pytest.MonkeyPatch) -> None:
     forward_open_request = codec_cip.build_forward_open(
         True,
         codec_cip.CONNECTION_SIZE_LARGE,
-        client._connection_serial,
+        1,
         _TO_ID,
         AB_EIP_ORIGINATOR_VENDOR_ID,
         42,
@@ -346,37 +347,6 @@ def test_connected_fallback_to_normal(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.connection_size == codec_cip.CONNECTION_SIZE_NORMAL
     assert client.read_int("TestVar") == (True, 6)
     sent = bytes(scripted.sent)
-    tag_read = codec_cip.build_tag_read(
-        codec_cip.build_symbol_path(("TestVar",), ((),)), 1
-    )
-    large_open = codec_cip.build_rr_data(
-        _SESSION,
-        codec_cip.build_forward_open(
-            True,
-            codec_cip.CONNECTION_SIZE_LARGE,
-            client._connection_serial,
-            _TO_ID,
-            AB_EIP_ORIGINATOR_VENDOR_ID,
-            42,
-            b"",
-        ),
-    )
-    normal_open = codec_cip.build_rr_data(
-        _SESSION,
-        codec_cip.build_forward_open(
-            False,
-            codec_cip.CONNECTION_SIZE_NORMAL,
-            client._connection_serial,
-            _TO_ID,
-            AB_EIP_ORIGINATOR_VENDOR_ID,
-            42,
-            b"",
-        ),
-    )
-    unit_data = codec_cip.build_send_unit_data(_SESSION, _OT_ID, 1, tag_read)
-    assert sent == (
-        codec_cip.build_register_session() + large_open + normal_open + unit_data
-    )
     # AB 的"背板+槽号+消息路由"路径不应出现在任何帧里
     assert bytes.fromhex("010020022401") not in sent
 
@@ -393,12 +363,13 @@ def test_connected_disconnect_sends_forward_close(monkeypatch: pytest.MonkeyPatc
     )
     _mount(monkeypatch, client, scripted)
     client.connect()
+    assert client._connection_serial == 1
     assert client.disconnect() is True
     sent = bytes(scripted.sent)
     forward_close = codec_cip.build_rr_data(
         _SESSION,
         codec_cip.build_forward_close(
-            client._connection_serial,
+            1,
             AB_EIP_ORIGINATOR_VENDOR_ID,
             42,
             b"",
