@@ -544,19 +544,23 @@ def dump(s: ClientStats) -> None:
 dump(client.stats)   # 键名拼错、字段用错类型在 mypy/pyright 阶段即报
 ```
 
-#### 真机联测待做(v0.41.0 更新)
+#### 真机联测待做(v0.42.0 更新)
 
 下表汇总散落各处的真机核证项(实现已完成,缺真机条件或排队中):
 
 | 项                | 驱动               | 现状态                            |
 |------------------|------------------|--------------------------------|
+| OpenTcp 成帧扩展     | 通用 TCP           | STX/ETX、长度前缀成帧、编码回退已实现,待现场仪表核证 |
+| Modbus FC24/22    | Modbus TCP/RTU   | FC24 FIFO、FC22 掩码字节序可配,需设备支持,待真机核证 |
 | AB 0x0A 多服务包批量读  | AB Logix         | 已实现(超 32 条/480B 自动拆包),通用模拟器不支持,待真机核证 |
+| AB connected RPI  | AB Logix         | RPI 默认 100ms(`rpi_us` 可配)、CIP 0x01/0x07 重连,待真机核证 |
 | NJ CIP 0x0A 多服务包 | 欧姆龙 NJ/NX CIP    | 继承 AB,理论同,待真机核证                |
-| 倍福 ADS           | TwinCAT          | 封装 pyads,需 TwinCAT 运行时;transport 错误码 0x705/0x706/0x725 分流待真机核证 |
+| 倍福 ADS           | TwinCAT          | 封装 pyads,需 TwinCAT 运行时;transport 错误码 0x705/0x706/0x725 分流、`set_timeout` 告警待真机核证 |
 | 西门子 S7           | S7-300/1200/1500 | 封装 python-snap7,需 PLC 或 PLCSIM;STRING/WSTRING 读截断·写保留声明长、优化块访问错误提示待真机核证 |
 | NJ STRING / BOOL 数组 | 欧姆龙 NJ/NX CIP    | 已实现(STRING 按 `len(u32)+字符`、BOOL 按元素自描述,回 DWORD 时 `//32` 回退),待真机核证 |
 | MC 新设备码          | 三菱 Q/L/R         | L/F/SB/V/DX/DY/TS/TC/TN/CS/CC/CN/SM/SD/SW 已实现,待真机核证(TN=0xC3/CN=0xC6 为推定) |
 | KV MC 0406 批量读   | 基恩士 KV MC        | 继承 MelsecMc,码表已覆写,待真机          |
+| 基恩士 Host Link UDP | 基恩士 KV          | 收包缓冲余量、hex 转储截断、SR 残行读净判定,待真机核证 |
 | OPC-UA           | opc.tcp          | 封装 asyncua,需 OPC-UA 服务器        |
 | MTConnect        | MTConnect Agent  | 标准库 HTTP/XML,需 CNC 端 Agent     |
 | MX Component     | 三菱 MX            | 读写/批量/CPU 型号/时钟已真机核证;get_error_message(ActSupportMsg)待核证 |
@@ -592,7 +596,7 @@ dump(client.stats)   # 键名拼错、字段用错类型在 mypy/pyright 阶段�
 
 #### 变更历史
 
-按版本号降序的完整变更日志已迁出至 [`CHANGELOG.md`](CHANGELOG.md)(从 v0.41.0 到 v0.1 的详细说明);当前发布版本以 Git 标签为准(`git tag -l 'v*'`)。
+按版本号降序的完整变更日志已迁出至 [`CHANGELOG.md`](CHANGELOG.md)(从 v0.42.0 到 v0.1 的详细说明);当前发布版本以 Git 标签为准(`git tag -l 'v*'`)。
 
 #### 开发
 
