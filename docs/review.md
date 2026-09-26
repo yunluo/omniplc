@@ -43,6 +43,94 @@ v1 评审稿逐条对源码复核后形成本版:
 - **§2.1.2 Modbus Modicon 6 位地址(P2)**:按位数区分 5/6 位方案。
 - **§2.1.6 Modbus FC08/11/12(P2)**:诊断/事件计数/事件日志(含 aio 镜像)。
 - **§2.1.7 Modbus FC20/21 文件记录(P2)**:读写文件记录(含 aio 镜像)。
+- **二轮复审 P0 MC `L` 设备码撞码(2026-09-26)**:`core/constants.py` `MC_DEVICE_CODES["L"]` 由 `0xA0` 改为 **`0x92`**(原值与 `B` 同码,致 3E/4E/4C 下所有 `L` 读写静默打进 `B` 空间);新增回归门禁 `test_mc_codec.py::test_mc_device_code_table_l_is_92_and_no_collisions`(锁 `L=0x92` 且设备码表无重码)。
+
+---
+
+## 二轮复审(2026-09-26,全量)
+
+> 范围:76 个源文件 / ~21k 行,分 6 域(核心 / 异步 / Modbus+OpenTcp / MC 家族 / Omron·AB·S7·ADS / OPC-UA·MTConnect·工程)。
+> 方法:逐行读源 + 只读探针(Python 3.7.9)+ 与 pyads/asyncua 安装源比对。标「已核验」者为二轮亲自复现。
+> 结论:新增 **1 条 P0、4 条 P1** 及若干 P2/P3;并纠正上一轮 **5 条已关闭项 / 3 条记录不实**。其中 P0(MC `L` 撞码)已于 2026-09-26 修复。
+
+### P0
+
+- **三菱 MC `L` 设备码 0xA0 与 `B` 撞码 → 静默误寻址(已核验)——已修复(2026-09-26)**
+  - `core/constants.py:252` `"L": (0xA0, 1, 10)` 与 `:254` `"B": (0xA0, 1, 16)` 同码;`L` 正确值为 **0x92**(同库 `INOVANCE_MC_DEVICE_CODES["S"] = (0x92, …)` 的注释「按三菱 L(92h)」即为反证)。
+  - 3E/4E/4C 二进制路径下所有 `L` 读写实际落入链接继电器 `B` 空间且无报错;3C/1C(ASCII 走码名)不受影响。
+  - 由 v0.41.0「设备码表扩容」引入,`L` 零测试覆盖;§2.2.3 台账仅标 TN/CN 待核,遗漏此条。
+  - **修复**:`MC_DEVICE_CODES["L"] = (0x92, 1, 10)`;新增门禁 `test_mc_codec.py::test_mc_device_code_table_l_is_92_and_no_collisions`(`L=0x92` 且表内无重码)。
+
+### P1
+
+- **ADS transport 错误码集合错误,§2.5.1 名为已修实为未修(已核验)**
+  - `plc/beckhoff/ads.py:98` `_ADS_TRANSPORT_ERROR_CODES = {0x705, 0x706, 0x725}`,`:119` 据此决定是否断线重连。
+  - pyads 3.5.1 `errorcodes.py`:`0x705`=「parameter size not correct」、`0x706`=「invalid parameter value(s)」属**参数错误**;真正的通断码为 `0x06`(Target port not found)/`0x07`(Target machine not found)/`0x0D`(Port not connected)/router `0x0500~0x050D`。
+  - 后果:TwinCAT 重启/路由丢失**不触发重连**;普通参数错误反而**误判断线重连**。v0.42.0 CHANGELOG 将本条列为已修,记录不实。
+
+- **S7 `read_wstring` 对纯 ASCII/拉丁文本返回空串(已核验)**
+  - `plc/siemens/client.py:532` 调 `convert.decode_string(data[4:4+actual*2], "utf-16-be")`;`convert.py:280` 先 `data.split(b"\x00", 1)[0]`。UTF-16BE 的 ASCII 字符高字节恒为 `0x00`(`"AB" == b"\x00A\x00B"`),split 后为空 → 返回 `""`。
+  - 现有 `test_wstring_roundtrip` 仅用中文(无 `\x00`),未覆盖。§2.6.6 修复遗漏 ASCII。
+
+- **`read_tag` / `write_tag` 让 64 位整数经 float64 往返,静默丢低位(已核验)**
+  - `core/base_client.py:626` `value * resolved.scale + resolved.offset`、`:639` `(value - offset) / scale`;即便 `scale=1.0/offset=0.0` 也强制过 float64。
+  - `LONG/ULONG` 且值 > 2^53 时静默丢精度;32 位类型安全。标签常由 CSV/JSON 省略 scale,故可达。
+
+- **aio 属性读仍进入同步事务锁,阻塞事件循环(§3.1,复核仍在,已核验)**
+  - `aio/__init__.py:223` `return self._sync.connected` → `core/base_client.py:250` `with self._lock`;`connected / last_error* / stats / next_connect_in` 与 timeout setter 同病。
+  - 探针:持锁 0.5s 期间 `aio_client.connected` 卡住事件循环 0.458s。修复记录未触及。
+
+### P2
+
+- **native 未镜像已有同步修复(已核验)**:`native/modbus.py:162/173` 的 `_read_string/_write_string` 不拒 `.bit`(同步 `modbus/modbus.py:168/179` 会拒);`native/omron.py:245` `_read_bit_impl` 无 §2.3.5 的 0x1101 D/EM 回退。
+- **Modbus `read_many`/`read_batch` 对非 BOOL 静默忽略 `.bit`(已核验)**:`modbus/modbus.py:219/250` 不调 `_check_address`,`read_many(["hr0.3"], "short")` 返回整字;单点 `read` 与 `write_many` 却会抛。
+- **写语义操作漏 `is_write=True`(已核验)**:`modbus/modbus.py:683`(FC23)/`:749`(FC08-A 清计数)/`:824`(FC21)、`opentcp/client.py:386/405`(`transact`/`transact_text`)。默认 `retries=0` 无碍,开启重发即重复写/重复下发。
+- **FINS `read_batch` 非 BOOL 静默忽略 `.bit`**:`plc/omron/omron.py:298`(探针确认)。
+- **AB 0x0A 分块预算漏算偏移表(已核验)**:`plc/ab/ab.py:819` 只算 `len(request)+对齐`(注释却称含偏移项),docstring 明写「长度(2)+偏移表(2×n)+数据」,实际未加 2×n → 仍可能超 504B 未连接缓冲。§2.4.1 修复不完整。
+- **MTConnect DOCTYPE 防护可被 UTF-16 绕过(已核验)**:`cnc/mtconnect.py:90` 按 ASCII 扫 `b"<!doctype"`,UTF-16 XML 高字节 `0x00` 漏判,ElementTree 仍展开实体 → XXE/Billion Laughs 纵深防护失效;16MB body 上限在解析之后。
+- **连接退避指数无界(已核验)**:`core/base_client.py:730` `RECONNECT_BACKOFF_FACTOR ** self._connect_fail_count` 先算后 `min`;计数仅成功清零,连续 ~1024 次失败后 `2.0**1024` 抛 `OverflowError` 逃出公开 API 并跳过 `transport.close()`。
+- **MC `read_batch` 字软元件 `.bit` 静默忽略** `plc/melsec/melsec.py:269`;**MEWTOCOL 字段溢出** `plc/panasonic/codec_mewtocol.py:85/90/96/103`(§2.9.2/§2.9.3 未修);**MX 32/64 位批读未支持** `plc/melsec/mx.py:727`。
+- **`convert`(已核验)**:`convert.py:426` `_reorder_bytes` 对任何非法 `word_order`(字符串/`None`)静默走 BADC,与 `docs/architecture.md:443`「非法值抛 ValueError」矛盾;`registers_to_int32/int64` 等不校验寄存器数量。
+- **OPC-UA**:`browse` 默认递归、`max_depth=None` 无上限(`opcua/client.py:614`,§2.11.5 只加形参未改实现);`_coerce_read` 不做范围收窄(`:828`,与写路径不对称);NodeId 正则拒 `s=` 内含分号及 `srv=`/`nsu=`(`opcua/address.py:25`)。
+- **OpenTcp**:接收超时抛 `DeviceError` → 归类 DEVICE 而非 TIMEOUT(`opentcp/client.py:458`);`length_prefix` 只定义收帧、发送端不加前缀(`:320`);`max_frame` 无上界(§1.12 未修)。
+- **Modbus FC20 坏帧抛裸 `IndexError` 逃逸**:`modbus/codec.py:935` `body[offset+1]` 越界,违「坏帧 → ProtocolFrameError」。
+
+### P3(合并)
+
+- `convert` 越界整数编码抛 `struct.error` 而非 `ValueError`;`words_to_bytes`/`registers_to_canonical` 对超范围字静默 `&0xFFFF`(`convert.py:129/318`)。
+- `core/validation.py:60` `check_byte_field` 用 `int()` 收窄,静默接受 float/bool/str。
+- Modbus:`read_many` 地址跨度溢出不满足「零字节发送」;file-record 长度无上界;FC08/11 接受尾字节;FC43 不回显读码;缺 FC07/FC17;RTU 增量长度字段无 cap;`write_bool("ir0.0")`/`di` 先发一次读再抛。
+- OpenTcp:缓冲头 `del self._buffer[:n]` O(n);无发送进度回调;无 IPv6(§2.13.4/6/8)。
+- MC 1E 帧不校验尾多余字节(`codec_a.py:139`);MX `get_error_message` 新建 COM 控件不释放(`mx.py:877`);`MX_SUPPORT_MSG_PROG_ID` 存疑(`constants.py:679`)。
+- TOYOPUC 打包段校验口径不一致(`toyopuc/address.py:133` vs `:141`)。
+- OPC-UA:回调线程无锁写 `last_error`(`client.py:254`);`unsubscribe` 非线程安全(`:356`);`browse` 单点失败吞成 `{}`;aio 回调异常不落 `last_error`(与 README:485 矛盾);`browse` 仅 Hierarchical。
+- MTConnect:缺 `/sample`/`/asset`;`/probe` 仅首 Device;条件项无过滤;空元素 UNAVAILABLE 误报「不存在」;keep-alive 异常集偏窄(`mtconnect.py:49`)。
+- S7 缺多变量批读;ADS 缺 >32KB 分块与句柄失效(0x1D)处理。
+- 工程:`pyproject.toml:112` `python_version="3.9"` 与运行时 3.7.9 错位;ruff 未含 B;`Development Status Alpha`;`dev` extra 的 `comtypes` 缺 `platform_system`;无 `pytest-timeout`;`CONTRIBUTING.md:9/36/38` 数字 stale;`src/omniplc/__init__.py:79` `__description__` 未同步;`docs/architecture.md:687` OpenTcp 长度域「留 v1.x」过时、`§6.2` 静态检查描述过时。
+
+### 台账纠偏(二轮)
+
+**复核关闭(原条不成立):**
+
+| 原条 | 复核结论 |
+|---|---|
+| §3.5 close 先置 `_executor=None` | 不可能命中:`_ensure_open` 与 `run_in_executor(self._executor, …)` 相邻无 `await`,进行中操作从不读 `_executor`;`test_close_gate_refuses_new_calls_while_draining` 已锁行为 |
+| §3.9 UDP `peer_ip` 回退走阻塞 DNS | `AsyncUdpTransport.connect` 总给出字面量 `peer_ip`,`omron.py:454` 取到的必是 IP,永不解析 |
+| §3.12 取消计入 `disconnect_count` | 取消时 `pending=True` 确可能留下无配对响应,拆连计数正确;`test_native_modbus.py:288` 显式断言 `disconnect_count == 1` |
+| §2.2.13 `SetClockData` 忽略 `day_of_week` | `mx.py:361` 已透传,`test_get_set_clock` 断言 7 元组 |
+| §2.11.3 NodeId 不识别 `t=`/`n=` | 误报:asyncua 1.1.5 `uatypes` 本身也只认 `ns/i/s/g/b/srv/nsu`;真实缺口是 `s=` 含分号与 `srv=`/`nsu=`(见 P2) |
+
+**记录不实(需订正):**
+
+- §2.5.1 标「已修复」实为错误码集合未修正(见 P1)。
+- §2.3.3 修复记录称「批量读经 `_batch_bool_array_address` 定制点同口径」,但 `OmronCipClient` 从未覆写该方法;实际机制是 `ab.py:645-649` 的自描述类型分支。功能无误,记录失实。
+- §2.13.1/2「长度域成帧留 v1.x」与 v0.42.0 已落地的 `length_prefix` 不符(`docs/architecture.md:687` 需订正)。
+
+### 一致性 / 无问题
+
+- **版本五落点一致**:pyproject `0.42.0`、`__init__.__version__` `0.42.0`、CHANGELOG 首条 v0.42.0、architecture 头 v0.42.0、uv.lock `omniplc 0.42.0`、tag `v0.42.0`。
+- **Python 3.7**:全量 `py_compile` 通过,无 3.8+ 语法/API。唯一 3.7 特有缺陷:`aio/__init__.py:468` `except Exception` 在 3.7 会吞掉 `CancelledError`(3.7 里它是 `Exception` 子类),使取消 `close()` 返回正常;3.8+ 不受影响。
+- `modbus/address.py`、`core/errors.py`、`types.py`、`transport/base.py` 无新发现。
 
 ---
 
@@ -210,6 +298,7 @@ v1 评审稿逐条对源码复核后形成本版:
 
 #### 2.2.13 MX `SetClockData` 的 `day_of_week` 传入即被忽略 — **P3(待核证)**
 - `mx.py:350-368`
+- **二轮复审复核关闭(2026-09-26)**:`mx.py:361` 已把 `day_of_week` 纳入 `fields` 透传,`test_get_set_clock` 断言 7 元组,原条不成立。
 
 ---
 
@@ -343,10 +432,11 @@ v1 评审稿逐条对源码复核后形成本版:
 
 ### 2.5 倍福 TwinCAT ADS
 
-#### 2.5.1 transport 类 ADS 错误误分类为设备错误 — **已修复(2026-09-26)**
+#### 2.5.1 transport 类 ADS 错误误分类为设备错误 — **P1(二轮复审:名为已修实为未修,2026-09-26)**
 - `plc/beckhoff/ads.py:97-113, 202-232`
 - 0x0705/0x0706/0x0725(device/router removed)被当 DeviceError,不触发断线标记;TwinCAT 重启后客户端持续在死连接上失败。
 - **修复**:transport 集错误抛 OSError 走惰性重连。
+- **二轮复审订正(2026-09-26)**:上述修复所用错误码集 **0x705/0x706/0x725 本身是错的**——pyads 3.5.1 `errorcodes.py` 中它们是「parameter size / invalid parameter value」参数错误;真正的通断码是 `0x06`(Target port not found)/`0x07`(Target machine not found)/`0x0D`(Port not connected)/router `0x0500~0x050D`。现状:TwinCAT 重启不重连,参数错误反而误判断线重连。**本条退回未修**,详见「二轮复审」P1。
 
 #### 2.5.2 STRING 写不预检声明长度 — **已修复(2026-09-26)**
 - `plc/beckhoff/ads.py`
@@ -555,6 +645,7 @@ v1 评审稿逐条对源码复核后形成本版:
 
 #### 2.11.3 NodeId 不识别 `t=`/`n=` — **P2(实锤)**
 - `opcua/address.py:25-28`
+- **二轮复审订正(2026-09-26)**:本条论据不成立——asyncua 1.1.5 `uatypes` 本身也只认 `ns/i/s/g/b/srv/nsu`,`t=`/`n=` 非标准 NodeId 标识符。真实缺口是正则拒绝 `s=` 内含分号与 ExpandedNodeId 的 `srv=`/`nsu=`(转 P2「OPC-UA」条)。
 
 #### 2.11.4 无安全策略/证书支持 — **设计边界(文档化限制)**
 - `docs/architecture.md` 明示内网口径。强制 SignAndEncrypt 的服务器接不上。
@@ -664,6 +755,7 @@ v1 评审稿逐条对源码复核后形成本版:
 - `aio/__init__.py:457-477`
 - 进行中事务的重试路径可能读到 None 抛错。
 - **修复**:generation counter。
+- **二轮复审复核关闭(2026-09-26)**:不可能命中——`_ensure_open` 与 `run_in_executor(self._executor, …)` 相邻且无 `await`,进行中操作从不读 `_executor`;`test_close_gate_refuses_new_calls_while_draining` 已锁 FIFO/排空行为。
 
 ### 3.6 native UDP 写重试的双写风险 — **P3(实锤,默认关闭)**
 - `native/base.py:613-655`
@@ -681,6 +773,7 @@ v1 评审稿逐条对源码复核后形成本版:
 ### 3.9 UDP `peer_ip` 回退走阻塞 DNS — **P2(待核证)**
 - `native/omron.py:441-458`
 - 主机名配置时事件循环冻结风险。
+- **二轮复审复核关闭(2026-09-26)**:`AsyncUdpTransport.connect` 总把已解析对端以字面量 `peer_ip` 暴露,`omron.py:454` 取到的必是 IP,`_node_from_host`/`_local_ip_for` 永不解析主机名。
 
 ### 3.10 native 无 IPv6 — **P2(实锤)**
 - `native/transport.py:386-398`
@@ -691,6 +784,7 @@ v1 评审稿逐条对源码复核后形成本版:
 ### 3.12 取消计入 `disconnect_count` — **P3(实锤)**
 - `core/base_client.py:716-725`
 - **修复**:取消不计断开。
+- **二轮复审复核关闭(2026-09-26)**:取消时 `pending=True` 确可能留下无配对响应,按保守拆连计数是正确口径;`test_native_modbus.py:288` 显式断言 `disconnect_count == 1`,原「取消不计断开」建议会破坏该守卫。
 
 ---
 
@@ -754,8 +848,9 @@ v1 评审稿逐条对源码复核后形成本版:
 
 ## 五、按优先级排的"先修这 10 条"(复核后)
 
-> 状态(2026-09-26):本表 10 条**已全部落地**(9 条代码修复 + CI 版本矩阵已按"3.7 必保"裁决修改)。
-> 下一批候选见文末"剩余待解决"说明与对话记录。
+> 状态(2026-09-26):本表 10 条**均已落地**(9 条代码修复 + CI 版本矩阵已按"3.7 必保"裁决修改)。
+> **二轮复审(2026-09-26)修正**:其中 §2.5.1(ADS transport 错误码)落地有误——所用错误码集本身是错的,已退回未修;另新增 MC `L` 设备码撞码 P0。详见文首「二轮复审」。
+> 下一批候选见「二轮复审」与对话记录。
 
 | 优先级 | 项 | 章节 | 现场影响 |
 |---|---|---|---|
@@ -772,4 +867,4 @@ v1 评审稿逐条对源码复核后形成本版:
 
 ---
 
-> 本文档仅记录问题与现场影响。v2 复核删除 8 条误报、修正 12 条口径;条目按"实锤 / 文档化限制 / 待核证"分档。修复路线图不列入,按项目排期另起 `docs/fix-roadmap.md`。
+> 本文档仅记录问题与现场影响。v2 复核删除 8 条误报、修正 12 条口径;条目按"实锤 / 文档化限制 / 待核证"分档。2026-09-26 二轮全量复审新增 P0/P1/P2/P3 清单及台账纠偏,见文首「二轮复审」。修复路线图不列入,按项目排期另起 `docs/fix-roadmap.md`。
