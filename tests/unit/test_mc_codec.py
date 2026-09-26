@@ -214,6 +214,37 @@ def test_parse_random_read_response_short_data() -> None:
         codec_qna.parse_random_read_response(frame, "3E", 3, 2)
 
 
+def test_parse_random_read_response_trailing_bytes_rejected() -> None:
+    """0406 响应尾部有多余字节(UDP 数据报边界/串包):按坏帧拒绝。"""
+    data = bytes.fromhex("0100" "ffff" "3412" "0080" "0100")
+    frame = (
+        b"\xd0\x00"
+        + b"\x00\xff\xff\x03\x00"
+        + (2 + len(data)).to_bytes(2, "little")
+        + b"\x00\x00"
+        + data
+        + b"\xaa\xbb"  # 多余 2 字节
+    )
+    with pytest.raises(ProtocolFrameError) as exc_info:
+        codec_qna.parse_random_read_response(frame, "3E", 3, 2)
+    assert "多余字节" in exc_info.value.args[0]
+
+
+def test_parse_response_trailing_bytes_rejected() -> None:
+    """读响应声明的数据长大于请求点数:按坏帧拒绝(不再静默截断尾部)。"""
+    data = bytes.fromhex("010000")  # 声明 3 字节,但请求只读 1 字(2 字节)
+    frame = (
+        b"\xd0\x00"
+        + b"\x00\xff\xff\x03\x00"
+        + (2 + len(data)).to_bytes(2, "little")
+        + b"\x00\x00"
+        + data
+    )
+    with pytest.raises(ProtocolFrameError) as exc_info:
+        codec_qna.parse_response(frame, "3E", 1, False, True)
+    assert "长度不符" in exc_info.value.args[0]
+
+
 # ----------------------------------------------------------------------
 # 位软元件位号后缀校验:各帧型组帧层统一防线(含串口 3C/4C 与 1C)
 # ----------------------------------------------------------------------

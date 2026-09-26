@@ -476,7 +476,8 @@ class _MelsecMcBase(BaseClient):
 
         TCP:3E 收 9 字节头 + 应答数据长所示内容;4E 收 13 字节头;
         1E 收 2 字节头 + ``tail_size`` 数据(结束码 0x5B 时改收 2 字节扩展)。
-        UDP:一次 recv 整包,长度校验交给解析层。
+        UDP:一次 recv 整包;解析层除校验长度域与数据长一致外,还拒绝
+        **尾部多余字节**(数据报边界异常,防止把串包/多余载荷当正常帧)。
         """
         transport = self._require_transport()
         transport.send(request)

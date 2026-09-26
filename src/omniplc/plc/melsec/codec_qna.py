@@ -310,10 +310,10 @@ def parse_response(
     if not is_read:
         return []
     expected = (points + 1) // 2 if is_bit else points * 2
-    data = frame[data_offset:data_offset + expected]
+    data = frame[data_offset:]
     if len(data) != expected:
         raise ProtocolFrameError(
-            "MC 响应数据不足:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+            "MC 响应数据长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
                 expected, len(data), format_hex(frame)
             )
         )
@@ -343,10 +343,12 @@ def parse_random_read_response(
     word_bytes = word_points * 2
     bit_bytes = bit_points * 2
     expected = word_bytes + bit_bytes
-    data = frame[data_offset:data_offset + expected]
+    data = frame[data_offset:]
     if len(data) != expected:
         raise ProtocolFrameError(
-            "MC 多块批量读响应数据不足:期望 {} 字节,实际 {}".format(expected, len(data))
+            "MC 多块批量读响应数据长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+                expected, len(data), format_hex(frame)
+            )
         )
     words = [int.from_bytes(data[i:i + 2], "little") for i in range(0, word_bytes, 2)]
     bits = [
@@ -370,6 +372,13 @@ def _locate_data(
     if len(frame) < head_size + content_length:
         raise ProtocolFrameError(
             "MC 响应帧不完整:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+                head_size + content_length, len(frame), format_hex(frame)
+            )
+        )
+    if len(frame) > head_size + content_length:
+        raise ProtocolFrameError(
+            "MC 响应帧尾部有多余字节(数据报边界异常):期望 {} 字节,"
+            "实际 {}(收到的原始帧:{})".format(
                 head_size + content_length, len(frame), format_hex(frame)
             )
         )
