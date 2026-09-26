@@ -266,6 +266,17 @@ class TestReconnectBackoff:
         ok, _ = client.read("hr0", "short")
         assert ok is True
 
+    def test_backoff_exponent_bounded(self) -> None:
+        """连续失败上万次不得让 ``factor ** n`` 溢出。
+
+        回归:旧实现先算 ``2.0 ** _connect_fail_count`` 再 min,连续失败
+        ~1024 次后抛 ``OverflowError`` 逃出公开 API。指数需先封顶。
+        """
+        client = _ScriptedClient()
+        client._connect_fail_count = 2000
+        client._register_connect_failure()  # 不应抛 OverflowError
+        assert client.next_connect_in is not None
+
     def test_backoff_resets_on_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(base_client_mod.random, "uniform", lambda a, b: 0.05)
         client = _ScriptedClient(fail_connect_times=1)

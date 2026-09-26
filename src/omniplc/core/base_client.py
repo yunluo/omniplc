@@ -31,6 +31,7 @@ from .constants import (
     RECONNECT_BACKOFF_BASE,
     RECONNECT_BACKOFF_FACTOR,
     RECONNECT_BACKOFF_MAX,
+    RECONNECT_BACKOFF_MAX_EXPONENT,
 )
 from .errors import (
     DeviceError,
@@ -736,9 +737,9 @@ class BaseClient(ABC):
 
     def _register_connect_failure(self) -> None:
         """登记一次建连失败并推进退避门控(内部方法,须锁内调用)。"""
+        exponent = min(self._connect_fail_count, RECONNECT_BACKOFF_MAX_EXPONENT)
         cap = min(
-            RECONNECT_BACKOFF_BASE
-            * (RECONNECT_BACKOFF_FACTOR ** self._connect_fail_count),
+            RECONNECT_BACKOFF_BASE * (RECONNECT_BACKOFF_FACTOR ** exponent),
             RECONNECT_BACKOFF_MAX,
         )
         self._next_connect_at = time.monotonic() + random.uniform(0.0, cap)

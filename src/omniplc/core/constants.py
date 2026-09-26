@@ -336,6 +336,8 @@ RECONNECT_BACKOFF_FACTOR: float = 2.0
 """退避指数因子:每连续失败一次延迟上限翻倍。"""
 RECONNECT_BACKOFF_MAX: float = 30.0
 """退避延迟上限(秒):指数增长在此封顶,实际延迟为 uniform(0, 上限) 的 full jitter。"""
+RECONNECT_BACKOFF_MAX_EXPONENT: int = 32
+"""退避指数上限:``factor ** n`` 先按此封顶再计算,防止连续失败上万次时浮点溢出。"""
 
 # ---------------------------------------------------------------- 基恩士 MC 协议兼容
 KEYENCE_MC_DEFAULT_PORT: int = 5000

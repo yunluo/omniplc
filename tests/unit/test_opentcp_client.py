@@ -537,3 +537,46 @@ def test_async_client_exposes_new_framing_options() -> None:
         await client.close()
 
     asyncio.run(scenario())
+
+
+class _FailingSendTransport(BaseTransport):
+    """connect 成功、send 必抛 OSError 的假传输(每次(重)连接各建一份)。"""
+
+    def __init__(self, counter: List[int]) -> None:
+        super().__init__()
+        self._counter = counter
+
+    def connect(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+    def send(self, data: bytes) -> None:
+        self._counter.append(1)
+        raise OSError("send failed")
+
+    def recv(self, size: int) -> bytes:
+        raise AssertionError("不应到达 recv")
+
+
+def test_transact_uses_write_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """transact / transact_text 属写语义:走 write_retries,不因读重试而重发。
+
+    回归:二者漏传 ``is_write=True``,开启读重试后同一帧被重复下发。
+    """
+    counter: List[int] = []
+    client = OpenTcpClient("127.0.0.1", 9000)
+    monkeypatch.setattr(
+        client, "_create_transport", lambda: _FailingSendTransport(counter)
+    )
+    client.retries = 1
+    client.write_retries = 0
+    client.connect()
+
+    assert client.transact(b"PING") == (False, None)
+    assert len(counter) == 1
+    counter.clear()
+
+    assert client.transact_text("PING") == (False, None)
+    assert len(counter) == 1

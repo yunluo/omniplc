@@ -1181,3 +1181,20 @@ def test_chunk_batch_requests_budget_split() -> None:
     assert sum(len(c) for c in chunks) == 100  # 切块不丢条目
     assert _chunk_batch_requests([short_req]) == [[short_req]]  # 单条单事务
     assert _chunk_batch_requests([]) == []
+
+
+def test_chunk_batch_requests_counts_offset_table() -> None:
+    """字节预算须计入偏移表(2×n),否则实际负载可超 504B 未连接缓冲。
+
+    回归:旧实现 ``entry = len(request) + 对齐`` 漏算每条 2 字节偏移项,
+    15 条 30B 请求会挤进一块(真实负载 2 + 2×15 + 15×30 = 482B,加信封
+    余量 24B 已超 480B 上限)。
+    """
+    from omniplc.core.constants import AB_MAX_BATCH_PAYLOAD
+    from omniplc.plc.ab.ab import _BATCH_ENVELOPE_MARGIN, _chunk_batch_requests
+
+    request = b"z" * 30
+    chunks = _chunk_batch_requests([request] * 15)
+    for chunk in chunks:
+        payload = 2 + 2 * len(chunk) + sum(len(r) + len(r) % 2 for r in chunk)
+        assert payload + _BATCH_ENVELOPE_MARGIN <= AB_MAX_BATCH_PAYLOAD

@@ -87,8 +87,10 @@ def _fromstring_rejecting_doctype(body: bytes) -> ElementTree.Element:
     调用方既有 ``ParseError`` 处理路径收口为 :class:`ProtocolFrameError` 或
     :class:`OSError`(响应路径语义不变)。
     """
+    # UTF-16/UTF-32 的 ASCII 字符高字节夹 0x00,裸 ASCII 扫描会漏判;
+    # 同时扫描剔除 NUL 字节后的形式(拒绝是安全方向,无漏放风险)。
     lowered = body.lower()
-    if b"<!doctype" in lowered:
+    if b"<!doctype" in lowered or b"<!doctype" in lowered.replace(b"\x00", b""):
         raise ElementTree.ParseError(
             "DOCTYPE 不允许(XML 实体炸弹 / XXE 防御:纵深防护)"
         )

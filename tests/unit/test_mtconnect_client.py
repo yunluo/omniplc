@@ -516,3 +516,28 @@ def test_doctype_payload_rejected_as_bad_frame(
     assert client.snapshot() == (False, None)
     assert client.connected is False
     assert "DOCTYPE" in (client.last_error or "")
+
+
+def test_doctype_utf16_payload_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UTF-16 编码的 DOCTYPE 负载同样拒绝。
+
+    回归:DOCTYPE 扫描按 ASCII 扫 ``b"<!doctype"``,UTF-16 的 ASCII 字符
+    高字节夹 0x00,漏判后 expat 仍会展开实体,纵深防护失效。
+    """
+    text = (
+        "<?xml version='1.0'?>\n"
+        "<!DOCTYPE foo [<!ENTITY xxe SYSTEM 'file:///etc/passwd'>]>\n"
+        "<MTConnectStreams xmlns='urn:mtconnect.org:MTConnectStreams:1.3'>"
+        "<Streams>&xxe;</Streams></MTConnectStreams>"
+    )
+    conn = FakeHTTPConnection("127.0.0.1", 5000)
+    conn.responses = {
+        "/current": (200, text.encode("utf-16")),
+        "/probe": (200, _PROBE_XML.encode("utf-8")),
+    }
+    monkeypatch.setattr(mtc_module, "_new_connection", lambda ip, port, timeout: conn)
+    client = MTConnectClient("127.0.0.1", 5000)
+    assert client.connect() is True
+    assert client.snapshot() == (False, None)
+    assert client.connected is False
+    assert "DOCTYPE" in (client.last_error or "")

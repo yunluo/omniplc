@@ -389,3 +389,28 @@ def test_expected_request_frame_matches_codec(
         await client.close()
 
     loop.run_until_complete(scenario())
+
+
+def test_d_area_bit_read_falls_back_on_1101(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """native D 区位读遇 0x1101:回退字读 + 本地提位(镜像同步侧)。
+
+    回归:native ``_read_bit_impl`` 未镜像同步侧的 0x1101 回退,老固件
+    (CP1E/部分 CS1)D/EM 区位读直接失败。
+    """
+
+    async def scenario() -> None:
+        client = AsyncOmronFinsUdpClient(
+            "192.168.250.1", 9600, destination_node=_DEST_NODE, source_node=_SRC_NODE
+        )
+        error = _fins_response(1, 0x0101, end_code=0x1101)  # 位读(SID=1)被拒
+        word = _fins_response(2, 0x0101, data=_words_be([0x0008]))  # bit3 置位
+        scripted = ScriptedAsyncTransport([error, word], datagram=True)
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        assert await client.read_bool("D100.3") == (True, True)
+        assert client.connected is True
+        await client.close()
+
+    loop.run_until_complete(scenario())

@@ -166,6 +166,8 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         parsed = parse_address(address)
         if parsed.area not in (ModbusArea.HOLDING_REGISTER, ModbusArea.INPUT_REGISTER):
             raise ValueError(f"字符串只能从寄存器区域(hr/ir)读取,收到:{address!r}")
+        if parsed.bit is not None:
+            raise ValueError(f"字符串地址不支持位号后缀:{address!r}")
         registers = await self._read_registers(parsed, (length + 1) // 2)
         data = b"".join(reg.to_bytes(2, "big") for reg in registers)[:length]
         return convert.decode_string(data, encoding)
@@ -177,6 +179,8 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         parsed = parse_address(address)
         if parsed.area != ModbusArea.HOLDING_REGISTER:
             raise ValueError(f"字符串只能写入保持寄存器区域(hr),收到:{address!r}")
+        if parsed.bit is not None:
+            raise ValueError(f"字符串地址不支持位号后缀:{address!r}")
         raw = convert.encode_string(
             value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
         )

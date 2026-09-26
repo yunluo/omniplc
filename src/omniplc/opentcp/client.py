@@ -383,7 +383,7 @@ class OpenTcpClient(BaseClient):
             transport = self._require_transport()
             transport.send(data)
             return self._receive_frame(transport, read_timeout)
-        return self._execute(operation)
+        return self._execute(operation, is_write=True)
 
     def transact_text(self, text: str, timeout: Optional[float] = None) -> Tuple[bool, Optional[str]]:
         """发送文本(可自动补分隔符)并收一帧应答解码为文本。
@@ -402,7 +402,7 @@ class OpenTcpClient(BaseClient):
             transport.send(payload)
             frame = self._receive_frame(transport, read_timeout)
             return self._decode_bytes(frame)
-        return self._execute(operation)
+        return self._execute(operation, is_write=True)
 
     def _decode_bytes(self, frame: bytes) -> str:
         """按首选编码 + 回退链解码;全部失败按坏帧抛错(内部方法)。

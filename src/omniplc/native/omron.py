@@ -28,6 +28,7 @@ from .transport import AsyncBaseTransport, AsyncTcpTransport, AsyncUdpTransport
 from .. import convert
 from ..core.base_client import validate_endpoint
 from ..core.constants import (
+    FINS_BIT_FALLBACK_AREAS,
     FINS_DEFAULT_DESTINATION_NETWORK,
     FINS_DEFAULT_DESTINATION_UNIT,
     FINS_DEFAULT_PORT,
@@ -40,7 +41,9 @@ from ..core.constants import (
     FINS_TCP_HEADER_SIZE,
     FINS_TIMER_COUNTER_AREAS,
     FINS_UNIT_MAX,
+    FINS_UNSUPPORTED_AREA_CODE,
 )
+from ..core.errors import DeviceError
 from ..core.validation import check_int16, check_uint16, check_range, require_bool
 from ..plc.omron import codec
 from ..plc.omron.address import FinsAddress, parse_fins_address
@@ -243,12 +246,23 @@ class AsyncOmronFinsBase(AsyncBaseClient):
     # ------------------------------------------------------------------
 
     async def _read_bit_impl(self, parsed: FinsAddress) -> bool:
-        """位读:位存储区码 + 位地址,CPU 直接返回点位值。"""
-        frame = self._build_read(parsed, 1, is_bit=True)
-        values = codec.parse_response(
-            await self._transact(frame), frame, 1, is_bit=True, is_read=True
-        )
-        return bool(values[0])
+        """位读:位存储区码 + 位地址;老固件不支持 D/EM 区位码时回退字读提位。"""
+        try:
+            frame = self._build_read(parsed, 1, is_bit=True)
+            values = codec.parse_response(
+                await self._transact(frame), frame, 1, is_bit=True, is_read=True
+            )
+            return bool(values[0])
+        except DeviceError as exc:
+            if (
+                exc.code == FINS_UNSUPPORTED_AREA_CODE
+                and parsed.area in FINS_BIT_FALLBACK_AREAS
+            ):
+                # CP1E/部分 CS1 不支持 D/EM 区位码(结束码 0x1101):
+                # 回退「字读 + 本地按位提取」,对调用方透明(镜像同步侧)
+                words = await self._read_words(parsed._replace(bit=None), 1)
+                return bool(convert.get_bit(words[0], parsed.bit or 0))
+            raise
 
     async def _read_words(self, parsed: FinsAddress, word_count: int) -> List[int]:
         """字读:字存储区码,返回 0~65535 逐字数据(大端)。"""

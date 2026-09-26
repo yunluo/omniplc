@@ -816,7 +816,7 @@ def _chunk_batch_requests(requests: Sequence[bytes]) -> List[List[bytes]]:
     current: List[bytes] = []
     used = 2  # 条数域
     for request in requests:
-        entry = len(request) + len(request) % 2  # 偏移项 + 偶对齐后的请求
+        entry = 2 + len(request) + len(request) % 2  # 偏移项(2)+ 偶对齐后的请求
         if current and (
             len(current) >= AB_MAX_BATCH_SERVICES
             or used + entry + _BATCH_ENVELOPE_MARGIN > AB_MAX_BATCH_PAYLOAD

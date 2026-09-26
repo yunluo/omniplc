@@ -216,7 +216,7 @@ class ModbusBaseClient(BaseClient):
         """
         data_type_enum = DataType.coerce(data_type)
         # 入参合法性前置校验:任一地址非法即同步抛出,不进事务
-        parsed = [(parse_address(addr), data_type_enum) for addr in addresses]
+        parsed = [(_check_address(addr, data_type_enum), data_type_enum) for addr in addresses]
         ok, values = self._execute(lambda: self._coalesce_and_read(parsed))
         if not ok or values is None:
             return [(False, None) for _ in addresses]
@@ -247,7 +247,10 @@ class ModbusBaseClient(BaseClient):
         """
         if not items:
             raise ValueError("read_batch 至少需要一个 (地址, 数据类型) 项")
-        parsed = [(parse_address(addr), DataType.coerce(dt)) for addr, dt in items]
+        parsed: List[Tuple["ModbusAddress", DataType]] = []
+        for addr, data_type in items:
+            coerced = DataType.coerce(data_type)
+            parsed.append((_check_address(addr, coerced), coerced))
         return self._execute(lambda: self._coalesce_and_read(parsed))
 
     def _coalesce_and_read(
@@ -680,7 +683,7 @@ class ModbusBaseClient(BaseClient):
                     ) from exc
                 raise
 
-        return self._execute(operation)
+        return self._execute(operation, is_write=True)
 
     def read_device_id(
         self, level: Union[str, int] = "basic"
@@ -746,7 +749,8 @@ class ModbusBaseClient(BaseClient):
                 self._transact(pdu), int(sub_function)
             )
 
-        return self._execute(operation)
+        # 仅 0x000A(清计数器与诊断寄存器)是写语义;其余子功能为只读查询
+        return self._execute(operation, is_write=int(sub_function) == 0x000A)
 
     def get_comm_event_counter(self) -> Tuple[bool, Optional[int]]:
         """取通信事件计数器(FC11,规范 §6.11):返回事件计数。
@@ -821,7 +825,7 @@ class ModbusBaseClient(BaseClient):
             pdu = codec.build_write_file_record_pdu(trimmed)
             codec.parse_write_file_record_response(self._transact(pdu), pdu)
 
-        ok, _ = self._execute(operation)
+        ok, _ = self._execute(operation, is_write=True)
         return ok
 
     def read_fifo_queue(self, address: str) -> Tuple[bool, Optional[List[int]]]:

@@ -45,6 +45,7 @@ v1 评审稿逐条对源码复核后形成本版:
 - **§2.1.7 Modbus FC20/21 文件记录(P2)**:读写文件记录(含 aio 镜像)。
 - **二轮复审 P0 MC `L` 设备码撞码(2026-09-26)**:`core/constants.py` `MC_DEVICE_CODES["L"]` 由 `0xA0` 改为 **`0x92`**(原值与 `B` 同码,致 3E/4E/4C 下所有 `L` 读写静默打进 `B` 空间);新增回归门禁 `test_mc_codec.py::test_mc_device_code_table_l_is_92_and_no_collisions`(锁 `L=0x92` 且设备码表无重码)。
 - **二轮复审 P1 批(2026-09-26)**:①**ADS transport 码集**——改用 TE1000 §8 全局组 `0x06/0x07/0x0D/0x12/0x1B/0x1D` + Router 组 `0x0500~0x050D`,回归测试 `test_translate_ads_error_transport_codes` / `..._parameter_codes_are_device`;②**S7 `read_wstring` ASCII 返空**——`convert.decode_string` 对 UTF-16/UTF-32 改为「解码后按 NUL 字符截断」(字节层截断会把 `b"\x00A\x00B"` 整串截空),回归 `test_convert.py::TestString::test_utf16_ascii_not_truncated_by_high_nul` 与 `test_siemens_s7_clients.py::test_wstring_ascii_roundtrip`;③**`read_tag`/`write_tag` 64 位精度**——`scale=1.0/offset=0.0` 时原值直通,不经 float64 往返(>2^53 曾静默丢低位),回归 `test_base_client.py::TestTagScaling::test_{read,write}_tag_identity_scale_preserves_int64`;④**aio 属性读阻塞事件循环**——`connected/last_error/last_error_category/last_error_code/stats/next_connect_in` 同步 getter 改**无锁快照**(固定键集值级拷贝,GIL 下安全),aio 转发不再进事务锁,回归 `test_v034_reliability.py::TestAioBackoffAndErrorSurfaces::test_property_reads_do_not_block_on_transaction_lock`。门禁 1150 → **1158**。
+- **二轮复审 P2 批 1(2026-09-26)**:①**native 镜像**——`native/modbus.py` 字符串补 `.bit` 拒绝、`native/omron.py` 位读补 0x1101 回退;②**Modbus 批量读 `.bit`**——`read_many`/`read_batch` 改用 `_check_address`(兼补跨度校验);③**写语义 `is_write=True`**——Modbus FC23/FC08-A/FC21 + OpenTcp `transact`/`transact_text`;④**FINS `read_batch`** 拒绝非 BOOL 位号;⑤**AB 0x0A 预算**补偏移表 2×n;⑥**MTConnect DOCTYPE** 防 UTF-16 绕过(剔 NUL 后扫描);⑦**退避指数**按 32 封顶防 `OverflowError`。门禁 1158 → **1169**。
 
 ---
 
@@ -52,7 +53,7 @@ v1 评审稿逐条对源码复核后形成本版:
 
 > 范围:76 个源文件 / ~21k 行,分 6 域(核心 / 异步 / Modbus+OpenTcp / MC 家族 / Omron·AB·S7·ADS / OPC-UA·MTConnect·工程)。
 > 方法:逐行读源 + 只读探针(Python 3.7.9)+ 与 pyads/asyncua 安装源比对。标「已核验」者为二轮亲自复现。
-> 结论:新增 **1 条 P0、4 条 P1** 及若干 P2/P3;并纠正上一轮 **5 条已关闭项 / 3 条记录不实**。其中 P0(MC `L` 撞码)与 **P1 四项(ADS 码集 / S7 WString ASCII / Tag 64 位精度 / aio 属性读锁)均已于 2026-09-26 修复**(见「修复记录」与各条「修复」小节)。
+> 结论:新增 **1 条 P0、4 条 P1** 及若干 P2/P3;并纠正上一轮 **5 条已关闭项 / 3 条记录不实**。其中 P0(MC `L` 撞码)与 **P1 四项(ADS 码集 / S7 WString ASCII / Tag 64 位精度 / aio 属性读锁)均已于 2026-09-26 修复**,P2 前七项(native 镜像 / Modbus 批量 `.bit` / `is_write` / FINS 批量 `.bit` / AB 0x0A 预算 / MTConnect DOCTYPE / 退避溢出)同日修复(见「修复记录」与各条「修复」小节)。
 
 ### P0
 
@@ -87,13 +88,13 @@ v1 评审稿逐条对源码复核后形成本版:
 
 ### P2
 
-- **native 未镜像已有同步修复(已核验)**:`native/modbus.py:162/173` 的 `_read_string/_write_string` 不拒 `.bit`(同步 `modbus/modbus.py:168/179` 会拒);`native/omron.py:245` `_read_bit_impl` 无 §2.3.5 的 0x1101 D/EM 回退。
-- **Modbus `read_many`/`read_batch` 对非 BOOL 静默忽略 `.bit`(已核验)**:`modbus/modbus.py:219/250` 不调 `_check_address`,`read_many(["hr0.3"], "short")` 返回整字;单点 `read` 与 `write_many` 却会抛。
-- **写语义操作漏 `is_write=True`(已核验)**:`modbus/modbus.py:683`(FC23)/`:749`(FC08-A 清计数)/`:824`(FC21)、`opentcp/client.py:386/405`(`transact`/`transact_text`)。默认 `retries=0` 无碍,开启重发即重复写/重复下发。
-- **FINS `read_batch` 非 BOOL 静默忽略 `.bit`**:`plc/omron/omron.py:298`(探针确认)。
-- **AB 0x0A 分块预算漏算偏移表(已核验)**:`plc/ab/ab.py:819` 只算 `len(request)+对齐`(注释却称含偏移项),docstring 明写「长度(2)+偏移表(2×n)+数据」,实际未加 2×n → 仍可能超 504B 未连接缓冲。§2.4.1 修复不完整。
-- **MTConnect DOCTYPE 防护可被 UTF-16 绕过(已核验)**:`cnc/mtconnect.py:90` 按 ASCII 扫 `b"<!doctype"`,UTF-16 XML 高字节 `0x00` 漏判,ElementTree 仍展开实体 → XXE/Billion Laughs 纵深防护失效;16MB body 上限在解析之后。
-- **连接退避指数无界(已核验)**:`core/base_client.py:730` `RECONNECT_BACKOFF_FACTOR ** self._connect_fail_count` 先算后 `min`;计数仅成功清零,连续 ~1024 次失败后 `2.0**1024` 抛 `OverflowError` 逃出公开 API 并跳过 `transport.close()`。
+- **native 未镜像已有同步修复(已核验)——已修复(2026-09-26)**:`native/modbus.py:162/173` 的 `_read_string/_write_string` 补 `.bit` 拒绝;`native/omron.py` `_read_bit_impl` 补 0x1101 D/EM 字读提位回退(镜像同步侧)。回归 `test_native_modbus.py::test_string_rejects_bit_suffix`、`test_native_omron.py::test_d_area_bit_read_falls_back_on_1101`。
+- **Modbus `read_many`/`read_batch` 对非 BOOL 静默忽略 `.bit`(已核验)——已修复(2026-09-26)**:两入口改用 `_check_address`(同时补齐地址跨度校验)。回归 `test_read_many_rejects_bit_suffix_for_non_bool` / `test_read_batch_rejects_bit_suffix_for_non_bool`。
+- **写语义操作漏 `is_write=True`(已核验)——已修复(2026-09-26)**:`modbus/modbus.py` FC23 / FC08-A 清计数 / FC21、`opentcp/client.py` `transact`/`transact_text` 补 `is_write=True`(FC08 仅 `0x000A` 视为写)。回归 `test_write_semantics_gate_retries`、`test_transact_uses_write_retries`。
+- **FINS `read_batch` 非 BOOL 静默忽略 `.bit`——已修复(2026-09-26)**:`plc/omron/omron.py` 读批量入参期拒绝非 BOOL 位号。回归并入 `test_read_batch_rejects`。
+- **AB 0x0A 分块预算漏算偏移表(已核验)——已修复(2026-09-26)**:`plc/ab/ab.py:819` 每条 `entry` 补 2 字节偏移项。回归 `test_chunk_batch_requests_counts_offset_table`(15×30B 须拆块)。
+- **MTConnect DOCTYPE 防护可被 UTF-16 绕过(已核验)——已修复(2026-09-26)**:`cnc/mtconnect.py` 同时扫描剔除 NUL 字节后的形式(响应体上限在 `_read_body` 读取期已强制,先于解析)。回归 `test_doctype_utf16_payload_rejected`。
+- **连接退避指数无界(已核验)——已修复(2026-09-26)**:`core/base_client.py:730` 指数先按 `RECONNECT_BACKOFF_MAX_EXPONENT=32` 封顶再算。回归 `test_backoff_exponent_bounded`。
 - **MC `read_batch` 字软元件 `.bit` 静默忽略** `plc/melsec/melsec.py:269`;**MEWTOCOL 字段溢出** `plc/panasonic/codec_mewtocol.py:85/90/96/103`(§2.9.2/§2.9.3 未修);**MX 32/64 位批读未支持** `plc/melsec/mx.py:727`。
 - **`convert`(已核验)**:`convert.py:426` `_reorder_bytes` 对任何非法 `word_order`(字符串/`None`)静默走 BADC,与 `docs/architecture.md:443`「非法值抛 ValueError」矛盾;`registers_to_int32/int64` 等不校验寄存器数量。
 - **OPC-UA**:`browse` 默认递归、`max_depth=None` 无上限(`opcua/client.py:614`,§2.11.5 只加形参未改实现);`_coerce_read` 不做范围收窄(`:828`,与写路径不对称);NodeId 正则拒 `s=` 内含分号及 `srv=`/`nsu=`(`opcua/address.py:25`)。
@@ -889,4 +890,4 @@ v1 评审稿逐条对源码复核后形成本版:
 
 ---
 
-> 本文档仅记录问题与现场影响。v2 复核删除 8 条误报、修正 12 条口径;条目按"实锤 / 文档化限制 / 待核证"分档。2026-09-26 二轮全量复审新增 P0/P1/P2/P3 清单及台账纠偏,见文首「二轮复审」;同日修复 P0(MC `L` 撞码)与 P1 四项(ADS 码集依 TE1000 §8、S7 WString ASCII、Tag 64 位精度、aio 属性读锁)。修复路线图不列入,按项目排期另起 `docs/fix-roadmap.md`。
+> 本文档仅记录问题与现场影响。v2 复核删除 8 条误报、修正 12 条口径;条目按"实锤 / 文档化限制 / 待核证"分档。2026-09-26 二轮全量复审新增 P0/P1/P2/P3 清单及台账纠偏,见文首「二轮复审」;同日修复 P0(MC `L` 撞码)与 P1 四项(ADS 码集依 TE1000 §8、S7 WString ASCII、Tag 64 位精度、aio 属性读锁)、P2 前七项(native 镜像、Modbus 批量 `.bit`、`is_write`、FINS 批量 `.bit`、AB 0x0A 预算、MTConnect DOCTYPE、退避溢出)。修复路线图不列入,按项目排期另起 `docs/fix-roadmap.md`。

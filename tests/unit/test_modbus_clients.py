@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import socket
 import struct
+from typing import List
 
 import pytest
 
@@ -19,6 +20,7 @@ from omniplc import ModbusRtuClient, ModbusTcpClient
 from omniplc.core.debug import format_hex
 from omniplc.core.errors import ErrorCategory, TransportTimeoutError
 from omniplc.modbus import codec
+from omniplc.transport.base import BaseTransport
 from scripted import ScriptedTransport as _ScriptedTransport, mount_real_tcp
 
 # FC03 读 1 个寄存器、字节计数 2、值 20 的标准响应 PDU
@@ -1660,4 +1662,77 @@ def test_async_read_fifo_queue_aio_mirror(monkeypatch: pytest.MonkeyPatch) -> No
         await client.close()
 
     asyncio.run(scenario())
+
+
+# ----------------------------------------------------------------------
+# 批量读位号后缀校验 / 写语义重试门控
+# ----------------------------------------------------------------------
+
+
+def test_read_many_rejects_bit_suffix_for_non_bool() -> None:
+    """read_many 非 BOOL 带 .bit 同步拒绝(与单点 read / write_many 一致)。
+
+    回归:read_many 只 parse_address 不校验,``["hr0.3"]`` + "short" 返回整字。
+    """
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    with pytest.raises(ValueError):
+        client.read_many(["hr0.3"], "short")
+
+
+def test_read_batch_rejects_bit_suffix_for_non_bool() -> None:
+    """read_batch 非 BOOL 带 .bit 同步拒绝。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    with pytest.raises(ValueError):
+        client.read_batch([("hr0.3", "short")])
+
+
+class _FailingSendTransport(BaseTransport):
+    """connect 成功、send 必抛 OSError 的假传输:(重)连接各建一份以计数。"""
+
+    def __init__(self, counter: List[int]) -> None:
+        super().__init__()
+        self._counter = counter
+
+    def connect(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+    def send(self, data: bytes) -> None:
+        self._counter.append(1)
+        raise OSError("send failed")
+
+    def recv(self, size: int) -> bytes:
+        raise AssertionError("不应到达 recv")
+
+
+def test_write_semantics_gate_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC23 / FC08-A 清计数 / FC21 走 write_retries(默认 0),不重复下发。
+
+    回归:这些写语义操作漏传 ``is_write=True``,开启读重试后会被当读重发。
+    """
+    counter: List[int] = []
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    monkeypatch.setattr(
+        client, "_create_transport", lambda: _FailingSendTransport(counter)
+    )
+    client.retries = 1  # 读重试开启
+    client.write_retries = 0  # 写不重试(默认)
+    client.connect()
+
+    assert client.diagnostics(0x000A) == (False, None)  # 清计数器 = 写
+    assert len(counter) == 1
+    counter.clear()
+
+    assert client.read_write_registers("hr0", 1, "hr0", [1]) == (False, None)  # FC23
+    assert len(counter) == 1
+    counter.clear()
+
+    assert client.write_file_record([(1, 0, [1])]) is False  # FC21
+    assert len(counter) == 1
+    counter.clear()
+
+    assert client.diagnostics(0x0000) == (False, None)  # 回显查询 = 读
+    assert len(counter) == 2  # 读按 retries=1 重试
 

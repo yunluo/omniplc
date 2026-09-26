@@ -310,12 +310,14 @@ def test_udp_read_many_single_transaction(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_read_batch_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
-    """read_batch 拒绝路径:空列表、T/C 完成标志、条目数超限。"""
+    """read_batch 拒绝路径:空列表、T/C 完成标志、非 BOOL 带位号、条目数超限。"""
     client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
     with pytest.raises(ValueError):
         client.read_batch([])
     with pytest.raises(ValueError):
         client.read_batch([("T0", "bool")])
+    with pytest.raises(ValueError):
+        client.read_batch([("D100.3", "short")])
     with pytest.raises(ValueError):
         client.read_batch([("D{}".format(index), "short") for index in range(168)])
 

@@ -442,3 +442,27 @@ def test_client_constructed_outside_loop(loop: Any) -> None:
         await client.close()
 
     loop.run_until_complete(scenario())
+
+
+def test_string_rejects_bit_suffix(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """native 字符串读写同同步侧口径:拒绝位号后缀(.bit)。
+
+    回归:native 未镜像同步侧 ``modbus/modbus.py`` 的校验,``hr0.3`` 被
+    静默当作 ``hr0`` 整字读写。
+    """
+
+    async def scenario() -> None:
+        client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+        scripted = ScriptedAsyncTransport([])
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        with pytest.raises(ValueError):
+            await client.read_string("hr0.3", 4)
+        with pytest.raises(ValueError):
+            await client.write_string("hr0.3", "AB")
+        await client.close()
+
+    loop.run_until_complete(scenario())
+

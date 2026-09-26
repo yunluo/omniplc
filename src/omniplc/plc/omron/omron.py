@@ -286,6 +286,8 @@ class _OmronFinsBase(BaseClient):
         for address, data_type in items:
             data_type_enum = DataType.coerce(data_type)
             parsed = parse_fins_address(address)
+            if data_type_enum is not DataType.BOOL and parsed.bit is not None:
+                raise ValueError(f"仅布尔类型支持位访问:{address!r}")
             if data_type_enum is DataType.BOOL:
                 if parsed.area in FINS_TIMER_COUNTER_AREAS:
                     raise ValueError(
