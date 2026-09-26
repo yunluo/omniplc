@@ -245,9 +245,10 @@ class _MelsecMcBase(BaseClient):
         """多块批量读取:0406 单事务混读多个字/位软元件(仅 3E/4E 帧)。
 
         利用 MC 协议原生"多块批量读"能力,一帧内软元件/类型可各不相同
-        (SH-080008 §8.4):32/64 位类型各占 2/4 字,BOOL 位软元件占
-        1 个位块(1 点 = 16 位),BOOL 字软元件占 1 个字块后本地提位;
-        字块 + 位块总数上限 120(子命令 0000)。字符串请用
+        (SH-080008 §8.4):32/64 位类型各占 2/4 字,**BOOL 位软元件:同软元件
+        且编号连续的位请求合并为一个位块(1 点 = 16 位)**,BOOL 字软元件占
+        1 个字块后本地提位;字块 + 位块总数上限 120(子命令 0000;不支持
+        iQ-R 扩展 0002 的链接直接/模块访问)。字符串请用
         :meth:`read_string`(变长不适合混读)。
 
         :param items: ``(地址, 数据类型)`` 序列
@@ -261,11 +262,10 @@ class _MelsecMcBase(BaseClient):
                 f"多块批量读仅支持 3E/4E 帧,当前帧型:{self._frame.value}"
             )
         word_blocks: List[Tuple[int, int, int]] = []
-        bit_blocks: List[Tuple[int, int, int]] = []
+        bit_requests: List[Tuple[int, int, int]] = []  # (软元件码, 起始编号, plan 下标)
         # 解码计划:(类别, 字/位索引, 位号或字数, 数据类型)
         plan: List[Tuple[str, int, int, DataType]] = []
         word_index = 0
-        bit_index = 0
         for address, data_type in items:
             data_type_enum = DataType.coerce(data_type)
             parsed = self._translate_address(parse_mc_address(address))
@@ -285,9 +285,9 @@ class _MelsecMcBase(BaseClient):
             if data_type_enum is DataType.BOOL:
                 if is_bit_device:
                     codec_qna.reject_bit_suffix_on_bit_device(parsed)
-                    bit_blocks.append((code, number, 1))
-                    plan.append(("bit", bit_index, 0, data_type_enum))
-                    bit_index += 1
+                    plan_index = len(plan)
+                    plan.append(("bit", 0, 0, data_type_enum))  # 占位,合并后回填
+                    bit_requests.append((code, number, plan_index))
                 else:
                     word_blocks.append((code, number, 1))
                     plan.append(("wordbit", word_index, parsed.bit or 0, data_type_enum))
@@ -310,7 +310,7 @@ class _MelsecMcBase(BaseClient):
                     f"MC 批量读取不支持的数据类型:{data_type_enum}"
                 )
         word_points = word_index
-        bit_points = bit_index
+        bit_blocks, bit_points = _merge_bit_blocks(bit_requests, plan)
 
         def operation() -> List[PrimitiveValue]:
             request = codec_qna.build_random_read(
@@ -332,7 +332,7 @@ class _MelsecMcBase(BaseClient):
             values: List[PrimitiveValue] = []
             for kind, index, extra, item_type in plan:
                 if kind == "bit":
-                    values.append(bool(bits[index] >> 15 & 1))
+                    values.append(bool(bits[index] >> extra & 1))
                 elif kind == "wordbit":
                     values.append(bool(convert.get_bit(words[index], extra)))
                 elif item_type in (DataType.SHORT, DataType.USHORT):
@@ -893,6 +893,49 @@ class MelsecMcSerialClient(_MelsecMcBase):
 # ----------------------------------------------------------------------
 # 模块级辅助函数
 # ----------------------------------------------------------------------
+
+def _merge_bit_blocks(
+    bit_requests: Sequence[Tuple[int, int, int]],
+    plan: List[Tuple[str, int, int, DataType]],
+) -> Tuple[List[Tuple[int, int, int]], int]:
+    """把连续的位软元件 BOOL 请求合并为 0406 位块(内部函数)。
+
+    0406 位块 1 点 = 16 位软元件(响应 1 字,块内首软元件在 bit15);同软元件
+    且编号连续的请求合并为一块——块内第 k 个软元件落在第 ``k//16`` 字的
+    ``15 - k%16`` 位。逐块把解码项回填进 ``plan``(占位项),返回
+    ``(位块列表, 位块总点数)``。非连续/跨软元件/乱序的请求各自成块。
+
+    :param bit_requests: ``(软元件码, 起始编号, plan 下标)`` 序列(按请求顺序)
+    :param plan: 解码计划(占位项将被回填为 ``("bit", 字索引, 位号, BOOL)``)
+    """
+    bit_blocks: List[Tuple[int, int, int]] = []
+    base_word = 0
+    index = 0
+    total = len(bit_requests)
+    while index < total:
+        code, start, _ = bit_requests[index]
+        run = [bit_requests[index]]
+        follow = index + 1
+        while (
+            follow < total
+            and bit_requests[follow][0] == code
+            and bit_requests[follow][1] == run[-1][1] + 1
+        ):
+            run.append(bit_requests[follow])
+            follow += 1
+        points = (len(run) + 15) // 16  # 1 点 = 16 位软元件
+        bit_blocks.append((code, start, points))
+        for offset, request in enumerate(run):
+            plan[request[2]] = (
+                "bit",
+                base_word + offset // 16,
+                15 - offset % 16,
+                DataType.BOOL,
+            )
+        base_word += points
+        index = follow
+    return bit_blocks, base_word
+
 
 def _coerce_frame(value: Union[McFrame, str]) -> McFrame:
     """把枚举成员或字符串统一解析为 McFrame(内部函数)。"""

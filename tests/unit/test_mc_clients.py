@@ -443,3 +443,38 @@ def test_tcp_3e_read_batch_rejects_word_type_on_bit_device(
     with pytest.raises(ValueError):
         client.read_batch([("X0", "int")])
     assert len(scripted.sent) == 0  # 参数错误零字节发送
+
+
+def test_tcp_3e_read_batch_merges_adjacent_bit_blocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """相邻同软元件位请求合并为一个 0406 位块(1 点=16 位),按位位置解码。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    frame = _qna_random_read_response([], [0xA000])  # M0=1 / M1=0 / M2=1(bit15/14/13)
+    scripted = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, values = client.read_batch(
+        [("M0", DataType.BOOL), ("M1", DataType.BOOL), ("M2", DataType.BOOL)]
+    )
+    assert (ok, values) == (True, [True, False, True])
+    # 3 个位请求合并为单个位块(点数为 1);未合并时会是 3 个块
+    assert bytes(scripted.sent) == codec_qna.build_random_read(
+        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, [], [(0x90, 0, 1)]
+    )
+
+
+def test_tcp_3e_read_batch_noncontiguous_bits_not_merged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """非连续位请求各自成块(M0 / M2 不合并,两处各取 bit15)。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    frame = _qna_random_read_response([], [0x8000, 0x0000])  # M0=1;M2=0
+    scripted = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, values = client.read_batch([("M0", DataType.BOOL), ("M2", DataType.BOOL)])
+    assert (ok, values) == (True, [True, False])
+    assert bytes(scripted.sent) == codec_qna.build_random_read(
+        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, [], [(0x90, 0, 1), (0x90, 2, 1)]
+    )

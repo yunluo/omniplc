@@ -21,6 +21,7 @@ from .address import FinsAddress, parse_fins_address
 from ... import convert
 from ...core.base_client import BaseClient, validate_endpoint
 from ...core.constants import (
+    FINS_BIT_FALLBACK_AREAS,
     FINS_BIT_WRITABLE_AREAS,
     FINS_DEFAULT_DESTINATION_NETWORK,
     FINS_DEFAULT_DESTINATION_UNIT,
@@ -35,7 +36,9 @@ from ...core.constants import (
     FINS_TCP_HEADER_SIZE,
     FINS_TIMER_COUNTER_AREAS,
     FINS_UNIT_MAX,
+    FINS_UNSUPPORTED_AREA_CODE,
 )
+from ...core.errors import DeviceError
 from ...core.validation import check_int16, check_range, check_uint16, require_bool
 from ...transport import BaseTransport, TcpTransport, UdpTransport
 from ...types import ByteOrder, DataType, PrimitiveValue
@@ -92,6 +95,7 @@ class _OmronFinsBase(BaseClient):
         :param source_network: 源网络号(上位机侧,一般 0)
         :param source_node: 源节点号;``None``/``0`` = 自动
             (TCP 经握手获取,UDP 从本机出口 IP 末段推导);显式传值原样使用
+            (**多网卡/VPN 环境建议显式指定**,避免出口 IP 漂移导致 SA1 变化/0x0106)
         :param source_unit: 源单元号(上位机为 0)
         :raises ValueError: 参数非法
         """
@@ -336,12 +340,23 @@ class _OmronFinsBase(BaseClient):
     # ------------------------------------------------------------------
 
     def _read_bit_impl(self, parsed: FinsAddress) -> bool:
-        """位读:位存储区码 + 位地址,CPU 直接返回点位值。"""
-        frame = self._build_read(parsed, 1, is_bit=True)
-        values = codec.parse_response(
-            self._transact(frame), frame, 1, is_bit=True, is_read=True
-        )
-        return bool(values[0])
+        """位读:位存储区码 + 位地址;老固件不支持 D/EM 区位码时回退字读提位。"""
+        try:
+            frame = self._build_read(parsed, 1, is_bit=True)
+            values = codec.parse_response(
+                self._transact(frame), frame, 1, is_bit=True, is_read=True
+            )
+            return bool(values[0])
+        except DeviceError as exc:
+            if (
+                exc.code == FINS_UNSUPPORTED_AREA_CODE
+                and parsed.area in FINS_BIT_FALLBACK_AREAS
+            ):
+                # CP1E/部分 CS1 不支持 D/EM 区位码(结束码 0x1101):
+                # 回退「字读 + 本地按位提取」,对调用方透明
+                words = self._read_words(parsed._replace(bit=None), 1)
+                return bool(convert.get_bit(words[0], parsed.bit or 0))
+            raise
 
     def _read_words(self, parsed: FinsAddress, word_count: int) -> List[int]:
         """字读:字存储区码,返回 0~65535 逐字数据(大端)。"""

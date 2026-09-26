@@ -188,6 +188,33 @@ def test_udp_end_code_flag_bits_decoded(monkeypatch: pytest.MonkeyPatch) -> None
     assert client.connected is True  # 设备错误不断线
 
 
+def test_udp_d_area_bit_read_falls_back_on_1101(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D 区位读遇 0x1101(老固件不支持位区码):回退字读 + 本地提位。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    error = _fins_error_response(0x1101)  # 位读(SID=1)被拒
+    word = (  # 字读 D100(SID=2)= 0x0008(bit3 置位)
+        _FINS_ECHO_HEAD + b"\x02" + b"\x01\x01" + b"\x00\x00" + (0x0008).to_bytes(2, "big")
+    )
+    scripted = ScriptedTransport([error, word])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_bool("D100.3") == (True, True)
+    assert client.connected is True
+    assert len(scripted.sent) >= 2  # 位读 + 回退字读两次事务
+
+
+def test_udp_end_code_routing_hint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """配置类结束码附现场排查提示(0x0201 → 检查 destination_network)。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport([_fins_error_response(0x0201)])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("D100") == (False, None)
+    assert "destination_network" in (client.last_error or "")
+
+
 def test_udp_timer_counter_word_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """UDP:T/C 区:字访问为当前值 PV(操作码 0x89),可读写。"""
     client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)

@@ -28,6 +28,7 @@ from ...core.constants import (
     FINS_EM_WORD_CODE_BASE,
     FINS_END_CODE_OK,
     FINS_END_CODE_CPU_ERROR_FLAGS,
+    FINS_END_CODE_HINT,
     FINS_END_CODE_RELAY_ERROR_FLAG,
     FINS_END_CODE_SIZE,
     FINS_END_CODE_TEXT,
@@ -428,7 +429,10 @@ def _end_code_text(end_code: int) -> str:
     base = end_code & ~(FINS_END_CODE_RELAY_ERROR_FLAG | FINS_END_CODE_CPU_ERROR_FLAGS)
     text = FINS_END_CODE_TEXT.get(base, "详见 Omron FINS 手册")
     if flags:
-        return "{} [{}]".format(text, "、".join(flags))
+        text = "{} [{}]".format(text, "、".join(flags))
+    hint = FINS_END_CODE_HINT.get(base)
+    if hint:
+        text = "{};现场排查:{}".format(text, hint)
     return text
 
 
