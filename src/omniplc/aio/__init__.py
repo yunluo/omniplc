@@ -59,6 +59,7 @@ from ..core.constants import (
     OPEN_TCP_DEFAULT_ENCODING,
     OPEN_TCP_DEFAULT_PORT,
     OPEN_TCP_MAX_FRAME,
+    OPEN_TCP_RECV_CHUNK,
     MTCONNECT_DEFAULT_PORT,
     S7_DEFAULT_PORT,
     S7_DEFAULT_RACK,
@@ -1530,24 +1531,13 @@ class AOpenTcpClient(ABaseClient):
         strip_delimiter: bool = True,
         max_frame: int = OPEN_TCP_MAX_FRAME,
         frame_length: Optional[int] = None,
+        encoding_fallback: Optional[Sequence[str]] = None,
+        recv_chunk_size: int = OPEN_TCP_RECV_CHUNK,
+        start_marker: Optional[Union[str, bytes]] = None,
+        length_prefix: Optional[int] = None,
+        length_prefix_byteorder: str = "big",
     ) -> None:
-        """初始化通用 TCP 异步客户端。
-
-        :param ip_address: 设备 IP 或主机名
-        :param port: TCP 端口(自定义设备无统一标准,按现场配置)
-        :param delimiter: 帧分隔符(bytes 或 str;str 按 UTF-8 编码);
-            定长成帧时传 ``None``
-        :param encoding: ``send_text``/``receive_text``/``transact_text``
-            的字符编码,默认 UTF-8
-        :param append_delimiter: ``send_text``/``transact_text`` 发送时
-            自动补分隔符(定长成帧必须为 False)
-        :param strip_delimiter: ``receive``/``transact*`` 返回帧时是否
-            去掉末尾分隔符(仅分隔符成帧生效)
-        :param max_frame: 帧内容字节上限(不含分隔符),超限判流内失步
-        :param frame_length: 定长成帧的每帧字节数(≥1,不超过
-            ``max_frame``);与 ``delimiter`` 互斥,二者必须提供其一
-        :raises ValueError: 参数非法
-        """
+        """初始化通用 TCP 异步客户端(参数与语义同同步版 :class:`OpenTcpClient`)。"""
         super().__init__(
             OpenTcpClient(
                 ip_address,
@@ -1558,6 +1548,11 @@ class AOpenTcpClient(ABaseClient):
                 strip_delimiter,
                 max_frame,
                 frame_length,
+                encoding_fallback,
+                recv_chunk_size,
+                start_marker,
+                length_prefix,
+                length_prefix_byteorder,
             )
         )
 
@@ -1626,6 +1621,31 @@ class AOpenTcpClient(ABaseClient):
     def max_frame(self) -> int:
         """帧内容字节上限(转发同步实例)。"""
         return self._client().max_frame
+
+    @property
+    def encoding_fallback(self) -> Tuple[str, ...]:
+        """解码回退编码序列(转发同步实例)。"""
+        return self._client().encoding_fallback
+
+    @property
+    def recv_chunk_size(self) -> int:
+        """单次 recv 读取字节数(转发同步实例)。"""
+        return self._client().recv_chunk_size
+
+    @property
+    def start_marker(self) -> Optional[bytes]:
+        """帧起始标记(bytes;转发同步实例)。"""
+        return self._client().start_marker
+
+    @property
+    def length_prefix(self) -> Optional[int]:
+        """长度域字节数(转发同步实例)。"""
+        return self._client().length_prefix
+
+    @property
+    def last_partial_frame(self) -> Optional[bytes]:
+        """最近一次接收超时的部分帧(转发同步实例)。"""
+        return self._client().last_partial_frame
 
 
 class AMTConnectClient(ABaseClient):

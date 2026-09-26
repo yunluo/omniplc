@@ -609,29 +609,29 @@ v1 评审稿逐条对源码复核后形成本版:
 
 ### 2.13 OpenTcp(通用 TCP)
 
-#### 2.13.1 无编码回退链 — **P2(实锤)**
-- `opentcp/client.py:256-263, 300-307`
-- **修复**:`encoding_fallback` 或 `errors="replace"` 可配。
+#### 2.13.1 无编码回退链 — **已修复(2026-09-26)**
+- `opentcp/client.py`(新增 `encoding_fallback`,`_decode_bytes` 逐候选编码尝试)
+- 首选编码解码失败不再立即判坏帧;按 `encoding_fallback` 顺序回退(如 `["gbk"]`),全部失败才按坏帧抛错并列出候选编码。
 
-#### 2.13.2 无 STX/ETX、无"长度+分隔符"组合成帧 — **P2(实锤)**
-- `opentcp/client.py:60-125`
-- **修复**:`start_marker/end_marker` 组合。
+#### 2.13.2 无 STX/ETX、无"长度+分隔符"组合成帧 — **已修复(2026-09-26)**
+- `opentcp/client.py`(新增 `start_marker`、`length_prefix`(+`length_prefix_byteorder`))
+- 分隔符模式可选 `start_marker`(标记前噪声丢弃、跨分片保留标记前缀);新增长度前缀成帧(1/2/4 字节长度域 + 该长度载荷,与 `delimiter`/`frame_length` 互斥)。
 
-#### 2.13.3 帧长上界检查时机 — **P3(实锤)**
-- `opentcp/client.py:331`
-- `>` 应为 `>=`,多驻留 1 字节。
+#### 2.13.3 帧长上界检查时机 — **已修复(2026-09-26)**
+- `opentcp/client.py`(`_buffer_limit`/`_receive_frame`)
+- 缓冲硬上限改为 `max_frame + 成帧开销`(长度域/起始标记 + 分隔符),条件 `>=`;既不多驻留 1 字节,也不误伤"内容满 `max_frame` 但分隔符尚缺"的合法帧。
 
-#### 2.13.4 buffer 头部删除 O(n) — **P3(实锤)**
+#### 2.13.4 buffer 头部删除 O(n) — **P3(待处理)**
 - `opentcp/client.py:365, 378`
 - **修复**:读指针或 deque。
 
-#### 2.13.5 `recv_chunk=256` 硬编码 — **P3(实锤)**
-- `opentcp/client.py:344`
+#### 2.13.5 `recv_chunk=256` 硬编码 — **已修复(2026-09-26)**
+- `opentcp/client.py`(新增 `recv_chunk_size` 参数与只读属性,`_receive_frame` 按其读取)
 
-#### 2.13.6 大块发送无进度回调 — **P3(实锤)**
+#### 2.13.6 大块发送无进度回调 — **P3(待处理)**
 
-#### 2.13.7 部分帧残数据不留诊断 — **P3(实锤)**
-- `opentcp/client.py:331-352`
+#### 2.13.7 部分帧残数据不留诊断 — **已修复(2026-09-26)**
+- `opentcp/client.py`(新增 `last_partial_frame` 属性;超时时保存缓冲残字节,成帧成功后清空,重连清空)
 
 #### 2.13.8 无 IPv6 — **P2(实锤)**
 - `transport/tcp.py`、`transport/udp.py`

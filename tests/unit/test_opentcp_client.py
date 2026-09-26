@@ -158,7 +158,8 @@ def test_reconnect_clears_stale_buffer(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_max_frame_exceeded_marks_disconnected() -> None:
     """超过 max_frame 未见分隔符:坏帧断线(流内失步兜底)。"""
     client = OpenTcpClient("127.0.0.1", 9000, max_frame=16)
-    _attach(client, ScriptedTransport([b"A" * 17]))
+    # 缓冲硬上限 = max_frame(16) + 成帧开销(分隔符 2)= 18;达到即判失步
+    _attach(client, ScriptedTransport([b"A" * 18]))
     assert client.receive() == (False, None)
     assert "失步" in (client.last_error or "")
     assert client.connected is False
@@ -409,3 +410,120 @@ def test_stream_partial_frame_buffers_across_calls() -> None:
     assert "已收 6 字节" in (client.last_error or "")
     transport._socket = _ChunkSocket([b"!\r\n"])  # type: ignore[assignment]
     assert client.receive_text() == (True, "no-eol!")
+
+
+def test_encoding_fallback_decodes_gbk() -> None:
+    """首选 utf-8 解码失败时按回退编码(GBK)解码,不误判坏帧。"""
+    client = OpenTcpClient(
+        "127.0.0.1", 9000, encoding="utf-8", encoding_fallback=["gbk"]
+    )
+    _attach(client, ScriptedTransport(["温度".encode("gbk") + b"\r\n"]))
+    assert client.encoding_fallback == ("gbk",)
+    assert client.receive_text() == (True, "温度")
+
+
+def test_start_marker_framing_drops_leading_noise() -> None:
+    """STX/ETX 成帧:返回标记与分隔符之间内容,标记前噪声丢弃。"""
+    client = OpenTcpClient(
+        "127.0.0.1", 9000, start_marker=b"\x02", delimiter=b"\x03"
+    )
+    _attach(client, ScriptedTransport([b"NOISE\x02ABC\x03"]))
+    assert client.start_marker == b"\x02"
+    assert client.receive() == (True, b"ABC")
+
+
+def test_start_marker_prefix_split_across_chunks() -> None:
+    """多字节标记跨分片到达:仅保留可能是标记前缀的尾部字节后拼出帧。"""
+    client = OpenTcpClient(
+        "127.0.0.1", 9000, start_marker=b"\x02\x02", delimiter=b"\x03"
+    )
+    _attach(client, ScriptedTransport([b"junk\x02", b"\x02DATA\x03"]))
+    assert client.receive() == (True, b"DATA")
+
+
+def test_length_prefix_framing_big_endian() -> None:
+    """长度前缀成帧:先读长度域再取该长度载荷,缓冲可含后续帧。"""
+    client = OpenTcpClient(
+        "127.0.0.1", 9000, delimiter=None, append_delimiter=False, length_prefix=2
+    )
+    _attach(client, ScriptedTransport([b"\x00\x03ABC\x00\x02XY"]))
+    assert client.length_prefix == 2
+    assert client.receive() == (True, b"ABC")
+    assert client.receive() == (True, b"XY")
+
+
+def test_length_prefix_framing_little_endian() -> None:
+    """长度前缀字节序可配为 little。"""
+    client = OpenTcpClient(
+        "127.0.0.1",
+        9000,
+        delimiter=None,
+        append_delimiter=False,
+        length_prefix=2,
+        length_prefix_byteorder="little",
+    )
+    _attach(client, ScriptedTransport([b"\x03\x00ABC"]))
+    assert client.receive() == (True, b"ABC")
+
+
+def test_length_prefix_over_max_frame_rejected() -> None:
+    """长度域声明的载荷超过 max_frame:直接判坏帧,不做巨额等待。"""
+    client = OpenTcpClient(
+        "127.0.0.1",
+        9000,
+        delimiter=None,
+        append_delimiter=False,
+        length_prefix=2,
+        max_frame=8,
+    )
+    _attach(client, ScriptedTransport([b"\x00\x09" + b"A" * 9]))
+    assert client.receive() == (False, None)
+    assert "max_frame" in (client.last_error or "")
+
+
+def test_new_framing_constructor_rules() -> None:
+    """新成帧参数校验:非法长度前缀/互斥组合/非法字节序/空 recv 块。"""
+    with pytest.raises(ValueError):
+        OpenTcpClient(delimiter=None, append_delimiter=False, length_prefix=3)
+    with pytest.raises(ValueError):
+        OpenTcpClient(delimiter=b"\r\n", append_delimiter=False, length_prefix=2)
+    with pytest.raises(ValueError):
+        OpenTcpClient(
+            delimiter=None, append_delimiter=False, frame_length=4, length_prefix=2
+        )
+    with pytest.raises(ValueError):
+        OpenTcpClient(
+            delimiter=None,
+            append_delimiter=False,
+            length_prefix=2,
+            start_marker=b"\x02",
+        )
+    with pytest.raises(ValueError):
+        OpenTcpClient(length_prefix_byteorder="middle")
+    with pytest.raises(ValueError):
+        OpenTcpClient(recv_chunk_size=0)
+
+
+def test_last_partial_frame_recorded_on_timeout() -> None:
+    """接收超时时记录未成帧的部分字节,便于现场定位半帧/错帧。"""
+    client, _ = _tcp_client([b"PART"])
+    assert client.receive(timeout=0.2) == (False, None)
+    assert client.last_partial_frame == b"PART"
+
+
+def test_async_client_exposes_new_framing_options() -> None:
+    """异步镜像同步暴露新成帧参数与只读属性。"""
+    client = AOpenTcpClient(
+        "127.0.0.1",
+        9000,
+        delimiter=None,
+        append_delimiter=False,
+        length_prefix=2,
+        recv_chunk_size=64,
+        encoding_fallback=["gbk"],
+    )
+    assert client.length_prefix == 2
+    assert client.recv_chunk_size == 64
+    assert client.encoding_fallback == ("gbk",)
+    assert client.start_marker is None
+    assert client.last_partial_frame is None

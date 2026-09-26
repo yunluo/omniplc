@@ -45,7 +45,7 @@ BaseClient(ABC,模板方法:连接状态机 / 事务锁 / 惰性重连 / 类型�
 ├── OpcUaClient —— OPC-UA opc.tcp 会话(4840,封装 asyncua)
 ├── MTConnectClient —— CNC 机床数采(HTTP/XML 只读,Agent 默认 5000)
 ├── SiemensS7Client —— 西门子 S7(102,rack/slot 路由,封装 python-snap7)
-└── OpenTcpClient —— 通用自定义 TCP/IP(端口按设备):分隔符/定长成帧 + 内部缓冲,send/receive/transact*
+└── OpenTcpClient —— 通用自定义 TCP/IP(端口按设备):分隔符/定长/长度前缀成帧 + 内部缓冲,send/receive/transact*
 
 异步镜像(omniplc.aio):类名 = 同步类名前加 A,签名同名同型,共 28 个
 AModbusTcpClient / AModbusRtuClient / AInovanceTcpClient / AInovanceRtuClient / AInovanceMcTcpClient
@@ -258,8 +258,8 @@ opc = OpcUaClient("192.168.0.10", 4840)
 ok, value = opc.read_float("ns=2;s=Device.Temperature")
 ok = opc.write_ushort("ns=2;s=Device.Speed", 1200)
 
-# 通用自定义 TCP:任意分隔符成帧设备(称重仪表、传感器、自定义程序等)
-# 分隔符/编码/收发行为构造期可配;超时与重连沿用属性(client.receive_timeout / client.retries)
+# 通用自定义 TCP:任意分隔符/定长/长度前缀成帧设备(称重仪表、传感器、自定义程序等)
+# 成帧三选一:delimiter(可配 start_marker 如 STX/ETX)、frame_length、length_prefix;编码回退/收块大小可配
 from omniplc import OpenTcpClient
 dev = OpenTcpClient(ip_address="192.168.0.10", port=9000, delimiter="\r\n")
 dev.receive_timeout = 2.0
@@ -267,6 +267,9 @@ dev.connect()
 ok = dev.send_text("READ")             # 自动补分隔符(append_delimiter 可关)
 ok, raw = dev.receive()                # 按分隔符收一帧(bytes),跨分片自动拼接
 ok, text = dev.transact_text("VER")    # 发送并收一帧(str);坏帧/解码失败断线重连,超时不断线
+# STX/ETX 设备:OpenTcpClient(..., start_marker=b"\x02", delimiter=b"\x03")
+# 长度前缀设备:OpenTcpClient(..., delimiter=None, append_delimiter=False, length_prefix=2)
+# 中文编码设备:OpenTcpClient(..., encoding_fallback=["gbk"])
 
 # CNC 机床数采(MTConnect):数据项 id 即地址,Agent 默认端口 5000(标准库实现,零第三方依赖)
 # FANUC/三菱等控制器经适配器喂给 Agent 即可采;先 snapshot() 查看机器实际提供的数据项
