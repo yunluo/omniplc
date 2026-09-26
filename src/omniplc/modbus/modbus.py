@@ -14,6 +14,7 @@ V1.02(串行线实现指南)为准;中文资源见
 """
 from __future__ import annotations
 
+import time
 from abc import abstractmethod
 from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple, Union, cast
 
@@ -59,7 +60,7 @@ from ..core.validation import (
     require_int,
 )
 from ..transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport
-from ..types import DataType, SerialParity, WordOrder, PrimitiveValue
+from ..types import ByteOrder, DataType, SerialParity, WordOrder, PrimitiveValue
 
 
 class ModbusBaseClient(BaseClient):
@@ -164,6 +165,8 @@ class ModbusBaseClient(BaseClient):
         parsed = parse_address(address)
         if parsed.area not in (ModbusArea.HOLDING_REGISTER, ModbusArea.INPUT_REGISTER):
             raise ValueError(f"字符串只能从寄存器区域(hr/ir)读取,收到:{address!r}")
+        if parsed.bit is not None:
+            raise ValueError(f"字符串地址不支持位号后缀:{address!r}")
         registers = self._read_registers(parsed, (length + 1) // 2)
         data = b"".join(reg.to_bytes(2, "big") for reg in registers)[:length]
         return convert.decode_string(data, encoding)
@@ -173,6 +176,8 @@ class ModbusBaseClient(BaseClient):
         parsed = parse_address(address)
         if parsed.area != ModbusArea.HOLDING_REGISTER:
             raise ValueError(f"字符串只能写入保持寄存器区域(hr),收到:{address!r}")
+        if parsed.bit is not None:
+            raise ValueError(f"字符串地址不支持位号后缀:{address!r}")
         raw = convert.encode_string(value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding)
         registers = [
             int.from_bytes(raw[i:i + 2], "big") for i in range(0, len(raw), 2)
@@ -589,7 +594,13 @@ class ModbusBaseClient(BaseClient):
         """批量写保持寄存器(FC 16)。"""
         self._write_pdu(codec.build_write_multi_pdu(parsed.write_multi_function_code, parsed.offset, registers))
 
-    def write_mask_register(self, address: str, and_mask: int, or_mask: int) -> bool:
+    def write_mask_register(
+        self,
+        address: str,
+        and_mask: int,
+        or_mask: int,
+        byte_order: Union[ByteOrder, str] = "big",
+    ) -> bool:
         """掩码写保持寄存器(FC 22,设备侧原子 AND/OR 位修改)。
 
         设备执行 ``新值 = (当前值 AND and_mask) OR (or_mask AND NOT and_mask)``:
@@ -600,15 +611,21 @@ class ModbusBaseClient(BaseClient):
         :param address: 保持寄存器地址,如 ``"hr100"``
         :param and_mask: AND 掩码(0~65535)
         :param or_mask: OR 掩码(0~65535)
+        :param byte_order: 掩码字节序(``"big"``/``"little"`` 或
+            :class:`~omniplc.types.ByteOrder`);规范为 big,部分施耐德机型
+            按 little 解释掩码,需现场核对
         :return: 是否成功
-        :raises ValueError: 地址/掩码非法
+        :raises ValueError: 地址/掩码/字节序非法
         """
         parsed = parse_address(address)
         if parsed.area != ModbusArea.HOLDING_REGISTER:
             raise ValueError(f"掩码写只支持保持寄存器区域(hr),收到:{address!r}")
         if parsed.bit is not None:
             raise ValueError(f"掩码写地址不支持位号后缀:{address!r}")
-        pdu = codec.build_mask_write_pdu(parsed.offset, int(and_mask), int(or_mask))
+        order = byte_order.value if isinstance(byte_order, ByteOrder) else str(byte_order)
+        pdu = codec.build_mask_write_pdu(
+            parsed.offset, int(and_mask), int(or_mask), order
+        )
         ok, _ = self._execute(
             lambda: codec.parse_mask_write_response(self._transact(pdu), pdu),
             is_write=True,
@@ -648,11 +665,22 @@ class ModbusBaseClient(BaseClient):
         pdu = codec.build_read_write_registers_pdu(
             read_parsed.offset, int(read_count), write_parsed.offset, data
         )
-        return self._execute(
-            lambda: codec.parse_read_write_registers_response(
-                self._transact(pdu), int(read_count)
-            )
-        )
+
+        def operation() -> List[int]:
+            try:
+                return codec.parse_read_write_registers_response(
+                    self._transact(pdu), int(read_count)
+                )
+            except DeviceError as exc:
+                if exc.code == 0x02:
+                    raise DeviceError(
+                        "{};部分网关/老设备不支持跨段 FC23(读、写地址分属不同网段)"
+                        ",可改用 write_many + read_many".format(exc),
+                        exc.code,
+                    ) from exc
+                raise
+
+        return self._execute(operation)
 
     def read_device_id(
         self, level: Union[str, int] = "basic"
@@ -685,15 +713,14 @@ class ModbusBaseClient(BaseClient):
         与 :meth:`read_device_id` 的流式访问相对,本方法按对象号精确取一个
         对象;对象号不存在时设备返回异常码 02(ILLEGAL DATA ADDRESS)。
 
-        :param object_id: 对象号(0~255;0x00~0x06 为标准对象,
-            0x80~0xFF 为厂商私有对象)
+        :param object_id: 对象号(0x00~0x06 标准对象、0x80~0xFF 厂商私有
+            对象;0x07~0x7F 为规范保留值,拒绝)
         :return: ``(是否成功, 对象原始字节)``;失败为 ``(False, None)``。
             标准对象为 ASCII 文本,私有对象由厂商定义(可能为二进制),
             需要文本时自行 ``value.decode("ascii", "replace")``
-        :raises ValueError: 对象号非法
+        :raises ValueError: 对象号非法(越界或落在保留区间)
         """
-        if not 0 <= int(object_id) <= 0xFF:
-            raise ValueError(f"设备标识对象号超出范围 0~255:{object_id}")
+        codec.check_device_id_object(int(object_id))
         self._reject_broadcast_read()
         return self._execute(
             lambda: self._read_device_object_once(int(object_id))
@@ -796,6 +823,26 @@ class ModbusBaseClient(BaseClient):
 
         ok, _ = self._execute(operation)
         return ok
+
+    def read_fifo_queue(self, address: str) -> Tuple[bool, Optional[List[int]]]:
+        """读 FIFO 队列(FC24,规范 §6.18)。
+
+        设备把 ``address`` 指向的保持寄存器当 FIFO 指针,返回队列中按先进
+        先出排列的寄存器值(队列空时返回空列表)。单次最多 31 个寄存器。
+        需设备支持 FC24(部分老设备/网关不支持,失败见 last_error)。
+
+        :param address: FIFO 指针所指的保持寄存器地址,如 ``"hr1000"``
+        :return: ``(是否成功, FIFO 寄存器值列表)``;失败为 ``(False, None)``
+        :raises ValueError: 地址非保持寄存器 / 带位号后缀
+        """
+        parsed = _check_holding_register(address, "FC24 地址")
+        self._reject_broadcast_read()
+
+        def operation() -> List[int]:
+            pdu = codec.build_read_fifo_pdu(parsed.offset)
+            return codec.parse_read_fifo_response(self._transact(pdu))
+
+        return self._execute(operation)
 
     def _read_device_id_pages(self, code: int) -> Dict[str, str]:
         """按流式读取码循环翻页,合并所有页的对象(内部方法,仅事务锁内)。
@@ -939,6 +986,25 @@ class ModbusRtuClient(ModbusBaseClient):
         super().__init__()
         self._station = self._check_station(station)
         self._serial_config: Optional[SerialConfig] = None
+        self._inter_frame_delay = 0.0
+
+    @property
+    def inter_frame_delay(self) -> float:
+        """帧间静默延时(秒,默认 0;0 表示不额外延时)。
+
+        Modbus RTU 规范要求帧之间至少有 3.5 个字符时间的静默。本库采用
+        "读满整帧再发下一帧"的事务模型,通常自然满足;高波特率 + 密集轮询
+        下 Python 调度可能不足 3.5c,可设该值(如 9600 波特 8N1 约
+        ``4e-3`` 秒)强制间隔。默认 0 保持现状(不引入额外延时)。
+        """
+        return self._inter_frame_delay
+
+    @inter_frame_delay.setter
+    def inter_frame_delay(self, value: float) -> None:
+        delay = float(value)
+        if delay < 0:
+            raise ValueError(f"inter_frame_delay 不能为负:{value}")
+        self._inter_frame_delay = delay
 
     def configure_serial(
         self,
@@ -985,6 +1051,8 @@ class ModbusRtuClient(ModbusBaseClient):
         """
         transport = self._require_transport()
         station = self.station
+        if self._inter_frame_delay > 0:
+            time.sleep(self._inter_frame_delay)
         transport.send(codec.build_rtu_frame(station, pdu))
         if not expect_response:
             return b""
@@ -997,6 +1065,12 @@ class ModbusRtuClient(ModbusBaseClient):
             # FC12 响应长度随事件字节数变化:先读 byte count 再收其余(含 CRC)
             byte_count = transport.recv(1)
             frame = head + byte_count + transport.recv(byte_count[0] + 2)
+        elif pdu[0] == codec.ModbusFunction.READ_FIFO_QUEUE:
+            # FC24 响应长度随 FIFO 计数变化:先读 byte count(2) 再收其余(含 CRC)
+            byte_count = transport.recv(2)
+            frame = head + byte_count + transport.recv(
+                int.from_bytes(byte_count, "big") + 2
+            )
         else:
             frame = head + transport.recv(codec.expected_response_length(pdu) + 1)
         received_station, response_pdu = codec.parse_rtu_frame(frame)

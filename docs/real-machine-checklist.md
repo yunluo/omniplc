@@ -62,8 +62,8 @@
 | 基恩士 | KV MC 协议兼容(SLMP 3E) | | | 位组记号核证(2026-09-26 复核后仍待真机,判据已定):本库按**记号数字原样**发帧(`R515` → 515)。核证法:**写 `R100`**,在 KV Studio 同时看 `R100`(组 1 位 0)与 `R604`(组 6 位 4 = 线性 100)——前者变化 = 现状正确;后者变化 = 需换算为 `组×16+位号`(那时改 `_translate_address` 并按行为变更记 CHANGELOG)。依据与反证详见 `plc/keyence/mc.py` 模块 docstring 与 `docs/review.md` §2.7.3 |
 | 基恩士 | SR 扫码枪 | — | — | SR 扫码枪为读码设备,读=扫码触发,写=不适用 |
 | 丰田 | TOYOPUC 计算机链接 TCP/UDP | | | |
-| Modbus | Modbus TCP | | | FC22 掩码写 / FC23 读写多寄存器 / FC43·14 设备标识待真机核证 |
-| Modbus | Modbus RTU | | | FC22 掩码写 / FC23 读写多寄存器 / FC43·14 设备标识(RTU 按对象头增量收包)待真机核证 |
+| Modbus | Modbus TCP | | | FC22 掩码写(字节序可配) / FC23 读写多寄存器 / FC24 FIFO / FC43·14 设备标识待真机核证 |
+| Modbus | Modbus RTU | | | FC22 掩码写 / FC23 读写多寄存器 / FC24 FIFO(按 byte count 增量收包) / FC43·14 设备标识(按对象头增量收包) / `inter_frame_delay` 帧间静默待真机核证 |
 | OPC-UA | opc.tcp | | | 订阅/Browse 为 v0.35 新增,待真机验证 |
 | CNC | MTConnect Agent HTTP/XML | | | |
 | 通用 | OpenTcp(分隔符 / 定长 / 长度前缀) | | | 新增 STX/ETX 起始标记、长度前缀成帧、`encoding_fallback` 解码回退、`last_partial_frame` 诊断,需按现场仪表实测 |

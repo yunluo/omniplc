@@ -1548,3 +1548,136 @@ def test_file_record_field_validation() -> None:
         codec.build_read_file_record_pdu([(1, 0x2710, 1)])  # 记录号 >9999
     with pytest.raises(ValueError):
         codec.build_write_file_record_pdu([(1, 1, [])])  # 空记录
+
+
+# ----------------------------------------------------------------------
+# 本轮 P3:FC22 掩码字节序 / FC23 跨段提示 / FC24 FIFO /
+# STRING 位号拒绝 / RTU 帧间静默延时
+# ----------------------------------------------------------------------
+
+
+def test_mask_write_little_endian_pdu_and_roundtrip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FC22:byte_order="little" 时掩码按本机字序组帧,回显仍逐字节校验。"""
+    assert codec.build_mask_write_pdu(1, 0x00F0, 0x0005) == bytes.fromhex(
+        "160001" + "00f0" + "0005"
+    )
+    assert codec.build_mask_write_pdu(1, 0x00F0, 0x0005, "little") == bytes.fromhex(
+        "160001" + "f000" + "0500"
+    )
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    request_pdu = codec.build_mask_write_pdu(100, 0x00F0, 0x0005, "little")
+    scripted = _mount(client, monkeypatch, [_mbap_response(1, 1, request_pdu)])
+    client.connect()
+    assert client.write_mask_register("hr100", 0x00F0, 0x0005, "little") is True
+    assert bytes(scripted.sent) == codec.build_mbap(1, 1, request_pdu)
+
+
+def test_mask_write_bad_byte_order_rejected() -> None:
+    """FC22:非法字节序在组帧期拒绝(客户端与 codec 同口径)。"""
+    with pytest.raises(ValueError):
+        codec.build_mask_write_pdu(0, 1, 1, "middle")
+    with pytest.raises(ValueError):
+        ModbusTcpClient("127.0.0.1", 502, 1).write_mask_register("hr0", 1, 1, "middle")
+
+
+def test_read_write_registers_cross_segment_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FC23:设备回 ILLEGAL DATA ADDRESS(0x02)时,last_error 提示跨段可能且不断线。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    _mount(client, monkeypatch, [_mbap_response(1, 1, bytes([0x97, 0x02]))])
+    client.connect()
+    assert client.read_write_registers("hr0", 1, "hr10", [1]) == (False, None)
+    assert client.connected is True
+    assert client.last_error is not None and "跨段" in client.last_error
+
+
+def test_read_fifo_queue_tcp(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC24:请求组帧正确,响应解析出先进先出的 FIFO 值列表。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    response_pdu = (
+        bytes([0x18, 0x00, 0x06, 0x00, 0x02]) + struct.pack(">HH", 0x1111, 0x2222)
+    )
+    scripted = _mount(client, monkeypatch, [_mbap_response(1, 1, response_pdu)])
+    client.connect()
+    assert client.read_fifo_queue("hr100") == (True, [0x1111, 0x2222])
+    assert bytes(scripted.sent) == codec.build_mbap(1, 1, codec.build_read_fifo_pdu(100))
+
+
+def test_read_fifo_queue_codec_edges() -> None:
+    """FC24 codec:空队列、字节计数不符、非法地址拒绝。"""
+    from omniplc.core.errors import ProtocolFrameError
+
+    assert codec.parse_read_fifo_response(bytes([0x18, 0x00, 0x02, 0x00, 0x00])) == []
+    with pytest.raises(ProtocolFrameError):
+        codec.parse_read_fifo_response(
+            bytes([0x18, 0x00, 0x06, 0x00, 0x03]) + b"\x00" * 6
+        )
+    with pytest.raises(ValueError):
+        codec.build_read_fifo_pdu(0x10000)
+
+
+def test_read_fifo_queue_rtu_incremental_recv(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC24(RTU):响应长度随 FIFO 计数变化,按 byte count 增量收包后 CRC 校验。"""
+    client = ModbusRtuClient(1)
+    client.configure_serial("COM3")
+    response_pdu = bytes(
+        [0x18, 0x00, 0x06, 0x00, 0x02, 0x11, 0x11, 0x22, 0x22]
+    )
+    frame = codec.build_rtu_frame(1, response_pdu)
+    scripted = _ScriptedTransport([frame[0:2], frame[2:4], frame[4:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_fifo_queue("hr0") == (True, [0x1111, 0x2222])
+
+
+def test_string_address_rejects_bit_suffix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """STRING:带位号后缀的寄存器地址显式拒绝,不再静默吞位号。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    scripted = _mount(client, monkeypatch, [])
+    client.connect()
+    with pytest.raises(ValueError):
+        client.read_string("hr0.3", 2)
+    with pytest.raises(ValueError):
+        client.write_string("hr0.3", "AB")
+    assert len(bytes(scripted.sent)) == 0
+
+
+def test_rtu_inter_frame_delay(monkeypatch: pytest.MonkeyPatch) -> None:
+    """RTU:inter_frame_delay>0 时发送前 sleep 指定时长;负值拒绝。"""
+    client = ModbusRtuClient(1)
+    client.configure_serial("COM3")
+    client.inter_frame_delay = 0.01
+    assert client.inter_frame_delay == 0.01
+    frame = codec.build_rtu_frame(1, _RESPONSE_ONE_REGISTER)
+    scripted = _ScriptedTransport([frame[:2], frame[2:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    slept = []
+    monkeypatch.setattr("time.sleep", lambda seconds: slept.append(seconds))
+    client.connect()
+    assert client.read_ushort("hr0") == (True, 20)
+    assert slept == [0.01]
+    with pytest.raises(ValueError):
+        client.inter_frame_delay = -1
+
+
+def test_async_read_fifo_queue_aio_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
+    """异步镜像:read_fifo_queue 经单工作线程驱动同步版。"""
+    import asyncio
+
+    from omniplc.aio import AModbusTcpClient
+
+    async def scenario() -> None:
+        client = AModbusTcpClient("127.0.0.1", 502, 1)
+        response_pdu = bytes([0x18, 0x00, 0x04, 0x00, 0x01]) + struct.pack(">H", 7)
+        response = _mbap_response(1, 1, response_pdu)
+        scripted = _ScriptedTransport([response[:7], response[7:]])
+        monkeypatch.setattr(client._sync, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        assert await client.read_fifo_queue("hr0") == (True, [7])
+        await client.close()
+
+    asyncio.run(scenario())
+

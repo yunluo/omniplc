@@ -100,9 +100,13 @@ ok, value = client.read("hr0", DataType.FLOAT)
 
 # 掩码写(FC22):设备侧原子位修改,替代读-改-写两段事务
 ok = client.write_mask_register("hr100", and_mask=0xFFFE, or_mask=0x0001)
+ok = client.write_mask_register("hr100", 0xFFFE, 0x0001, byte_order="little")  # 少数施耐德机型按本机字序
 
 # 读写多寄存器(FC23):单事务「先写后读」,读到的是写入生效后的值
 ok, values = client.read_write_registers("hr200", 2, "hr100", [0x0001, 0x0002])
+
+# FIFO 队列(FC24):返回先进先出的寄存器值列表(单次 ≤31 个)
+ok, fifo = client.read_fifo_queue("hr1000")
 
 # 设备标识(FC43/14):厂商名/产品代码/版本号等;More Follows 自动翻页
 ok, info = client.read_device_id()
@@ -122,6 +126,7 @@ ok = client.write_file_record([(4, 1, [0x0001, 0x0002])])
 from omniplc import ModbusRtuClient
 rtu = ModbusRtuClient(station=1)
 rtu.configure_serial("COM3", baud_rate=9600)
+rtu.inter_frame_delay = 0.004  # 帧间 3.5c 静默(秒);默认 0,高波特率+密集轮询可设
 ```
 
 #### 三菱 / 欧姆龙 / 基恩士 / 汇川 / 丰田
@@ -552,7 +557,7 @@ dump(client.stats)   # 键名拼错、字段用错类型在 mypy/pyright 阶段�
 | OPC-UA           | opc.tcp          | 封装 asyncua,需 OPC-UA 服务器        |
 | MTConnect        | MTConnect Agent  | 标准库 HTTP/XML,需 CNC 端 Agent     |
 | MX Component     | 三菱 MX            | 读写/批量/CPU 型号/时钟已真机核证;get_error_message(ActSupportMsg)待核证 |
-| Modbus FC22/23/43·14 | Modbus TCP/RTU | FC22 掩码写、FC23 读写多寄存器、FC43·14 设备标识均需设备支持,待真机核证 |
+| Modbus FC22/23/24/43·14 | Modbus TCP/RTU | FC22 掩码写(可配字节序)、FC23 读写多寄存器、FC24 FIFO、FC43·14 设备标识均需设备支持,待真机核证 |
 | Modbus FC08/11/12/20/21 | Modbus TCP/RTU | 诊断/事件计数·日志/文件记录(FC20/21)按规范实现,设备支持情况待真机核证 |
 
 实际真机联测通过项的核验记录见 [`docs/real-machine-checklist.md`](docs/real-machine-checklist.md)(按厂商/协议/读写独立勾选)。
@@ -563,7 +568,7 @@ dump(client.stats)   # 键名拼错、字段用错类型在 mypy/pyright 阶段�
 
 | 协议                                     | TCP                                                   | UDP     | RTU(串口)            | MX Component     |
 |----------------------------------------|-------------------------------------------------------|---------|--------------------|------------------|
-| Modbus(含 FC08 诊断 / FC11·12 事件 / FC22 掩码写 / FC23 读写多寄存器 / FC20·21 文件记录 / FC43·14 设备标识) | ✅                                                     | —       | ✅(广播写)             | —                |
+| Modbus(含 FC08 诊断 / FC11·12 事件 / FC22 掩码写 / FC23 读写多寄存器 / FC24 FIFO / FC20·21 文件记录 / FC43·14 设备标识) | ✅                                                     | —       | ✅(广播写)             | —                |
 | 三菱 MC 3E/4E/1E                         | ✅                                                     | ✅       | ✅(1C/3C/4C 串口帧)     | ✅(Windows + COM) |
 | 欧姆龙 FINS                               | ✅                                                     | ✅       | v1.x(Host Link)    | —                |
 | 欧姆龙 CIP / 连接型 CIP(NJ/NX)               | ✅(44818,unconnected/connected)                        | —       | —                  | —                |

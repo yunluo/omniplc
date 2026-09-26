@@ -103,7 +103,7 @@ from ..plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
 from ..scanner import KeyenceSrClient
 from ..plc.omron import OmronCipClient, OmronFinsTcpClient, OmronFinsUdpClient
 from ..tag import Tag, TagTable
-from ..types import DataType, McFrame, PrimitiveValue, SerialParity
+from ..types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity
 
 _T = TypeVar("_T")
 _A = TypeVar("_A", bound="ABaseClient")
@@ -509,10 +509,18 @@ class AModbusBaseClient(ABaseClient):
     def word_order(self, value: str) -> None:
         self._modbus.word_order = _coerce_word_order(value)
 
-    async def write_mask_register(self, address: str, and_mask: int, or_mask: int) -> bool:
+    async def write_mask_register(
+        self,
+        address: str,
+        and_mask: int,
+        or_mask: int,
+        byte_order: Union[ByteOrder, str] = "big",
+    ) -> bool:
         """掩码写保持寄存器(FC22,语义同同步版)。"""
         return await self._run(
-            lambda: self._modbus.write_mask_register(address, and_mask, or_mask)
+            lambda: self._modbus.write_mask_register(
+                address, and_mask, or_mask, byte_order
+            )
         )
 
     async def read_batch(
@@ -588,6 +596,11 @@ class AModbusBaseClient(ABaseClient):
         sync = self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
         return await self._run(lambda: sync.write_file_record(records))
 
+    async def read_fifo_queue(self, address: str) -> Tuple[bool, Optional[List[int]]]:
+        """读 FIFO 队列(FC24,语义同同步版)。"""
+        sync = self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
+        return await self._run(lambda: sync.read_fifo_queue(address))
+
     @property
     def _modbus(self) -> ModbusBaseClient:
         """取 Modbus 同步实例(内部属性)。"""
@@ -636,6 +649,15 @@ class AModbusRtuClient(AModbusBaseClient):
         sync = self._typed(ModbusRtuClient)
         sync.configure_serial(port_name, baud_rate, data_bits, stop_bits, parity)
 
+    @property
+    def inter_frame_delay(self) -> float:
+        """帧间静默延时(秒,转发同步实例;默认 0)。"""
+        return self._typed(ModbusRtuClient).inter_frame_delay
+
+    @inter_frame_delay.setter
+    def inter_frame_delay(self, value: float) -> None:
+        self._typed(ModbusRtuClient).inter_frame_delay = value
+
 
 class AInovanceTcpClient(AModbusBaseClient):
     """汇川 H3U/H5U Modbus TCP 异步客户端。
@@ -683,6 +705,15 @@ class AInovanceRtuClient(AModbusBaseClient):
         """配置串口参数(汇川缺省 9600-8N2,转发到同步实例)。"""
         sync = self._typed(InovanceRtuClient)
         sync.configure_serial(port_name, baud_rate, data_bits, stop_bits, parity)
+
+    @property
+    def inter_frame_delay(self) -> float:
+        """帧间静默延时(秒,转发同步实例;默认 0)。"""
+        return self._typed(InovanceRtuClient).inter_frame_delay
+
+    @inter_frame_delay.setter
+    def inter_frame_delay(self, value: float) -> None:
+        self._typed(InovanceRtuClient).inter_frame_delay = value
 
 
 class APanasonicMewtocolTcpClient(ABaseClient):

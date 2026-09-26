@@ -27,6 +27,7 @@ from ..core.constants import (
     MODBUS_COMMAND_GET_COMM_EVENT_LOG,
     MODBUS_COMMAND_MASK_WRITE,
     MODBUS_COMMAND_READ_DEVICE_ID,
+    MODBUS_COMMAND_READ_FIFO,
     MODBUS_COMMAND_READ_FILE_RECORD,
     MODBUS_COMMAND_READ_WRITE_MULTIPLE,
     MODBUS_COMMAND_WRITE_FILE_RECORD,
@@ -36,6 +37,8 @@ from ..core.constants import (
     MODBUS_DEVICE_ID_CODE_INDIVIDUAL,
     MODBUS_DEVICE_ID_FIXED_HEAD_SIZE,
     MODBUS_DEVICE_ID_PDU_HEAD_SIZE,
+    MODBUS_DEVICE_ID_RESERVED_MAX,
+    MODBUS_DEVICE_ID_RESERVED_MIN,
     MODBUS_DIAGNOSTICS_PDU_SIZE,
     MODBUS_EVENT_COUNTER_PDU_SIZE,
     MODBUS_EXCEPTION_FLAG,
@@ -43,6 +46,7 @@ from ..core.constants import (
     MODBUS_FILE_REFERENCE_TYPE,
     MODBUS_MASK_WRITE_PDU_SIZE,
     MODBUS_MAX_ADU_SIZE,
+    MODBUS_MAX_FIFO_REGISTERS,
     MODBUS_MAX_FILE_RECORDS,
     MODBUS_MAX_READ_BITS,
     MODBUS_MAX_READ_FILE_BYTES,
@@ -77,6 +81,7 @@ class ModbusFunction(IntEnum):
     READ_WRITE_MULTIPLE_REGISTERS = MODBUS_COMMAND_READ_WRITE_MULTIPLE
     READ_FILE_RECORD = MODBUS_COMMAND_READ_FILE_RECORD
     WRITE_FILE_RECORD = MODBUS_COMMAND_WRITE_FILE_RECORD
+    READ_FIFO_QUEUE = MODBUS_COMMAND_READ_FIFO
     DIAGNOSTICS = MODBUS_COMMAND_DIAGNOSTICS
     GET_COMM_EVENT_COUNTER = MODBUS_COMMAND_GET_COMM_EVENT_COUNTER
     GET_COMM_EVENT_LOG = MODBUS_COMMAND_GET_COMM_EVENT_LOG
@@ -266,7 +271,9 @@ def parse_write_response(pdu: bytes, request_pdu: bytes) -> None:
         )
 
 
-def build_mask_write_pdu(offset: int, and_mask: int, or_mask: int) -> bytes:
+def build_mask_write_pdu(
+    offset: int, and_mask: int, or_mask: int, byte_order: str = "big"
+) -> bytes:
     """构造掩码写请求 PDU(FC 22)。
 
     设备侧原子执行 ``新值 = (当前值 AND and_mask) OR (or_mask AND NOT and_mask)``。
@@ -274,15 +281,23 @@ def build_mask_write_pdu(offset: int, and_mask: int, or_mask: int) -> bytes:
     :param offset: 0 基保持寄存器地址
     :param and_mask: AND 掩码(0~65535;置 0 的位被清零)
     :param or_mask: OR 掩码(0~65535;仅在 and_mask 为 1 的位上可置 1)
-    :return: PDU 字节(功能码 + 地址 + AND 掩码 + OR 掩码,均大端)
-    :raises ValueError: 地址/掩码非法
+    :param byte_order: 掩码字节序(``"big"``/``"little"``)。规范为 big;
+        部分施耐德机型按本机字序(little)解释掩码,需现场核对
+    :return: PDU 字节(功能码 + 地址 + AND 掩码 + OR 掩码;地址恒大端)
+    :raises ValueError: 地址/掩码/字节序非法
     """
     _check_offset(offset)
     if not 0 <= and_mask <= 0xFFFF:
         raise ValueError(f"and_mask 超出范围 0~65535:{and_mask}")
     if not 0 <= or_mask <= 0xFFFF:
         raise ValueError(f"or_mask 超出范围 0~65535:{or_mask}")
-    return struct.pack(">BHHH", MODBUS_COMMAND_MASK_WRITE, offset, and_mask, or_mask)
+    order = str(byte_order).strip().lower()
+    if order not in ("big", "little"):
+        raise ValueError(f"byte_order 非法(仅 big/little):{byte_order!r}")
+    masks = struct.pack(">HH", and_mask, or_mask) if order == "big" else struct.pack(
+        "<HH", and_mask, or_mask
+    )
+    return struct.pack(">BH", MODBUS_COMMAND_MASK_WRITE, offset) + masks
 
 
 def parse_mask_write_response(pdu: bytes, request_pdu: bytes) -> None:
@@ -396,6 +411,24 @@ class DeviceIdentification(NamedTuple):
     objects: List[Tuple[int, bytes]]
 
 
+def check_device_id_object(object_id: int) -> None:
+    """校验设备标识对象号:0~255 且不落在规范保留区间 0x07~0x7F(内部/公共)。
+
+    标准对象 0x00~0x06、厂商私有对象 0x80~0xFF 合法;0x07~0x7F 为规范
+    保留值,请求与响应均不应出现。
+
+    :raises ValueError: 对象号越界或落在保留区间
+    """
+    if not 0 <= object_id <= 0xFF:
+        raise ValueError(f"设备标识对象号超出范围 0~255:{object_id}")
+    if MODBUS_DEVICE_ID_RESERVED_MIN <= object_id <= MODBUS_DEVICE_ID_RESERVED_MAX:
+        raise ValueError(
+            "设备标识对象号 0x{:02X} 落在规范保留区间 0x{:02X}~0x{:02X}".format(
+                object_id, MODBUS_DEVICE_ID_RESERVED_MIN, MODBUS_DEVICE_ID_RESERVED_MAX
+            )
+        )
+
+
 def build_device_id_pdu(read_device_id_code: int, object_id: int) -> bytes:
     """构造读设备标识请求 PDU(FC 43 / MEI 0x0E)。
 
@@ -403,7 +436,8 @@ def build_device_id_pdu(read_device_id_code: int, object_id: int) -> bytes:
 
     :param read_device_id_code: 访问类型 1~4(1 基本/2 常规/3 扩展为
         流式访问,4 为单个对象的个体访问)
-    :param object_id: 起始对象号(0~255;首次流式访问传 0)
+    :param object_id: 起始对象号(0~255,且不落在保留区间 0x07~0x7F;
+        首次流式访问传 0)
     :raises ValueError: 读取码/对象号非法
     """
     if (
@@ -414,8 +448,7 @@ def build_device_id_pdu(read_device_id_code: int, object_id: int) -> bytes:
         raise ValueError(
             f"读设备标识访问码必须是 1~4,收到:{read_device_id_code}"
         )
-    if not 0 <= object_id <= 0xFF:
-        raise ValueError(f"设备标识对象号超出范围 0~255:{object_id}")
+    check_device_id_object(object_id)
     return bytes(
         [
             ModbusFunction.READ_DEVICE_IDENTIFICATION,
@@ -454,6 +487,7 @@ def parse_device_id_response(pdu: bytes) -> DeviceIdentification:
     next_object_id = pdu[5]
     object_count = pdu[6]
     objects: List[Tuple[int, bytes]] = []
+    seen: set = set()
     cursor = MODBUS_DEVICE_ID_PDU_HEAD_SIZE
     for index in range(object_count):
         if cursor + 2 > len(pdu):
@@ -464,6 +498,23 @@ def parse_device_id_response(pdu: bytes) -> DeviceIdentification:
                 )
             )
         object_id = pdu[cursor]
+        if object_id in seen:
+            raise ProtocolFrameError(
+                "设备标识响应对象号 0x{:02X} 重复(收到的原始数据:{})".format(
+                    object_id, format_hex(pdu)
+                )
+            )
+        if MODBUS_DEVICE_ID_RESERVED_MIN <= object_id <= MODBUS_DEVICE_ID_RESERVED_MAX:
+            raise ProtocolFrameError(
+                "设备标识响应对象号 0x{:02X} 落在规范保留区间 0x{:02X}~0x{:02X}"
+                "(收到的原始数据:{})".format(
+                    object_id,
+                    MODBUS_DEVICE_ID_RESERVED_MIN,
+                    MODBUS_DEVICE_ID_RESERVED_MAX,
+                    format_hex(pdu),
+                )
+            )
+        seen.add(object_id)
         length = pdu[cursor + 1]
         start = cursor + 2
         if start + length > len(pdu):
@@ -691,6 +742,11 @@ def expected_response_length(request_pdu: bytes) -> int:
         raise ProtocolFrameError(
             "FC12 响应长度随事件字节数变化,无法按请求推算:"
             "由走线层按 byte count 增量收包"
+        )
+    if function_code == ModbusFunction.READ_FIFO_QUEUE:
+        raise ProtocolFrameError(
+            "FC24 响应长度随 FIFO 计数变化,无法按请求推算:"
+            "由走线层按字节计数增量收包"
         )
     if function_code == ModbusFunction.READ_FILE_RECORD:
         return _read_file_record_response_length(request_pdu)
@@ -932,6 +988,54 @@ def parse_write_file_record_response(pdu: bytes, request_pdu: bytes) -> None:
                 format_hex(request_pdu), format_hex(pdu)
             )
         )
+
+
+def build_read_fifo_pdu(offset: int) -> bytes:
+    """构造读 FIFO 队列请求 PDU(FC 24,规范 §6.18)。
+
+    :param offset: FIFO 指针所指的保持寄存器 0 基地址
+    :return: PDU 字节(功能码 + 地址,大端)
+    :raises ValueError: 地址非法
+    """
+    _check_offset(offset)
+    return struct.pack(">BH", ModbusFunction.READ_FIFO_QUEUE, offset)
+
+
+def parse_read_fifo_response(pdu: bytes) -> List[int]:
+    """解析读 FIFO 队列响应 PDU(FC 24,规范 §6.18)。
+
+    响应 = 功能码(1) + 字节计数(2,= 2 + 2×FIFO 数) + FIFO 计数(2)
+    + FIFO 值(2×N,大端)。FIFO 计数上限 31。
+
+    :param pdu: 响应 PDU
+    :return: FIFO 中按先进先出排列的寄存器原始值列表(空队列返回 ``[]``)
+    :raises DeviceError: PLC 返回异常码
+    :raises ProtocolFrameError: PDU 过短、字节计数/长度自洽校验失败或 FIFO 数超上限
+    """
+    check_response_exception(pdu, ModbusFunction.READ_FIFO_QUEUE)
+    if len(pdu) < 5:
+        raise ProtocolFrameError(
+            "FC24 响应 PDU 长度不足:至少 5 字节,实际 {}(收到的原始数据:{})".format(
+                len(pdu), format_hex(pdu)
+            )
+        )
+    byte_count = int.from_bytes(pdu[1:3], "big")
+    fifo_count = int.from_bytes(pdu[3:5], "big")
+    if fifo_count > MODBUS_MAX_FIFO_REGISTERS:
+        raise ProtocolFrameError(
+            "FC24 FIFO 计数超上限 {}:{}(收到的原始数据:{})".format(
+                MODBUS_MAX_FIFO_REGISTERS, fifo_count, format_hex(pdu)
+            )
+        )
+    expected_byte_count = 2 + fifo_count * 2
+    if byte_count != expected_byte_count or len(pdu) != 3 + byte_count:
+        raise ProtocolFrameError(
+            "FC24 响应长度不符:字节计数域 {},期望 {},FIFO 数 {},实际 PDU {} 字节"
+            "(收到的原始数据:{})".format(
+                byte_count, expected_byte_count, fifo_count, len(pdu), format_hex(pdu)
+            )
+        )
+    return list(struct.unpack(">{:d}H".format(fifo_count), pdu[5:5 + fifo_count * 2]))
 
 
 def _check_offset(offset: int) -> None:

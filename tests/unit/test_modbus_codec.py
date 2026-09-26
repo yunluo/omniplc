@@ -214,3 +214,48 @@ def test_fc20_response_length_and_fields() -> None:
     ]
     with pytest.raises(ProtocolFrameError):
         codec.parse_read_file_record_response(response[:-1], [(4, 1, 2), (3, 9, 2)])
+
+
+def test_device_id_object_range_reserved_rejected() -> None:
+    """FC43:对象号落在保留区间 0x07~0x7F 时请求与响应都拒绝。"""
+    with pytest.raises(ValueError):
+        codec.build_device_id_pdu(0x01, 0x10)
+    with pytest.raises(ValueError):
+        codec.check_device_id_object(0x7F)
+    # 边界:0x06 标准对象、0x80 厂商私有对象合法
+    assert len(codec.build_device_id_pdu(0x01, 0x06)) == 4
+    assert len(codec.build_device_id_pdu(0x01, 0x80)) == 4
+    body = bytearray([0x2B, 0x0E, 0x01, 0x81, 0x00, 0x00, 1, 0x10, 0x01]) + b"A"
+    with pytest.raises(ProtocolFrameError) as exc_info:
+        codec.parse_device_id_response(bytes(body))
+    assert "保留区间" in exc_info.value.args[0]
+
+
+def test_device_id_response_duplicate_object_rejected() -> None:
+    """FC43:同一响应内重复对象号按坏帧拒绝(设备异常)。"""
+    body = (
+        bytes([0x2B, 0x0E, 0x01, 0x81, 0x00, 0x00, 2, 0x00, 0x01])
+        + b"A"
+        + bytes([0x00, 0x01])
+        + b"B"
+    )
+    with pytest.raises(ProtocolFrameError) as exc_info:
+        codec.parse_device_id_response(body)
+    assert "重复" in exc_info.value.args[0]
+
+
+def test_fc24_parse_byte_count_and_limits() -> None:
+    """FC24:字节计数 = 2 + 2×FIFO 数;空队列返回空列表;超长/不自洽拒绝。"""
+    assert codec.build_read_fifo_pdu(0x1234) == bytes.fromhex("181234")
+    assert codec.parse_read_fifo_response(
+        bytes.fromhex("180006" "0002" "1111" "2222")
+    ) == [0x1111, 0x2222]
+    assert codec.parse_read_fifo_response(bytes.fromhex("180002" "0000")) == []
+    with pytest.raises(ProtocolFrameError):
+        codec.parse_read_fifo_response(bytes.fromhex("180006" "0003") + b"\x00" * 6)
+    with pytest.raises(ProtocolFrameError):
+        codec.parse_read_fifo_response(bytes.fromhex("180002" "0020"))
+    with pytest.raises(ProtocolFrameError):
+        codec.expected_response_length(codec.build_read_fifo_pdu(0))
+
+

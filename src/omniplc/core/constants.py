@@ -127,6 +127,10 @@ MODBUS_COMMAND_READ_FILE_RECORD: int = 0x14
 """读文件记录命令(FC20)。"""
 MODBUS_COMMAND_WRITE_FILE_RECORD: int = 0x15
 """写文件记录命令(FC21)。"""
+MODBUS_COMMAND_READ_FIFO: int = 0x18
+"""读 FIFO 队列命令(FC24,规范 §6.18)。"""
+MODBUS_MAX_FIFO_REGISTERS: int = 31
+"""FC24 单次可读的 FIFO 寄存器数上限(FIFO count 0~31,响应字节数 ≤ 0x40)。"""
 MODBUS_FILE_REFERENCE_TYPE: int = 0x06
 """文件记录子请求的引用类型(规范固定 0x06)。"""
 MODBUS_MAX_READ_FILE_BYTES: int = 0xF5
@@ -159,6 +163,10 @@ MODBUS_DEVICE_ID_OBJECT_NAMES: Dict[int, str] = {
     0x06: "user_application_name",
 }
 """FC43 标准标识对象号 → 名称(0x07~0x7F 保留,0x80~0xFF 厂商私有)。"""
+MODBUS_DEVICE_ID_RESERVED_MIN: int = 0x07
+"""FC43 保留对象号下界(标准对象 0x00~0x06 之后)。"""
+MODBUS_DEVICE_ID_RESERVED_MAX: int = 0x7F
+"""FC43 保留对象号上界(厂商私有对象 0x80~0xFF 之前)。"""
 MODBUS_DEVICE_ID_MAX_PAGES: int = 8
 """FC43 流式访问翻页次数上限(防设备重复下发同一页导致死循环)。"""
 MODBUS_MAX_ADU_SIZE: int = 260

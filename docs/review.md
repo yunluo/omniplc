@@ -112,28 +112,25 @@ v1 评审稿逐条对源码复核后形成本版:
 
 ### 2.1 Modbus
 
-#### 2.1.1 RTU 无 3.5 字符帧间隔强制 — **P3(实锤)**
-- `transport/serial.py`、`modbus/modbus.py:876-908`
-- 复核:发送前后确无 3.5c 静默与 `inter_byte_timeout`。但主站单线程事务模型下,Python 循环周转通常已 >4ms(9600 波特),实际影响集中在高波特率+密集轮询。
-- **修复**:可配 `inter_frame_delay`,默认 0(现状)并在文档说明。
+#### 2.1.1 RTU 无 3.5 字符帧间隔强制 — **已修复(2026-09-26)**
+- `modbus/modbus.py`(`ModbusRtuClient.inter_frame_delay` 属性,默认 0)
+- 复核:主站单线程事务模型下 Python 周转通常已 >3.5c,实际影响集中在高波特率+密集轮询。新增 `inter_frame_delay`(秒,默认 0 保持现状)在每次发送前 `sleep`,供现场按波特率收紧;负值拒绝。
 
 #### 2.1.2 Modicon 6 位扩展地址不支持 — **已修复(2026-09-26)**
 - `modbus/address.py`(`_parse_modicon` 按数字位数分派)
 - 仅 5 位方案时,Wago/Phoenix/TwinCAT Modbus server 的 `100001`/`400001` 全部 `ValueError`。现按**位数**区分:6 位 `000001~065536`(线圈)/`100001~165536`/`300001~365536`/`400001~465536`,5 位 `00001~49999` 不变;消除 `40001`(5 位保持)与 `040001`(6 位线圈)的数值歧义。
 
-#### 2.1.3 FC23 跨段校验不完备 — **P3(待核证)**
-- `modbus/codec.py:290-332`
-- 部分网关对跨段 FC23 拒收,报错不指因。
-- **修复**:出错文本提示"网关可能不支持跨段 FC23"。
+#### 2.1.3 FC23 跨段校验不完备 — **已修复(2026-09-26)**
+- `modbus/modbus.py`(`read_write_registers` 捕获异常码 0x02)
+- 设备对跨段 FC23 回 ILLEGAL DATA ADDRESS 时,`last_error` 追加"部分网关/老设备不支持跨段 FC23(读、写地址分属不同网段),可改用 write_many + read_many";不再只有干巴巴的异常码。
 
-#### 2.1.4 FC22 掩码字节序不可配置 — **P3(待核证)**
-- `modbus/modbus.py:592-616`
-- 固定 big-endian;Schneider 部分机型按本机字序。
-- **修复**:加 `byte_order` 参数。
+#### 2.1.4 FC22 掩码字节序不可配置 — **已修复(2026-09-26)**
+- `modbus/codec.py` + `modbus/modbus.py`(`write_mask_register(..., byte_order="big")`)
+- 新增 `byte_order`(`"big"`/`"little"` 或 `ByteOrder`):规范为 big,部分施耐德机型按本机字序解释掩码,可按现场切换;地址恒 big-endian,回显逐字节校验不受影响。
 
-#### 2.1.5 FC43 对象 ID 不校验范围与重复 — **P3(待核证)**
-- `modbus/codec.py:413-473`
-- **修复**:区间校验 + 重复告警。
+#### 2.1.5 FC43 对象 ID 不校验范围与重复 — **已修复(2026-09-26)**
+- `modbus/codec.py`(`check_device_id_object` + `parse_device_id_response`)
+- 请求侧:`build_device_id_pdu`/`read_device_object` 拒绝保留区间 0x07~0x7F;响应侧:同一响应内对象号重复或落在保留区间按坏帧(`ProtocolFrameError`)拒绝。
 
 #### 2.1.6 缺 FC08/FC11/FC12 诊断 — **已修复(2026-09-26)**
 - `modbus/codec.py` + `modbus/modbus.py`
@@ -143,11 +140,13 @@ v1 评审稿逐条对源码复核后形成本版:
 - `modbus/codec.py` + `modbus/modbus.py`
 - 新增 `read_file_record(requests)`(FC20,按规范 §6.14 子响应 `File resp. length = 1+2N` 逐组解析)、`write_file_record(records)`(FC21,响应须请求回显);字段范围(file 1~65535 / record 0~9999)与 PDU 上限校验;均含 aio 镜像。
 
-#### 2.1.8 缺 FC24 FIFO — **P3(实锤)**
+#### 2.1.8 缺 FC24 FIFO — **已修复(2026-09-26)**
+- `modbus/codec.py` + `modbus/modbus.py`
+- 新增 `read_fifo_queue(address)`(FC24):响应 = 字节计数(2)+FIFO 计数(2,≤31)+值(2N);RTU 走 byte-count 增量收包;含 aio 镜像。
 
-#### 2.1.9 STRING 地址静默吞 `.bit` 后缀 — **P3(实锤)**
-- `modbus/modbus.py:1100-1122`
-- **修复**:STRING 显式拒绝位号后缀。
+#### 2.1.9 STRING 地址静默吞 `.bit` 后缀 — **已修复(2026-09-26)**
+- `modbus/modbus.py`(`_read_string`/`_write_string`)
+- 寄存器位号后缀(`hr100.3`)对字符串读写不再静默忽略:显式 `ValueError`。
 
 ---
 
