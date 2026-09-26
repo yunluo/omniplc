@@ -941,3 +941,45 @@ def test_4c_mid_frame_timeout_closes_to_resync(
     assert client.last_error is not None and "截断" in client.last_error
     assert client.last_error_category is ErrorCategory.TRANSPORT
     assert client.stats["device_error_count"] == 0  # 超时不是设备错误码
+
+
+# ----------------------------------------------------------------------
+# 3C/4C 响应路由回显校验(多站 m:n 串扰防线)
+# ----------------------------------------------------------------------
+
+
+def test_3c_route_echo_mismatch_rejected() -> None:
+    """3C:响应路由回显与请求不符 → ProtocolFrameError(站间串扰不采信)。"""
+    response = (
+        b"\x02"
+        + b"F9"
+        + b"0000FF00"  # 路由:站 0 / 网 0 / PC FF / 本站 0
+        + b"12340002"
+        + b"\x03"
+        + b"BA"
+        + b"\r\n"
+    )
+    # 请求站号 =1 时,回显仍为站 0 → 拒
+    with pytest.raises(ProtocolFrameError):
+        codec_serial.parse_3c_response(response, 2, False, True, station_number=1)
+    # 路由一致(默认站 0)则正常解析
+    assert codec_serial.parse_3c_response(response, 2, False, True) == [0x1234, 0x0002]
+
+
+def test_4c_route_echo_mismatch_rejected() -> None:
+    """4C:响应路由回显与请求不符 → ProtocolFrameError。"""
+    wire = bytes.fromhex(
+        "1002"
+        "101000"
+        "F8"
+        "0000FFFF030000"  # 路由:站 0 / 网 0 / PC FF / 模块 I/O 03FF / 局 0 / 本站 0
+        "FFFF"
+        "0000"
+        "34120200"
+        "1003"
+        "3446"
+    )
+    logical = b"\x10\x00" + wire[5:]
+    with pytest.raises(ProtocolFrameError):
+        codec_serial.parse_4c_response(logical, 2, False, True, station_number=1)
+    assert codec_serial.parse_4c_response(logical, 2, False, True) == [0x1234, 0x0002]

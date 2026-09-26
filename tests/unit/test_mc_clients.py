@@ -428,3 +428,18 @@ def test_tcp_3e_default_xy_hex_unchanged(monkeypatch: pytest.MonkeyPatch) -> Non
         "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER,
         parse_mc_address("X19"), 1, True, False, None,
     )
+
+
+def test_tcp_3e_read_batch_rejects_word_type_on_bit_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """位软元件进 0406 字块直接拒绝(不发必然被拒/错读的请求)。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    scripted = ScriptedTransport([])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    with pytest.raises(ValueError):
+        client.read_batch([("M10", "short")])
+    with pytest.raises(ValueError):
+        client.read_batch([("X0", "int")])
+    assert len(scripted.sent) == 0  # 参数错误零字节发送

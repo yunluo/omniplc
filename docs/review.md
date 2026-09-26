@@ -28,7 +28,11 @@ v1 评审稿逐条对源码复核后形成本版:
 - **§2.6.1/2.6.2 S7 STRING(P1)**:读超长按请求 length 截断返回(不再静默返空串);写保留 PLC 侧声明长字节、仅覆盖实际长,超声明长拒绝(防溢出污染相邻变量),未初始化区(声明长 0)兼容旧口径。
 - **§2.5.1 ADS transport 错误分流(P1)**:0x705/0x706/0x725 归内部异常(标记断线走惰性重连),其余 ADSError 仍为 DeviceError 不断线。
 - **§2.2.2 FX5U X/Y 八进制(P2)**:新增 `xy_octal` 构造参数(同步 TCP/UDP + native 同名参数),X/Y 按八进制换算组帧;默认仍为 Q/L/R 十六进制口径。
-- **§4.1 CI 版本矩阵(P1)**:按"3.7 必保、3.12 覆盖新环境"裁决,CI 改矩阵 `["3.7.9", "3.12"]`(3.7 腿用 `actions/setup-python`,uv 禁下载、显式 `--python`);**四道门禁(pytest / ruff / mypy / ty)两条腿都跑**。
+- **§4.1 CI 版本矩阵(P1)**:按"3.7 必保、3.12 覆盖新环境"裁决,CI 改矩阵 `["3.7.9", "3.12"]`(3.7 腿用 `actions/setup-python`,uv 禁下载、显式 `--python`);**四道门禁(pytest / ruff / mypy / ty)两条腿都跑**;mypy 固定 `--python 3.12` 工具环境(防 3.7 腿回退旧 mypy 误报编码);pytest 步骤补 `--extra dev`。
+- **§2.2.4 MC `read_batch` 位软元件字块(P1)**:计划段拒绝位软元件 + 非 BOOL(`_bit_device_word_access_allowed` 定制点,松下置 True)。
+- **§2.2.5 串口 3C/4C 路由回显(P1)**:解析端校验响应路由与请求一致(对齐 1C);build/parse 共用路由构造函数。
+- **§2.5.2 ADS STRING 写预检(P1)**:写前按符号声明长度拦截,取不到符号信息则跳过。
+- **§4.2 故障注入测试(P1)**:新增真回环故障注入服务 `tests/unit/chaos.py` 与 6 例 `tests/unit/test_fault_injection.py`(半帧/慢速/错长度/断管/惰性重连)。
 
 ---
 
@@ -155,15 +159,15 @@ v1 评审稿逐条对源码复核后形成本版:
 - **现场影响**:定时器/计数器(TS/TC/TN/CS/CC/CN)、特殊继电器 SM/SD、模拟量模块缓冲 G、报警器 F 全部"未支持设备"。
 - **修复**:扩表;注意 L=0xA0 与 B 同码需消歧。
 
-#### 2.2.4 `read_batch` 不拒位软元件进 0406 字块 — **P1(实锤)**
-- `plc/melsec/melsec.py:253-262`
-- `read_batch([("M10", "short")])` 把 M 塞进字块,PLC 拒收或返回乱码。
-- **修复**:`is_bit_device and data_type != BOOL` 时 `ValueError`。
+#### 2.2.4 `read_batch` 不拒位软元件进 0406 字块 — **已修复(2026-09-26)**
+- `plc/melsec/melsec.py`(`read_batch` 计划段)
+- `read_batch([("M10", "short")])` 把 M 塞进字块,PLC 拒收或按 16 点/字错读。现于计划段校验:位软元件 + 非 BOOL ⇒ `ValueError`(零字节发送)。
+- **定制点**:`_bit_device_word_access_allowed` 默认 False(三菱 M/X/Y 等纯位语义,拒绝);松下 MC 置 True(其 R/X/Y/L 为"字号×16+位号"位软元件,按字访问是正常用法,`R1003`→线性 1603 读所属字)。
+- **残留**:单点 `read("M10", "short")` 仍允许(与字单位 16 点对齐语义一致,未在本次范围)。
 
-#### 2.2.5 串口 3C/4C 响应不校验路由回显 — **P1(实锤)**
-- `plc/melsec/codec_serial.py:132-207, 270-347`
-- 多站串口下站间响应串扰无防线;1C 有校验,3C/4C 不一致。
-- **修复**:对齐 1C 校验路由 8 字节回显。
+#### 2.2.5 串口 3C/4C 响应不校验路由回显 — **已修复(2026-09-26)**
+- `plc/melsec/codec_serial.py`
+- 多站串口下站间响应串扰无防线;1C 有校验,3C/4C 不一致。现 `parse_3c_response` 校验响应 8 字符路由(站号/网络号/PC 号/本站号)、`parse_4c_response` 校验 7 字节路由(含模块 I/O·局号),与请求不符抛 `ProtocolFrameError`;`build_*` 与 `parse_*` 共用 `_route_text_3c`/`_route_bytes_4c` 保证编码同源;客户端 `_parse_serial` 传入实际配置路由。
 
 #### 2.2.6 0406 subcommand=0000 硬编码 — **P2(实锤)**
 - `plc/melsec/codec_qna.py:184-211`
@@ -330,10 +334,9 @@ v1 评审稿逐条对源码复核后形成本版:
 - 0x0705/0x0706/0x0725(device/router removed)被当 DeviceError,不触发断线标记;TwinCAT 重启后客户端持续在死连接上失败。
 - **修复**:transport 集错误抛 OSError 走惰性重连。
 
-#### 2.5.2 STRING 写不预检声明长度 — **P1(实锤)**
-- `plc/beckhoff/ads.py:326-332`
-- 超长写靠 PLC 侧报错,紧邻变量布局下有污染邻区风险。
-- **修复**:按符号尺寸预检。
+#### 2.5.2 STRING 写不预检声明长度 — **已修复(2026-09-26)**
+- `plc/beckhoff/ads.py`
+- 超长写靠 PLC 侧报错,紧邻变量布局下有污染邻区风险。现 `_write_string` 写前经 `_AdsSession.symbol_type` 取符号类型字符串(`STRING(N)`/`STRING`),`_declared_string_chars` 解析声明长度,超长抛 `ValueError`;符号信息不可用(旧路由/固件)时返回 None 跳过预检(不改变原行为)。
 
 #### 2.5.3 Online Change 后句柄失效无显式处理 — **P2(待核证)**
 - 0x1D 错误未按"瞬时缓存 miss"分流。
@@ -682,10 +685,11 @@ v1 评审稿逐条对源码复核后形成本版:
 - CI 改为矩阵 `["3.7.9", "3.12"]`:3.7 腿用 `actions/setup-python` 安装(uv 托管下载不含 3.7),`UV_PYTHON_DOWNLOADS=never` 仅限 `uv sync`/`uv run` 两步(设 job 级会挡住 `uvx` 建工具环境),`uv sync`/`uv run` 一律显式 `--python`(压过 `.python-version` 的 3.7.9);**ruff / mypy / ty 两条腿都跑**——ruff 与 ty 为 Rust 独立二进制(不依赖解释器),mypy 用 `uvx --python 3.12` 固定在 3.12 工具环境执行(否则 3.7 腿会回退到 3.7 时代的 mypy 1.4.1 + typed-ast,其 tokenizer 解析 UTF-8 中文源码误报 `non-utf8 code starting with '\xc8'`);检查目标仍由 `python_version` 决定。
 - **残留**:GitHub Actions 行为只能由推送后实跑验证;`windows-latest` 未来若移除 3.7 构建需改 `windows-2019`。
 
-### 4.2 无故障注入测试 — **P1(实锤)**
-- `tests/conftest.py:12-66`,各 `scripted*.py`
-- 无半帧、慢速、错长度、断管、UDP 截断等注入;模拟器全绿不等于产线可用。
-- **修复**:`chaos_*` 夹具注入可编排故障。
+### 4.2 无故障注入测试 — **已修复(2026-09-26)**
+- `tests/unit/chaos.py` + `tests/unit/test_fault_injection.py`(新增)
+- 无半帧、慢速、错长度、断管等注入;模拟器全绿不等于产线可用。
+- 现新增真回环故障注入服务 `chaos_server(behavior)`(每连接可编排故障,支持 `recv_request`/`drip` 慢速工具),覆盖:半帧后关闭(拆连)、逐字节滴帧(跨分片成帧)、静默超时(不被拖死、OpenTcp 超时不断线归 `DEVICE`)、MBAP 声明长度不达(超时)、断管后惰性重连(第二次成功)、3E 半帧头后关闭(拆连)。
+- **残留**:UDP 截断(`MSG_TRUNC`)跨平台语义差异大,未纳入本轮。
 
 ### 4.3 aio/native 镜像仅验方法存在不验转发 — **P2(实锤)**
 - `tests/unit/test_aio_mirror_surface.py:51-62`

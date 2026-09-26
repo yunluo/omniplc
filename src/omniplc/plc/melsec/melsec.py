@@ -83,6 +83,11 @@ class _MelsecMcBase(BaseClient):
     # X/Y 八进制口径(FX5U);串口走线不适用,类属性兜底(False)
     _xy_octal: bool = False
 
+    # 位软元件是否允许按字单位成批访问(0406 字块)。默认 False = 拒绝
+    # (三菱 M/X/Y… 字单位访问须 16 点对齐,易错读);品牌兼容子类按其
+    # 地址模型覆写(如松下 R 为"字号×16+位号"位软元件,按字访问是正常用法)。
+    _bit_device_word_access_allowed: bool = False
+
     def __init__(
         self,
         ip_address: str,
@@ -265,6 +270,17 @@ class _MelsecMcBase(BaseClient):
             data_type_enum = DataType.coerce(data_type)
             parsed = self._translate_address(parse_mc_address(address))
             code, is_bit_device, base = self._device_info(parsed.device)
+            if (
+                is_bit_device
+                and data_type_enum is not DataType.BOOL
+                and not self._bit_device_word_access_allowed
+            ):
+                # 位软元件塞进 0406 字块会被 PLC 拒绝或按 16 点/字错读;
+                # 位软元件只用 BOOL,字单位请改字软元件(如 D)
+                raise ValueError(
+                    "MC 批量读:位软元件 {}{} 只支持 BOOL,字单位请改用字软元件"
+                    "(如 D)或逐点读取".format(parsed.device, parsed.number)
+                )
             number = codec_qna.device_number(parsed.device, parsed.number, base)
             if data_type_enum is DataType.BOOL:
                 if is_bit_device:
@@ -733,8 +749,28 @@ class MelsecMcSerialClient(_MelsecMcBase):
                 response, points, is_bit, is_read, self._station_number, self._pc_number
             )
         if self._frame is McFrame.FRAME_3C:
-            return codec_serial.parse_3c_response(response, points, is_bit, is_read)
-        return codec_serial.parse_4c_response(response, points, is_bit, is_read)
+            return codec_serial.parse_3c_response(
+                response,
+                points,
+                is_bit,
+                is_read,
+                self._station_number,
+                self._network_number,
+                self._pc_number,
+                self._self_station_number,
+            )
+        return codec_serial.parse_4c_response(
+            response,
+            points,
+            is_bit,
+            is_read,
+            self._station_number,
+            self._network_number,
+            self._pc_number,
+            self._module_io,
+            self._module_station,
+            self._self_station_number,
+        )
 
     def _read_tail_size(self, points: int, is_bit: bool) -> int:
         """1C/3C 读响应 ETX 之前的数据字符数(4C 由长度域决定,传 0)。"""

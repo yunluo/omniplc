@@ -35,6 +35,7 @@ from .address import McAddress
 from . import codec_qna
 from ...core.constants import (
     MC_MAX_TRANSFER_POINTS,
+    MC_SERIAL_DEFAULT_MODULE_IO,
     MC_SERIAL_FRAME_ID_3C,
     MC_SERIAL_FRAME_ID_4C,
     MC_SERIAL_STATION_MAX,
@@ -118,11 +119,8 @@ def build_3c_request(
     :raises ValueError: 路由/软元件/点数/数据非法
     """
     core = _ascii_core(address, points, is_bit, is_write, data, codes).encode("ascii")
-    route = "{:02X}{:02X}{:02X}{:02X}".format(
-        check_station_number(station_number),
-        check_byte_field("网络编号", network_number),
-        check_pc_number(pc_number),
-        check_byte_field("本站号", self_station_number),
+    route = _route_text_3c(
+        station_number, network_number, pc_number, self_station_number
     ).encode("ascii")
     body = _ID_3C_TEXT + route + core
     checksum_text = "{:02X}".format(checksum(body)).encode("ascii")
@@ -130,21 +128,38 @@ def build_3c_request(
 
 
 def parse_3c_response(
-    response: bytes, points: int, is_bit: bool, is_read: bool
+    response: bytes,
+    points: int,
+    is_bit: bool,
+    is_read: bool,
+    station_number: int = 0,
+    network_number: int = 0,
+    pc_number: int = 0xFF,
+    self_station_number: int = 0,
 ) -> List[int]:
     """解析 3C 帧完整响应(格式 4:报文以 CR LF 结尾)。
+
+    校验响应中的路由回显(站号/网络号/PC 号/本站号)与请求一致——多站
+    m:n 连接下防站间响应串扰。
 
     :param response: 完整响应帧(由客户端按控制码分流后拼齐)
     :param points: 请求点数(读时校验数据长度)
     :param is_bit: 是否位单位
     :param is_read: 是否读操作(写正常响应无数据)
+    :param station_number: 站号(校验响应回显)
+    :param network_number: 网络编号(校验响应回显)
+    :param pc_number: PC 编号(校验响应回显)
+    :param self_station_number: 本站号(校验响应回显)
     :return: 读为逐点数据(位 0/1,字 0~65535);写恒为空列表
     :raises omniplc.core.errors.DeviceError: 错误代码非 0(保持连接)
-    :raises omniplc.core.errors.ProtocolFrameError: 帧结构/帧识别码/和校验不符
+    :raises omniplc.core.errors.ProtocolFrameError: 帧结构/路由回显/帧识别码/和校验不符
         (消息带**收到的原始帧**十六进制转储,便于现场与抓包比对)
     """
     if not response:
         raise ProtocolFrameError("3C 响应为空(未收到任何字节)")
+    route = _route_text_3c(
+        station_number, network_number, pc_number, self_station_number
+    ).encode("ascii")
     head = response[0]
     if head == NAK:
         if len(response) < 17:
@@ -153,6 +168,7 @@ def parse_3c_response(
                     len(response), format_hex(response)
                 )
             )
+        _check_route(response[3:11], route, "3C 异常响应", response)
         _check_3c_frame_id(response[1:3], response)
         _check_crlf(response[15:17], "3C 异常响应", response)
         status = _hex_int(response[11:15], response)
@@ -164,6 +180,7 @@ def parse_3c_response(
                     len(response), format_hex(response)
                 )
             )
+        _check_route(response[3:11], route, "3C 写响应", response)
         _check_3c_frame_id(response[1:3], response)
         _check_crlf(response[11:13], "3C 写响应", response)
         return []
@@ -181,6 +198,7 @@ def parse_3c_response(
                 total, len(response), format_hex(response)
             )
         )
+    _check_route(response[3:11], route, "3C 读响应", response)
     _check_3c_frame_id(response[1:3], response)
     if response[11 + expected] != ETX:
         raise ProtocolFrameError(
@@ -239,21 +257,13 @@ def build_4c_request(
     :raises ValueError: 路由/软元件/点数/数据非法
     """
     core = codec_qna.build_core(address, points, is_bit, is_write, data, codes)
-    route = (
-        bytes(
-            [
-                check_station_number(station_number),
-                check_byte_field("网络编号", network_number),
-                check_pc_number(pc_number),
-            ]
-        )
-        + check_byte_field("目标模块 I/O 编号", module_io, 0xFFFF).to_bytes(2, "little")
-        + bytes(
-            [
-                check_byte_field("目标模块局号", module_station),
-                check_byte_field("本站号", self_station_number),
-            ]
-        )
+    route = _route_bytes_4c(
+        station_number,
+        network_number,
+        pc_number,
+        module_io,
+        module_station,
+        self_station_number,
     )
     body = bytes([MC_SERIAL_FRAME_ID_4C]) + route + core
     length = len(body)
@@ -268,18 +278,35 @@ def build_4c_request(
 
 
 def parse_4c_response(
-    frame: bytes, points: int, is_bit: bool, is_read: bool
+    frame: bytes,
+    points: int,
+    is_bit: bool,
+    is_read: bool,
+    station_number: int = 0,
+    network_number: int = 0,
+    pc_number: int = 0xFF,
+    module_io: int = MC_SERIAL_DEFAULT_MODULE_IO,
+    module_station: int = 0,
+    self_station_number: int = 0,
 ) -> List[int]:
     """解析 4C 帧完整响应(逻辑帧:附加码已由收包层还原)。
+
+    校验响应路由回显(站号/网络号/PC 号/模块 I/O·局号/本站号)与请求一致。
 
     :param frame: 逻辑响应帧 = 数据长(2,小端) + 帧识别码 F8H + 路由(7)
         + 应答识别码 FFFFH + 结束代码(2) + 数据 + DLE ETX + 和校验(2)
     :param points: 请求点数(读时校验数据长度)
     :param is_bit: 是否位单位
     :param is_read: 是否读操作(写正常响应无数据)
+    :param station_number: 站号(校验响应回显)
+    :param network_number: 网络编号(校验响应回显)
+    :param pc_number: PC 编号(校验响应回显)
+    :param module_io: 目标模块 I/O 编号(校验响应回显)
+    :param module_station: 目标模块局号(校验响应回显)
+    :param self_station_number: 本站号(校验响应回显)
     :return: 读为逐点数据(位 0/1,字 0~65535);写恒为空列表
     :raises omniplc.core.errors.DeviceError: 结束代码非 0(保持连接)
-    :raises omniplc.core.errors.ProtocolFrameError: 帧结构/识别码/和校验不符
+    :raises omniplc.core.errors.ProtocolFrameError: 帧结构/路由回显/识别码/和校验不符
         (消息带**收到的原始帧**十六进制转储,便于现场与抓包比对)
     """
     if len(frame) < 18:
@@ -308,6 +335,15 @@ def parse_4c_response(
                 frame[2], format_hex(frame)
             )
         )
+    route = _route_bytes_4c(
+        station_number,
+        network_number,
+        pc_number,
+        module_io,
+        module_station,
+        self_station_number,
+    )
+    _check_route(frame[3:10], route, "4C 响应", frame)
     body = frame[3:3 + body_size]
     trailer = frame[3 + body_size:]
     if trailer[0] != DLE or trailer[1] != ETX:
@@ -383,6 +419,61 @@ def _check_crlf(raw: bytes, label: str, whole: bytes) -> None:
     if raw != _CRLF:
         raise ProtocolFrameError(
             f"{label}必须以 CR LF 结尾(收到的原始帧:{format_hex(whole)})"
+        )
+
+
+def _route_text_3c(
+    station_number: int,
+    network_number: int,
+    pc_number: int,
+    self_station_number: int,
+) -> str:
+    """构造/校验 3C 路由文本(站号 2 + 网络号 2 + PC 号 2 + 本站号 2,内部)。"""
+    return "{:02X}{:02X}{:02X}{:02X}".format(
+        check_station_number(station_number),
+        check_byte_field("网络编号", network_number),
+        check_pc_number(pc_number),
+        check_byte_field("本站号", self_station_number),
+    )
+
+
+def _route_bytes_4c(
+    station_number: int,
+    network_number: int,
+    pc_number: int,
+    module_io: int,
+    module_station: int,
+    self_station_number: int,
+) -> bytes:
+    """构造/校验 4C 路由(站号+网络号+PC 号+模块 I/O(2 小端)+模块局号+本站号,内部)。"""
+    return (
+        bytes(
+            [
+                check_station_number(station_number),
+                check_byte_field("网络编号", network_number),
+                check_pc_number(pc_number),
+            ]
+        )
+        + check_byte_field("目标模块 I/O 编号", module_io, 0xFFFF).to_bytes(2, "little")
+        + bytes(
+            [
+                check_byte_field("目标模块局号", module_station),
+                check_byte_field("本站号", self_station_number),
+            ]
+        )
+    )
+
+
+def _check_route(raw: bytes, wanted: bytes, label: str, whole: bytes) -> None:
+    """校验响应路由回显(内部函数);``whole`` 为完整响应帧,失败时随消息转储。"""
+    if raw != wanted:
+        raise ProtocolFrameError(
+            "{}路由回显不符:期望 {!r},收到 {!r}(收到的原始帧:{})".format(
+                label,
+                wanted.decode("ascii", "replace"),
+                raw.decode("ascii", "replace"),
+                format_hex(whole),
+            )
         )
 
 

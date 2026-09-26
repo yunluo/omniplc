@@ -27,6 +27,7 @@ TcAdsDll → 断线待重连。
 """
 from __future__ import annotations
 
+import re
 import struct
 from typing import Any, Optional
 
@@ -123,6 +124,25 @@ def _translate_ads_error(exc: BaseException) -> OmniPLCInternalError:
     return OmniPLCInternalError(
         "ADS 调用失败:{}:{}".format(type(exc).__name__, exc)
     )
+
+
+_ADS_DEFAULT_STRING_CHARS: int = 80
+"""TwinCAT STRING 未标长度时的默认声明长度(STRING ≡ STRING(80))。"""
+
+
+def _declared_string_chars(symbol_type: Optional[str]) -> Optional[int]:
+    """从 ADS 符号类型字符串解析 STRING 声明长度(取不到返回 None,内部函数)。
+
+    TwinCAT 符号类型形如 ``"STRING(80)"``(显式长度)或 ``"STRING"``(默认 80)。
+    """
+    if not symbol_type:
+        return None
+    match = re.match(r"STRING\((\d+)\)", symbol_type)
+    if match:
+        return int(match.group(1))
+    if symbol_type == "STRING":
+        return _ADS_DEFAULT_STRING_CHARS
+    return None
 
 
 def _safe_close(connection: Any) -> None:
@@ -244,6 +264,22 @@ class _AdsSession(BaseTransport):
             raise _translate_ads_error(exc) from exc
         log_op(self._debug_label, "写 %s(%s) ← %r", address, plctype_name, value)
 
+    def symbol_type(self, address: str) -> Optional[str]:
+        """查 PLC 侧符号类型字符串(如 ``"STRING(80)"``);取不到返回 None(内部方法)。
+
+        用于写前预检字符串声明长度;符号信息不可用(旧路由/固件不支持)时
+        返回 None,调用方跳过预检(不改变原有行为)。
+        """
+        pyads = _load_pyads()
+        if pyads is None:
+            return None
+        try:
+            symbol = self.connection.get_symbol(address)
+        except Exception:
+            return None
+        value = getattr(symbol, "symbol_type", None)
+        return value if isinstance(value, str) else None
+
 
 class BeckhoffAdsClient(BaseClient):
     """倍福 TwinCAT ADS 客户端(封装 pyads,变量名读写)。
@@ -336,10 +372,17 @@ class BeckhoffAdsClient(BaseClient):
         return value[:length]
 
     def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
-        """写字符串变量(pyads 只发 len+1 字节;编码由 pyads 固定)。"""
+        """写字符串变量(写前按 PLC 侧声明长度预检,防溢出污染相邻变量)。"""
         if not isinstance(value, str):
             raise ValueError("字符串必须是 str,收到:{}".format(type(value).__name__))
         text = _check_address(address)
+        declared = _declared_string_chars(self._session().symbol_type(text))
+        if declared is not None and len(value) > declared:
+            raise ValueError(
+                "ADS STRING 写入值超 PLC 侧声明长度:{} > {} 字符({!r})".format(
+                    len(value), declared, text
+                )
+            )
         self._session().write_by_name(text, value, _PLCTYPE_NAMES[DataType.STRING])
         return value
 

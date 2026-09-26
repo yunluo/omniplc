@@ -105,6 +105,10 @@ class PanasonicMcTcpClient(MelsecMcTcpClient):
     ``frame`` 属性恒为 :attr:`McFrame.FRAME_3E`。
     """
 
+    # 松下 R/X/Y/L 为"字号×16+位号"组织的位软元件,按字单位访问(读/写
+    # 所属字)是正常用法,故允许进 0406 字块(与三菱 M/X/Y 的纯位语义不同)。
+    _bit_device_word_access_allowed = True
+
     def __init__(
         self,
         ip_address: str = "192.168.0.10",

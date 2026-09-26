@@ -37,6 +37,7 @@ class FakeAdsSession(_AdsSession):
         self.values: dict = {}
         self.written: list = []
         self.read_errors: dict = {}
+        self.symbol_types: dict = {}
         self.connect_count = 0
 
     def connect(self) -> None:
@@ -50,6 +51,9 @@ class FakeAdsSession(_AdsSession):
     def write_by_name(self, address: str, value: Any, plctype_name: str) -> None:
         self.written.append((address, value, plctype_name))
         self.values[address] = value
+
+    def symbol_type(self, address: str) -> Any:
+        return self.symbol_types.get(address)
 
 
 # ----------------------------------------------------------------------
@@ -128,6 +132,24 @@ def test_write_type_mapping(monkeypatch: pytest.MonkeyPatch) -> None:
         ("MAIN.h", 2.5, "PLCTYPE_LREAL"),
         ("MAIN.s", "A2024", "PLCTYPE_STRING"),
     ]
+
+
+def test_write_string_declared_length_precheck(monkeypatch: pytest.MonkeyPatch) -> None:
+    """写 STRING 按 PLC 侧声明长度预检:超长拒绝,未标长度按默认 80。"""
+    client = BeckhoffAdsClient("127.0.0.1")
+    fake = FakeAdsSession()
+    fake.symbol_types["MAIN.s"] = "STRING(3)"
+    fake.symbol_types["MAIN.t"] = "STRING"
+    monkeypatch.setattr(client, "_create_transport", lambda: fake)
+    client.connect()
+    assert client.write_string("MAIN.s", "ABC") is True
+    with pytest.raises(ValueError):
+        client.write_string("MAIN.s", "ABCD")
+    assert fake.written == [("MAIN.s", "ABC", "PLCTYPE_STRING")]
+    assert client.connected is True
+    assert client.write_string("MAIN.t", "X" * 80) is True  # 默认 STRING(80)
+    with pytest.raises(ValueError):
+        client.write_string("MAIN.t", "X" * 81)
 
 
 def test_write_range_errors(monkeypatch: pytest.MonkeyPatch) -> None:
