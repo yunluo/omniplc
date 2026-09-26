@@ -289,6 +289,13 @@ def test_read_batch_empty_rejected() -> None:
         MelsecMcTcpClient("127.0.0.1", 2000).read_batch([])
 
 
+def test_read_batch_rejects_bit_suffix_on_word_type() -> None:
+    """read_batch 字软元件非 BOOL 带位号 → 拒绝(与单点 read 口径一致)。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    with pytest.raises(ValueError):
+        client.read_batch([("D100.3", "short")])
+
+
 def test_async_mirror_read_batch() -> None:
     """异步镜像 read_batch:混类型批量读往返。"""
 

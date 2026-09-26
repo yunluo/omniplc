@@ -289,3 +289,13 @@ def test_mc_device_code_table_l_is_92_and_no_collisions() -> None:
         by_code[code].append(device)
     collisions = {hex(code): devices for code, devices in by_code.items() if len(devices) > 1}
     assert not collisions, "MC 设备码重码:{}".format(collisions)
+
+
+def test_check_byte_field_rejects_non_int() -> None:
+    """路由字节字段校验:bool/float/str 不再被 int() 静默收窄。"""
+    from omniplc.core.validation import check_byte_field
+
+    assert check_byte_field("pc", 5) == 5
+    for bad in (True, 1.5, "5"):
+        with pytest.raises(ValueError):
+            check_byte_field("pc", bad)

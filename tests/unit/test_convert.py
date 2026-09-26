@@ -146,6 +146,18 @@ class TestWordOrder64:
         with pytest.raises(ValueError):
             convert.registers_to_float64([0, 0, 0])
 
+    def test_encode_overflow_raises_value_error(self) -> None:
+        """越界/非整数编码 → ValueError,而非 struct.error 或静默截断。"""
+        for call in (
+            lambda: convert.int32_to_registers(2 ** 31),
+            lambda: convert.uint32_to_registers(-1),
+            lambda: convert.int64_to_registers(2 ** 63),
+            lambda: convert.uint64_to_registers(-1),
+            lambda: convert.int32_to_registers(1.5),  # type: ignore[arg-type]
+        ):
+            with pytest.raises(ValueError):
+                call()
+
 
 class TestString:
     """字符串编解码。"""

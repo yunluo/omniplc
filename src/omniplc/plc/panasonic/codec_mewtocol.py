@@ -80,25 +80,58 @@ def bcc(text: str) -> str:
     return f"{value:02X}"
 
 
+def _check_contact_field(word: int, bit: int) -> None:
+    """校验单接点字号(3 位十进制)与位号(1 位十六进制)(内部函数)。
+
+    :raises ValueError: 超出字段宽度
+    """
+    if not 0 <= word <= 999:
+        raise ValueError(f"MEWTOCOL 字号超出 3 位字段(0~999),收到:{word}")
+    if not 0 <= bit <= 0xF:
+        raise ValueError(f"MEWTOCOL 位号超出 1 位字段(0~F),收到:{bit}")
+
+
+def _check_word_field(start: int, count: int, words: "List[int]") -> int:
+    """校验数据区起止编号(5 位十进制)与字值范围(内部函数),返回结束编号。
+
+    :raises ValueError: 数量非法 / 起止越界 / 字值超出 16 位
+    """
+    if count < 1:
+        raise ValueError(f"MEWTOCOL 字数必须大于 0,收到:{count}")
+    end = start + count - 1
+    if start < 0 or end > 99999:
+        raise ValueError(
+            "MEWTOCOL 数据区编号超出 5 位字段(0~99999):start={} end={}".format(
+                start, end
+            )
+        )
+    for word in words:
+        if not 0 <= word <= 0xFFFF:
+            raise ValueError(f"MEWTOCOL 字值超出 16 位范围:0x{word:X}")
+    return end
+
+
 def build_read_contact(station: str, area: str, word: int, bit: int) -> bytes:
     """构造 RCS 读单接点请求。"""
+    _check_contact_field(word, bit)
     return _assemble(station, f"RCS{area}{word:03d}{bit:X}")
 
 
 def build_write_contact(station: str, area: str, word: int, bit: int, value: bool) -> bytes:
     """构造 WCS 写单接点请求。"""
+    _check_contact_field(word, bit)
     return _assemble(station, "WCS{}{:03d}{:X}{}".format(area, word, bit, 1 if value else 0))
 
 
 def build_read_words(station: str, area: str, start: int, word_count: int) -> bytes:
     """构造 RD 数据区读请求(起止编号各 5 位十进制)。"""
-    end = start + word_count - 1
+    end = _check_word_field(start, word_count, [])
     return _assemble(station, f"RD{area}{start:05d}{end:05d}")
 
 
 def build_write_words(station: str, area: str, start: int, words: List[int]) -> bytes:
     """构造 WD 数据区写请求,逐字 4 位十六进制、高字节在前。"""
-    end = start + len(words) - 1
+    end = _check_word_field(start, len(words), words)
     data = "".join(f"{word:04X}" for word in words)
     return _assemble(station, f"WD{area}{start:05d}{end:05d}{data}")
 

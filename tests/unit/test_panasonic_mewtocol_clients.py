@@ -59,6 +59,18 @@ def test_station_formatting() -> None:
         codec_mewtocol.station_text(100)
 
 
+def test_codec_field_width_bounds() -> None:
+    """MEWTOCOL 字段宽度越界拒绝(字号 3 位 / 位号 1 位 / 数据区 5 位 / 字值 16 位)。"""
+    with pytest.raises(ValueError):
+        codec_mewtocol.build_read_contact("01", "R", 1000, 0)
+    with pytest.raises(ValueError):
+        codec_mewtocol.build_write_contact("01", "R", 0, 0x10, True)
+    with pytest.raises(ValueError):
+        codec_mewtocol.build_read_words("01", "D", 99998, 4)
+    with pytest.raises(ValueError):
+        codec_mewtocol.build_write_words("01", "D", 0, [0x10000])
+
+
 def test_read_bool_rcs(monkeypatch: pytest.MonkeyPatch) -> None:
     """RCS 读单接点:R1F(字 1 位 F)→ RCSR001F,响应 1 → True。"""
     client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)

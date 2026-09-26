@@ -218,16 +218,24 @@ def registers_to_uint64(registers: Sequence[int], word_order: WordOrder = WordOr
 
 
 def int32_to_registers(value: int, word_order: WordOrder = WordOrder.ABCD) -> Tuple[int, int]:
-    """把 32 位整数按指定字序编码为 2 个寄存器。"""
+    """把 32 位整数按指定字序编码为 2 个寄存器。
+
+    :raises ValueError: 非整数或超出 32 位有符号范围
+    """
+    number = check_range(require_int(value), INT32_MIN, INT32_MAX, "int32")
     return cast(
-        Tuple[int, int], _canonical_to_registers(struct.pack(">i", int(value)), word_order)
+        Tuple[int, int], _canonical_to_registers(struct.pack(">i", number), word_order)
     )
 
 
 def uint32_to_registers(value: int, word_order: WordOrder = WordOrder.ABCD) -> Tuple[int, int]:
-    """把 32 位无符号整数按指定字序编码为 2 个寄存器。"""
+    """把 32 位无符号整数按指定字序编码为 2 个寄存器。
+
+    :raises ValueError: 非整数或超出 32 位无符号范围
+    """
+    number = check_range(require_int(value), 0, UINT32_MAX, "uint32")
     return cast(
-        Tuple[int, int], _canonical_to_registers(struct.pack(">I", int(value)), word_order)
+        Tuple[int, int], _canonical_to_registers(struct.pack(">I", number), word_order)
     )
 
 
@@ -269,11 +277,12 @@ def int64_to_registers(
 ) -> Tuple[int, int, int, int]:
     """把 64 位有符号整数按指定字序编码为 4 个寄存器。
 
-    :raises ValueError: 超出 64 位有符号范围(struct 编码失败)
+    :raises ValueError: 非整数或超出 64 位有符号范围
     """
+    number = check_range(require_int(value), INT64_MIN, INT64_MAX, "int64")
     return cast(
         Tuple[int, int, int, int],
-        _canonical_to_registers(struct.pack(">q", int(value)), word_order),
+        _canonical_to_registers(struct.pack(">q", number), word_order),
     )
 
 
@@ -282,11 +291,12 @@ def uint64_to_registers(
 ) -> Tuple[int, int, int, int]:
     """把 64 位无符号整数按指定字序编码为 4 个寄存器。
 
-    :raises ValueError: 超出 64 位无符号范围(struct 编码失败)
+    :raises ValueError: 非整数或超出 64 位无符号范围
     """
+    number = check_range(require_int(value), 0, UINT64_MAX, "uint64")
     return cast(
         Tuple[int, int, int, int],
-        _canonical_to_registers(struct.pack(">Q", int(value)), word_order),
+        _canonical_to_registers(struct.pack(">Q", number), word_order),
     )
 
 

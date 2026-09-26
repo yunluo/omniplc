@@ -47,6 +47,7 @@ v1 评审稿逐条对源码复核后形成本版:
 - **二轮复审 P1 批(2026-09-26)**:①**ADS transport 码集**——改用 TE1000 §8 全局组 `0x06/0x07/0x0D/0x12/0x1B/0x1D` + Router 组 `0x0500~0x050D`,回归测试 `test_translate_ads_error_transport_codes` / `..._parameter_codes_are_device`;②**S7 `read_wstring` ASCII 返空**——`convert.decode_string` 对 UTF-16/UTF-32 改为「解码后按 NUL 字符截断」(字节层截断会把 `b"\x00A\x00B"` 整串截空),回归 `test_convert.py::TestString::test_utf16_ascii_not_truncated_by_high_nul` 与 `test_siemens_s7_clients.py::test_wstring_ascii_roundtrip`;③**`read_tag`/`write_tag` 64 位精度**——`scale=1.0/offset=0.0` 时原值直通,不经 float64 往返(>2^53 曾静默丢低位),回归 `test_base_client.py::TestTagScaling::test_{read,write}_tag_identity_scale_preserves_int64`;④**aio 属性读阻塞事件循环**——`connected/last_error/last_error_category/last_error_code/stats/next_connect_in` 同步 getter 改**无锁快照**(固定键集值级拷贝,GIL 下安全),aio 转发不再进事务锁,回归 `test_v034_reliability.py::TestAioBackoffAndErrorSurfaces::test_property_reads_do_not_block_on_transaction_lock`。门禁 1150 → **1158**。
 - **二轮复审 P2 批 1(2026-09-26)**:①**native 镜像**——`native/modbus.py` 字符串补 `.bit` 拒绝、`native/omron.py` 位读补 0x1101 回退;②**Modbus 批量读 `.bit`**——`read_many`/`read_batch` 改用 `_check_address`(兼补跨度校验);③**写语义 `is_write=True`**——Modbus FC23/FC08-A/FC21 + OpenTcp `transact`/`transact_text`;④**FINS `read_batch`** 拒绝非 BOOL 位号;⑤**AB 0x0A 预算**补偏移表 2×n;⑥**MTConnect DOCTYPE** 防 UTF-16 绕过(剔 NUL 后扫描);⑦**退避指数**按 32 封顶防 `OverflowError`。门禁 1158 → **1169**。
 - **二轮复审 P2 批 2 + P3(2026-09-26)**:①**convert**——`word_order` 校验/归一化 + `registers_to_*` 寄存器数量校验;②**OPC-UA**——browse 默认深度上限(10)、`_coerce_read` 整数范围收窄、NodeId 组件切分(`s=` 含分号 / `srv=`/`nsu=`);③**OpenTcp**——接收超时归 TIMEOUT、`length_prefix` 发送补前缀、`max_frame` 上界 16MiB;④**Modbus FC20** 子响应边界校验(坏帧不再裸 `IndexError`);⑤**aio `close()`** 不再吞 `CancelledError`(3.7 专属)。门禁 1169 → **1179**。
+- **二轮复审 P2 批 3 + P3(2026-09-26)**:①**MC `read_batch`** 非 BOOL 位号入参期拒绝;②**MEWTOCOL** 按字段宽度校验(字号 3 位/位号 1 位/起止 5 位/字值 16 位);③**convert** 整数编码越界/非整数改抛 `ValueError`(不再 `struct.error`/静默截断);④**`check_byte_field`** 改 `require_int`(拒绝 bool/float/str);并记录 Modbus `read_many` 跨度校验已随 P2 批 1 修复。门禁 1179 → **1183**。
 
 ---
 
@@ -54,7 +55,7 @@ v1 评审稿逐条对源码复核后形成本版:
 
 > 范围:76 个源文件 / ~21k 行,分 6 域(核心 / 异步 / Modbus+OpenTcp / MC 家族 / Omron·AB·S7·ADS / OPC-UA·MTConnect·工程)。
 > 方法:逐行读源 + 只读探针(Python 3.7.9)+ 与 pyads/asyncua 安装源比对。标「已核验」者为二轮亲自复现。
-> 结论:新增 **1 条 P0、4 条 P1** 及若干 P2/P3;并纠正上一轮 **5 条已关闭项 / 3 条记录不实**。其中 P0(MC `L` 撞码)与 **P1 四项(ADS 码集 / S7 WString ASCII / Tag 64 位精度 / aio 属性读锁)均已于 2026-09-26 修复**,P2 前七项(native 镜像 / Modbus 批量 `.bit` / `is_write` / FINS 批量 `.bit` / AB 0x0A 预算 / MTConnect DOCTYPE / 退避溢出)同日修复(见「修复记录」与各条「修复」小节);另 P2 批 2(convert / OPC-UA / OpenTcp / Modbus FC20)与 P3 的 aio `close()` 取消吞没亦同日修复。
+> 结论:新增 **1 条 P0、4 条 P1** 及若干 P2/P3;并纠正上一轮 **5 条已关闭项 / 3 条记录不实**。其中 P0(MC `L` 撞码)与 **P1 四项(ADS 码集 / S7 WString ASCII / Tag 64 位精度 / aio 属性读锁)均已于 2026-09-26 修复**,P2 前七项(native 镜像 / Modbus 批量 `.bit` / `is_write` / FINS 批量 `.bit` / AB 0x0A 预算 / MTConnect DOCTYPE / 退避溢出)同日修复(见「修复记录」与各条「修复」小节);另 P2 批 2(convert / OPC-UA / OpenTcp / Modbus FC20)与 P3 的 aio `close()` 取消吞没亦同日修复;P2 批 3(MC `read_batch` `.bit`、MEWTOCOL 字段边界)与 P3 的 convert 编码越界、`check_byte_field` 收窄亦同日修复。
 
 ### P0
 
@@ -96,7 +97,7 @@ v1 评审稿逐条对源码复核后形成本版:
 - **AB 0x0A 分块预算漏算偏移表(已核验)——已修复(2026-09-26)**:`plc/ab/ab.py:819` 每条 `entry` 补 2 字节偏移项。回归 `test_chunk_batch_requests_counts_offset_table`(15×30B 须拆块)。
 - **MTConnect DOCTYPE 防护可被 UTF-16 绕过(已核验)——已修复(2026-09-26)**:`cnc/mtconnect.py` 同时扫描剔除 NUL 字节后的形式(响应体上限在 `_read_body` 读取期已强制,先于解析)。回归 `test_doctype_utf16_payload_rejected`。
 - **连接退避指数无界(已核验)——已修复(2026-09-26)**:`core/base_client.py:730` 指数先按 `RECONNECT_BACKOFF_MAX_EXPONENT=32` 封顶再算。回归 `test_backoff_exponent_bounded`。
-- **MC `read_batch` 字软元件 `.bit` 静默忽略** `plc/melsec/melsec.py:269`;**MEWTOCOL 字段溢出** `plc/panasonic/codec_mewtocol.py:85/90/96/103`(§2.9.2/§2.9.3 未修);**MX 32/64 位批读未支持** `plc/melsec/mx.py:727`。
+- **MC `read_batch` 字软元件 `.bit` 静默忽略——已修复(2026-09-26)**:`plc/melsec/melsec.py` 非 BOOL 带位号入参期拒绝(与单点 read 一致),回归 `test_read_batch_rejects_bit_suffix_on_word_type`。**MEWTOCOL 字段溢出——已修复(2026-09-26)**:`codec_mewtocol.py` 单接点(字号 3 位/位号 1 位)与数据区(起止 5 位/字值 16 位)按字段宽度校验,回归 `test_codec_field_width_bounds`。**MX 32/64 位批读未支持**(`plc/melsec/mx.py:727`)仍待办。
 - **`convert`(已核验)——已修复(2026-09-26)**:`_reorder_bytes` 校验/归一化 `word_order`(非法抛 `ValueError`,字符串按枚举归一化,不再静默走 BADC);`registers_to_int32/uint32/int64/uint64/float32/float64` 校验寄存器数量。回归 `TestWordOrder32::test_bad_word_order_rejected` + 计数回归。
 - **OPC-UA——已修复(2026-09-26)**:`browse` 在 `max_depth=None` 时应用 `OPCUA_BROWSE_DEFAULT_MAX_DEPTH=10` 安全上限;`_coerce_read` 按声明类型做整数范围收窄(与写路径对称);NodeId 解析改组件切分,`s=` 吞掉其余(可含 `;`/`=`)、支持 `srv=`/`nsu=`。回归 `test_coerce_read_narrows_integer_range`、`test_browse_none_max_depth_uses_default_cap`、`test_parse_nodeid`。
 - **OpenTcp——已修复(2026-09-26)**:接收超时改抛 `TransportTimeoutError`(归类 TIMEOUT 而非 DEVICE);`length_prefix` 发送端补长度域(与收帧对称);`max_frame` 增上界 `OPEN_TCP_MAX_FRAME_LIMIT=16MiB`。回归 `test_receive_timeout_keeps_connection`、`test_send_text_prepends_length_prefix`、`test_max_frame_upper_bound_rejected`。
@@ -104,9 +105,9 @@ v1 评审稿逐条对源码复核后形成本版:
 
 ### P3(合并)
 
-- `convert` 越界整数编码抛 `struct.error` 而非 `ValueError`;`words_to_bytes`/`registers_to_canonical` 对超范围字静默 `&0xFFFF`(`convert.py:129/318`)。
-- `core/validation.py:60` `check_byte_field` 用 `int()` 收窄,静默接受 float/bool/str。
-- Modbus:`read_many` 地址跨度溢出不满足「零字节发送」;file-record 长度无上界;FC08/11 接受尾字节;FC43 不回显读码;缺 FC07/FC17;RTU 增量长度字段无 cap;`write_bool("ir0.0")`/`di` 先发一次读再抛。
+- `convert` 越界整数编码抛 `struct.error` 而非 `ValueError` — **已修复(2026-09-26)**:`int32/uint32/int64/uint64_to_registers` 先 `require_int` + `check_range`,回归 `test_encode_overflow_raises_value_error`。`words_to_bytes`/`registers_to_canonical` 对超范围字静默 `&0xFFFF`(`convert.py:129/318`)仍待办。
+- `core/validation.py:60` `check_byte_field` 用 `int()` 收窄,静默接受 float/bool/str — **已修复(2026-09-26)**:改 `require_int`,回归 `test_check_byte_field_rejects_non_int`。
+- Modbus:~~`read_many` 地址跨度溢出不满足「零字节发送」~~(**已随 P2 批 1 的 `_check_address` 一并修复**);file-record 长度无上界;FC08/11 接受尾字节;FC43 不回显读码;缺 FC07/FC17;RTU 增量长度字段无 cap;`write_bool("ir0.0")`/`di` 先发一次读再抛。
 - OpenTcp:缓冲头 `del self._buffer[:n]` O(n);无发送进度回调;无 IPv6(§2.13.4/6/8)。
 - MC 1E 帧不校验尾多余字节(`codec_a.py:139`);MX `get_error_message` 新建 COM 控件不释放(`mx.py:877`);`MX_SUPPORT_MSG_PROG_ID` 存疑(`constants.py:679`)。
 - TOYOPUC 打包段校验口径不一致(`toyopuc/address.py:133` vs `:141`)。

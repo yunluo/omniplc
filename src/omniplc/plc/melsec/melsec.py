@@ -269,6 +269,8 @@ class _MelsecMcBase(BaseClient):
         for address, data_type in items:
             data_type_enum = DataType.coerce(data_type)
             parsed = self._translate_address(parse_mc_address(address))
+            if data_type_enum is not DataType.BOOL and parsed.bit is not None:
+                raise ValueError(f"仅布尔类型支持位访问:{address!r}")
             code, is_bit_device, base = self._device_info(parsed.device)
             if (
                 is_bit_device
