@@ -64,6 +64,7 @@ from ..core.constants import (
     S7_DEFAULT_PORT,
     S7_DEFAULT_RACK,
     S7_DEFAULT_SLOT,
+    S7_WSTRING_DEFAULT_LENGTH,
     PANASONIC_MC_DEFAULT_PORT,
     READ_STRING_DEFAULT_LENGTH,
     SR_DEFAULT_PORT,
@@ -1863,3 +1864,13 @@ class ASiemensS7Client(ABaseClient):
     def slot(self) -> int:
         """槽位号(转发同步实例)。"""
         return self._client().slot
+
+    async def read_wstring(
+        self, address: str, length: int = S7_WSTRING_DEFAULT_LENGTH
+    ) -> Tuple[bool, Optional[str]]:
+        """读 S7 WString(UTF-16BE,语义同同步版)。"""
+        return await self._run(lambda: self._client().read_wstring(address, length))
+
+    async def write_wstring(self, address: str, value: str) -> bool:
+        """写 S7 WString(UTF-16BE,语义同同步版)。"""
+        return await self._run(lambda: self._client().write_wstring(address, value))

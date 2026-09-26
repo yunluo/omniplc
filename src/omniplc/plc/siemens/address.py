@@ -16,14 +16,19 @@
 ======================  ==================================================
 
 尺寸语义:地址只定位**区域 + 字节起点**,读写字节数由显式 DataType 决定
-(SHORT/USHORT 2 字节、INT/UINT 4 字节、LONG/ULONG 8 字节、FLOAT/DOUBLE
-4/8 字节,大端序)——``DB1.DBD6`` 按 ``read_short`` 读即取 6~7 两字节。
+(SHORT/USHORT 2 字节、INT/UINT 4 字节、LONG/ULONG/DOUBLE 8 字节、FLOAT
+4 字节,大端序)——``DB1.DBD6`` 按 ``read_short`` 读即取 6~7 两字节,按
+``read_long``/``read_double`` 读则取 6~13 八字节。故 8 字节类型(LREAL/
+LINT/ULINT)沿用 ``DBD``(或 ``DBB``/``DBW``)起点记号即可,**长度由
+DataType 而非记号后缀决定**。
 解析失败统一抛 ``ValueError``(参数错误约定)。
 """
 from __future__ import annotations
 
 import re
 from typing import NamedTuple, Optional
+
+from ...core.constants import S7_BYTE_INDEX_MAX, S7_DB_NUMBER_MAX
 
 _DB_RE = re.compile(r"^DB(\d+)\.DB([XBWDS])(\d+)(?:\.(\d+))?$", re.IGNORECASE)
 _AREA_RE = re.compile(r"^([IQM])(?:(?:([BWD])(\d+))|(\d+)(?:\.(\d+))?)$", re.IGNORECASE)
@@ -61,6 +66,11 @@ def parse_s7_address(address: str) -> S7Address:
         kind = match.group(2).upper()
         byte_index = int(match.group(3))
         bit_text = match.group(4)
+        if not 1 <= db_number <= S7_DB_NUMBER_MAX:
+            raise ValueError(
+                f"S7 DB 编号必须在 1~{S7_DB_NUMBER_MAX} 之间,收到:{address!r}"
+            )
+        _check_byte_index(byte_index, address)
         if kind == "X":
             if bit_text is None:
                 raise ValueError(
@@ -81,8 +91,11 @@ def parse_s7_address(address: str) -> S7Address:
         area = match.group(1).upper()
         if match.group(2) is not None:
             # B/W/D 记号(IW/QD/MB…)只定字节起点,不带位号
-            return S7Address(area, 0, int(match.group(3)), None)
+            byte_index = int(match.group(3))
+            _check_byte_index(byte_index, address)
+            return S7Address(area, 0, byte_index, None)
         byte_index = int(match.group(4))
+        _check_byte_index(byte_index, address)
         bit_text = match.group(5)
         bit = int(bit_text) if bit_text is not None else None
         if bit is not None:
@@ -98,3 +111,11 @@ def _check_bit(bit: int, address: str) -> None:
     """位号范围校验 0~7(内部函数)。"""
     if not 0 <= bit <= 7:
         raise ValueError(f"S7 位号必须在 0~7 之间,收到:{address!r} 的 {bit}")
+
+
+def _check_byte_index(byte_index: int, address: str) -> None:
+    """字节起点范围校验 0~24 位上限(内部函数)。"""
+    if not 0 <= byte_index <= S7_BYTE_INDEX_MAX:
+        raise ValueError(
+            f"S7 字节起点必须在 0~{S7_BYTE_INDEX_MAX} 之间,收到:{address!r}"
+        )

@@ -391,35 +391,36 @@ v1 评审稿逐条对源码复核后形成本版:
 - `header = bytes([len(encoded), len(encoded)])` 声明长字节被改为实际长;后续按声明长处理的客户端判超长。docstring 自认"均按本次编码长度"。
 - **修复**:先读声明 max,仅覆盖实际长字节。
 
-#### 2.6.3 BOOL 位写为读-改-写,非原子 — **P2(实锤)**
-- `plc/siemens/client.py:380-386`
-- HMI 与 PLC 程序共写同字节时互踩。
-- **修复**:文档高亮;如 snap7 低层可用则暴露原子置位/复位。
+#### 2.6.3 BOOL 位写为读-改-写,非原子 — **已修复(2026-09-26;文档+告警)**
+- `plc/siemens/client.py`(`_write` docstring)
+- S7 协议本身按字节写,无原子置位/复位原语,无法在协议层修复。已在 `_write` 加 **warning**:BOOL 写为非原子读-改-写,多写者场景请用 `write(addr, DataType.BYTE, v)` 写整字节。
 
-#### 2.6.4 优化块访问错误无指引 — **P2(实锤)**
-- S7-1200/1500 默认优化块,绝对寻址报错不指因。
-- **修复**:识别该错误类,输出"取消 Optimized block access"指引。
+#### 2.6.4 优化块访问错误无指引 — **已修复(2026-09-26)**
+- `plc/siemens/client.py`(`_S7Session._raise_link_aware`)
+- DB 区域读写出错且连接在线时,`DeviceError` 追加提示:"若为 S7-1200/1500,请确认该 DB 已在 TIA 中取消 Optimized block access"。
 
-#### 2.6.5 PUT/GET 权限错误与离线不可区分 — **P2(实锤)**
-- `plc/siemens/client.py:182-186`
-- **修复**:细分错误类。
+#### 2.6.5 PUT/GET 权限错误与离线不可区分 — **已修复(2026-09-26;文本细分)**
+- `plc/siemens/client.py`(`_S7Session.connect`)
+- snap7 连接失败无结构化错误码,无法程序化细分;连接失败文本改为列出三类可能原因:① IP/机架/槽位 ② 网络/防火墙阻断 102 ③ 1200/1500 未开启 PUT/GET 授权。
 
-#### 2.6.6 无 WSTRING(UTF-16)支持 — **P2(实锤)**
-- 中文/日文文本场景缺失。
+#### 2.6.6 无 WSTRING(UTF-16)支持 — **已修复(2026-09-26)**
+- `plc/siemens/client.py`(新增 `read_wstring`/`write_wstring`,含 aio 镜像)
+- WString 布局:声明长(2)+实际长(2)+UTF-16BE 字符;读按请求 `length` 截断,写保留 PLC 侧声明长、超声明长拒绝、非 BMP(代理对)拒绝。
 
-#### 2.6.7 无多变量批量读 — **P2(实锤)**
-- HMI 多点轮询 = N 次往返。
+#### 2.6.7 无多变量批量读 — **P2(待处理)**
+- HMI 多点轮询 = N 次往返。**修复**:基于 snap7 多变量读(read_multi)实现批量,列为后续版本。
 
-#### 2.6.8 8 字节类型无地址语法 — **P3(实锤)**
-- `plc/siemens/address.py:28`
-- `DBD` 语义 4 字节,LREAL/LINT 表达不了。
-- **修复**:补 8 字节前缀或文档说明 DataType 决定长度。
+#### 2.6.8 8 字节类型无地址语法 — **已修复(2026-09-26;文档)**
+- `plc/siemens/address.py`(模块 docstring)
+- 明晰:地址只定位区域+字节起点,长度由 DataType 决定;LONG/ULONG/DOUBLE(8 字节)沿用 `DBD`/`DBB`/`DBW` 起点即可,`DB1.DBD6` 按 `read_long` 取 6~13 八字节。
 
-#### 2.6.9 DB 编号边界未校验 — **P3(实锤)**
-- `plc/siemens/address.py:55-94`
+#### 2.6.9 DB 编号边界未校验 — **已修复(2026-09-26)**
+- `plc/siemens/address.py`(`_check_byte_index` + DB 编号校验)
+- DB 编号 1~65535(DB0 拒绝)、字节起点 0~24 位(0~16777215);越界在解析层 `ValueError`,不再拖到运行时。
 
-#### 2.6.10 `dll_path` 构造期不校验 — **P3(实锤)**
-- `plc/siemens/client.py:111-134`
+#### 2.6.10 `dll_path` 构造期不校验 — **已修复(2026-09-26)**
+- `plc/siemens/client.py`(`__init__`)
+- `dll_path` 非空但文件不存在时构造期 `ValueError`,不再拖到连接期才暴露。
 
 ---
 

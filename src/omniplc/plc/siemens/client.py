@@ -27,17 +27,25 @@ PUT/GET 通信访问",且 DB 须为**非优化块**(绝对寻址)。
 连接态判别——在线 → DeviceError(PLC 拒绝/地址错,不断线),断连 →
 OSError(惰性重连);连接建立失败 → OSError。
 
-v1 范围:单点读写(位读改写)+ S7 String;多变量组包(read_multi)、
+v1 范围:单点读写(位读改写)+ S7 String/WString;多变量组包(read_multi)、
 块操作、SZL 系统状态留后续版本。
 """
 from __future__ import annotations
 
+import os
 import struct
 from typing import Any, NoReturn, Optional, Tuple
 
 from ... import convert
 from ...core.base_client import BaseClient, validate_endpoint
-from ...core.constants import S7_DEFAULT_PORT, S7_DEFAULT_RACK, S7_DEFAULT_SLOT, S7_RACK_MAX, S7_SLOT_MAX
+from ...core.constants import (
+    S7_DEFAULT_PORT,
+    S7_DEFAULT_RACK,
+    S7_DEFAULT_SLOT,
+    S7_RACK_MAX,
+    S7_SLOT_MAX,
+    S7_WSTRING_DEFAULT_LENGTH,
+)
 from ...core.debug import log_op
 from ...core.errors import DeviceError, TransportClosedError
 from ...core.validation import require_bool, require_float, require_int
@@ -181,8 +189,8 @@ class _S7Session(BaseTransport):
             client.connect(self._ip_address, self._rack, self._slot, self._port)
         except _SNAP7_ERRORS as exc:
             raise OSError(
-                "S7 连接失败:{}(检查 IP/机架/槽位,1200/1500 需开启"
-                " PUT-GET 访问授权)".format(exc)
+                "S7 连接失败:{}(可能原因:① IP/机架/槽位不符;② 网络/防火墙阻断 "
+                "ISO-on-TCP 102;③ 1200/1500 未开启 PUT/GET 访问授权)".format(exc)
             ) from exc
         self._client = client
         log_op(self._debug_label, "会话已建立")
@@ -217,7 +225,7 @@ class _S7Session(BaseTransport):
                 _snap7_area(area), db_number, start, size
             )
         except _SNAP7_ERRORS as exc:
-            self._raise_link_aware(exc)
+            self._raise_link_aware(exc, db_number)
         log_op(
             self._debug_label,
             "read area=0x%02X db=%d start=%d size=%d → %dB",
@@ -236,7 +244,7 @@ class _S7Session(BaseTransport):
                 _snap7_area(area), db_number, start, bytearray(data)
             )
         except _SNAP7_ERRORS as exc:
-            self._raise_link_aware(exc)
+            self._raise_link_aware(exc, db_number)
         log_op(
             self._debug_label,
             "write area=0x%02X db=%d start=%d %dB",
@@ -246,14 +254,21 @@ class _S7Session(BaseTransport):
             len(data),
         )
 
-    def _raise_link_aware(self, exc: BaseException) -> NoReturn:
+    def _raise_link_aware(self, exc: BaseException, db_number: int = 0) -> NoReturn:
         """按 snap7 连接态翻译错误(内部方法,恒抛出)。
 
-        在线 → :class:`DeviceError`(PLC 侧拒绝,不断线);
+        在线 → :class:`DeviceError`(PLC 侧拒绝,不断线),并对 DB 访问
+        附上"优化块访问"排查提示(S7-1200/1500 绝对寻址常见失败原因);
         断连 → :class:`OSError`(惰性重连)。
         """
         if self._is_connected():
-            raise DeviceError(f"S7 错误:{exc}", 0)
+            message = f"S7 错误:{exc}"
+            if db_number:
+                message += (
+                    "(按绝对地址访问 DB 失败:若为 S7-1200/1500,请确认该 DB "
+                    "已在 TIA 中取消 Optimized block access)"
+                )
+            raise DeviceError(message, 0)
         raise OSError(f"S7 连接已断:{exc}")
 
     def _is_connected(self) -> bool:
@@ -299,7 +314,7 @@ class SiemensS7Client(BaseClient):
         :param dll_path: snap7 原生库路径显式覆盖,仅 1.x/2.x(C 封装线)
             生效——32 位 Python 需自备 32 位 snap7.dll;3.x 纯 Python 实现
             忽略此参数;留空用捆绑库
-        :raises ValueError: 参数非法
+        :raises ValueError: 参数非法(dll_path 非空但文件不存在)
         """
         validate_endpoint(ip_address, port)
         super().__init__(ip_address, int(port))
@@ -310,6 +325,10 @@ class SiemensS7Client(BaseClient):
         self._rack = int(rack)
         self._slot = int(slot)
         self._dll_path = dll_path.strip()
+        if self._dll_path and not os.path.isfile(self._dll_path):
+            raise ValueError(
+                f"dll_path 指定的 snap7 原生库不存在:{self._dll_path!r}"
+            )
 
     @property
     def rack(self) -> int:
@@ -368,7 +387,12 @@ class SiemensS7Client(BaseClient):
         return int.from_bytes(data, "big", signed=data_type in (DataType.SHORT, DataType.INT, DataType.LONG))
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
-        """写数据项;位为锁内读-改-写,数值按大端编码。"""
+        """写数据项;位为锁内读-改-写,数值按大端编码。
+
+        .. warning:: BOOL 写是**非原子读-改-写**(S7 协议按字节写):若 HMI
+           或 PLC 程序同时修改同一字节的其它位,存在互踩风险。多写者场景
+           请用 ``write(address, DataType.BYTE, v)`` 一次性写整字节。
+        """
         parsed = parse_s7_address(address)
         session = self._session()
         if data_type is DataType.BOOL:
@@ -447,6 +471,86 @@ class SiemensS7Client(BaseClient):
                 )
             )
         header = bytes([declared_max, len(encoded)])
+        self._session().write_area(
+            area_code(parsed.area), parsed.db_number, parsed.byte_index, header + encoded
+        )
+        return value
+
+    def read_wstring(
+        self, address: str, length: int = S7_WSTRING_DEFAULT_LENGTH
+    ) -> Tuple[bool, Optional[str]]:
+        """读 S7 WString(UTF-16BE,支持中文/日文等非 ASCII 文本)。
+
+        WString 布局:声明长(2 字节,字符数)+ 实际长(2 字节)+ 字符
+        (每字符 2 字节,UTF-16BE 大端)。实际长超出请求 ``length`` 时按
+        ``length`` 截断返回。
+
+        :param address: 字符串起点地址,如 ``"DB1.DBW20"``/``"DB1.DBS20"``
+        :param length: 最多读取的字符数,默认 64
+        :return: ``(是否成功, 文本)``;失败为 ``(False, None)``
+        :raises ValueError: 地址/长度非法
+        """
+        if length <= 0:
+            raise ValueError(f"length 必须大于 0,收到:{length}")
+        ok, value = self._execute(
+            lambda: self._read_wstring_impl(address, int(length))
+        )
+        if not ok or value is None:
+            return False, None
+        return True, str(value)
+
+    def write_wstring(self, address: str, value: str) -> bool:
+        """写 S7 WString(UTF-16BE,保留 PLC 侧声明长,超声明长拒绝)。
+
+        :param address: 字符串起点地址
+        :param value: 待写入文本(不能为空;须为 BMP 字符,避免代理对歧义)
+        :return: 是否成功
+        :raises ValueError: 地址/值非法或超出 PLC 侧声明长
+        """
+        if not value:
+            raise ValueError("value 不能为空字符串")
+        ok, _ = self._execute(
+            lambda: self._write_wstring_impl(address, str(value)), is_write=True
+        )
+        return ok
+
+    def _read_wstring_impl(self, address: str, length: int) -> PrimitiveValue:
+        parsed = parse_s7_address(address)
+        if parsed.bit is not None:
+            raise ValueError(f"S7 字符串地址不带位号:{address!r}")
+        size = 4 + length * 2
+        data = self._session().read_area(
+            area_code(parsed.area), parsed.db_number, parsed.byte_index, size
+        )
+        if len(data) < 4:
+            raise DeviceError("S7 WString 响应过短:{}".format(len(data)), 0)
+        actual = int.from_bytes(data[2:4], "big")
+        if actual <= 0:
+            return ""
+        if actual > length:
+            actual = length
+        return convert.decode_string(data[4:4 + actual * 2], "utf-16-be")
+
+    def _write_wstring_impl(self, address: str, value: str) -> PrimitiveValue:
+        parsed = parse_s7_address(address)
+        if parsed.bit is not None:
+            raise ValueError(f"S7 字符串地址不带位号:{address!r}")
+        encoded = value.encode("utf-16-be")
+        if len(encoded) != len(value) * 2:
+            raise ValueError("S7 WString 仅支持 BMP 字符(不含代理对):{!r}".format(address))
+        head = self._session().read_area(
+            area_code(parsed.area), parsed.db_number, parsed.byte_index, 2
+        )
+        declared_max = int.from_bytes(head[:2], "big") if len(head) >= 2 else 0
+        if declared_max == 0:
+            declared_max = len(value)
+        if len(value) > declared_max:
+            raise ValueError(
+                "S7 WString 写入值超出 PLC 侧声明长:{} > {} 字符({!r})".format(
+                    len(value), declared_max, address
+                )
+            )
+        header = declared_max.to_bytes(2, "big") + len(value).to_bytes(2, "big")
         self._session().write_area(
             area_code(parsed.area), parsed.db_number, parsed.byte_index, header + encoded
         )

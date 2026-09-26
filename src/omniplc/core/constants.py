@@ -1008,7 +1008,12 @@ S7_RACK_MAX: int = 7
 """S7 机架号上限(ISO-on-TCP/Snap7 客户端约定)。"""
 S7_SLOT_MAX: int = AB_EIP_SLOT_MAX
 """S7 槽位号上限(与 AB/CIP 端口段 link 单字节口径一致,0~31)。"""
-"""默认槽位号(S7-1200/1500 常用 1;S7-300/400 的 CPU 常在 2,按实际硬件调整)。"""
+S7_DB_NUMBER_MAX: int = 65535
+"""S7 DB 编号上限(1~65535;DB0 不是合法数据块)。"""
+S7_BYTE_INDEX_MAX: int = 0xFFFFFF
+"""S7 字节起点上限(协议地址字段 24 位,0~16777215)。"""
+S7_WSTRING_DEFAULT_LENGTH: int = 64
+"""S7 WSTRING 默认读取字符数(UTF-16,单字符 2 字节)。"""
 
 # ---------------------------------------------------------------- 通用
 BIT_INDEX_MAX: int = 63

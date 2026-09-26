@@ -297,9 +297,11 @@ from omniplc import SiemensS7Client
 s7 = SiemensS7Client("192.168.0.1", rack=0, slot=1)  # 300/400 的 CPU 常在槽位 2
 s7.connect()
 ok, temp = s7.read_float("DB1.DBD6")   # DB 双字起点,REAL
-ok = s7.write_bool("DB1.DBX0.3", True) # DB 位(锁内读-改-写)
+ok = s7.write_bool("DB1.DBX0.3", True) # DB 位(非原子读-改-写;多写者请 write 整字节)
 ok, current = s7.read_ushort("MW10")   # Merker 字
-ok, text = s7.read_string("DB1.DBS20", length=32)  # S7 String(头 2 字节声明/实际长)
+ok, text = s7.read_string("DB1.DBS20", length=32)   # S7 String(头 2 字节声明/实际长)
+ok, wtext = s7.read_wstring("DB1.DBW40", length=32) # S7 WString(UTF-16,中文/日文)
+ok = s7.write_wstring("DB1.DBW40", "温度正常")
 ```
 
 #### 批量读取(默认逐点 / 协议原生单事务)
@@ -550,7 +552,7 @@ dump(client.stats)   # 键名拼错、字段用错类型在 mypy/pyright 阶段�
 | AB 0x0A 多服务包批量读  | AB Logix         | 已实现(超 32 条/480B 自动拆包),通用模拟器不支持,待真机核证 |
 | NJ CIP 0x0A 多服务包 | 欧姆龙 NJ/NX CIP    | 继承 AB,理论同,待真机核证                |
 | 倍福 ADS           | TwinCAT          | 封装 pyads,需 TwinCAT 运行时;transport 错误码 0x705/0x706/0x725 分流待真机核证 |
-| 西门子 S7           | S7-300/1200/1500 | 封装 python-snap7,需 PLC 或 PLCSIM;STRING 读截断/写保留声明长待真机核证 |
+| 西门子 S7           | S7-300/1200/1500 | 封装 python-snap7,需 PLC 或 PLCSIM;STRING/WSTRING 读截断·写保留声明长、优化块访问错误提示待真机核证 |
 | NJ STRING / BOOL 数组 | 欧姆龙 NJ/NX CIP    | 已实现(STRING 按 `len(u32)+字符`、BOOL 按元素自描述,回 DWORD 时 `//32` 回退),待真机核证 |
 | MC 新设备码          | 三菱 Q/L/R         | L/F/SB/V/DX/DY/TS/TC/TN/CS/CC/CN/SM/SD/SW 已实现,待真机核证(TN=0xC3/CN=0xC6 为推定) |
 | KV MC 0406 批量读   | 基恩士 KV MC        | 继承 MelsecMc,码表已覆写,待真机          |

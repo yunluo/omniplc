@@ -497,3 +497,74 @@ def test_signature_order_ip_port_first() -> None:
     client = SiemensS7Client("127.0.0.1", 102, 0, 1, "")
     assert client.rack == 0
     assert client.slot == 1
+
+
+# ----------------------------------------------------------------------
+# 本轮:地址边界 / dll_path 构造校验 / WString / 优化块提示 / 连接失败细分
+# ----------------------------------------------------------------------
+
+def test_address_db_and_byte_index_bounds() -> None:
+    """DB 编号 1~65535、字节起点 0~24 位:越界在解析层拒绝。"""
+    with pytest.raises(ValueError):
+        parse_s7_address("DB0.DBB4")
+    with pytest.raises(ValueError):
+        parse_s7_address("DB65536.DBB4")
+    with pytest.raises(ValueError):
+        parse_s7_address("DB1.DBB16777216")
+    assert parse_s7_address("DB65535.DBB16777215") == ("DB", 65535, 16777215, None)
+    assert parse_s7_address("MW0") == ("M", 0, 0, None)
+
+
+def test_dll_path_construction_validation() -> None:
+    """dll_path 非空但文件不存在 → 构造期 ValueError(不再拖到连接期)。"""
+    with pytest.raises(ValueError):
+        SiemensS7Client("127.0.0.1", dll_path="Z:\\no\\such\\snap7.dll")
+    ok = SiemensS7Client("127.0.0.1", dll_path=__file__)
+    assert ok.rack == 0 and ok.slot == 1
+
+
+def test_wstring_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """S7 WString(UTF-16BE):按声明长读取,写保留声明长仅覆盖实际长。"""
+    client, fake = _client(monkeypatch)
+    text = "温度"
+    encoded = text.encode("utf-16-be")
+    fake.seed(
+        _AREA_DB, 1, 20,
+        (32).to_bytes(2, "big") + len(text).to_bytes(2, "big") + encoded,
+    )
+    assert client.read_wstring("DB1.DBW20", length=32) == (True, text)
+    assert client.write_wstring("DB1.DBW20", "报警") is True
+    raw = "报警".encode("utf-16-be")
+    dump = fake.dump(_AREA_DB, 1, 20, 4 + len(raw))
+    assert dump[0:2] == (32).to_bytes(2, "big")
+    assert dump[2:4] == len("报警").to_bytes(2, "big")
+    assert dump[4:] == raw
+
+
+def test_wstring_overflow_and_bad_length(monkeypatch: pytest.MonkeyPatch) -> None:
+    """超过 PLC 侧声明长拒绝;length<=0 拒绝。"""
+    client, fake = _client(monkeypatch)
+    fake.seed(_AREA_DB, 1, 20, (1).to_bytes(2, "big") + b"\x00\x00")
+    with pytest.raises(ValueError):
+        client.write_wstring("DB1.DBW20", "AB")
+    with pytest.raises(ValueError):
+        client.read_wstring("DB1.DBW20", length=0)
+
+
+def test_optimized_block_hint_on_db_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """DB 绝对寻址失败:在线态 DeviceError 附带"优化块访问"排查提示,不断线。"""
+    client, fake = _client(monkeypatch)
+    fake.read_error = RuntimeError("CPU : Address out of range")
+    assert client.read_float("DB1.DBD6") == (False, None)
+    assert client.last_error is not None and "Optimized" in client.last_error
+    assert client.connected is True
+
+
+def test_connect_failure_message_lists_causes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """连接失败:错误文本列出 IP/路由、防火墙、PUT/GET 三类可能原因。"""
+    fake = FakeS7Client()
+    fake.connect_error = RuntimeError("TCP : Connection refused")
+    monkeypatch.setattr(s7_module, "_new_client", lambda dll_path: fake)
+    client = SiemensS7Client("127.0.0.1")
+    assert client.connect() is False
+    assert client.last_error is not None and "PUT/GET" in client.last_error
