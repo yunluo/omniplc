@@ -293,6 +293,36 @@ def test_session_connect_failure_translated(monkeypatch: pytest.MonkeyPatch) -> 
     assert session._connection is None
 
 
+def test_set_timeout_false_warns_but_connects(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """set_timeout 返回 False(固件不支持)时告警但不影响连接建立。"""
+    import logging
+
+    pkg = types.ModuleType("pyads")
+
+    class Connection:
+        def __init__(self, net_id: str, port: int) -> None:
+            pass
+
+        def open(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+        def set_timeout(self, milliseconds: int) -> bool:
+            return False
+
+    setattr(pkg, "Connection", Connection)
+    monkeypatch.setitem(sys.modules, "pyads", pkg)
+    session = _AdsSession("192.168.0.10.1.1", 851)
+    with caplog.at_level(logging.WARNING):
+        session.connect()
+    assert session._connection is not None
+    assert "set_timeout" in caplog.text
+
+
 # ----------------------------------------------------------------------
 # 异步镜像
 # ----------------------------------------------------------------------

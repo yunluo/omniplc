@@ -181,9 +181,10 @@ nj_c = OmronCipClient(ip_address="192.168.0.10", connected_messaging=True)  # �
 # Windows 侧还需 Beckhoff TcAdsDll 运行库,随 TwinCAT ADS 安装
 from omniplc import BeckhoffAdsClient
 bc = BeckhoffAdsClient(ip_address="192.168.0.10", ads_port=851)  # net_id 默认 IP+.1.1
+# 自定义路由/TC2 多 runtime:显式传 net_id / ads_port(851 为 TC3 默认)
 ok, value = bc.read_int("MAIN.nCounter")
 ok = bc.write_bool("MAIN.bStart", True)
-ok, text = bc.read_string("MAIN.sRecipe")
+ok, text = bc.read_string("MAIN.sRecipe")  # ADS STRING 固定 UTF-8,encoding 参数不生效
 
 # 罗克韦尔 AB EtherNet/IP:Logix 标签自描述,类型不符会明确报错
 # 地址即标签名:MyDint / MyArray[5] / MyUdt.Member / MyDint.3(位)/ 程序作用域 Program:prog.Tag

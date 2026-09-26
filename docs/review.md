@@ -352,29 +352,32 @@ v1 评审稿逐条对源码复核后形成本版:
 - `plc/beckhoff/ads.py`
 - 超长写靠 PLC 侧报错,紧邻变量布局下有污染邻区风险。现 `_write_string` 写前经 `_AdsSession.symbol_type` 取符号类型字符串(`STRING(N)`/`STRING`),`_declared_string_chars` 解析声明长度,超长抛 `ValueError`;符号信息不可用(旧路由/固件)时返回 None 跳过预检(不改变原行为)。
 
-#### 2.5.3 Online Change 后句柄失效无显式处理 — **P2(待核证)**
-- 0x1D 错误未按"瞬时缓存 miss"分流。
+#### 2.5.3 Online Change 后句柄失效无显式处理 — **P2(待处理)**
+- `plc/beckhoff/ads.py`
+- 0x1D 错误未按"瞬时缓存 miss"分流。pyads 无稳定句柄语义,现有实现按符号名读取、无客户端侧句柄缓存,实际影响有限;待真机确认后再决定是否对特定错误码设置短线重试。
 
-#### 2.5.4 默认 NetId `IP.1.1` 覆盖面 — **P2(文档化限制)**
-- `plc/beckhoff/ads.py:342-361`
-- 自定义路由/TC2 需显式传 `net_id`。**修复**:文档强调。
+#### 2.5.4 默认 NetId `IP.1.1` 覆盖面 — **已文档化(2026-09-26)**
+- `plc/beckhoff/ads.py`(模块 docstring + README)
+- 默认 `IP.1.1` 覆盖常见单路由场景;自定义路由/TC2 多 runtime 需显式传 `net_id`。README ADS 段已注明。
 
-#### 2.5.5 `set_timeout` 在部分路由器固件上无效 — **P2(待核证)**
-- `plc/beckhoff/ads.py:173-176`
-- **修复**:校验返回值并告警。
+#### 2.5.5 `set_timeout` 在部分路由器固件上无效 — **已修复(2026-09-26)**
+- `plc/beckhoff/ads.py`(`_AdsSession.connect`)
+- `set_timeout` 现校验返回值:返回 False 或抛异常时输出 WARNING(提示实际按 pyads 默认超时),不再静默忽略;连接仍照常建立。
 
-#### 2.5.6 AMS 端口 851 默认对 TC2/多 runtime 不适配 — **P3(文档化限制)**
-- `core/constants.py:909`
+#### 2.5.6 AMS 端口 851 默认对 TC2/多 runtime 不适配 — **已文档化(2026-09-26)**
+- `core/constants.py`(`ADS_DEFAULT_ADS_PORT`)+ README
+- 851 为 TC3 默认;TC2/多 runtime 需显式传 `ads_port`。README 已注明。
 
-#### 2.5.7 >32KB 数据不切块 — **P2(实锤)**
-- `plc/beckhoff/ads.py:202-232`
-- **修复**:大块读写分片。
+#### 2.5.7 >32KB 数据不切块 — **P2(待处理)**
+- `plc/beckhoff/ads.py`
+- 当前客户端仅支持标量/STRING 单点类型,单值不会触及 32KB;数组/大块符号支持时需按 32KB 分片,列为后续版本。
 
-#### 2.5.8 `encoding` 参数静默忽略 — **P3(实锤)**
-- `plc/beckhoff/ads.py:316-332`
+#### 2.5.8 `encoding` 参数静默忽略 — **已文档化(2026-09-26)**
+- `plc/beckhoff/ads.py`(模块 docstring)
+- ADS STRING 编解码由 pyads 固定 UTF-8,`encoding` 参数不生效;已在模块 docstring 明示(非静默:文档声明)。
 
-#### 2.5.9 结构体成员路径不支持 — **P3(实锤)**
-- pyads `read_by_name` 仅精确符号名。
+#### 2.5.9 结构体成员路径不支持 — **P3(文档化限制)**
+- pyads `read_by_name` 仅精确符号名,结构体成员需在 TwinCAT 侧导出为独立符号;属 pyads 能力边界,文档说明。
 
 ---
 

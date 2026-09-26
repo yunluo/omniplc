@@ -45,7 +45,7 @@ from ...core.constants import (
     UINT32_MAX,
     UINT64_MAX,
 )
-from ...core.debug import log_op
+from ...core.debug import log_op, log_warning
 from ...core.errors import DeviceError, OmniPLCInternalError, TransportClosedError
 from ...core.validation import (
     check_range,
@@ -203,9 +203,19 @@ class _AdsSession(BaseTransport):
             )
         self._connection = connection
         try:
-            connection.set_timeout(int(self._receive_timeout * 1000))
-        except Exception:
-            pass  # 超时下发尽力而为(部分平台/路由器形态不支持)
+            applied = connection.set_timeout(int(self._receive_timeout * 1000))
+        except Exception as exc:
+            log_warning(
+                self._debug_label,
+                "set_timeout 下发异常(该路由/固件可能不支持,按 pyads 默认超时):%s",
+                exc,
+            )
+        else:
+            if applied is False:
+                log_warning(
+                    self._debug_label,
+                    "set_timeout 未被接受(部分路由器固件无效),实际按 pyads 默认超时",
+                )
         log_op(self._debug_label, "会话已建立")
 
     def close(self) -> None:
