@@ -105,7 +105,7 @@ def parse_address(address: str) -> ModbusAddress:
     text = address.strip().lower()
 
     if text.isdigit():
-        return _parse_modicon(int(text))
+        return _parse_modicon(text)
 
     match = _PREFIX_RE.match(text)
     if match is None:
@@ -122,17 +122,39 @@ def parse_address(address: str) -> ModbusAddress:
                 f"寄存器位号必须在 0~{MODBUS_REGISTER_BIT_MAX} 之间,收到:{bit}"
             )
     return ModbusAddress(area=area, offset=offset, bit=bit)
-def _parse_modicon(number: int) -> ModbusAddress:
-    """解析 Modicon 1 基地址(内部函数)。"""
-    ranges = (
-        (1, 9999, ModbusArea.COIL),
-        (10001, 19999, ModbusArea.DISCRETE_INPUT),
-        (30001, 39999, ModbusArea.INPUT_REGISTER),
-        (40001, 49999, ModbusArea.HOLDING_REGISTER),
-    )
+
+
+def _parse_modicon(text: str) -> ModbusAddress:
+    """解析 Modicon 1 基地址(内部函数)。
+
+    按**数字位数**区分两套方案(数值法无法消歧,如 ``40001`` 既是 5 位
+    保持寄存器、也是 6 位线圈 ``040001``):
+
+    - **6 位**扩展方案:``000001~065536`` 线圈 / ``100001~165536`` 离散输入 /
+      ``300001~365536`` 输入寄存器 / ``400001~465536`` 保持寄存器;
+    - **5 位**传统方案:``00001~09999`` / ``10001~19999`` / ``30001~39999`` /
+      ``40001~49999``;1~5 位数字均按此口径。
+
+    偏移 = 编号 − 区段基址(1 基)。
+    """
+    number = int(text)
+    if len(text) == 6:
+        ranges = (
+            (1, 65536, ModbusArea.COIL),
+            (100001, 165536, ModbusArea.DISCRETE_INPUT),
+            (300001, 365536, ModbusArea.INPUT_REGISTER),
+            (400001, 465536, ModbusArea.HOLDING_REGISTER),
+        )
+        hint = "6 位 000001~065536/100001~165536/300001~365536/400001~465536"
+    else:
+        ranges = (
+            (1, 9999, ModbusArea.COIL),
+            (10001, 19999, ModbusArea.DISCRETE_INPUT),
+            (30001, 39999, ModbusArea.INPUT_REGISTER),
+            (40001, 49999, ModbusArea.HOLDING_REGISTER),
+        )
+        hint = "5 位 00001~09999/10001~19999/30001~39999/40001~49999"
     for start, end, area in ranges:
         if start <= number <= end:
             return ModbusAddress(area=area, offset=number - start)
-    raise ValueError(
-        f"Modicon 地址超出区段:{number},支持 00001~09999/10001~19999/30001~49999"
-    )
+    raise ValueError(f"Modicon 地址超出区段:{number},支持 {hint}")

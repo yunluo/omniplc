@@ -16,29 +16,40 @@ from __future__ import annotations
 
 import struct
 from enum import IntEnum
-from typing import List, NamedTuple, Tuple
+from typing import Dict, List, NamedTuple, Sequence, Tuple
 
 from ..convert import crc16
 from ..core.constants import (
     MBAP_HEADER_SIZE,
     MODBUS_ADDRESS_MAX,
+    MODBUS_COMMAND_DIAGNOSTICS,
+    MODBUS_COMMAND_GET_COMM_EVENT_COUNTER,
+    MODBUS_COMMAND_GET_COMM_EVENT_LOG,
     MODBUS_COMMAND_MASK_WRITE,
     MODBUS_COMMAND_READ_DEVICE_ID,
+    MODBUS_COMMAND_READ_FILE_RECORD,
     MODBUS_COMMAND_READ_WRITE_MULTIPLE,
+    MODBUS_COMMAND_WRITE_FILE_RECORD,
     MODBUS_COIL_OFF,
     MODBUS_COIL_ON,
     MODBUS_DEVICE_ID_CODE_BASIC,
     MODBUS_DEVICE_ID_CODE_INDIVIDUAL,
     MODBUS_DEVICE_ID_FIXED_HEAD_SIZE,
     MODBUS_DEVICE_ID_PDU_HEAD_SIZE,
+    MODBUS_DIAGNOSTICS_PDU_SIZE,
+    MODBUS_EVENT_COUNTER_PDU_SIZE,
     MODBUS_EXCEPTION_FLAG,
     MODBUS_EXCEPTION_TEXT,
+    MODBUS_FILE_REFERENCE_TYPE,
     MODBUS_MASK_WRITE_PDU_SIZE,
     MODBUS_MAX_ADU_SIZE,
+    MODBUS_MAX_FILE_RECORDS,
     MODBUS_MAX_READ_BITS,
+    MODBUS_MAX_READ_FILE_BYTES,
     MODBUS_MAX_READ_REGISTERS,
     MODBUS_MAX_RW_WRITE_REGISTERS,
     MODBUS_MAX_WRITE_BITS,
+    MODBUS_MAX_WRITE_FILE_BYTES,
     MODBUS_MAX_WRITE_REGISTERS,
     MODBUS_MBAP_LENGTH_MAX,
     MODBUS_MEI_TYPE_DEVICE_ID,
@@ -64,6 +75,11 @@ class ModbusFunction(IntEnum):
     WRITE_MULTIPLE_REGISTERS = 0x10
     MASK_WRITE_REGISTER = MODBUS_COMMAND_MASK_WRITE
     READ_WRITE_MULTIPLE_REGISTERS = MODBUS_COMMAND_READ_WRITE_MULTIPLE
+    READ_FILE_RECORD = MODBUS_COMMAND_READ_FILE_RECORD
+    WRITE_FILE_RECORD = MODBUS_COMMAND_WRITE_FILE_RECORD
+    DIAGNOSTICS = MODBUS_COMMAND_DIAGNOSTICS
+    GET_COMM_EVENT_COUNTER = MODBUS_COMMAND_GET_COMM_EVENT_COUNTER
+    GET_COMM_EVENT_LOG = MODBUS_COMMAND_GET_COMM_EVENT_LOG
     READ_DEVICE_IDENTIFICATION = MODBUS_COMMAND_READ_DEVICE_ID
 
 
@@ -667,12 +683,255 @@ def expected_response_length(request_pdu: bytes) -> int:
         return 5
     if function_code == ModbusFunction.MASK_WRITE_REGISTER:
         return MODBUS_MASK_WRITE_PDU_SIZE
+    if function_code == ModbusFunction.DIAGNOSTICS:
+        return MODBUS_DIAGNOSTICS_PDU_SIZE
+    if function_code == ModbusFunction.GET_COMM_EVENT_COUNTER:
+        return MODBUS_EVENT_COUNTER_PDU_SIZE
+    if function_code == ModbusFunction.GET_COMM_EVENT_LOG:
+        raise ProtocolFrameError(
+            "FC12 响应长度随事件字节数变化,无法按请求推算:"
+            "由走线层按 byte count 增量收包"
+        )
+    if function_code == ModbusFunction.READ_FILE_RECORD:
+        return _read_file_record_response_length(request_pdu)
+    if function_code == ModbusFunction.WRITE_FILE_RECORD:
+        return len(request_pdu)  # 响应回显请求
     if function_code == ModbusFunction.READ_DEVICE_IDENTIFICATION:
         raise ProtocolFrameError(
             "FC43 响应长度随标识对象数与对象长度变化,无法按请求推算:"
             "由走线层按对象头增量收包(codec.device_id_object_count)"
         )
     raise ProtocolFrameError(f"未知功能码 0x{function_code:02X}")
+
+
+def build_diagnostics_pdu(sub_function: int, data: int = 0x0000) -> bytes:
+    """构造诊断请求 PDU(FC08:功能码 + 子功能(2) + 数据(2))。
+
+    :raises ValueError: 子功能/数据超 16 位
+    """
+    if not 0 <= sub_function <= 0xFFFF:
+        raise ValueError(f"FC08 子功能超出范围 0~65535:{sub_function}")
+    if not 0 <= data <= 0xFFFF:
+        raise ValueError(f"FC08 数据超出范围 0~65535:{data}")
+    return struct.pack(">BHH", ModbusFunction.DIAGNOSTICS, sub_function, data)
+
+
+def parse_diagnostics_response(pdu: bytes, sub_function: int) -> int:
+    """解析 FC08 响应,返回 2 字节数据域(子功能回显须一致)。
+
+    :raises ProtocolFrameError: PDU 过短/功能码或子功能回显不符
+    """
+    if len(pdu) < MODBUS_DIAGNOSTICS_PDU_SIZE or pdu[0] != ModbusFunction.DIAGNOSTICS:
+        raise ProtocolFrameError(
+            "FC08 响应非法:{}(收到的原始 PDU:{})".format(len(pdu), format_hex(pdu))
+        )
+    echoed = struct.unpack(">H", pdu[1:3])[0]
+    if echoed != sub_function:
+        raise ProtocolFrameError(
+            "FC08 子功能回显不符:期望 0x{:04X},收到 0x{:04X}".format(sub_function, echoed)
+        )
+    return struct.unpack(">H", pdu[3:5])[0]
+
+
+def build_get_comm_event_counter_pdu() -> bytes:
+    """构造取通信事件计数器请求 PDU(FC11:仅功能码)。"""
+    return bytes([ModbusFunction.GET_COMM_EVENT_COUNTER])
+
+
+def parse_comm_event_counter_pdu(pdu: bytes) -> Tuple[int, int]:
+    """解析 FC11 响应,返回 ``(状态字, 事件计数)``。
+
+    :raises ProtocolFrameError: PDU 过短/功能码不符
+    """
+    if (
+        len(pdu) < MODBUS_EVENT_COUNTER_PDU_SIZE
+        or pdu[0] != ModbusFunction.GET_COMM_EVENT_COUNTER
+    ):
+        raise ProtocolFrameError(
+            "FC11 响应非法:{}(收到的原始 PDU:{})".format(len(pdu), format_hex(pdu))
+        )
+    status, count = struct.unpack(">HH", pdu[1:5])
+    return status, count
+
+
+def build_get_comm_event_log_pdu() -> bytes:
+    """构造取通信事件日志请求 PDU(FC12:仅功能码)。"""
+    return bytes([ModbusFunction.GET_COMM_EVENT_LOG])
+
+
+def parse_comm_event_log_pdu(pdu: bytes) -> Dict[str, object]:
+    """解析 FC12 响应。
+
+    布局:功能码(1) + byte count(1) + 状态字(2) + 事件计数(2) + 报文计数(2)
+    + 事件字节(byte count − 6)。返回 ``{status, event_count, message_count, events}``。
+
+    :raises ProtocolFrameError: PDU 过短/功能码不符/长度与 byte count 不一致
+    """
+    if len(pdu) < 2 or pdu[0] != ModbusFunction.GET_COMM_EVENT_LOG:
+        raise ProtocolFrameError(
+            "FC12 响应非法:{}(收到的原始 PDU:{})".format(len(pdu), format_hex(pdu))
+        )
+    byte_count = pdu[1]
+    if byte_count < 6 or len(pdu) != 2 + byte_count:
+        raise ProtocolFrameError(
+            "FC12 byte count 与长度不符:声明 {},实际 {}".format(byte_count, len(pdu) - 2)
+        )
+    status, event_count, message_count = struct.unpack(">HHH", pdu[2:8])
+    return {
+        "status": status,
+        "event_count": event_count,
+        "message_count": message_count,
+        "events": bytes(pdu[8:2 + byte_count]),
+    }
+
+
+def _check_file_record_fields(
+    file_number: int, record_number: int, record_length: int
+) -> None:
+    """文件记录子请求字段范围校验(内部函数;规范 §6.14)。
+
+    File number 1~0xFFFF、Record number 0~0x270F、Record length ≥1(上限由
+    整体 PDU 长度约束)。
+    """
+    if not 0x0001 <= file_number <= 0xFFFF:
+        raise ValueError(f"文件号超出范围 1~65535:{file_number}")
+    if not 0x0000 <= record_number <= 0x270F:
+        raise ValueError(f"记录号超出范围 0~9999:{record_number}")
+    if record_length < 1:
+        raise ValueError(f"记录长度必须大于 0:{record_length}")
+
+
+def build_read_file_record_pdu(requests: "Sequence[Tuple[int, int, int]]") -> bytes:
+    """构造读文件记录请求 PDU(FC20)。
+
+    :param requests: ``(文件号, 起始记录号, 记录长度[寄存器数])`` 序列
+    :raises ValueError: 无子请求/超上限/字段越界
+    """
+    if not requests:
+        raise ValueError("FC20 至少需要一个文件记录子请求")
+    if len(requests) > MODBUS_MAX_FILE_RECORDS:
+        raise ValueError(
+            f"FC20 子请求条数超出上限 {MODBUS_MAX_FILE_RECORDS}:{len(requests)}"
+        )
+    sub = bytearray()
+    for file_number, record_number, record_length in requests:
+        _check_file_record_fields(file_number, record_number, record_length)
+        sub += struct.pack(
+            ">BHHH", MODBUS_FILE_REFERENCE_TYPE, file_number, record_number, record_length
+        )
+    if not 0x07 <= len(sub) <= MODBUS_MAX_READ_FILE_BYTES:
+        raise ValueError(
+            "FC20 byte count 超出范围 0x07~0x{:02X}:{}".format(
+                MODBUS_MAX_READ_FILE_BYTES, len(sub)
+            )
+        )
+    return bytes([ModbusFunction.READ_FILE_RECORD, len(sub)]) + bytes(sub)
+
+
+def _read_file_record_response_length(request_pdu: bytes) -> int:
+    """按 FC20 请求推算响应 PDU 字节数(内部函数)。
+
+    每条子响应 = File resp. length(1) + 引用类型(1) + 数据(2×记录长度),
+    其中 File resp. length = 1 + 2×记录长度;响应 PDU = 功能码(1) + 数据长(1)
+    + Σ(2 + 2×记录长度)。
+    """
+    if len(request_pdu) < 2:
+        raise ProtocolFrameError("FC20 请求 PDU 过短")
+    byte_count = request_pdu[1]
+    sub = request_pdu[2:2 + byte_count]
+    if len(sub) != byte_count or byte_count % 7 != 0:
+        raise ProtocolFrameError("FC20 请求 byte count 非法:{}".format(byte_count))
+    total = 0
+    for index in range(0, byte_count, 7):
+        length = struct.unpack(">H", sub[index + 5:index + 7])[0]
+        total += 2 + 2 * length
+    return 2 + total
+
+
+def parse_read_file_record_response(
+    pdu: bytes, requests: "Sequence[Tuple[int, int, int]]"
+) -> List[List[int]]:
+    """解析 FC20 响应,按子请求顺序返回逐条寄存器列表。
+
+    :raises ProtocolFrameError: 长度/File resp. length/引用类型不符或有冗余字节
+    """
+    if len(pdu) < 2 or pdu[0] != ModbusFunction.READ_FILE_RECORD:
+        raise ProtocolFrameError(
+            "FC20 响应非法:{}(收到的原始 PDU:{})".format(len(pdu), format_hex(pdu))
+        )
+    body = pdu[2:]
+    if len(body) != pdu[1]:
+        raise ProtocolFrameError(
+            "FC20 响应数据长与 byte count 不符:声明 {},实际 {}".format(pdu[1], len(body))
+        )
+    result: List[List[int]] = []
+    offset = 0
+    for _, _, record_length in requests:
+        if offset >= len(body):
+            raise ProtocolFrameError("FC20 响应子响应不足")
+        file_resp_len = body[offset]
+        if file_resp_len != 1 + 2 * record_length:
+            raise ProtocolFrameError(
+                "FC20 File resp. length 不符:期望 {},收到 {}".format(
+                    1 + 2 * record_length, file_resp_len
+                )
+            )
+        if body[offset + 1] != MODBUS_FILE_REFERENCE_TYPE:
+            raise ProtocolFrameError(
+                "FC20 引用类型非 0x06:0x{:02X}".format(body[offset + 1])
+            )
+        chunk = body[offset + 2:offset + 1 + file_resp_len]
+        if len(chunk) != 2 * record_length:
+            raise ProtocolFrameError("FC20 记录数据长度不足")
+        result.append(
+            [struct.unpack(">H", chunk[i:i + 2])[0] for i in range(0, len(chunk), 2)]
+        )
+        offset += 1 + file_resp_len
+    if offset != len(body):
+        raise ProtocolFrameError("FC20 响应尾部有冗余字节:偏移 {}".format(offset))
+    return result
+
+
+def build_write_file_record_pdu(records: "Sequence[Tuple[int, int, List[int]]]") -> bytes:
+    """构造写文件记录请求 PDU(FC21)。
+
+    :param records: ``(文件号, 起始记录号, 寄存器列表)`` 序列
+    :raises ValueError: 无子请求/字段越界/寄存器值越界/超 PDU 上限
+    """
+    if not records:
+        raise ValueError("FC21 至少需要一个文件记录子请求")
+    sub = bytearray()
+    for file_number, record_number, values in records:
+        if not values:
+            raise ValueError("FC21 记录数据不能为空")
+        _check_file_record_fields(file_number, record_number, len(values))
+        sub += struct.pack(
+            ">BHHH", MODBUS_FILE_REFERENCE_TYPE, file_number, record_number, len(values)
+        )
+        for value in values:
+            if not 0 <= value <= 0xFFFF:
+                raise ValueError(f"FC21 寄存器写入值超出范围 0~65535:{value}")
+            sub += struct.pack(">H", value)
+    if not 0x09 <= len(sub) <= MODBUS_MAX_WRITE_FILE_BYTES:
+        raise ValueError(
+            "FC21 请求数据长超出范围 0x09~0x{:02X}:{}".format(
+                MODBUS_MAX_WRITE_FILE_BYTES, len(sub)
+            )
+        )
+    return bytes([ModbusFunction.WRITE_FILE_RECORD, len(sub)]) + bytes(sub)
+
+
+def parse_write_file_record_response(pdu: bytes, request_pdu: bytes) -> None:
+    """校验 FC21 写响应(规范:正常响应为请求回显,须逐字节一致)。
+
+    :raises ProtocolFrameError: 响应与请求不符
+    """
+    if pdu != request_pdu:
+        raise ProtocolFrameError(
+            "FC21 响应应为请求回显:期望 {}(收到的原始 PDU:{})".format(
+                format_hex(request_pdu), format_hex(pdu)
+            )
+        )
 
 
 def _check_offset(offset: int) -> None:

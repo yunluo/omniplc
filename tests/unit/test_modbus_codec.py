@@ -187,3 +187,30 @@ def test_expected_response_length_fc23_and_fc43() -> None:
     with pytest.raises(ProtocolFrameError) as exc_info:
         codec.expected_response_length(fc43)
     assert "增量收包" in exc_info.value.args[0]
+
+
+def test_expected_response_length_extended_functions() -> None:
+    """扩展功能码响应长度预算:FC08/11 定长、FC20 按记录长、FC21 回显、FC12 抛错。"""
+    assert codec.expected_response_length(codec.build_diagnostics_pdu(0x000C)) == 5
+    assert codec.expected_response_length(codec.build_get_comm_event_counter_pdu()) == 5
+    request = codec.build_read_file_record_pdu([(4, 1, 2), (3, 9, 2)])
+    assert codec.expected_response_length(request) == 2 + (2 + 4) + (2 + 4)
+    write = codec.build_write_file_record_pdu([(4, 1, [1, 2])])
+    assert codec.expected_response_length(write) == len(write)
+    with pytest.raises(ProtocolFrameError):
+        codec.expected_response_length(codec.build_get_comm_event_log_pdu())
+
+
+def test_fc20_response_length_and_fields() -> None:
+    """FC20 请求字节向量(规范 §6.14 双组示例)与响应解析边界。"""
+    request = codec.build_read_file_record_pdu([(4, 1, 2), (3, 9, 2)])
+    assert request == bytes.fromhex("140e" "06000400010002" "06000300090002")
+    response = bytes.fromhex(
+        "140c" "0506" "0dfe0020" "0506" "33cd0040"
+    )
+    assert codec.parse_read_file_record_response(response, [(4, 1, 2), (3, 9, 2)]) == [
+        [0x0DFE, 0x0020],
+        [0x33CD, 0x0040],
+    ]
+    with pytest.raises(ProtocolFrameError):
+        codec.parse_read_file_record_response(response[:-1], [(4, 1, 2), (3, 9, 2)])

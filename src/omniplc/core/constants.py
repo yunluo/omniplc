@@ -113,6 +113,28 @@ MODBUS_MAX_RW_WRITE_REGISTERS: int = 121
 """FC23 单次写入的寄存器数量上限(规范 6.17:0x0001~0x0079)。"""
 MODBUS_COMMAND_READ_DEVICE_ID: int = 0x2B
 """读设备标识命令(FC43,MEI 隧道)。"""
+MODBUS_COMMAND_DIAGNOSTICS: int = 0x08
+"""诊断命令(FC08,子功能 + 2 字节数据;子功能 0x000A 清计数器、0x000B~0x000E 读计数)。"""
+MODBUS_DIAGNOSTICS_PDU_SIZE: int = 5
+"""FC08 请求/响应 PDU 长度:功能码(1) + 子功能(2) + 数据(2)。"""
+MODBUS_COMMAND_GET_COMM_EVENT_COUNTER: int = 0x0B
+"""取通信事件计数器命令(FC11)。"""
+MODBUS_EVENT_COUNTER_PDU_SIZE: int = 5
+"""FC11 响应 PDU 长度:功能码(1) + 状态(2) + 事件计数(2)。"""
+MODBUS_COMMAND_GET_COMM_EVENT_LOG: int = 0x0C
+"""取通信事件日志命令(FC12;响应长度随事件字节数变化,RTU 走增量收包)。"""
+MODBUS_COMMAND_READ_FILE_RECORD: int = 0x14
+"""读文件记录命令(FC20)。"""
+MODBUS_COMMAND_WRITE_FILE_RECORD: int = 0x15
+"""写文件记录命令(FC21)。"""
+MODBUS_FILE_REFERENCE_TYPE: int = 0x06
+"""文件记录子请求的引用类型(规范固定 0x06)。"""
+MODBUS_MAX_READ_FILE_BYTES: int = 0xF5
+"""FC20 请求 byte count 上限(规范 0xF5,子请求每条占 7 字节)。"""
+MODBUS_MAX_WRITE_FILE_BYTES: int = 0xFB
+"""FC21 请求 data length 上限(规范 0xFB)。"""
+MODBUS_MAX_FILE_RECORDS: int = 35
+"""FC20 单次子请求条数上限(= 0xF5 // 7)。"""
 MODBUS_MEI_TYPE_DEVICE_ID: int = 0x0E
 """MEI 类型:设备标识接口(FC43 子码 0x0E)。"""
 MODBUS_DEVICE_ID_CODE_BASIC: int = 0x01

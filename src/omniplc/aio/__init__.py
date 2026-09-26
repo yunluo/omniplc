@@ -556,6 +556,37 @@ class AModbusBaseClient(ABaseClient):
         sync = self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
         return await self._run(lambda: sync.read_device_object(object_id))
 
+    async def diagnostics(
+        self, sub_function: int, data: int = 0x0000
+    ) -> Tuple[bool, Optional[int]]:
+        """诊断(FC08,语义同同步版)。"""
+        sync = self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
+        return await self._run(lambda: sync.diagnostics(sub_function, data))
+
+    async def get_comm_event_counter(self) -> Tuple[bool, Optional[int]]:
+        """取通信事件计数器(FC11,语义同同步版)。"""
+        sync = self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
+        return await self._run(sync.get_comm_event_counter)
+
+    async def get_comm_event_log(self) -> Tuple[bool, Optional[Dict[str, object]]]:
+        """取通信事件日志(FC12,语义同同步版)。"""
+        sync = self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
+        return await self._run(sync.get_comm_event_log)
+
+    async def read_file_record(
+        self, requests: Sequence[Tuple[int, int, int]]
+    ) -> Tuple[bool, Optional[List[List[int]]]]:
+        """读文件记录(FC20,语义同同步版)。"""
+        sync = self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
+        return await self._run(lambda: sync.read_file_record(requests))
+
+    async def write_file_record(
+        self, records: Sequence[Tuple[int, int, Sequence[int]]]
+    ) -> bool:
+        """写文件记录(FC21,语义同同步版)。"""
+        sync = self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
+        return await self._run(lambda: sync.write_file_record(records))
+
     @property
     def _modbus(self) -> ModbusBaseClient:
         """取 Modbus 同步实例(内部属性)。"""

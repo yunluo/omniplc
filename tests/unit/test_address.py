@@ -44,11 +44,31 @@ class TestModiconSyntax:
         assert parse_address("40001").offset == 0
         assert parse_address("40100").offset == 99
 
+    def test_extended_six_digit(self) -> None:
+        assert parse_address("000001").area is ModbusArea.COIL
+        assert parse_address("000001").offset == 0
+        assert parse_address("065536").area is ModbusArea.COIL
+        assert parse_address("065536").offset == 65535
+        assert parse_address("100001").area is ModbusArea.DISCRETE_INPUT
+        assert parse_address("100001").offset == 0
+        assert parse_address("165536").area is ModbusArea.DISCRETE_INPUT
+        assert parse_address("300001").area is ModbusArea.INPUT_REGISTER
+        assert parse_address("400001").area is ModbusArea.HOLDING_REGISTER
+        assert parse_address("400001").offset == 0
+        assert parse_address("465536").offset == 65535
+        # 6 位与 5 位不混淆:40001=5 位保持寄存器;040001=6 位线圈
+        assert parse_address("40001").area is ModbusArea.HOLDING_REGISTER
+        assert parse_address("040001").area is ModbusArea.COIL
+
     def test_out_of_range(self) -> None:
         with pytest.raises(ValueError):
             parse_address("50001")
         with pytest.raises(ValueError):
             parse_address("20001")  # 2xxxx 区段不存在
+        with pytest.raises(ValueError):
+            parse_address("065537")  # 6 位线圈上限 065536
+        with pytest.raises(ValueError):
+            parse_address("500001")  # 6 位 5xxxxx 区段不存在
 
 
 class TestErrors:

@@ -50,7 +50,7 @@ from ..core.constants import (
     UINT64_MAX,
 )
 from ..core.debug import format_hex
-from ..core.errors import ProtocolFrameError
+from ..core.errors import DeviceError, ProtocolFrameError
 from ..core.validation import (
     check_int16,
     check_uint16,
@@ -699,6 +699,104 @@ class ModbusBaseClient(BaseClient):
             lambda: self._read_device_object_once(int(object_id))
         )
 
+    def diagnostics(self, sub_function: int, data: int = 0x0000) -> Tuple[bool, Optional[int]]:
+        """诊断(FC08,规范 §6.8):返回设备回显的 2 字节数据域。
+
+        常用子功能:``0x0000`` 回显查询、``0x000A`` 清计数器与诊断寄存器、
+        ``0x000B`` 总线报文计数、``0x000C`` 总线通信错误计数、``0x000D`` 总线
+        异常错误计数、``0x000E`` 从站报文计数。远程设备可能以异常码 01 表示
+        不支持 FC08。
+
+        :param sub_function: 子功能码(0~65535)
+        :param data: 数据域(0~65535);仅"回显/清计数器"等子功能使用
+        :return: ``(是否成功, 2 字节数据值)``;失败为 ``(False, None)``
+        """
+        self._reject_broadcast_read()
+
+        def operation() -> int:
+            pdu = codec.build_diagnostics_pdu(int(sub_function), int(data))
+            return codec.parse_diagnostics_response(
+                self._transact(pdu), int(sub_function)
+            )
+
+        return self._execute(operation)
+
+    def get_comm_event_counter(self) -> Tuple[bool, Optional[int]]:
+        """取通信事件计数器(FC11,规范 §6.11):返回事件计数。
+
+        状态字非 0(0xFFFF=设备忙)抛 :class:`DeviceError`(设备侧条件,不断线)。
+        """
+        self._reject_broadcast_read()
+
+        def operation() -> int:
+            pdu = codec.build_get_comm_event_counter_pdu()
+            status, count = codec.parse_comm_event_counter_pdu(self._transact(pdu))
+            if status != 0:
+                raise DeviceError(
+                    "FC11 状态字非就绪:0x{:04X}".format(status), int(status)
+                )
+            return count
+
+        return self._execute(operation)
+
+    def get_comm_event_log(self) -> Tuple[bool, Optional[Dict[str, object]]]:
+        """取通信事件日志(FC12,规范 §6.12)。
+
+        :return: ``(是否成功, {status, event_count, message_count, events})``;
+            ``events`` 为原始事件字节(bytes)
+        """
+        self._reject_broadcast_read()
+
+        def operation() -> Dict[str, object]:
+            pdu = codec.build_get_comm_event_log_pdu()
+            return codec.parse_comm_event_log_pdu(self._transact(pdu))
+
+        return self._execute(operation)
+
+    def read_file_record(
+        self, requests: Sequence[Tuple[int, int, int]]
+    ) -> Tuple[bool, Optional[List[List[int]]]]:
+        """读文件记录(FC20,规范 §6.14)。
+
+        :param requests: ``(文件号, 起始记录号, 记录长度[寄存器数])`` 序列
+            (文件号 1~65535、记录号 0~9999、记录长度 ≥1;子请求 ≤35)
+        :return: ``(是否成功, [[寄存器值...], ...])``,与 requests 顺序对应;
+            失败为 ``(False, None)``
+        :raises ValueError: 入参非法
+        """
+        trimmed = [
+            (int(file), int(record), int(length)) for file, record, length in requests
+        ]
+        self._reject_broadcast_read()
+
+        def operation() -> List[List[int]]:
+            pdu = codec.build_read_file_record_pdu(trimmed)
+            return codec.parse_read_file_record_response(self._transact(pdu), trimmed)
+
+        return self._execute(operation)
+
+    def write_file_record(
+        self, records: Sequence[Tuple[int, int, Sequence[int]]]
+    ) -> bool:
+        """写文件记录(FC21,规范 §6.15);正常响应须为请求回显。
+
+        :param records: ``(文件号, 起始记录号, 寄存器值序列[0~65535])`` 序列
+        :return: 是否成功
+        :raises ValueError: 入参非法
+        """
+        trimmed = [
+            (int(file), int(record), [int(value) for value in values])
+            for file, record, values in records
+        ]
+        self._reject_broadcast_read()
+
+        def operation() -> None:
+            pdu = codec.build_write_file_record_pdu(trimmed)
+            codec.parse_write_file_record_response(self._transact(pdu), pdu)
+
+        ok, _ = self._execute(operation)
+        return ok
+
     def _read_device_id_pages(self, code: int) -> Dict[str, str]:
         """按流式读取码循环翻页,合并所有页的对象(内部方法,仅事务锁内)。
 
@@ -895,6 +993,10 @@ class ModbusRtuClient(ModbusBaseClient):
             frame = head + transport.recv(3)
         elif pdu[0] == codec.ModbusFunction.READ_DEVICE_IDENTIFICATION:
             frame = head + _recv_device_id_tail(transport)
+        elif pdu[0] == codec.ModbusFunction.GET_COMM_EVENT_LOG:
+            # FC12 响应长度随事件字节数变化:先读 byte count 再收其余(含 CRC)
+            byte_count = transport.recv(1)
+            frame = head + byte_count + transport.recv(byte_count[0] + 2)
         else:
             frame = head + transport.recv(codec.expected_response_length(pdu) + 1)
         received_station, response_pdu = codec.parse_rtu_frame(frame)

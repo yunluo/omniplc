@@ -22,12 +22,17 @@ _SYNC_BASE_PENDING = {"read_many", "write_many"}
 """同步基类里**尚未**进入原生首批的公开面(批量读写,后续批次对齐)。"""
 
 _MODBUS_PENDING = {
+    "diagnostics",
+    "get_comm_event_counter",
+    "get_comm_event_log",
     "read_batch",
     "read_device_id",
     "read_device_object",
+    "read_file_record",
     "read_many",
     "read_write_registers",
     "write_batch",
+    "write_file_record",
     "write_many",
     "write_mask_register",
 }

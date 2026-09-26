@@ -109,6 +109,15 @@ ok, info = client.read_device_id()
 print(info["vendor_name"], info["product_code"], info["major_minor_revision"])
 ok, raw = client.read_device_object(0x02)   # 单个对象(个体访问),返回原始字节
 
+# 诊断/事件(FC08/11/12):0x000C 读总线通信错误计数;事件计数/日志
+ok, errors = client.diagnostics(0x000C)             # 返回 2 字节数据域
+ok, count = client.get_comm_event_counter()         # FC11
+ok, log = client.get_comm_event_log()               # FC12:状态/事件/报文计数 + events
+
+# 文件记录(FC20/21):驱动器参数库等;子请求 (文件号, 起始记录号, 记录长/值)
+ok, records = client.read_file_record([(4, 1, 2), (3, 9, 2)])
+ok = client.write_file_record([(4, 1, [0x0001, 0x0002])])
+
 # Modbus RTU(串口)
 from omniplc import ModbusRtuClient
 rtu = ModbusRtuClient(station=1)
@@ -541,6 +550,7 @@ dump(client.stats)   # 键名拼错、字段用错类型在 mypy/pyright 阶段�
 | MTConnect        | MTConnect Agent  | 标准库 HTTP/XML,需 CNC 端 Agent     |
 | MX Component     | 三菱 MX            | 读写/批量/CPU 型号/时钟已真机核证;get_error_message(ActSupportMsg)待核证 |
 | Modbus FC22/23/43·14 | Modbus TCP/RTU | FC22 掩码写、FC23 读写多寄存器、FC43·14 设备标识均需设备支持,待真机核证 |
+| Modbus FC08/11/12/20/21 | Modbus TCP/RTU | 诊断/事件计数·日志/文件记录(FC20/21)按规范实现,设备支持情况待真机核证 |
 
 实际真机联测通过项的核验记录见 [`docs/real-machine-checklist.md`](docs/real-machine-checklist.md)(按厂商/协议/读写独立勾选)。
 
@@ -550,7 +560,7 @@ dump(client.stats)   # 键名拼错、字段用错类型在 mypy/pyright 阶段�
 
 | 协议                                     | TCP                                                   | UDP     | RTU(串口)            | MX Component     |
 |----------------------------------------|-------------------------------------------------------|---------|--------------------|------------------|
-| Modbus(含 FC22 掩码写 / FC23 读写多寄存器 / FC43·14 设备标识) | ✅                                                     | —       | ✅(广播写)             | —                |
+| Modbus(含 FC08 诊断 / FC11·12 事件 / FC22 掩码写 / FC23 读写多寄存器 / FC20·21 文件记录 / FC43·14 设备标识) | ✅                                                     | —       | ✅(广播写)             | —                |
 | 三菱 MC 3E/4E/1E                         | ✅                                                     | ✅       | ✅(1C/3C/4C 串口帧)     | ✅(Windows + COM) |
 | 欧姆龙 FINS                               | ✅                                                     | ✅       | v1.x(Host Link)    | —                |
 | 欧姆龙 CIP / 连接型 CIP(NJ/NX)               | ✅(44818,unconnected/connected)                        | —       | —                  | —                |

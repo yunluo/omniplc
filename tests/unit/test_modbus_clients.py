@@ -1453,3 +1453,98 @@ def test_tcp_write_bool_int_values_reach_wire(
         client.connect()
         assert client.write_bool("c0", value) is True
         assert bytes(scripted.sent)[-2:] == expected_value_field
+
+
+# ----------------------------------------------------------------------
+# 扩展功能码:FC08 诊断 / FC11 事件计数 / FC12 事件日志 / FC20·21 文件记录
+# ----------------------------------------------------------------------
+
+
+def _mount(
+    client: ModbusTcpClient, monkeypatch: pytest.MonkeyPatch, responses: list
+) -> _ScriptedTransport:
+    """挂脚本传输(每个响应按 7 字节 MBAP 头切分,测试脚手架)。"""
+    chunks = []
+    for response in responses:
+        chunks.extend([response[:7], response[7:]])
+    scripted = _ScriptedTransport(chunks)
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    return scripted
+
+
+def test_tcp_diagnostics_fc08(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC08 诊断:回显子功能,返回 2 字节数据(如通信错误计数)。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    scripted = _mount(
+        client, monkeypatch, [_mbap_response(1, 1, bytes([0x08, 0x00, 0x0C, 0x00, 0x2A]))]
+    )
+    client.connect()
+    assert client.diagnostics(0x000C) == (True, 42)
+    assert bytes(scripted.sent) == codec.build_mbap(
+        1, 1, codec.build_diagnostics_pdu(0x000C)
+    )
+
+
+def test_tcp_get_comm_event_counter_fc11(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC11:状态 0 + 事件计数。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    _mount(client, monkeypatch, [_mbap_response(1, 1, bytes([0x0B, 0x00, 0x00, 0x00, 0x07]))])
+    client.connect()
+    assert client.get_comm_event_counter() == (True, 7)
+
+
+def test_tcp_get_comm_event_log_fc12(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC12:状态/事件计数/报文计数/事件字节。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    pdu = bytes([0x0C, 0x08, 0x00, 0x00, 0x00, 0x03, 0x00, 0x05, 0x00, 0x01])
+    _mount(client, monkeypatch, [_mbap_response(1, 1, pdu)])
+    client.connect()
+    assert client.get_comm_event_log() == (
+        True,
+        {"status": 0, "event_count": 3, "message_count": 5, "events": b"\x00\x01"},
+    )
+
+
+def test_tcp_read_file_record_fc20(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC20:规范 §6.14 双组读示例,逐组返回寄存器。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    request = codec.build_read_file_record_pdu([(4, 1, 2), (3, 9, 2)])
+    response_pdu = bytes(
+        [0x14, 0x0C, 0x05, 0x06, 0x0D, 0xFE, 0x00, 0x20, 0x05, 0x06, 0x33, 0xCD, 0x00, 0x40]
+    )
+    scripted = _mount(client, monkeypatch, [_mbap_response(1, 1, response_pdu)])
+    client.connect()
+    assert client.read_file_record([(4, 1, 2), (3, 9, 2)]) == (
+        True,
+        [[0x0DFE, 0x0020], [0x33CD, 0x0040]],
+    )
+    assert bytes(scripted.sent) == codec.build_mbap(1, 1, request)
+
+
+def test_tcp_write_file_record_fc21_echo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC21:正常响应为请求回显 → 成功。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    request = codec.build_write_file_record_pdu([(4, 1, [1, 2])])
+    _mount(client, monkeypatch, [_mbap_response(1, 1, request)])
+    client.connect()
+    assert client.write_file_record([(4, 1, [1, 2])]) is True
+
+
+def test_tcp_write_file_record_fc21_bad_echo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC21:响应非请求回显 → 坏帧失败(False)。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    request = codec.build_write_file_record_pdu([(4, 1, [1])])
+    bad = bytes([0x15]) + b"\x00" * (len(request) - 1)
+    _mount(client, monkeypatch, [_mbap_response(1, 1, bad)])
+    client.connect()
+    assert client.write_file_record([(4, 1, [1])]) is False
+
+
+def test_file_record_field_validation() -> None:
+    """FC20/21 字段范围校验:文件号 0/记录号越界/记录长度 0 拒绝。"""
+    with pytest.raises(ValueError):
+        codec.build_read_file_record_pdu([(0, 1, 1)])  # 文件号 0 非法
+    with pytest.raises(ValueError):
+        codec.build_read_file_record_pdu([(1, 0x2710, 1)])  # 记录号 >9999
+    with pytest.raises(ValueError):
+        codec.build_write_file_record_pdu([(1, 1, [])])  # 空记录
