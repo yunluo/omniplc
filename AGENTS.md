@@ -76,12 +76,8 @@ uvx --python 3.12 mypy src/omniplc
 uvx ty check src/omniplc
 ```
 
-## 代理工具链(本机专属,换机无效)
+## 协作纪律
 
-- **文件变更通知**:每次修改仓库文件后向本地 NATS(`0.0.0.0:4222`)发一条——
-  `python C:\Users\yuki\.zcode\notify\nats_notify.py <file> <action> <note>`
-  (主题 `omniplc.file.changed`,stdlib socket 实现,`--ping` 探连通)。
-  服务未启动时发送失败不无限重试,汇报即可。
 - **全中文**:交流、注释、docstring、commit 消息、文档一律中文。
 - **参考实现双向裁决**:用户会给本地参考库 / PyPI 钉版(asyncua==1.1.5、pyads 3.5.1、
   python-snap7 按解释器分版本等);对照是双向的——修自己库的错,**也明确指出参考库的错**
