@@ -57,6 +57,7 @@ v1 评审稿逐条对源码复核后形成本版:
 - **三轮复审 P0(2026-09-27)**:MC 定时器/计数器设备码修正——`MC_DEVICE_CODES` `TC 0xC2→0xC0 / TN 0xC3→0xC2 / CC 0xC5→0xC3 / CN 0xC6→0xC5`(依 SH080008 §8.1;原连续 C1..C6 排列致 3E/4E/4C 下 `TN`/`CN` 静默错区),`MC_1E_DEVICE_CODES["S"]` `0x5320→0x4D20`(1E `M/L/S` 同码);新增手册门禁 2 条。门禁 1196 → **1198**。
 - **三轮复审 文档/引用纪律(2026-09-27)**:协议实现 × 文档要求审计并补足——MC 依据 `SH-080956`→`SH-080008`(`codec_qna.py:3`、`melsec.py:64`、`architecture.md:539/931/952`);FINS 依据 `W340`→`W342`(`omron/codec.py:3`、`core/constants.py`、`architecture.md` 5 处);`keyence/mc.py` `SH081257ENG`→SLMP `SH-080956`+待核;Pro-face 端口来源标第三方待核;**10 个文件补页码级引用**(地址解析 4 个 + S7/OPC-UA/MTConnect/SR/CIP/AB 封装);`CONTRIBUTING.md` 铁律补两条硬约束 + PR 列出依据手册编号+页码,CI 矩阵措辞订正。
 - **三轮复审 MX 专项(2026-09-27)**:①P1 `MX_SUPPORT_MSG_PROG_ID` `"ActUtlType.ActSupportMsg"`→`"ActSupportMsg.ActSupportMsg"`(手册 §1.2.1);②P2 `_new_support_msg_com` 创建失败翻译为 `OmniPLCInternalError`(公共 API 收口);③P3 `MX_BIT_DEVICES` 去 `"ST"`、非 BOOL 位号/位软元件访问入参期拒绝(`_reject_non_bool_access`)、`write_batch` 位值限 0/1、`MX_MAX_BLOCK_WORDS` 注明驱动自定。新增门禁 7 条。当前全量门禁 **1212 passed**。
+- **三轮复审 三菱 MC 专项(2026-09-27)**:①`MC_DEVICE_CODES["ZR"]` base 10→**16**、`MC_1E_DEVICE_CODES["X"/"Y"]` base 8→**16**(依 SH-080008 §8.1/§18.4);②MC `_read_string`/`_write_string` 拒绝 `.bit`;③常量注释订正(4E 响应 `D400`、1E 点数上限)。新增门禁 2 条。当前全量门禁 **1214 passed**。
 - **二轮复审 MX 控件释放(2026-09-27)**:`MxComponent.get_error_message` 的 ActSupportMsg 控件改**配对释放**——创建点与 `_com_get_error_message` 双 `finally` 置空引用,成功/失败路径都即时回收 STA 代理(异常路径此前由 traceback 帧把引用扣到 GC);byref 回退路径移出探测异常处理块,探测期 TypeError 不再作为 `__context__` 挂链;控件维持**每次新建**(刻意的:STA 控件绑定创建线程,缓存跨线程复用不可用)。回归 `test_mx_clients.py::test_com_get_error_message_releases_reference_on_error`(旧实现实测 FAILED)+ `test_get_error_message_releases_support_msg_control`。门禁 1198 → **1200**。
 - **二轮复审 Modbus FC17(2026-09-27)**:新增 **FC17 `report_server_id`**(报告从站 ID,规范 §6.13、印刷页 31,依 PyMuPDF 抽取手册文本核对)——codec 构造/解析(长度域与实收严格一致、下限 2 = 从站 ID + 运行指示)、客户端 + aio 镜像、**RTU 按 byte count 增量收包**并随 FC12/FC24 同口径按 `MODBUS_RTU_MAX_ADU_SIZE=256` 封顶;`expected_response_length` 对 FC17 显式抛错(长度随附加数据变化);原生层维持 pending(与 FC07 同)。回归 5 例(codec 1 + 客户端/RTU/aio 4);README 示例与待真机表、全协议矩阵同步。同批订正 README ADS 行残留的旧错误码集描述(0x705/0x706/0x725 → TE1000 §8 码集)。门禁 1200 → **1205**。
 
@@ -223,7 +224,7 @@ PyMuPDF 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、门�
 | 协议 / 驱动 | 状态 | 结论摘要 |
 |---|---|---|
 | 三菱 MX Component | ✅ 已完成 | P1 ProgID(`ActSupportMsg.ActSupportMsg`)、P2 控件创建兜底、P3 位软元件字访问口径统一——见下「MX 专项」 |
-| 三菱 MC 以太网(3E/4E/1E) | ⏳ 待查 | 三轮已修 P0(设备码 `TC/TN/CC/CN`、1E `S`) |
+| 三菱 MC 以太网(3E/4E/1E) | ✅ 已完成 | P0 设备码(三轮)+ ZR/1E X·Y 进制、字符串位号(本批)全修;见下「三菱 MC 专项」 |
 | 三菱 MC 串口(1C/3C/4C) | ⏳ 待查 | — |
 | 欧姆龙 FINS | ⏳ 待查 | — |
 | 欧姆龙 NJ/NX CIP | ⏳ 待查 | — |
@@ -243,6 +244,16 @@ PyMuPDF 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、门�
 - **P1 `MX_SUPPORT_MSG_PROG_ID` 与手册不符** — `core/constants.py` 现值 `"ActUtlType.ActSupportMsg"`;手册 §1.2.1 控件一览为 `ActSupportMsg.dll → ActSupportMsg`(`ActMLSupportMsg` 为 ML 变体),ProgID 应 **`"ActSupportMsg.ActSupportMsg"`**。现值下 `get_error_message()` 的 `CreateObject` 必失败。**已修复(2026-09-27)**:改值 + 引用手册;门禁 `test_support_msg_progid_matches_manual`。
 - **P2 `get_error_message` 创建失败未翻译** — `_new_support_msg_com` 的 `CreateObject` 无兜底,失败异常逃出公开 API。**已修复(2026-09-27)**:创建失败翻译为 `OmniPLCInternalError`(公共 API 收口 `(False, None)`);门禁 `test_support_msg_create_failure_translated`、`test_get_error_message_creation_failure_returns_false`。
 - **P3 — 已修复(2026-09-27)**:`MX_BIT_DEVICES` 去掉手册外记号 `"ST"`(保留 `STS`/`STC`);新增 `_reject_non_bool_access`——非 BOOL 的位号后缀/位软元件访问在 `_read`/`_write`/`read_batch` 入参期拒绝(统一 GetDevice 位语义与块读 16 点/字口径,与 MC `read_batch` 一致);`write_batch` 对位软元件的整数值限 0/1;`MX_MAX_BLOCK_WORDS` 注明为驱动自定(手册 `lSize` 上限远大于此)。门禁 `test_bit_device_table_excludes_invalid_st`、`test_bit_device_rejects_non_bool`、`test_word_device_bit_suffix_rejects_non_bool`、`test_write_batch_bit_device_value_must_be_0_or_1`。
+
+### 三菱 MC 专项(1E/3E/4E,2026-09-27;SH-080008 手册文本核对)
+
+核对通过:3E/4E 副头部(请求 `50 00`/`54 00`、响应 `D0 00`/`D4 00`)、访问路由与请求数据长定义、4E 序列号+保留字段、核心命令线上字节序(`01 04`/`01 14`/`06 04`)、子命令 `0000`/`0001`、软元件码表(§8.1 除 ZR 外全部相符)、0406 位块 1 点=16 位且首软元件在 bit15、120 块上限、1E 副头部 `00/01/02/03` 与响应 `+0x80`、结束码 1 字节、位半字节高位在前。
+
+- **P1 `ZR` 进制错** — `MC_DEVICE_CODES["ZR"]` base 10;手册 §8.1 `ZR … Hexadecimal`(码 B0H 正确)。`ZR100` 实际访问 ZR64、`ZR1F` 抛错。**已修复(2026-09-27)**:base 16;门禁 `test_mc_device_radix_matches_manual`。
+- **P1 MC 字符串读写忽略 `.bit`** — `_read_string`/`_write_string` 不校验 `parsed.bit`,`read_string("D100.3")` 静默读 D100。**已修复(2026-09-27)**:两处拒绝位号后缀;门禁 `test_string_rejects_bit_suffix`。
+- **P2 1E `X/Y` 进制错** — `MC_1E_DEVICE_CODES["X"/"Y"]` base 8;手册 §18.4 `X=5820H/Y=5920H … **Hexadecimal**`。**已修复(2026-09-27)**:base 16(原「待核」据手册落定)。
+- **P3 文档/一致性(已订正)**:`MC_RESPONSE_SUBHEADER_3E` 注释误称「4E 写响应 = D0」(手册 4E 响应固定 `D400`,读/写同);`MC_1E_MAX_POINTS` 注释「高字节恒 0」不准(手册位单位/字设备上限 256,点数域 2 字节小端——本库保守取 255)。
+- **P3 待办(能力缺口,未实现)**:1E 表缺手册支持的 `F/B/W/T/C(TN·TS·TC/CN·CS·CC)`;1E 字单位访问**位软元件**时手册要求首编号为 16 的倍数,本库未前置校验;1E 设备编号域为 4 字节(本库按 2 字节 + 保留 2 字节等价实现,>0xFFFF 不支持)。
 
 ---
 

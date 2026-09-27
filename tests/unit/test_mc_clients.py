@@ -466,3 +466,14 @@ def test_tcp_3e_read_batch_noncontiguous_bits_not_merged(
     assert bytes(scripted.sent) == codec_qna.build_random_read(
         "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, [], [(0x90, 0, 1), (0x90, 2, 1)]
     )
+
+
+def test_string_rejects_bit_suffix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """MC 字符串读写拒绝字软元件位号后缀(与 MX/Modbus 一致,不静默读整字)。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    _mount(monkeypatch, client, ScriptedTransport([]))
+    client.connect()
+    with pytest.raises(ValueError):
+        client.read_string("D100.3", 4)
+    with pytest.raises(ValueError):
+        client.write_string("D100.3", "AB")

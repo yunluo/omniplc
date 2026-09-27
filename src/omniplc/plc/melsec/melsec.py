@@ -202,6 +202,8 @@ class _MelsecMcBase(BaseClient):
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """从字软元件读字符串:逐字小端拼字节后解码(MC 字序约定)。"""
         parsed = parse_mc_address(address)
+        if parsed.bit is not None:
+            raise ValueError(f"字符串地址不支持位号后缀:{address!r}")
         words = self._read_words(parsed, (length + 1) // 2)
         data = b"".join(word.to_bytes(2, "little") for word in words)[:length]
         return convert.decode_string(data, encoding)
@@ -209,6 +211,8 @@ class _MelsecMcBase(BaseClient):
     def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
         """向字软元件写字符串:编码 → 补齐偶数字节 → 逐字小端。"""
         parsed = parse_mc_address(address)
+        if parsed.bit is not None:
+            raise ValueError(f"字符串地址不支持位号后缀:{address!r}")
         raw = convert.encode_string(value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding)
         words = [int.from_bytes(raw[i:i + 2], "little") for i in range(0, len(raw), 2)]
         self._write_words(parsed, words)

@@ -142,14 +142,28 @@ def test_golden_error_response(stem: str, frame: str, code: int) -> None:
 
 
 def test_device_number_radix() -> None:
-    """软元件编号进制:3E 的 X 按十六进制、1E 的 X 按八进制换算。"""
+    """软元件编号进制:3E/1E 的 X 均按十六进制换算(SH-080008 §8.1)。"""
     assert codec_qna.device_number("X", "1F", 16) == 31
     assert codec_a.device_info("D")[0] == 0x4420
-    assert codec_a.device_number("X", "17", 8) == 15
+    assert codec_a.device_number("X", "1F", 16) == 31
     with pytest.raises(ValueError):
         codec_qna.device_number("D", "1F", 10)
     with pytest.raises(ValueError):
         codec_qna.device_info("XR")
+
+
+def test_mc_device_radix_matches_manual() -> None:
+    """MC 软元件进制按 SH-080008 §8.1:ZR/1E X/Y 为十六进制,其余十进制。"""
+    from omniplc.core.constants import MC_1E_DEVICE_CODES, MC_DEVICE_CODES
+
+    assert MC_DEVICE_CODES["ZR"][2] == 16
+    assert MC_DEVICE_CODES["ZR"][0] == 0xB0
+    # 抽查其余进制不变
+    assert MC_DEVICE_CODES["D"][2] == 10
+    assert MC_DEVICE_CODES["W"][2] == 16
+    assert MC_1E_DEVICE_CODES["X"][2] == 16
+    assert MC_1E_DEVICE_CODES["Y"][2] == 16
+    assert MC_1E_DEVICE_CODES["D"][2] == 10
 
 
 def test_build_random_read_golden() -> None:
