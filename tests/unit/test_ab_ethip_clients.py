@@ -800,12 +800,19 @@ def _identity_list_reply(vendor: int = 0x0001, product_code: int = 0x1234,
                          serial: int = 0x00C0FFEE,
                          name: bytes = b"1769-L23",
                          state: int = 0xFF) -> bytes:
-    """构造 ENIP ListIdentity 完整应答帧(供客户端测试 list_identity 用)。"""
-    body = struct.pack(
+    """构造 ENIP ListIdentity 完整应答帧(供客户端测试 list_identity 用)。
+
+    CPF 标准布局:Item Count(2)+ Item(Type 0x000C + Length + 数据);
+    Item 数据 = 封装协议版本(2)+ Socket Address(16)+ Identity Object。
+    """
+    identity = struct.pack(
         "<HHHBBH",
         vendor, 0x000E, product_code, rev_major, rev_minor, 0x0001
     ) + struct.pack("<I", serial) + bytes((len(name),)) + name + bytes((state,))
-    payload = b"\x00\x00" + body  # 2 字节兼容前缀
+    socket_addr = struct.pack("<HH4s8s", 0, 0, b"\x0a\x00\x00\x01", b"\x00" * 8)
+    item_data = struct.pack("<H", 1) + socket_addr + identity  # 版本 1 + sock + identity
+    item = struct.pack("<HH", codec_cip.CIP_ITEM_LIST_IDENTITY, len(item_data)) + item_data
+    payload = struct.pack("<H", 1) + item  # Item Count = 1
     header = struct.pack(
         "<HHIIQI", codec_cip.EIP_COMMAND_LIST_IDENTITY, len(payload), _SESSION, 0, 0, 0
     )

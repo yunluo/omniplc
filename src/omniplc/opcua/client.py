@@ -430,8 +430,12 @@ class OpcUaClient(BaseClient):
 
     @property
     def active_subscriptions(self) -> Dict[int, OpcUaSubscription]:
-        """活跃订阅快照(``subscription_id`` → :class:`OpcUaSubscription`)。只读。"""
-        with self._lock:
+        """活跃订阅快照(``subscription_id`` → :class:`OpcUaSubscription`)。只读。
+
+        取独立状态锁而非事务锁(与错误三件套同口径):纯字典拷贝不涉 I/O,
+        事务在途时读取不再冻结事件循环(回归:aio 转发曾持事务锁)。
+        """
+        with self._state_lock:
             return dict(self._active_subscriptions)
 
     def disconnect(self) -> bool:
@@ -441,13 +445,16 @@ class OpcUaClient(BaseClient):
         与 Subscription 立即释放;句柄 mark 为 unsub_done,后续再调
         ``unsubscribe()`` 静默返回 False。
         """
-        with self._lock:
-            for handle in list(self._active_subscriptions.values()):
-                try:
-                    handle.unsubscribe()
-                except Exception:
-                    pass
+        # 订阅索引取状态锁;unsubscribe() 自带 _unsub_lock,ua_sub.delete()
+        # 的 I/O 不持状态锁执行(短临界区纪律,不与事务锁嵌套)
+        with self._state_lock:
+            handles = list(self._active_subscriptions.values())
             self._active_subscriptions.clear()
+        for handle in handles:
+            try:
+                handle.unsubscribe()
+            except Exception:
+                pass
         return super().disconnect()
 
     # ------------------------------------------------------------------
@@ -705,8 +712,8 @@ class OpcUaClient(BaseClient):
                     ua_sub.delete()  # 删除订阅即取消其全部 monitored item
                 except Exception:
                     ok = False
-                # 从 client 索引中移除
-                with self._lock:
+                # 从 client 索引中移除(状态锁,与快照/增补同口径)
+                with self._state_lock:
                     self._active_subscriptions.pop(sub_id, None)
                 return ok
 
@@ -717,7 +724,7 @@ class OpcUaClient(BaseClient):
                 _asyncua_subscription=ua_sub,
                 _monitored_items=monitored,
             )
-            with self._lock:
+            with self._state_lock:
                 self._active_subscriptions[sub_id] = handle
             return handle
 
@@ -788,7 +795,7 @@ class OpcUaClient(BaseClient):
                 _asyncua_subscription=ua_sub,
                 _monitored_items=monitored,
             )
-            with self._lock:
+            with self._state_lock:
                 self._active_subscriptions[sub_id] = handle
             return handle
 
@@ -841,23 +848,28 @@ _OPCUA_INT_RANGES: Dict[DataType, Tuple[int, int, str]] = {
 def _narrow_int(value: int, data_type: DataType) -> int:
     """把服务端整数收窄到声明类型范围(内部函数)。
 
-    :raises ValueError: 超出声明类型范围(与写路径对称)
+    :raises DeviceError: 超出声明类型范围——服务端返回越界属**设备侧
+        条件**(与"节点值为空"同口径,不断线不重试);区别于写路径的
+        ``ValueError``(调用方参数错误)
     """
-    if data_type is DataType.SHORT:
-        return check_range(value, INT16_MIN, INT16_MAX, "short")
-    if data_type is DataType.USHORT:
-        return check_uint16(value)
-    low, high, name = _OPCUA_INT_RANGES[data_type]
-    return check_range(value, low, high, name)
+    try:
+        if data_type is DataType.SHORT:
+            return check_range(value, INT16_MIN, INT16_MAX, "short")
+        if data_type is DataType.USHORT:
+            return check_uint16(value)
+        low, high, name = _OPCUA_INT_RANGES[data_type]
+        return check_range(value, low, high, name)
+    except ValueError as exc:
+        raise DeviceError("OPC-UA 服务端返回值超声明类型范围:{}".format(exc), 0) from exc
 
 
 def _coerce_read(value: Any, data_type: DataType, address: str) -> PrimitiveValue:
     """把服务端返回值收窄为本库基础类型(内部函数)。
 
     :raises ValueError: 返回值类型与目标数据类型不符(调用方参数错误,
-        与 AB 标签"实际类型不符"同口径,直接抛出,不断线),或整数超出
-        声明类型范围(与写路径对称)
-    :raises DeviceError: 节点值为空(设备侧条件,链路正常,不断线不重试)
+        与 AB 标签"实际类型不符"同口径,直接抛出,不断线)
+    :raises DeviceError: 节点值为空,或整数超出声明类型范围(设备侧
+        条件,链路正常,不断线不重试;见 :func:`_narrow_int`)
     """
     if value is None:
         raise DeviceError(f"OPC-UA 节点值为空:{address}", 0)

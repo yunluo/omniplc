@@ -471,13 +471,12 @@ def test_build_get_attribute_list_two_attributes() -> None:
 
 
 def test_parse_list_identity_reply_full_fields() -> None:
-    """ListIdentity ENIP 应答:校验 ENIP 头 + 22 字节 socket 前置 + 7 字段解码。
+    """ListIdentity ENIP 应答:CPF 标准布局解码(Item 头 + 版本 + SocketAddr + 7 字段)。
 
     vendor=0x1234, product_type=0x000E(PLC), product_code=0x5678,
     revision=(30, 11), status=0x0001, serial=0x89ABCDEF,
-    product_name="1769-L23E"(8 字节), state=0xFF。
+    product_name="1769-L23"(8 字节), state=0xFF。
     """
-    socket_prefix = b"\x00\x00"  # 2 字节兼容前缀(部分实现带 interface handle / version)
     identity_body = struct.pack(
         "<HHHBBH",
         0x1234,  # vendor
@@ -486,7 +485,10 @@ def test_parse_list_identity_reply_full_fields() -> None:
         30, 11,  # revision major/minor
         0x0001,  # status
     ) + struct.pack("<I", 0x89ABCDEF) + bytes((8,)) + b"1769-L23" + bytes((0xFF,))
-    payload = socket_prefix + identity_body
+    socket_addr = struct.pack("<HH4s8s", 0, 44818, b"\xc0\xa8\x01\x0a", b"\x00" * 8)
+    item_data = struct.pack("<H", 1) + socket_addr + identity_body  # 封装版本 1
+    item = struct.pack("<HH", codec_cip.CIP_ITEM_LIST_IDENTITY, len(item_data)) + item_data
+    payload = struct.pack("<H", 1) + item  # Item Count = 1
     header = struct.pack(
         "<HHIIQI",
         codec_cip.EIP_COMMAND_LIST_IDENTITY,
@@ -506,6 +508,27 @@ def test_parse_list_identity_reply_full_fields() -> None:
     assert info["serial"] == 0x89ABCDEF
     assert info["product_name"] == "1769-L23"
     assert info["state"] == 0xFF
+    assert info["item_length"] == len(item_data)
+
+
+def test_parse_list_identity_reply_bad_item() -> None:
+    """ListIdentity 应答 Item 计数/类型码非法按坏帧拒绝(不静默错位解码)。"""
+    identity_body = struct.pack("<HHHBBH", 1, 14, 2, 1, 0, 0) + struct.pack("<I", 1) + bytes((0,)) + bytes((0xFF,))
+    item_data = struct.pack("<H", 1) + b"\x00" * 16 + identity_body
+
+    def _frame(item: bytes) -> bytes:
+        payload = struct.pack("<H", 1) + item
+        return struct.pack("<HHIIQI", codec_cip.EIP_COMMAND_LIST_IDENTITY, len(payload), 0, 0, 0, 0) + payload
+
+    bad_count = struct.pack("<HH", codec_cip.CIP_ITEM_LIST_IDENTITY, len(item_data)) + item_data
+    with pytest.raises(ProtocolFrameError):
+        codec_cip.parse_list_identity_reply(_frame(struct.pack("<H", 2) + bad_count))  # Item Count=2
+    bad_type = struct.pack("<HH", 0x0000, len(item_data)) + item_data
+    with pytest.raises(ProtocolFrameError):
+        codec_cip.parse_list_identity_reply(_frame(struct.pack("<H", 1) + bad_type))  # Type ≠ 0x000C
+    truncated = struct.pack("<HH", codec_cip.CIP_ITEM_LIST_IDENTITY, 9999) + item_data
+    with pytest.raises(ProtocolFrameError):
+        codec_cip.parse_list_identity_reply(_frame(struct.pack("<H", 1) + truncated))
 
 
 def test_parse_module_identity_payload() -> None:

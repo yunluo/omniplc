@@ -946,7 +946,7 @@ MBAP 事务号/协议号/站号校验、RTU CRC16(0xA001 反射,低字节在前)
 | 通用自定义 TCP(已实现) | 无外部协议规范——面向现场自定义报文的收发壳;成帧(分隔符/定长)、内部缓冲、per-call 超时与错误契约为本库原生设计(见 §8 OpenTcpClient 说明),不参照任何第三方实现 |
 | 倍福 TwinCAT ADS(已实现) | 依赖库 `pyads==3.5.1`(封装而非移植):封装层只做 DataType→PLCTYPE 映射、范围校验、异常翻译与 NetId 组装(PLCTYPE 表、STRING_BUFFER=1024、AMS 端口 851、AmsAddr/NetId 6 字节);帧层零自研 |
 | 欧姆龙 FINS(TCP/UDP,已实现) | 欧姆龙 FINS 手册 W342(帧组装/解析、存储区码、TCP 握手/帧长;2026-09 复审见 §8 对照结论) |
-| 罗克韦尔 AB EtherNet/IP(已实现) | ODVA CIP/EtherNet/IP 规范(RegisterSession、0x4C·0x4D·0x4E 服务、IOI 路径段 0x91·0x28·0x29·0x2A、位字与 BOOL 数组词操作、STRING 0xA0 布局、Unconnected Send 恒包 UC Send;协议帧层为本库原生纯函数实现 `plc/ab/codec_cip.py`) |
+| 罗克韦尔 AB EtherNet/IP(已实现) | ODVA CIP/EtherNet/IP 规范(RegisterSession、0x4C·0x4D·0x4E 服务、IOI 路径段 0x91·0x28·0x29·0x2A、位字与 BOOL 数组词操作、STRING 0xA0 布局、Unconnected Send 恒包 UC Send、ListIdentity 应答 CPF 布局 = 头 24 + ItemCount(2)+Type 0x000C(2)+Length(2)+EncapVer(2)+SocketAddr(16)+Identity;依据 Rockwell《Explicit Messaging Guide》p.20-21 + pycomm3 1.2.16 `ListIdentityObject` 裁决,原「2 字节兼容前缀」口径系误判;协议帧层为本库原生纯函数实现 `plc/ab/codec_cip.py`) |
 | 欧姆龙 NJ/NX CIP(已实现) | 协议要点:Forward Open 连接路径 = cip_path + MSG_ROUTER_PATH(空路由时只剩消息路由对象 20 02 24 01)、unconnected 直发不包 UC Send(目标即消息路由器本体);协议帧层零新增,复用 `plc/ab/codec_cip.py` + 三钩子覆写;NJ STRING 布局与真机行为待真机联测 |
 
 三菱 4E 帧按 SH-080008 口径实现(pcap 验证):**4E 帧带序列号**

@@ -60,7 +60,8 @@ v1 评审稿逐条对源码复核后形成本版:
 - **三轮复审 三菱 MC 专项(2026-09-27)**:①`MC_DEVICE_CODES["ZR"]` base 10→**16**、`MC_1E_DEVICE_CODES["X"/"Y"]` base 8→**16**(依 SH-080008 §8.1/§18.4);②MC `_read_string`/`_write_string` 拒绝 `.bit`;③常量注释订正(4E 响应 `D400`、1E 点数上限);④**补漏**——0406 响应总量入参期校验(超 8192 拒绝并提示拆分)、1E 字访问位软元件须首编号 16 倍数、1E 设备编号域注释订正。新增门禁 4 条。当前全量门禁 **1216 passed**。
 - **二轮复审 MX 控件释放(2026-09-27)**:`MxComponent.get_error_message` 的 ActSupportMsg 控件改**配对释放**——创建点与 `_com_get_error_message` 双 `finally` 置空引用,成功/失败路径都即时回收 STA 代理(异常路径此前由 traceback 帧把引用扣到 GC);byref 回退路径移出探测异常处理块,探测期 TypeError 不再作为 `__context__` 挂链;控件维持**每次新建**(刻意的:STA 控件绑定创建线程,缓存跨线程复用不可用)。回归 `test_mx_clients.py::test_com_get_error_message_releases_reference_on_error`(旧实现实测 FAILED)+ `test_get_error_message_releases_support_msg_control`。门禁 1198 → **1200**。
 - **二轮复审 Modbus FC17(2026-09-27)**:新增 **FC17 `report_server_id`**(报告从站 ID,规范 §6.13、印刷页 31,依 PyMuPDF 抽取手册文本核对)——codec 构造/解析(长度域与实收严格一致、下限 2 = 从站 ID + 运行指示)、客户端 + aio 镜像、**RTU 按 byte count 增量收包**并随 FC12/FC24 同口径按 `MODBUS_RTU_MAX_ADU_SIZE=256` 封顶;`expected_response_length` 对 FC17 显式抛错(长度随附加数据变化);原生层维持 pending(与 FC07 同)。回归 5 例(codec 1 + 客户端/RTU/aio 4);README 示例与待真机表、全协议矩阵同步。同批订正 README ADS 行残留的旧错误码集描述(0x705/0x706/0x725 → TE1000 §8 码集)。门禁 1200 → **1205**。
-- **三轮复审 P1 批(2026-09-27)**:①**`write_tag` 恒等缩放回归**——恒等分支保留「整数值 float → int 还原」,`write_tag(整数点位, 5.0)` 恢复写 5(回归 `test_write_tag_identity_scale_restores_float_to_int`,旧实现实测 FAILED);②**native 镜像恒等缩放**——`native/base.py` `read_tag`/`write_tag` 各补恒等分支(64 位直通不过 float64),并入同步/异步对拍用例 `read_tag_identity_long`/`write_tag_identity_long`(Selector/Proactor 双循环,旧实现 4 例 FAILED);③**Modbus 区域×类型匹配**——`_check_address`(同步/native 共用收口点)对字类型仅放行 hr/ir,`read_short("c0")` 类错区请求入参期拒绝、零字节发送(回归 `test_word_type_rejects_bit_area_before_any_frame`,旧实现 DID NOT RAISE);BOOL 不限区域(hr.3 读词提位/读-改-写为既有语义);④**TOYOPUC 负 32/64 位写**——`_write_raw` 负值按二补数转无符号再编码(回归 `test_tcp_write_negative_int_and_long`,旧实现 OverflowError)。门禁 1216 → **1219**。
+- **三轮复审 P1 批(2026-09-27)**:①**`write_tag` 恒等缩放回归**——恒等分支保留「整数值 float → int 还原」,`write_tag(整数点位, 5.0)` 恢复写 5(回归 `test_write_tag_identity_scale_restores_float_to_int`,旧实现实测 FAILED);②**native 镜像恒等缩放**——`native/base.py` `read_tag`/`write_tag` 各补恒等分支(64 位直通不过 float64),并入同步/异步对拍用例 `read_tag_identity_long`/`write_tag_identity_long`(Selector/Proactor 双循环,旧实现 4 例 FAILED);③**Modbus 区域×类型匹配**——`_check_address`(同步/native 共用收口点)对字类型仅放行 hr/ir,`read_short("c0")` 类错区请求入参期拒绝、零字节发送(回归 `test_word_type_rejects_bit_area_before_any_frame`,旧实现 DID NOT RAISE);BOOL 不限区域(hr.3 读词提位/读-改-写为既有语义);④**TOYOPUC 负 32/64 位写**——`_write_raw` 负值按二补数转无符号再编码(回归 `test_tcp_write_negative_int_and_long`,旧实现 OverflowError)。门禁 1216 → **1223**(+7:同步 2 + Modbus 1 + TOYOPUC 1 + native 对拍 Selector/Proactor 双循环读/写 4 −1 归并)。
+- **三轮复审 P2 批 1(2026-09-27)**:①**AB `ListIdentity` 解析重写**——CPF 标准布局(ItemCount+Type 0x000C+Length+EncapVer 2+SocketAddr 16,Vendor ID 自载荷第 48 字节起),Item 头非法按坏帧拒绝;依据 Rockwell Explicit Messaging Guide p.20-21 + pycomm3 1.2.16 参考实现裁决(旧「2 字节兼容前缀」口径经实测裁决系误判,夹具一并订正,结论记 architecture.md §8.1);②**OPC-UA `active_subscriptions` 改状态锁**——快照与订阅索引增删全部走 `_state_lock`,`ua_sub.delete()` I/O 锁外;③**OPC-UA 读侧越界改 `DeviceError(code=0)`**——服务端返回越界属设备条件(写路径仍 `ValueError`)。回归 3 项(旧实现均 FAILED)。门禁 1223 → **1225**。
 
 ---
 
@@ -195,13 +196,13 @@ v1 评审稿逐条对源码复核后形成本版:
 
 ### P2
 
-- **aio `active_subscriptions` 仍进事务锁(已核验)**:`opcua/client.py:429` + aio 转发(v0.43「属性读无锁」漏网),事务在途时读该属性冻结事件循环。
+- **aio `active_subscriptions` 仍进事务锁(已核验)——已修复(2026-09-27)**:`opcua/client.py` 的 `active_subscriptions` 快照、订阅索引增删(`subscribe_*`/`_do_unsubscribe`/`disconnect`)全部改走 `_state_lock`(与错误三件套同口径,短临界区纯字典操作);`ua_sub.delete()` 的 I/O 保持锁外。回归 `test_active_subscriptions_does_not_block_on_transaction_lock`(旧实现 FAILED)。原描述:事务在途时读该属性冻结事件循环。
 - **`convert.decode_string` 漏 `utf16`/`utf32` 别名(已核验复现)**:`convert.py:317` 前缀只认带连字符写法;`encoding="utf16"` 走单字节路径 → 返回 `\ufffd`。
 - **`TagTable` 接受 NaN/Inf `scale/offset`(已核验)**:`tag.py:65` 仅拒 `==0`;JSON `"scale":"nan"` 可把 NaN 写进 FLOAT/DOUBLE 寄存器。
 - **TCP `recv` 收窄 socket 超时未复位(已核验)**:`transport/tcp.py:95-112` 残超时被下次 `sendall` 继承,慢链路伪超时断连(OpenTcp 已复位,基础协议未)。
-- **AB `ListIdentity` 解析偏移错(已核验)**:`plc/ab/codec_cip.py:1031` 只跳 2 字节前缀;规范为「ItemCount(2)+ItemHeader(4)+Version(2)+SocketAddr(16)=24 字节」后才到 Vendor ID → 身份字段全错(测试夹具亦编码了错误偏移)。
+- **AB `ListIdentity` 解析偏移错(已核验)——已修复(2026-09-27)**:`codec_cip.parse_list_identity_reply` 重写为 CPF 标准布局——ENIP 头 24 + Item Count(2)+ Item Type 0x000C(2)+ Item Length(2)+ Encap Version(2)+ Socket Address(16)= **Vendor ID 从载荷第 48 字节起**;Item 计数/类型码/长度域非法按坏帧拒绝。依据:Rockwell《Communicating with RA Products Using EtherNet/IP Explicit Messaging》p.20-21(封装头 24 字节 + CPF Item 结构)+ **pycomm3 1.2.16 `ListIdentityObject` 参考实现裁决**(临时环境安装实测:标准布局帧逐字段解出,旧 2 字节前缀帧 `is_valid=False`);原「2 字节兼容前缀」口径与测试夹具均系误判,一并订正(结论记 architecture.md §8.1)。回归 `test_parse_list_identity_reply_full_fields` 重写 + 新增 `test_parse_list_identity_reply_bad_item`;客户端夹具 `_identity_list_reply` 同步改标准布局。原描述:只跳 2 字节前缀,身份字段全错。
 - **ADS transport 码集缺 `0x1A ERR_TCPSEND`(已核手册)**:`plc/beckhoff/ads.py:98` 有 `0x1B/0x1D` 无 `0x1A` → TCP 发送失败当设备错误不断线。
-- **OPC-UA `_coerce_read` 设备越界抛 `ValueError`(已核验复现)**:`opcua/client.py:867` 读侧设备返回越界(如 `read_ushort` 遇 70000)应 `DeviceError`(设备条件)却抛 `ValueError` 逃出 `_execute`。
+- **OPC-UA `_coerce_read` 设备越界抛 `ValueError`(已核验复现)——已修复(2026-09-27)**:`_narrow_int` 捕获范围校验的 `ValueError` 转译为 `DeviceError(code=0)`——越界值来自**服务端**属设备侧条件(与"节点值为空"同口径,`_execute` 转 `(False, None)` 不断线);写路径维持 `ValueError`(调用方参数错误)。回归更新 `test_coerce_read_narrows_integer_range`(旧实现 FAILED)。原描述:`opcua/client.py:867` 读侧设备返回越界(如 `read_ushort` 遇 70000)应 `DeviceError` 却抛 `ValueError` 逃出 `_execute`。
 - **Keyence SR `bank` 范围错(已核手册)**:`scanner/keyence_sr.py:95` 暴露 0~15;手册 `LON,b` 为 **01~16** → `bank=0` 发非法 `LON,00`、设备 bank 16 被拒。
 - 其余 P2:**native 退避指数未封顶**(`native/base.py:670`,`OverflowError` 逃出);**ADS transport 错误分类为 UNKNOWN**(`ads.py:135`,应 TRANSPORT);**ADS `write(addr, STRING)` 绕过声明长预检**(`ads.py:382`);**AB/FINS/MX 非 BOOL `.bit` 未拒/未处理**(`ab.py` read_batch、`omron.py` 字符串、`mx.py` 读);**1E `X/Y` 八进制 vs 手册十六进制**(`constants.py:291`,待核);**Inovance 0406 未列手册**(`melsec.py:242`,待核);**AB 自定义 STRING<88 仍按 88 写**(`codec_cip.py:1174`);**AB 单条超预算不拆**(`ab.py:818`)。
 
@@ -230,10 +231,10 @@ PyMuPDF 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、门�
 | 欧姆龙 FINS | ⏳ 待查 | — |
 | 欧姆龙 NJ/NX CIP | ⏳ 待查 | — |
 | Modbus(TCP/RTU) | ⏳ 待查 | — |
-| AB EtherNet/IP(CIP) | ⏳ 待查 | 三轮 P2(ListIdentity 偏移、read_batch `.bit`)待处理 |
+| AB EtherNet/IP(CIP) | ⏳ 待查 | 三轮 P2(ListIdentity 偏移、read_batch `.bit`)已修(2026-09-27,详见 P2 批);其余待查 |
 | 倍福 TwinCAT ADS | ⏳ 待查 | — |
 | 西门子 S7 | ⏳ 待查 | 三轮 P3(`_write` 未支持类型 `KeyError`)待处理 |
-| OPC-UA | ⏳ 待查 | 三轮 P2(`active_subscriptions` 取事务锁、`_coerce_read` 越界类型)待处理 |
+| OPC-UA | ⏳ 待查 | 三轮 P2(`active_subscriptions` 取事务锁、`_coerce_read` 越界类型)已修(2026-09-27,详见 P2 批);其余待查 |
 | MTConnect | ⏳ 待查 | — |
 | 丰田 TOYOPUC / 松下 / 基恩士 KV·SR / 汇川 | ⏳ 待查 | 部分厂商手册在「待补」表 |
 | native / aio 层 | ⏳ 待查 | 三轮 P1 恒等缩放(同步回归 + native 镜像)、Modbus 区域×类型、TOYOPUC 负写已修(2026-09-27);退避封顶等 P2 待处理 |

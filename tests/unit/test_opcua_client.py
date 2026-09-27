@@ -105,14 +105,16 @@ def test_parse_nodeid_errors() -> None:
 
 
 def test_coerce_read_narrows_integer_range() -> None:
-    """读回收窄:服务端整数超出声明类型范围 → ValueError(与写路径对称)。"""
+    """读回收窄:服务端整数超出声明类型范围 → DeviceError(设备侧条件,code=0)。
+
+    回归:曾按 ValueError(与写路径对称的参数错误口径)抛出——越界值来自
+    **服务端**而非调用方,应归设备条件,由 _execute 转 (False, None) 不断线。
+    """
     assert _coerce_read(100, DataType.SHORT, "ns=1;s=x") == 100
-    with pytest.raises(ValueError):
-        _coerce_read(40000, DataType.SHORT, "ns=1;s=x")
-    with pytest.raises(ValueError):
-        _coerce_read(-1, DataType.USHORT, "ns=1;s=x")
-    with pytest.raises(ValueError):
-        _coerce_read(2 ** 32, DataType.UINT, "ns=1;s=x")
+    for value, dtype in ((40000, DataType.SHORT), (-1, DataType.USHORT), (2 ** 32, DataType.UINT)):
+        with pytest.raises(DeviceError) as exc_info:
+            _coerce_read(value, dtype, "ns=1;s=x")
+        assert exc_info.value.code == 0
 
 
 def test_validate_endpoint_url() -> None:
@@ -897,3 +899,26 @@ def test_set_error_counter_is_thread_safe() -> None:
     for thread in threads:
         thread.join()
     assert client.stats["error_count"] == workers * iterations
+
+
+def test_active_subscriptions_does_not_block_on_transaction_lock() -> None:
+    """事务锁被占时 active_subscriptions 快照仍应立即返回(不得进事务锁)。
+
+    回归:旧实现 ``with self._lock`` 取快照,事务在途时 aio 转发读该属性
+    会冻结事件循环(属性读无锁化批次的漏网项)。
+    """
+    client = OpcUaClient("127.0.0.1", _OPCUA_TEST_PORT)
+    client._active_subscriptions[1] = None  # 占位句柄,仅验证快照路径
+    client._lock.acquire()
+    try:
+        done = []
+        thread = _threading.Thread(
+            target=lambda: (client.active_subscriptions, done.append(True))
+        )
+        thread.start()
+        thread.join(timeout=1.0)
+        assert not thread.is_alive(), "active_subscriptions 被事务锁阻塞"
+        assert done == [True]
+    finally:
+        client._lock.release()
+    assert client.active_subscriptions == {1: None}

@@ -104,6 +104,8 @@ def is_connection_reset_status(status: int) -> bool:
 # ---- ENIP 封装命令扩展(发现/调试) ----
 EIP_COMMAND_LIST_IDENTITY: int = 0x0063
 """ENIP ListIdentity(广播/单播发现,无 CIP 会话)。"""
+CIP_ITEM_LIST_IDENTITY: int = 0x000C
+"""CPF Item 类型码:ListIdentity 应答的 Identity Item(CIP Vol 2 封装层)。"""
 
 # Identity Object 类/实例号(CIP Vol 1 §5-1)
 CIP_CLASS_IDENTITY: int = 0x01
@@ -1016,32 +1018,62 @@ def build_list_identity() -> bytes:
 def parse_list_identity_reply(reply: bytes) -> Dict[str, object]:
     """解析 ListIdentity ENIP 应答,返回 Identity Object 字段字典。
 
-    布局(ODVA CIP Vol 2 §2-4.4.2):ENIP 头
-    (24 字节)+ 2 字节兼容前缀(部分实现带 interface/version)+ Identity
-    Object 字段(vendor 2 + product_type 2 + product_code 2 + revision 2 +
-    status 2 + serial 4 + product_name_length 1 + product_name N + state 1)。
+    布局(CPF 标准,依 Rockwell《Communicating with RA Products Using
+    EtherNet/IP Explicit Messaging》p.20-21 封装头 24 字节 + CPF Item
+    结构,及 pycomm3 1.2.16 ``ListIdentityObject`` 参考实现裁决,2026-09-27):
 
-    :raises ProtocolFrameError: 长度不足 / 命令不符 / 封装状态非 0
+    - ENIP 头 24 字节(``EIP_HEADER_SIZE``)
+    - Item Count(2)+ Item Type Code(2,``0x000C`` ListIdentity)+ Item
+      Length(2)+ Encapsulation Protocol Version(2)+ Socket Address(16 =
+      sin_family 2 + sin_port 2 + sin_addr 4 + sin_zero 8)
+    - Identity Object 字段(vendor 2 + product_type 2 + product_code 2 +
+      revision 2 + status 2 + serial 4 + product_name_length 1 +
+      product_name N + state 1)——即 **Vendor ID 从载荷第 48 字节起**。
+
+    :raises ProtocolFrameError: 长度不足 / 命令不符 / 封装状态非 0 / Item 结构非法
     """
     _check_enip_reply(reply, EIP_COMMAND_LIST_IDENTITY)
     payload = reply[EIP_HEADER_SIZE:]
-    # 跳过 2 字节兼容前缀(部分实现带 interface handle / version)
-    if len(payload) < 2 + 14:
+    if len(payload) < 6:
         raise ProtocolFrameError(
-            "ListIdentity 应答载荷不足:{} 字节".format(len(payload))
+            "ListIdentity 应答载荷不足(缺 Item 头):{} 字节".format(len(payload))
         )
-    body = payload[2:]
-    vendor = struct.unpack_from("<H", body, 0)[0]
-    product_type = struct.unpack_from("<H", body, 2)[0]
-    product_code = struct.unpack_from("<H", body, 4)[0]
-    rev_major, rev_minor = body[6], body[7]
-    status_word = struct.unpack_from("<H", body, 8)[0]
-    serial = struct.unpack_from("<I", body, 10)[0]
-    name_len = body[14]
-    if len(body) < 15 + name_len + 1:
+    item_count, item_type, item_length = struct.unpack_from("<HHH", payload, 0)
+    if item_count != 1:
+        raise ProtocolFrameError(
+            "ListIdentity 应答 Item 数须为 1,收到:{}".format(item_count)
+        )
+    if item_type != CIP_ITEM_LIST_IDENTITY:
+        raise ProtocolFrameError(
+            "ListIdentity 应答 Item 类型须为 0x000C,收到:0x{:04X}".format(item_type)
+        )
+    body_offset = 6 + item_length
+    if len(payload) < body_offset:
+        raise ProtocolFrameError(
+            "ListIdentity Item 长度域 {} 超出载荷 {} 字节".format(
+                item_length, len(payload)
+            )
+        )
+    body = payload[6:body_offset]
+    # Item 数据 = 封装协议版本(2)+ Socket Address(16)+ Identity Object
+    if len(body) < 18 + 14:
+        raise ProtocolFrameError(
+            "ListIdentity Item 数据不足(应有版本 2 + SocketAddr 16 + Identity):{} 字节".format(
+                len(body)
+            )
+        )
+    identity = body[18:]
+    vendor = struct.unpack_from("<H", identity, 0)[0]
+    product_type = struct.unpack_from("<H", identity, 2)[0]
+    product_code = struct.unpack_from("<H", identity, 4)[0]
+    rev_major, rev_minor = identity[6], identity[7]
+    status_word = struct.unpack_from("<H", identity, 8)[0]
+    serial = struct.unpack_from("<I", identity, 10)[0]
+    name_len = identity[14]
+    if len(identity) < 15 + name_len + 1:
         raise ProtocolFrameError("ListIdentity product_name 截断")
-    product_name = bytes(body[15:15 + name_len]).decode("ascii", errors="replace")
-    state = body[15 + name_len]
+    product_name = bytes(identity[15:15 + name_len]).decode("ascii", errors="replace")
+    state = identity[15 + name_len]
     return {
         "vendor": vendor,
         "product_type": product_type,
@@ -1051,6 +1083,7 @@ def parse_list_identity_reply(reply: bytes) -> Dict[str, object]:
         "serial": serial,
         "product_name": product_name,
         "state": state,
+        "item_length": item_length,
     }
 
 
