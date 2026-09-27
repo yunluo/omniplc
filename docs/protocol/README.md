@@ -104,6 +104,7 @@ omniplc 已实现且**有部分覆盖**但关键官方手册仍缺的协议:
 | 基恩士 KV PLC | SR-2000 扫码枪手册(`keyence/`);SLMP 参考手册(`mitsubishi/`,供 KV MC 兼容实现) | KV-8000/7500/7300 Host Link 通信命令手册 + KV MC 协议手册(需 MyKeyence 账号) |
 | OPC-UA | Part 1 概述(1.02)+ 安全通讯 + Brochure + Overview + OPCF/ABB/Honeywell/Matrikon/OPC-DA(`opcua/`,9 份) | Part 2-9 完整规范(需 OPC Foundation 付费会员);`asyncua` 实现已覆盖核心契约 |
 | MTConnect | Part 1 概述 + 架构白皮书 + 入门指南(`mtconnect/`,3 份) | ANSI/MTC1.4-2018 完整标准(`docs.mtconnect.org` 服务器拉不下来,需等站点恢复后重试);MTConnect Agent 部署手册 |
+| 欧姆龙 FINS | W342 命令帧/存储区码/结束码(`omron/`,FINS 本体,已按 §5-1-3/§5-2-2/§5-3-x 逐项核对) | **FINS/TCP 封装与节点分配握手**(魔数 `FINS`、命令 0/2、错误域、24 字节握手响应)不在 W342 范围,需欧姆龙以太网单元手册(如 W420/W465/W344);库内 `codec.py` 该段已标「依据待补」,拿到手册后补页码级引用 |
 
 omniplc 已实现且**完全覆盖**的协议(已从本表移除,详见「已收录」):
 

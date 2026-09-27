@@ -29,6 +29,8 @@ from ...core.constants import (
     FINS_DEFAULT_SOURCE_NETWORK,
     FINS_DEFAULT_SOURCE_UNIT,
     FINS_MAX_DATAGRAM,
+    FINS_MAX_READ_ELEMENTS,
+    FINS_MAX_WRITE_ELEMENTS,
     FINS_NETWORK_MAX,
     FINS_NODE_DERIVED_MAX,
     FINS_NODE_MAX,
@@ -212,8 +214,7 @@ class _OmronFinsBase(BaseClient):
             if parsed.area in FINS_BIT_WRITABLE_AREAS:
                 self._write_bits(parsed, [1 if flag else 0])
             else:
-                words = self._read_words(parsed._replace(bit=None), 1)
-                self._write_words(parsed._replace(bit=None), [convert.set_bit(words[0], parsed.bit or 0, flag)])
+                self._write_bit_impl(parsed, flag)
             return
         if data_type is DataType.SHORT:
             self._write_words(parsed, [check_int16(value)])
@@ -232,6 +233,8 @@ class _OmronFinsBase(BaseClient):
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """从字区读字符串:逐字大端拼字节后解码(FINS 字序约定)。"""
         parsed = parse_fins_address(address)
+        if parsed.bit is not None:
+            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
         words = self._read_words(parsed, (length + 1) // 2)
         data = b"".join(word.to_bytes(2, "big") for word in words)[:length]
         return convert.decode_string(data, encoding)
@@ -239,6 +242,8 @@ class _OmronFinsBase(BaseClient):
     def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
         """向字区写字符串:编码 → 补齐偶数字节 → 逐字大端。"""
         parsed = parse_fins_address(address)
+        if parsed.bit is not None:
+            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
         raw = convert.encode_string(value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding)
         words = [int.from_bytes(raw[i:i + 2], "big") for i in range(0, len(raw), 2)]
         self._write_words(parsed, words)
@@ -360,8 +365,40 @@ class _OmronFinsBase(BaseClient):
                 return bool(convert.get_bit(words[0], parsed.bit or 0))
             raise
 
+    def _write_bit_impl(self, parsed: FinsAddress, flag: bool) -> None:
+        """位写:位存储区码直写;老固件不支持 D/EM 位区码(0x1101)时回退
+        读-改-写(与位读回退对称)。D/EM 位直写依手册 §5-3-3 可写表
+        (DM Bit 02 / EM Bit 20~2F,CS/CJ/CP/NSJ)。"""
+        value = 1 if flag else 0
+        try:
+            self._write_bits(parsed, [value])
+        except DeviceError as exc:
+            if (
+                exc.code == FINS_UNSUPPORTED_AREA_CODE
+                and parsed.area in FINS_BIT_FALLBACK_AREAS
+            ):
+                # CP1E/部分 CS1 不支持 D/EM 位区码(结束码 0x1101):
+                # 回退「字读 + 本地改位 + 字写」,对调用方透明
+                words = self._read_words(parsed._replace(bit=None), 1)
+                self._write_words(
+                    parsed._replace(bit=None),
+                    [convert.set_bit(words[0], parsed.bit or 0, flag)],
+                )
+                return
+            raise
+
     def _read_words(self, parsed: FinsAddress, word_count: int) -> List[int]:
-        """字读:字存储区码,返回 0~65535 逐字数据(大端)。"""
+        """字读:字存储区码,返回 0~65535 逐字数据(大端)。
+
+        Ethernet/Controller Link 单命令读上限 999 字(W342 §5-2-2 p.168),
+        超限入参期拒绝(避免先发帧再等 PLC 拒绝)。
+        """
+        if word_count > FINS_MAX_READ_ELEMENTS:
+            raise ValueError(
+                "FINS 单命令读元素数超出 Ethernet/Controller Link 上限 {}:{}(W342 §5-2-2)".format(
+                    FINS_MAX_READ_ELEMENTS, word_count
+                )
+            )
         frame = self._build_read(parsed, word_count, is_bit=False)
         return codec.parse_response(
             self._transact(frame), frame, word_count, is_bit=False, is_read=True
@@ -375,7 +412,17 @@ class _OmronFinsBase(BaseClient):
         )
 
     def _write_words(self, parsed: FinsAddress, words: List[int]) -> None:
-        """字写:字存储区码,逐字大端。"""
+        """字写:字存储区码,逐字大端。
+
+        Ethernet/Controller Link 单命令写上限 997 字(W342 §5-2-2 p.168),
+        超限入参期拒绝。
+        """
+        if len(words) > FINS_MAX_WRITE_ELEMENTS:
+            raise ValueError(
+                "FINS 单命令写元素数超出 Ethernet/Controller Link 上限 {}:{}(W342 §5-2-2)".format(
+                    FINS_MAX_WRITE_ELEMENTS, len(words)
+                )
+            )
         frame = self._build_write(parsed, words, is_bit=False)
         codec.parse_response(
             self._transact(frame), frame, len(words), is_bit=False, is_read=False

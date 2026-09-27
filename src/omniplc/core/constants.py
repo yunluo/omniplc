@@ -561,11 +561,34 @@ FINS_COMMAND_AREA_WRITE: int = 0x0102
 FINS_COMMAND_MULTIPLE_AREA_READ: int = 0x0104
 """Multiple Memory Area Read 命令(MRC=01, SRC=04;W342 §5-3-5)。"""
 FINS_MAX_MULTIPLE_ELEMENTS: int = 167
+"""0104 多存储区读单命令条目上限(Ethernet/Controller Link;SYSMAC LINK/
+DeviceNet 为 89;W342 §5-3-5 p.178)。"""
+FINS_MAX_READ_ELEMENTS: int = 999
+"""0101 区域读单命令元素上限(Ethernet/Controller Link 999 字;W342 §5-2-2
+p.168「Max. number of read elements」;多网穿透取途经网络最小值)。"""
+FINS_MAX_WRITE_ELEMENTS: int = 997
+"""0102 区域写单命令元素上限(Ethernet/Controller Link 997 字;W342 §5-2-2
+p.168「Max. number of write elements」)。"""
+FINS_MEMORY_AREA_MAX: Dict[str, int] = {
+    "CIO": 6143,
+    "W": 511,
+    "H": 511,
+    "A": 959,
+    "D": 32767,
+    "E": 32767,
+    "T": 4095,
+    "C": 4095,
+}
+"""FINS 存储区字地址上限(CS/CJ/CP/NSJ 系列;W342 §5-2-2 p.165-166 地址表
+「Memory area address」列:CIO 17FF/A 03BF/D·EM 7FFF/T·C 0FFF)。A 区
+447 以下只读为固有能力,本表只收字地址上界。"""
 """多存储区读单命令条目上限(W342 §5-3-5:Ethernet/Controller Link 167,
 SYSMAC LINK/DeviceNet 89,本库为以太网走线取 167 口径)。"""
 FINS_END_CODE_SIZE: int = 2
 """结束码长度(大端两字节,紧跟 MRC/SRC)。"""
 FINS_END_CODE_OK: int = 0
+"""结束码:正常完成(主/子码 00;bit6/7 标志随正常完成返回时亦视为成功,
+见 :func:`omniplc.plc.omron.codec._is_normal_end_code`,W342 §5-1-3 p.161)。"""
 """结束码:正常完成。"""
 FINS_END_CODE_RELAY_ERROR_FLAG: int = 0x8000
 """结束码标志位:bit15 = 网络中继错误(W342 5-1-3;查主/子码表前须屏蔽)。"""
@@ -598,14 +621,14 @@ FINS_END_CODE_TEXT: Dict[int, str] = {
     0x0105: "节点号设置错误(范围)",
     0x0106: "节点号重复",
     0x0201: "目标节点不在网络中",
-    0x0202: "无指定节点号的节点",
+    0x0202: "指定单元不存在(单元号错误)",
     0x0203: "第三节点不在网络中(指定了广播)",
     0x0204: "目标节点忙",
     0x0205: "响应超时",
-    0x0301: "发生错误(ERC 指示灯亮)",
+    0x0301: "通信控制器错误(ERC 指示灯亮)",
     0x0302: "目标节点 CPU 出错",
     0x0303: "控制器错误导致无法正常响应",
-    0x0304: "节点号设置错误",
+    0x0304: "单元号设置错误",
     0x0401: "使用了未定义命令",
     0x0402: "单元型号/版本不支持该命令",
     0x0501: "目标节点号未登记到路由表",
@@ -617,13 +640,13 @@ FINS_END_CODE_TEXT: Dict[int, str] = {
     0x1003: "指定数据项数与实际不符",
     0x1004: "命令格式错误",
     0x1005: "命令头错误",
-    0x1101: "存储区码非法或 DM 不可用",
+    0x1101: "存储区码非法或指定存储区不存在",
     0x1102: "访问尺寸错误",
     0x1103: "起始地址在不可访问区",
     0x1104: "指定字范围越界",
     0x1106: "程序号不存在",
-    0x1109: "命令块内数据项尺寸错误",
-    0x110A: "无法执行 IOM 中断",
+    0x1109: "元素间大小关系错误(Relational error)",
+    0x110A: "重复数据访问(微分监视/数据跟踪互斥)",
     0x110B: "响应块超过最大长度",
     0x110C: "参数码错误",
     0x2002: "数据被保护",
@@ -640,7 +663,7 @@ FINS_END_CODE_TEXT: Dict[int, str] = {
     0x2107: "文件已存在",
     0x2108: "数据不可更改",
     0x2201: "模式错误(运行中)",
-    0x2202: "模式错误(停止)",
+    0x2202: "运行中不可执行(模式错误/数据链接活动)",
     0x2203: "PLC 处于 PROGRAM 模式",
     0x2204: "PLC 处于 DEBUG 模式",
     0x2205: "PLC 处于 MONITOR 模式",
@@ -651,14 +674,14 @@ FINS_END_CODE_TEXT: Dict[int, str] = {
     0x2302: "指定存储器不存在",
     0x2303: "无时钟",
     0x2401: "数据链接表不正确",
-    0x2502: "奇偶/校验和错误",
+    0x2502: "存储器内容错误",
     0x2503: "I/O 设置错误",
     0x2504: "I/O 点数过多",
     0x2505: "CPU 总线错误",
     0x2506: "I/O 重复错误",
     0x2507: "I/O 总线错误",
     0x2509: "SYSMAC BUS/2 错误",
-    0x250A: "特殊 I/O 单元错误",
+    0x250A: "CPU 总线单元错误",
     0x250D: "SYSMAC BUS 字分配重复",
     0x250F: "发生存储器错误",
     0x2510: "SYSMAC BUS 系统终端未连接",
@@ -675,8 +698,9 @@ FINS_END_CODE_TEXT: Dict[int, str] = {
     0x3001: "访问权被其他设备持有",
     0x4001: "命令被 ABORT 命令中止",
 }
-"""FINS 结束码 → 可读描述(全表,依据手册 W342 §5-1-3 End Codes;2026-09 复审补全);
-未收录的提示查阅手册。"""
+"""FINS 结束码 → 可读描述(全表,依据手册 W342 §5-1-3 p.155-162 End Codes;
+2026-09 复审按表逐项对校订正 8 条文案:0202/0304/1101/1109/110A/2202/
+2502/250A);未收录的提示查阅手册。"""
 FINS_MAX_DATAGRAM: int = 8192
 """UDP 整包接收缓冲上限(8192 覆盖长字符串/大批量响应;UDP 单包上限 65507)。"""
 FINS_MAX_TCP_FRAME: int = 8192

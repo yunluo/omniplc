@@ -1,6 +1,7 @@
 """欧姆龙 FINS 地址解析。
 
-依据:FINS W342 §5-2-1/§5-2-2(I/O Memory Address Designations:存储区码 / 字地址 / 位号)。
+依据:FINS W342 §5-2-1/§5-2-2 p.163-166(I/O Memory Address Designations:
+存储区码 / 字地址 / 位号;各区字地址上界按 §5-2-2 p.165-166 地址表校验)。
 
 支持的地址语法(不区分大小写):
 
@@ -23,7 +24,12 @@ import re
 from functools import lru_cache
 from typing import NamedTuple, Optional
 
-from ...core.constants import ADDRESS_CACHE_MAXSIZE, FINS_EM_BANK_MAX, MODBUS_REGISTER_BIT_MAX
+from ...core.constants import (
+    ADDRESS_CACHE_MAXSIZE,
+    FINS_EM_BANK_MAX,
+    FINS_MEMORY_AREA_MAX,
+    MODBUS_REGISTER_BIT_MAX,
+)
 
 _FINS_ADDRESS_RE = re.compile(r"^([A-Za-z]{1,4})(\d+)(?:\.(\d+))?$")
 _FINS_EM_ADDRESS_RE = re.compile(r"^E(\d{1,2})_(\d+)(?:\.(\d+))?$")
@@ -61,7 +67,9 @@ def parse_fins_address(address: str) -> FinsAddress:
         bank = int(match.group(1))
         if not 0 <= bank <= FINS_EM_BANK_MAX:
             raise ValueError(f"EM 区 bank 号必须在 0~{FINS_EM_BANK_MAX} 之间,收到:{bank}")
-        return FinsAddress(area="E", offset=int(match.group(2)), bit=_parse_bit(match.group(3)), bank=bank)
+        offset = int(match.group(2))
+        _check_area_max("E", offset)
+        return FinsAddress(area="E", offset=offset, bit=_parse_bit(match.group(3)), bank=bank)
     match = _FINS_ADDRESS_RE.match(text)
     if match is None:
         raise ValueError(
@@ -70,7 +78,18 @@ def parse_fins_address(address: str) -> FinsAddress:
     area = match.group(1).upper()
     if area == "E":
         raise ValueError("EM 区请使用 E<bank>_<字地址> 语法,如 E0_100")
-    return FinsAddress(area=area, offset=int(match.group(2)), bit=_parse_bit(match.group(3)))
+    offset = int(match.group(2))
+    _check_area_max(area, offset)
+    return FinsAddress(area=area, offset=offset, bit=_parse_bit(match.group(3)))
+
+
+def _check_area_max(area: str, offset: int) -> None:
+    """按手册各区字地址上界校验(内部函数;W342 §5-2-2 p.165-166)。"""
+    area_max = FINS_MEMORY_AREA_MAX.get(area)
+    if area_max is not None and offset > area_max:
+        raise ValueError(
+            f"FINS 地址越界:{area}{offset} 超出该区上界 {area_max}(W342 §5-2-2)"
+        )
 
 
 def _parse_bit(text: Optional[str]) -> Optional[int]:

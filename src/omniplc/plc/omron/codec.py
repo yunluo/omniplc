@@ -1,6 +1,7 @@
 """欧姆龙 FINS 帧编解码(纯函数)。
 
-帧布局(按欧姆龙 FINS 手册 W342 §5-3 命令帧 / §4-2·§5-1-3 结束码口径):
+帧布局(依据:W342-E1-18 §3-3-3 帧内各字段定义 p.33-34 / §5-3-2·§5-3-3
+命令帧 p.171-175 / §5-3-5 多存储区读 p.177-179 / §5-1-3 结束码 p.155-162):
 
 - FINS 帧 = ICF(1) + RSV(1) + GCT(1) + DNA/DA1/DA2(3) + SNA/SA1/SA2(3)
   + SID(1) + 命令(2,大端:0101 区域读 / 0102 区域写) + 载荷
@@ -9,6 +10,7 @@
 - 响应 = 同帧头(ICF|0xC0)+ 命令 + 结束码(2,大端,0=正常) + 数据
 - FINS/TCP 传输帧 = ``"FINS"``(4) + 长度(4,大端,= 后续字节数) + 命令(4)
   + 错误(4) + FINS 帧;数据帧命令 = 2,握手命令 = 0
+  (依据待补:W342 不含 FINS/TCP 封装,见 docs/protocol/README.md「待补」)
 - 握手:请求 20 字节(本地节点号在末字节);响应 24 字节,错误域之后为
   本地节点(4 字节,末字节)与 PLC 节点(4 字节,末字节)
 
@@ -26,7 +28,6 @@ from ...core.constants import (
     FINS_EM_BANK_MAX,
     FINS_EM_BIT_CODE_BASE,
     FINS_EM_WORD_CODE_BASE,
-    FINS_END_CODE_OK,
     FINS_END_CODE_CPU_ERROR_FLAGS,
     FINS_END_CODE_HINT,
     FINS_END_CODE_RELAY_ERROR_FLAG,
@@ -218,10 +219,17 @@ def parse_multiple_area_read(
             )
         )
     end_code = int.from_bytes(frame[12:14], "big")
-    if end_code != FINS_END_CODE_OK:
+    if not _is_normal_end_code(end_code):
         text = _end_code_text(end_code)
         raise DeviceError(f"FINS 结束码 0x{end_code:04X}({text})", end_code)
     expected = len(codes) * 3
+    total = prefix + FINS_END_CODE_SIZE + expected
+    if len(frame) != total:
+        raise ProtocolFrameError(
+            "FINS 多存储区读响应长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+                total, len(frame), format_hex(frame)
+            )
+        )
     data = frame[14:14 + expected]
     if len(data) != expected:
         raise ProtocolFrameError(
@@ -272,12 +280,26 @@ def parse_response(
             )
         )
     end_code = int.from_bytes(frame[12:14], "big")
-    if end_code != FINS_END_CODE_OK:
+    if not _is_normal_end_code(end_code):
         text = _end_code_text(end_code)
         raise DeviceError(f"FINS 结束码 0x{end_code:04X}({text})", end_code)
     if not is_read:
+        total = prefix + FINS_END_CODE_SIZE
+        if len(frame) != total:
+            raise ProtocolFrameError(
+                "FINS 写响应长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+                    total, len(frame), format_hex(frame)
+                )
+            )
         return []
     expected = count if is_bit else count * 2
+    total = prefix + FINS_END_CODE_SIZE + expected
+    if len(frame) != total:
+        raise ProtocolFrameError(
+            "FINS 响应长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+                total, len(frame), format_hex(frame)
+            )
+        )
     data = frame[14:14 + expected]
     if len(data) != expected:
         raise ProtocolFrameError(
@@ -412,6 +434,19 @@ def extract_tcp_payload(content: bytes) -> bytes:
 # ----------------------------------------------------------------------
 # 内部函数
 # ----------------------------------------------------------------------
+
+def _is_normal_end_code(end_code: int) -> bool:
+    """结束码是否正常完成(内部函数)。
+
+    W342 §5-1-3 p.161:主/子码 00 为正常完成;bit6/7(0x00C0)是「目标 CPU
+    单元出错」标志——非致命(bit6,如电池电压低)/致命(bit7)错误存在时,
+    标志位会随正常完成的命令一起返回(手册原文:「Basically, the end code
+    of a sent command that is completed normally is 0040」),此时命令本身
+    完成、数据有效,应按成功处理;bit15(0x8000)是网络中继错误标志,命中
+    即按错误处理(且响应会附带中继错误码双字节、数据布局改变)。
+    """
+    return end_code & ~FINS_END_CODE_CPU_ERROR_FLAGS == 0
+
 
 def _end_code_text(end_code: int) -> str:
     """结束码 → 可读文本,先屏蔽标志位再查表(内部函数)。

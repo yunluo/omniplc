@@ -321,13 +321,53 @@ def test_udp_auto_nodes_from_hostname_without_blocking_dns(
     loop.run_until_complete(scenario())
 
 
-def test_word_area_bit_write_is_read_modify_write(
+def test_word_area_bit_write_direct_parity(
     monkeypatch: pytest.MonkeyPatch, loop: Any
 ) -> None:
-    """字区(D)按位写走读-改-写两帧;位区(CIO)直接位写(与同步层一致)。"""
-    read_resp = _fins_response(1, 0x0101, data=b"\x00\x00")
-    write_resp = _fins_response(2, 0x0102)
-    chunks = list(_tcp_chunks(read_resp, write_resp))
+    """字区(D)按位写直接位写(0102 位码,手册 §5-3-3 可写表);同步/异步帧一致。"""
+    write_resp = _fins_response(1, 0x0102)
+    chunks = list(_tcp_chunks(write_resp))
+
+    sync_client = OmronFinsTcpClient(
+        "192.168.250.1", 9600, destination_node=_DEST_NODE, source_node=_SRC_NODE
+    )
+    sync_scripted = ScriptedTransport(chunks)
+    monkeypatch.setattr(sync_client, "_create_transport", lambda: sync_scripted)
+    sync_client.connect()
+    assert sync_client.write_bool("D100.3", True) is True
+    # 首笔事务为位码直写:D 区位码 0x02,地址含位号 3(帧布局:码[12] 字[13:15] 位[15])
+    first_fins = bytes(sync_scripted.sent)[20 + 16:]
+    assert first_fins[12] == 0x02
+    assert first_fins[15] == 3
+
+    holder: Dict[str, Any] = {}
+
+    async def scenario() -> None:
+        client = AsyncOmronFinsTcpClient(
+            "192.168.250.1", 9600, destination_node=_DEST_NODE, source_node=_SRC_NODE
+        )
+        scripted = ScriptedAsyncTransport(chunks)
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        await client.connect()
+        holder["ok"] = await client.write_bool("D100.3", True)
+        holder["sent"] = bytes(scripted.sent)
+        await client.close()
+
+    loop.run_until_complete(scenario())
+    assert holder["ok"] is True
+    assert holder["sent"] == bytes(sync_scripted.sent)
+    # 两帧带魔数:握手请求 + 位写(各自的 TCP 封装)
+    assert holder["sent"].count(b"FINS") == 2
+
+
+def test_d_area_bit_write_falls_back_on_1101_parity(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """字区(D)位写遇 0x1101(老固件不支持位区码)回退读-改-写;同步/异步一致。"""
+    err = _fins_response(1, 0x0102, end_code=0x1101)
+    read_resp = _fins_response(2, 0x0101, data=b"\x00\x00")
+    write_resp = _fins_response(3, 0x0102)
+    chunks = list(_tcp_chunks(err, read_resp, write_resp))
 
     sync_client = OmronFinsTcpClient(
         "192.168.250.1", 9600, destination_node=_DEST_NODE, source_node=_SRC_NODE
@@ -353,8 +393,8 @@ def test_word_area_bit_write_is_read_modify_write(
     loop.run_until_complete(scenario())
     assert holder["ok"] is True
     assert holder["sent"] == bytes(sync_scripted.sent)
-    # 三帧带魔数:握手请求 + 读 0401 + 写 0102(各自的 TCP 封装)
-    assert holder["sent"].count(b"FINS") == 3
+    # 四帧带魔数:握手 + 直写(0102)+ 读(0101)+ 写(0102)
+    assert holder["sent"].count(b"FINS") == 4
 
 
 def test_expected_request_frame_matches_codec(

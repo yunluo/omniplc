@@ -26,6 +26,20 @@ def _fins_write_response() -> bytes:
     return b"\xc0\x00\x02\x00\x0a\x00\x00\x05\x00\x02" + b"\x01\x02" + b"\x00\x00"
 
 
+def _fins_bit_write_response() -> bytes:
+    """构造位写响应(测试脚手架,SID=1,命令 0102)。"""
+    return b"\xc0\x00\x02\x00\x0a\x00\x00\x05\x00\x01" + b"\x01\x02" + b"\x00\x00"
+
+
+def _fins_bit_write_error_response(end_code: int) -> bytes:
+    """构造带结束码的位写响应(测试脚手架,SID=1,命令 0102)。"""
+    return (
+        b"\xc0\x00\x02\x00\x0a\x00\x00\x05\x00\x01"
+        + b"\x01\x02"
+        + end_code.to_bytes(2, "big")
+    )
+
+
 def _fins_error_response(end_code: int) -> bytes:
     """构造带结束码的读响应(测试脚手架)。"""
     return _FINS_ECHO_HEAD + b"\x01" + b"\x01\x01" + end_code.to_bytes(2, "big")
@@ -133,19 +147,89 @@ def test_tcp_handshake_and_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> No
     assert fins_request[7] == 11  # SA1 = 握手分配的本地节点
 
 
-def test_udp_word_bit_write_read_modify_write(monkeypatch: pytest.MonkeyPatch) -> None:
-    """UDP:D 区位写 = 读字 →改位→ 写字两段事务。"""
+def test_udp_d_area_bit_write_direct(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UDP:D 区位写直接位写(0102 位码 02,手册 §5-3-3 可写表含 DM Bit 02)。"""
     client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
-    scripted = ScriptedTransport([_fins_read_response([0x0004]), _fins_write_response()])
+    scripted = ScriptedTransport([_fins_bit_write_response()])
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     assert client.write_bool("D100.3", True) is True
-    expected = codec.build_area_read(
-        0, 5, 0, 0, 10, 0, 1, parse_fins_address("D100"), 1, False
-    ) + codec.build_area_write(
-        0, 5, 0, 0, 10, 0, 2, parse_fins_address("D100"), [0x000C], False
+    expected = codec.build_area_write(
+        0, 5, 0, 0, 10, 0, 1, parse_fins_address("D100.3"), [1], True
     )
     assert bytes(scripted.sent) == expected
+
+
+def test_udp_d_area_bit_write_falls_back_on_1101(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D 区位写遇 0x1101(老固件不支持位区码):回退读字改位写字(与位读对称)。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    error = _fins_bit_write_error_response(0x1101)  # 直写(SID=1)被拒
+    word = (  # 字读 D100(SID=2)= 0x0004
+        _FINS_ECHO_HEAD + b"\x02" + b"\x01\x01" + b"\x00\x00" + (0x0004).to_bytes(2, "big")
+    )
+    write = _FINS_ECHO_HEAD + b"\x03" + b"\x01\x02" + b"\x00\x00"  # 写字(SID=3)
+    scripted = ScriptedTransport([error, word, write])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.write_bool("D100.3", True) is True
+    expected = (
+        codec.build_area_write(0, 5, 0, 0, 10, 0, 1, parse_fins_address("D100.3"), [1], True)
+        + codec.build_area_read(0, 5, 0, 0, 10, 0, 2, parse_fins_address("D100"), 1, False)
+        + codec.build_area_write(0, 5, 0, 0, 10, 0, 3, parse_fins_address("D100"), [0x000C], False)
+    )
+    assert bytes(scripted.sent) == expected
+    assert client.connected is True
+
+
+def test_udp_end_code_0040_treated_as_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """结束码 0x0040(bit6 非致命 CPU 错误标志 + 主/子码 00)视为正常完成:
+    手册 §5-1-3「the end code of a sent command that is completed normally
+    is 0040」——读结果正常返回,不误报设备错误。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    response = (
+        _FINS_ECHO_HEAD
+        + b"\x01"
+        + b"\x01\x01"
+        + (0x0040).to_bytes(2, "big")
+        + (20).to_bytes(2, "big")
+    )
+    scripted = ScriptedTransport([response])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("D100") == (True, 20)
+    assert client.connected is True
+
+
+def test_string_rejects_bit_suffix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FINS 字符串读写拒绝位号后缀:字码访问带非零位号手册未定义(与 MC 一致,
+    不静默读整字/写整字)。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport([])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    with pytest.raises(ValueError):
+        client.read_string("D100.3", 4)
+    with pytest.raises(ValueError):
+        client.write_string("D100.3", "AB")
+    assert not scripted.sent
+
+
+def test_string_element_count_capped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """0101/0102 单命令元素数按 Ethernet 上限收口(W342 §5-2-2 p.168:读 999
+    字 / 写 997 字),超限入参期拒绝,不发帧。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport([])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    with pytest.raises(ValueError):
+        client.read_string("D100", 2000)  # 1000 字 > 999
+    with pytest.raises(ValueError):
+        client.write_string("D100", "A" * 2000)  # 1000 字 > 997
+    assert not scripted.sent
 
 
 def test_udp_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> None:

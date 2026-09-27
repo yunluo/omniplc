@@ -231,7 +231,7 @@ PyMuPDF 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、门�
 | 三菱 MX Component | ✅ 已完成 | P1 ProgID(`ActSupportMsg.ActSupportMsg`)、P2 控件创建兜底、P3 位软元件字访问口径统一——见下「MX 专项」 |
 | 三菱 MC 以太网(3E/4E/1E) | ✅ 已完成 | P0 设备码(三轮)+ ZR/1E X·Y 进制、字符串位号(本批)全修;见下「三菱 MC 专项」 |
 | 三菱 MC 串口(1C/3C/4C) | ✅ 已完成 | 三层实现与手册逐字节一致(黄金向量在库),点数上限口径注释订正——见下「三菱 MC 串口专项」 |
-| 欧姆龙 FINS | ⏳ 待查 | — |
+| 欧姆龙 FINS | ✅ 已完成 | P1 结束码 0040 正常完成 + 字符串 `.bit`、P2 D/EM 位写直写、P3 元素上限/区界/尾字节/文案——见下「欧姆龙 FINS 专项」 |
 | 欧姆龙 NJ/NX CIP | ⏳ 待查 | — |
 | Modbus(TCP/RTU) | ✅ 已完成 | 写响应回显校验、FC21/FC08 广播合法化、FC12 上界 0x46、写区域收口、FC24 变量名——见下「Modbus 专项」;另 FC20 上界 0x7D 维持自加宽容(见 P3 残留) |
 | AB EtherNet/IP(CIP) | ⏳ 待查 | 三轮 P2(ListIdentity 偏移、read_batch `.bit`)已修(2026-09-27,详见 P2 批);其余待查 |
@@ -326,6 +326,22 @@ byte count、FC43 按对象头)与 CRC 低字节在前。
 - **P3 RTU FC24 增量收包变量名误导(已订正)**:byte count 域值曾名 `fifo_count`,
   实为「Byte Count = 2 + 2×N」;逻辑复核无误(剩余 = 计数(2)+值(2N)+CRC(2)),仅正名
   并补注释。
+
+### 欧姆龙 FINS 专项(2026-09-27;W342 pdfplumber 全 270 页核对)
+
+核对通过(逐项对照手册):§3-3-3 帧头字段与范围——ICF `0x80/0xC0`、RSV `00`、GCT `02`(多网 07)、网络号 0~127、节点 1~254(FF=广播)、单元 00/FE/10-1F/E1、SID 00~FF;§5-2-2 存储区码——CIO `30/B0`、W `31/B1`、H `32/B2`、A `33/B3`、D `02/82`、T/C 完成标志 `09` / PV `89`、EM bank0-F 位 `20~2F`/字 `A0~AF`(与 §5-3-2/§5-3-3 附表一致);§5-3-2/§5-3-3 0101/0102 布局(字 2 字节、位 1 字节;T/C 仅 PV 可写);§5-3-5 0104 布局与上限(条目 = 码 + 字 2 + 位 0;Ethernet/Controller Link 167、SYSMAC LINK/DeviceNet 89);§5-2-2 p.168 元素上限(读 999 字/写 997 字);各区字地址上界(§5-2-2 p.165-166)。
+
+- **P1 正常完成结束码可能为 `0040` — 已修复**:W342 §5-1-3 p.161「Basically, the end code of a sent command that is completed normally is **0040**」——bit6/7(`0x00C0`)是**目标 CPU 单元错误标志**(非致命/致命,如电池电压低),与主/子码正交;CPU 存在该错误时,命令正常完成也会随 0040 返回。原实现 `end_code != 0` 一律抛 `DeviceError`,把正常读写误报失败且文本错指「目标 CPU 单元出错」。现 `codec._is_normal_end_code` 屏蔽 `0x00C0` 后主/子码为 0 即成功(接受 `0000/0040/0080/00C0`);**bit15 中继错误标志仍按错误**(响应会附中继错误码双字节、数据布局改变)。门禁 `test_parse_response_accepts_normal_completion_flag_codes`、`test_parse_response_rejects_relay_flag_with_zero_base`、`test_udp_end_code_0040_treated_as_success`。
+- **P1 字符串读写忽略 `.bit` — 已修复**:`_read_string`/`_write_string`(同步 + native)不校验位号后缀,字码访问却带非零位号(手册未定义,PLC 行为不定)——与 MC 专项同类。现两处拒绝;门禁 `test_string_rejects_bit_suffix`(断言零发帧)。
+- **P2 D/EM 位写统一读-改-写 — 已修复**:手册 §5-3-3 可写表含 **DM Bit `02` / EM Bit `20~2F`**(CS/CJ/CP/NSJ),位码直写可用;原实现一律 RMW(2 事务 + 并发写丢失窗口)。现 **0102 位码直写优先,遇 `0x1101`(老固件)回退读-改-写**(与位读回退对称);门禁 `test_udp_d_area_bit_write_direct`、`test_udp_d_area_bit_write_falls_back_on_1101` + native 直写/回退对拍。
+- **P3 0101/0102 元素上限未收口 — 已修复**:新增 `FINS_MAX_READ_ELEMENTS=999` / `FINS_MAX_WRITE_ELEMENTS=997`(§5-2-2 p.168,Ethernet/Controller Link),客户端 `_read_words`/`_write_words`(同步 + native)入参期拒绝;门禁 `test_string_element_count_capped`。
+- **P3 地址未按区门控 — 已修复**:新增 `FINS_MEMORY_AREA_MAX`(CIO 6143 / W·H 511 / A 959 / D·EM 32767 / T·C 4095,§5-2-2 p.165-166),`parse_fins_address` 解析期拒绝(超限不再靠 PLC 返回 1104);门禁 `test_parse_fins_address_rejects_out_of_area_range`。
+- **P3 响应尾字节未校验 — 已修复**:`parse_response`/`parse_multiple_area_read` 成功路径长度严格(读:14+数据;写:14),多余字节按坏帧(防帧失步,与 MC 1E 同口径);门禁 `test_parse_response_rejects_trailing_bytes`、`test_parse_multiple_area_read_rejects_trailing_bytes`。
+- **P3 结束码文案 8 条订正 — 已修复**:§5-1-3 逐项对表:`0202` 无指定单元(原误「无指定节点号」)、`0304` 单元号设置错误(原「节点号」)、`1101` 存储区码非法或存储区不存在、`1109` Relational error、`110A` 重复数据访问(微分监视/数据跟踪互斥)、`2202` 运行中不可执行(原「模式错误(停止)」反向)、`2502` 存储器内容错误(原「奇偶/校验和」)、`250A` CPU 总线单元错误。
+- **待补文档 — 已登记**:FINS/TCP 封装与节点分配握手(魔数 `FINS`、命令 0/2、错误域、24 字节握手响应)不在 W342 范围(需欧姆龙以太网单元手册 W420/W465/W344),已登记 `docs/protocol/README.md`「待补」+ `codec.py` 该段注释标「依据待补」。
+- **待核 / 能力缺口(未实现)**:节点 `FF`(广播,§3-3-3)不支持(节点范围 0~254);EM bank 10-18(位 `E0~E8`/字 `60~68`,CJ2/CS1D-CPU68HA 专属)与 EM 当前 bank(位 `0A`/字 `98`/`BC`)未实现(§5-2-2 注 1/2);位访问单次 1 点(位批量走 0104 字码提位)——设计边界。
+
+门禁:全量 **1256 passed**(+11)/ ruff / mypy(76) / ty 全零。
 
 ### 发布记录(2026-09-27)
 

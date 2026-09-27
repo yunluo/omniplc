@@ -250,3 +250,85 @@ def test_parse_tcp_head_accepts_minimum_length() -> None:
     """TCP 头长度域下限边界:等于 FINS 最小帧 14 字节时合法通过。"""
     head = b"FINS" + (14).to_bytes(4, "big")
     assert codec.parse_tcp_head(head) == 14
+
+
+def test_parse_response_accepts_normal_completion_flag_codes() -> None:
+    """正常完成可带 bit6/7 标志(0040/0080/00C0):手册 §5-1-3「the end code of
+    a sent command that is completed normally is 0040」——标志位是目标 CPU 单元
+    状态(非致命/致命错误),与主/子码正交,命令本身完成仍按成功处理。"""
+    for end_code in (0x0000, 0x0040, 0x0080, 0x00C0):
+        response = (
+            _FINS_ECHO_HEAD
+            + b"\x01"
+            + b"\x01\x01"
+            + end_code.to_bytes(2, "big")
+            + (20).to_bytes(2, "big")
+        )
+        assert codec.parse_response(response, _request_frame(), 1, False, True) == [20]
+
+
+def test_parse_response_rejects_relay_flag_with_zero_base() -> None:
+    """bit15 中继错误标志即使主/子码为 0(0x8000)也按错误处理:标志语义即
+    「中继出错」(手册 §5-1-3),且响应附中继错误码双字节、数据布局改变。"""
+    response = _FINS_ECHO_HEAD + b"\x01" + b"\x01\x01" + (0x8000).to_bytes(2, "big")
+    with pytest.raises(DeviceError) as exc_info:
+        codec.parse_response(response, _request_frame(), 1, False, True)
+    assert exc_info.value.code == 0x8000
+
+
+def test_parse_response_rejects_trailing_bytes() -> None:
+    """读响应数据区之后出现多余字节按坏帧处理(长度严格,防帧失步)。"""
+    response = (
+        _FINS_ECHO_HEAD
+        + b"\x01"
+        + b"\x01\x01"
+        + b"\x00\x00"
+        + b"\x00\x14"
+        + b"\x00"
+    )
+    with pytest.raises(ProtocolFrameError):
+        codec.parse_response(response, _request_frame(), 1, False, True)
+
+
+def test_parse_multiple_area_read_rejects_trailing_bytes() -> None:
+    """0104 响应数据区之后出现多余字节按坏帧处理(长度严格,防帧失步)。"""
+    request = codec.build_multiple_area_read(0, 0x0A, 0, 0, 5, 0, 1, [(0x82, 100)])
+    response = (
+        _FINS_ECHO_HEAD
+        + b"\x01"
+        + b"\x01\x04"
+        + b"\x00\x00"
+        + b"\x82"
+        + b"\x00\x14"
+        + b"\x00"
+    )
+    with pytest.raises(ProtocolFrameError):
+        codec.parse_multiple_area_read(response, request, [0x82])
+
+
+def test_parse_fins_address_rejects_out_of_area_range() -> None:
+    """地址超手册各区上限在解析期拒绝(§5-2-2 p.165-166:CIO≤6143、W/H≤511、
+    A≤959、D/EM≤32767、T/C≤4095);边界值合法。"""
+    for address in (
+        "D32768",
+        "CIO6144",
+        "W512",
+        "H512",
+        "A960",
+        "T4096",
+        "C4096",
+        "E0_32768",
+    ):
+        with pytest.raises(ValueError):
+            parse_fins_address(address)
+    for address in (
+        "D32767",
+        "CIO6143",
+        "W511",
+        "H511",
+        "A959",
+        "T4095",
+        "C4095",
+        "E0_32767",
+    ):
+        assert parse_fins_address(address).offset >= 0
