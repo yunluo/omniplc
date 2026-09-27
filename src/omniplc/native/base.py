@@ -49,6 +49,7 @@ from ..core.constants import (
     RECONNECT_BACKOFF_BASE,
     RECONNECT_BACKOFF_FACTOR,
     RECONNECT_BACKOFF_MAX,
+    RECONNECT_BACKOFF_MAX_EXPONENT,
 )
 from ..core.errors import (
     DeviceError,
@@ -681,10 +682,16 @@ class AsyncBaseClient(ABC):
             self._counters["disconnect_count"] += 1
 
     def _register_connect_failure(self) -> None:
-        """登记一次建连失败并推进退避门控(内部方法,须锁内调用)。"""
+        """登记一次建连失败并推进退避门控(内部方法,须锁内调用)。
+
+        指数先按 :data:`RECONNECT_BACKOFF_MAX_EXPONENT` 封顶再算(与同步
+        基类同口径):长跑轮询下失败次数可持续增长,``2.0 ** 大指数`` 会抛
+        ``OverflowError`` 逃出连接路径(退避门控本意是节流,不该把调用方
+        打断)。
+        """
+        exponent = min(self._connect_fail_count, RECONNECT_BACKOFF_MAX_EXPONENT)
         cap = min(
-            RECONNECT_BACKOFF_BASE
-            * (RECONNECT_BACKOFF_FACTOR ** self._connect_fail_count),
+            RECONNECT_BACKOFF_BASE * (RECONNECT_BACKOFF_FACTOR ** exponent),
             RECONNECT_BACKOFF_MAX,
         )
         self._next_connect_at = time.monotonic() + random.uniform(0.0, cap)
@@ -822,5 +829,11 @@ class AsyncBaseClient(ABC):
         exc_val: Optional[BaseException] = None,
         exc_tb: Optional[TracebackType] = None,
     ) -> None:
-        """退出 ``async with`` 时断开(幂等)。"""
-        await self.disconnect()
+        """退出 ``async with`` 时**关闸并断开**(幂等)。
+
+        与 :meth:`omniplc.aio.ABaseClient.__aexit__` 同口径:走
+        :meth:`close` 而非 :meth:`disconnect`——退出后同一实例再被调用
+        必须抛 ``RuntimeError``(块外继续用已关闭客户端的 bug 立即暴露),
+        而不是"重新惰性连接、悄悄成功"。
+        """
+        await self.close()

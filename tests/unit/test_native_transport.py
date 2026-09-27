@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 import asyncio
+import errno
+import logging
 import socket
 from typing import Any
 
@@ -262,6 +264,67 @@ def test_udp_hostname_resolves_to_ipv4_like_sync(loop: Any) -> None:
         loop.run_until_complete(scenario())
     finally:
         responder.stop()
+
+
+def test_udp_close_closes_socket_without_event_loop() -> None:
+    """无当前事件循环时 ``close()`` 仍要关掉句柄(摘注册失败不得连累关句柄)。
+
+    摘 selector 注册要拿事件循环;非主线程收尾 / 循环已关闭时 ``get_event_loop``
+    抛 ``RuntimeError``——若把它当致命错误,``sock.close()`` 就被跳过、fd 泄漏。
+    """
+    closed: list = []
+
+    class _Sock:
+        def fileno(self) -> int:
+            return 3
+
+        def close(self) -> None:
+            closed.append(True)
+
+    def _no_loop() -> Any:
+        raise RuntimeError("There is no current event loop in thread 'MainThread'")
+
+    real_get_event_loop = asyncio.get_event_loop
+    asyncio.get_event_loop = _no_loop  # type: ignore[assignment]
+    try:
+        transport = AsyncUdpTransport("127.0.0.1", 1)
+        transport._socket = _Sock()  # type: ignore[assignment]
+        transport.close()
+    finally:
+        asyncio.get_event_loop = real_get_event_loop  # type: ignore[assignment]
+
+    assert closed == [True], "无事件循环也必须关掉句柄"
+    assert transport._socket is None
+
+
+def test_udp_stale_selector_ebadf_logs_warning(caplog: Any) -> None:
+    """摘注册遇 ``EBADF`` → 记 WARNING(不再静默吞:fd 提前失效值得留痕)。"""
+
+    class _Sock:
+        def fileno(self) -> int:
+            return 3
+
+        def close(self) -> None:
+            pass
+
+    class _Loop:
+        def remove_reader(self, fd: int) -> None:
+            raise OSError(errno.EBADF, "Bad file descriptor")
+
+        def remove_writer(self, fd: int) -> None:
+            pass
+
+    real_get_event_loop = asyncio.get_event_loop
+    asyncio.get_event_loop = lambda: _Loop()  # type: ignore[assignment]
+    try:
+        transport = AsyncUdpTransport("127.0.0.1", 1)
+        transport._socket = _Sock()  # type: ignore[assignment]
+        with caplog.at_level(logging.WARNING, logger="omniplc.debug"):
+            transport.close()
+    finally:
+        asyncio.get_event_loop = real_get_event_loop  # type: ignore[assignment]
+
+    assert "摘除 selector 注册失败" in caplog.text
 
 
 def test_udp_send_timeout_is_socket_timeout(

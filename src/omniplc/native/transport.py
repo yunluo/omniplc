@@ -38,6 +38,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import socket
 from abc import ABC, abstractmethod
 from typing import Awaitable, List, Optional, Tuple, TypeVar
@@ -55,6 +56,10 @@ from ..transport.tcp import _enable_keepalive
 # Windows ``recv`` 对超长 UDP 报文抛 ``WSAEMSGSIZE``(errno 10040),与同步
 # 传输层同一常量含义:协议帧问题而非链路问题。
 _WSAEMSGSIZE_ERRNO = 10040
+
+# 摘 selector 注册时"句柄已不可用"的 errno:摘不到不影响关句柄,但会掩盖
+# fd 提前失效(用尽 / 被并发关闭),记一条 WARNING 而不是无声吞掉。
+_STALE_SELECTOR_ERRNOS = frozenset({errno.EBADF, errno.EINVAL})
 
 _T = TypeVar("_T")
 
@@ -406,21 +411,30 @@ class AsyncUdpTransport(AsyncBaseTransport):
         """关闭 UDP 套接字,幂等。
 
         **先摘 selector 注册、再关句柄**:3.7 的 ``sock_recv_into`` /
-        ``sock_sendall`` 被取消时不会立即摘除注册(要等该 fd 下次就绪才自清
-        理),此时关掉句柄,``select()`` 会对已关闭句柄抛 ``WSAENOTSOCK``
+        ``sock_sendall`` 被取消时不会立即摘除注册(要等该 fd 下次就绪才自
+        清理),此时关掉句柄,``select()`` 会对已关闭句柄抛 ``WSAENOTSOCK``
         (Windows 10038;POSIX ``EBADF``)把事件循环带崩。取消路径(``_execute``
         按"已发出请求"保守拆连)与用户直接 ``close()`` / ``disconnect()`` 都
         经过本方法,故收口在这里(与发/收超时路径的显式调用并存,幂等无害)。
+
+        摘注册是尽力而为,**关句柄不是**:两步分开兜底,摘注册出任何岔子
+        也必须走到 ``sock.close()``——``close()`` 在无事件循环的线程里也会被
+        调用(如非主线程收尾),漏关就是 fd 泄漏。
         """
         sock = self._socket
-        if sock is not None:
-            try:
-                self._clear_stale_selector(sock)
-                sock.close()
-            finally:
-                self._socket = None
-                self._peer_ip = None
-            log_op(self._debug_label, "已断开")
+        if sock is None:
+            return
+        self._socket = None
+        self._peer_ip = None
+        try:
+            self._clear_stale_selector(sock)
+        except Exception as exc:  # 防御:摘注册不该抛,更不能连累关句柄
+            log_warning(self._debug_label, "摘除 selector 注册异常:%s", exc)
+        try:
+            sock.close()
+        except OSError as exc:
+            log_warning(self._debug_label, "关闭 UDP 套接字失败:%s", exc)
+        log_op(self._debug_label, "已断开")
 
     async def send(self, data: bytes) -> None:
         """发送一条数据报到固定对端。
@@ -495,17 +509,36 @@ class AsyncUdpTransport(AsyncBaseTransport):
 
         Proactor 循环的 ``sock_*`` 走 IOCP,没有 selector 注册
         (``remove_*`` 抛 ``NotImplementedError``),直接忽略。
+
+        **无当前事件循环时静默返回**(非主线程 / 循环已关闭):没有 selector
+        可摘,但调用方必须仍能关掉句柄(见 :meth:`close`)。摘注册失败里只有
+        "句柄已不可用"(``EBADF``/``EINVAL``)记 WARNING——fd 提前失效值得
+        留痕,其余(注册本就不存在等)属正常路径。
         """
         try:
             fd = sock.fileno()
         except (AttributeError, OSError, ValueError):
             return  # 假 socket / 句柄已失效:没有可摘的注册,尽力而为
-        loop = asyncio.get_event_loop()
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            return  # 无当前事件循环:无 selector 注册可摘
         for remove in (loop.remove_reader, loop.remove_writer):
             try:
                 remove(fd)
-            except (NotImplementedError, OSError, ValueError):
+            except NotImplementedError:
+                pass  # Proactor/IOCP:没有 selector 注册
+            except ValueError:
                 pass
+            except OSError as exc:
+                if getattr(exc, "errno", None) in _STALE_SELECTOR_ERRNOS:
+                    log_warning(
+                        self._debug_label,
+                        "摘除 selector 注册失败(fd=%s, errno=%s):%s",
+                        fd,
+                        getattr(exc, "errno", None),
+                        exc,
+                    )
 
     def _require_socket(self) -> socket.socket:
         """取当前 socket,未初始化则抛出。"""

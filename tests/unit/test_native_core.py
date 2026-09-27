@@ -19,6 +19,7 @@ from typing import Any, List, Optional, Sequence
 
 import pytest
 
+from omniplc.core.constants import RECONNECT_BACKOFF_MAX
 from omniplc.core.errors import TransportTimeoutError
 from omniplc.native import AsyncModbusTcpClient
 from omniplc.native.transport import AsyncBaseTransport
@@ -295,3 +296,40 @@ def test_typed_calls_share_one_transaction_template() -> None:
 
     asyncio.run(typed_client.close())
     asyncio.run(generic_client.close())
+
+
+def test_backoff_exponent_is_capped() -> None:
+    """退避指数封顶(与同步基类同口径):失败次数很大时不得抛 ``OverflowError``。
+
+    长跑轮询下 ``_connect_fail_count`` 可持续增长,``2.0 ** 大指数`` 会抛
+    ``OverflowError`` 逃出连接路径——退避门控本意是节流,不该把调用方打断。
+    """
+    transport = FakeTransport([], connect_error=ConnectionRefusedError("模拟拒绝"))
+    client = _client(transport)
+    client._connect_fail_count = 5000  # 远超 2**1024 的理论累积值
+
+    assert asyncio.run(client.connect()) is False  # 不抛 OverflowError
+
+    assert client.next_connect_in is not None
+    assert 0.0 <= client.next_connect_in <= RECONNECT_BACKOFF_MAX
+    asyncio.run(client.close())
+
+
+def test_async_with_exit_gates_the_client_like_close() -> None:
+    """``async with`` 退出 = ``close()``(关闸),不是 ``disconnect()``。
+
+    块外继续用同一实例必须抛 ``RuntimeError``(与 ``omniplc.aio`` 同口径):
+    退出即断开、再调用不静默惰性重连——块外误用立即暴露,而不是"悄悄又连上"。
+    """
+    transport = FakeTransport(_chunks(_RESP_TID1))
+    client = _client(transport)
+
+    async def scenario() -> None:
+        async with client:
+            assert client.connected is True
+            assert await client.read_ushort("hr0") == (True, 20)
+        assert client.connected is False, "退出 async with 必须断开"
+        with pytest.raises(RuntimeError):
+            await client.read_ushort("hr0")
+
+    asyncio.run(scenario())
