@@ -240,7 +240,7 @@ pdfplumber 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、�
 | 倍福 TwinCAT ADS | ✅ 已完成 | P2 补 0x1A ERR_TCPSEND / transport 分类改 TRANSPORT / `write(STRING)` 补声明长预检;P3 自动 NetId 要求 IP 字面量——见下「倍福 TwinCAT ADS 专项」 |
 | 西门子 S7 | ✅ 已完成 | P2 多变量批量读(snap7 read_multi_vars 双线 1.x ctypes / 3.x dict);P3 `_write` KeyError 修 + `DataType.STRING` 路由预检 + docstring `DataType.BYTE` 修——见下「西门子 S7 专项」 |
 | OPC-UA | ✅ 已完成 | P2 Deadband 透传(DataChangeFilter);P3 GUID 格式严格校验(8-4-4-4-12)+ browse ReferenceType;§2.11.5/7/8 已由既有修复覆盖——见下「OPC-UA 专项」 |
-| MTConnect | ⏳ 待查 | — |
+| MTConnect | ✅ 已完成 | P2 `/sample` 历史流 + `/asset` + 多 Device `/probe`;P3 空元素 UNAVAILABLE + path 过滤——见下「MTConnect 专项」 |
 | 汇川 H3U/H5U(Modbus + MC 兼容) | ✅ 已完成 | P2 X/Y 上限按 H5U 放宽到 X1777(1024 点)、P2 C200~C255 32 位计数器字访问(0xF700 双寄存器 + 32 位类型门控);地址表逐项对照 H3U 9.4.3 / H5U 9.5.1 与 MC 16.4——见下「汇川专项」 |
 | 丰田 TOYOPUC / 松下 / 基恩士 KV·SR | ⏳ 待查 | 部分厂商手册在「待补」表 |
 | native / aio 层 | ⏳ 待查 | 三轮 P1 恒等缩放(同步回归 + native 镜像)、Modbus 区域×类型、TOYOPUC 负写已修(2026-09-27);退避封顶等 P2 待处理 |
@@ -360,6 +360,19 @@ byte count、FC43 按对象头)与 CRC 低字节在前。
 - **待核/能力缺口(登记)**:`S7comm` 帧格式(依赖 pyS7snap7);SZL 系统状态列表;块操作;DB 寻址全部经绝对寻址,优化块访问(`_raise_link_aware` 提示)。
 
 门禁:全量 **1267 passed**(+8)/ ruff / mypy(76) / ty 全零。
+
+### MTConnect 专项(2026-09-27;Part1 v1.5 pdfplumber 全 142 页核对)
+
+核对通过:Part1 §8.2 `/probe`(§p.13-14)、§8.3.1 `/current`、§8.3.3 Sample Request p.106-111、§8.3.4 Asset Request p.114-115、§6.5.2.2 Streams Header p.77-78(`nextSequence`/`firstSequence`/`lastSequence`/`instanceId`)。`/probe`、`/current`、`/sample`、`/assets`、`/asset/{id}` 端点定义与实现一致。
+
+- **P2 §2.12.1 无 `/sample` 历史流——已修复**:新增 `read_sample(from_sequence=None, count=100, *, path=None, at=None)`——Query 依 Part1 §8.3.3.2 p.108-109(`from` uint64 起始序号 / `count`(缺省 100)/ `path` XPath / `at` 指定序号);响应解析 Streams 逐样本(sequence/dataItemId/name/type/subType/timestamp/value)+ Header `nextSequence`(= lastSequence+1,供游标续拉)。`count<1` / `from` 与 `at` 互斥 / 负数 → 入参期 `ValueError`(零请求)。
+- **P2 §2.12.3 `/probe` 仅返首个 Device——已修复**:新增 `probe_all()` 返回全部 Device 属性列表(§8.2);保留 `probe()`(首个,兼容既有调用)。
+- **P2 §2.12.4 `/asset` 未实现——已修复**:新增 `read_assets(asset_ids=None)`——无参走 `/assets`(全量,§8.3.4.1 p.114),指定 id 走 `/asset/id1;id2`(`;` 分隔,§p.114);仅取 `<Assets>` 直接子元素(不吞嵌套 `<Description>`);`_parse_document` 扩认可 `MTConnectAssets` 根。
+- **P3 §2.12.2 UNAVAILABLE 空元素形态——已修复**:`_fetch_items` 对带 `dataItemId` 的空元素/空文本**不再跳过**,存空串;`_read` 将空值按「当前不可用」处理(DeviceError,不断线)——原实现跳过致 `_read` 误报「数据项不存在」。
+- **P3 §2.12.5 条件项/快照无过滤维度——已修复**:`snapshot`/`read_conditions` 新增 `path` 关键字参(XPath → `/current?path=...`);`read_sample` 同。`_query` 助手统一 URL 编码。
+- **待核/能力缺口(登记)**:§2.12.6 keep-alive 策略不可配(HTTP `Connection: close` 开关,低价值暂缓);三轮 P3「单点读每次拉整份 /current」(快照缓存 TTL,低价值暂缓);`/sample` 的 `interval` 流式持续推送(需长连接 + 分块解析,留后续);ANSI/MTC1.4-2018 完整标准未收录(`docs/protocol/README.md` 待补)。
+
+门禁:全量 **1290 passed**(+12)/ ruff / mypy(76) / ty 全零。
 
 ### OPC-UA 专项(2026-09-27;Part1 pdfplumber 全 30 页核对)
 

@@ -63,8 +63,52 @@ _PROBE_XML = """<?xml version="1.0" encoding="UTF-8"?>
     <Device name="VMC-850" uuid="dev.001" sampleInterval="100">
       <Description manufacturer="ACME">三轴立加</Description>
     </Device>
+    <Device name="ROBOT-2" uuid="dev.002" sampleInterval="50">
+      <Description manufacturer="ACME">上料机器人</Description>
+    </Device>
   </Devices>
 </MTConnectDevices>"""
+
+_EMPTY_VALUE_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<MTConnectStreams xmlns="urn:mtconnect.org:MTConnectStreams:1.3">
+  <Header instanceId="123" bufferSize="131072" nextSequence="45"/>
+  <Streams>
+    <DeviceStream name="VMC-850" uuid="dev.001">
+      <ComponentStream component="Controller" id="c1">
+        <Events>
+          <PowerState dataItemId="power"/>
+          <Execution dataItemId="exec">ACTIVE</Execution>
+        </Events>
+      </ComponentStream>
+    </DeviceStream>
+  </Streams>
+</MTConnectStreams>"""
+
+_SAMPLE_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<MTConnectStreams xmlns="urn:mtconnect.org:MTConnectStreams:1.3">
+  <Header instanceId="123" bufferSize="131072" firstSequence="40" lastSequence="44" nextSequence="45"/>
+  <Streams>
+    <DeviceStream name="VMC-850" uuid="dev.001">
+      <ComponentStream component="Linear" id="x1">
+        <Samples>
+          <Position dataItemId="Xact" name="Xact" sequence="43" timestamp="2020-01-01T00:00:01Z" subType="ACTUAL">10.5</Position>
+          <Position dataItemId="Xact" name="Xact" sequence="44" timestamp="2020-01-01T00:00:02Z" subType="ACTUAL">11.0</Position>
+        </Samples>
+      </ComponentStream>
+    </DeviceStream>
+  </Streams>
+</MTConnectStreams>"""
+
+_ASSETS_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<MTConnectAssets xmlns="urn:mtconnect.org:MTConnectAssets:1.3">
+  <Header instanceId="123"/>
+  <Assets>
+    <CuttingTool id="tool.1" type="Milling">
+      <Description>立铣刀</Description>
+    </CuttingTool>
+    <File id="file.1" name="prog.nc" mediaType="text/plain">O0022</File>
+  </Assets>
+</MTConnectAssets>"""
 
 
 class FakeResponse:
@@ -541,3 +585,123 @@ def test_doctype_utf16_payload_rejected(monkeypatch: pytest.MonkeyPatch) -> None
     assert client.snapshot() == (False, None)
     assert client.connected is False
     assert "DOCTYPE" in (client.last_error or "")
+
+
+# ----------------------------------------------------------------------
+# MTConnect 专项:/sample、/asset、多 Device、空元素 UNAVAILABLE、path 过滤
+# ----------------------------------------------------------------------
+
+def _client_with(monkeypatch: pytest.MonkeyPatch, responses: dict) -> MTConnectClient:
+    """挂假连接工厂并预置路径 → 响应,返回已连接客户端(测试脚手架)。"""
+    conn = FakeHTTPConnection("127.0.0.1", 5000)
+    conn.responses = responses
+    monkeypatch.setattr(mtc_module, "_new_connection", lambda ip, port, timeout: conn)
+    client = MTConnectClient("127.0.0.1", 5000)
+    assert client.connect() is True
+    return client
+
+
+def test_empty_element_treated_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """空元素形态(<PowerState dataItemId=.../>)视为当前不可用,不误报"不存在"。"""
+    client = _client_with(
+        monkeypatch, {"/current": (200, _EMPTY_VALUE_XML.encode("utf-8"))}
+    )
+    ok, value = client.read_string("power")
+    assert ok is False and value is None
+    assert client.last_error is not None and "不可用" in client.last_error
+    assert "不存在" not in client.last_error
+    assert client.read_string("exec") == (True, "ACTIVE")
+
+
+def test_probe_all_devices(monkeypatch: pytest.MonkeyPatch) -> None:
+    """/probe 多 Device:probe_all 返回全部;probe 仍取首个(兼容)。"""
+    client = _client_with(
+        monkeypatch, {"/probe": (200, _PROBE_XML.encode("utf-8"))}
+    )
+    ok, devices = client.probe_all()
+    assert ok is True and devices is not None
+    assert [d["name"] for d in devices] == ["VMC-850", "ROBOT-2"]
+    ok, first = client.probe()
+    assert ok is True and first is not None and first["name"] == "VMC-850"
+
+
+def test_read_sample_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    """/sample 历史流:from/count 进查询串,Header.nextSequence 与逐样本返回。"""
+    path = "/sample?from=43&count=2"
+    client = _client_with(
+        monkeypatch, {path: (200, _SAMPLE_XML.encode("utf-8"))}
+    )
+    ok, result = client.read_sample(from_sequence=43, count=2)
+    assert ok is True and result is not None
+    assert result["next_sequence"] == 45
+    samples = result["samples"]
+    assert [s["sequence"] for s in samples] == [43, 44]
+    assert samples[0]["data_item_id"] == "Xact"
+    assert samples[0]["name"] == "Xact"
+    assert samples[0]["value"] == "10.5"
+    assert samples[0]["timestamp"] == "2020-01-01T00:00:01Z"
+
+
+def test_read_sample_validation() -> None:
+    """read_sample 入参校验:count<1、from 与 at 互斥 → ValueError(零请求)。"""
+    client = MTConnectClient("127.0.0.1", 5000)
+    with pytest.raises(ValueError):
+        client.read_sample(count=0)
+    with pytest.raises(ValueError):
+        client.read_sample(count=-1)
+    with pytest.raises(ValueError):
+        client.read_sample(from_sequence=1, at=2)
+
+
+def test_read_assets_all_and_by_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """/assets 全量;指定 asset_ids 时走 /asset/id1;id2 并返回各资产。"""
+    client = _client_with(
+        monkeypatch,
+        {
+            "/assets": (200, _ASSETS_XML.encode("utf-8")),
+            "/asset/tool.1;file.1": (200, _ASSETS_XML.encode("utf-8")),
+        },
+    )
+    ok, assets = client.read_assets()
+    assert ok is True and assets is not None
+    assert [a["id"] for a in assets] == ["tool.1", "file.1"]
+    assert assets[0]["type"] == "CuttingTool"
+    assert assets[1]["attributes"]["mediaType"] == "text/plain"
+    ok, subset = client.read_assets(["tool.1", "file.1"])
+    assert ok is True and subset is not None and len(subset) == 2
+
+
+def test_snapshot_path_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """snapshot 支持 path 查询(/current?path=...)。"""
+    path = "/current?path=%2F%2FLinear"
+    client = _client_with(
+        monkeypatch, {path: (200, _CURRENT_XML.encode("utf-8"))}
+    )
+    ok, items = client.snapshot(path="//Linear")
+    assert ok is True and items is not None and items["Xact"] == "123.456"
+
+
+def test_async_mirror_sample_and_assets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """aio 镜像:read_sample / read_assets / probe_all 转发同步实现。"""
+    import asyncio
+
+    conn = FakeHTTPConnection("127.0.0.1", 5000)
+    conn.responses = {
+        "/sample?from=43&count=2": (200, _SAMPLE_XML.encode("utf-8")),
+        "/assets": (200, _ASSETS_XML.encode("utf-8")),
+        "/probe": (200, _PROBE_XML.encode("utf-8")),
+    }
+    monkeypatch.setattr(mtc_module, "_new_connection", lambda ip, port, timeout: conn)
+
+    async def scenario() -> None:
+        client = AMTConnectClient("127.0.0.1", 5000)
+        assert await client.connect() is True
+        ok, sample = await client.read_sample(from_sequence=43, count=2)
+        assert ok is True and sample is not None and sample["next_sequence"] == 45
+        ok, assets = await client.read_assets()
+        assert ok is True and assets is not None and len(assets) == 2
+        ok, devices = await client.probe_all()
+        assert ok is True and devices is not None and len(devices) == 2
+        await client.disconnect()
+
+    asyncio.run(scenario())

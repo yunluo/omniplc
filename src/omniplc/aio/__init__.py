@@ -1784,17 +1784,46 @@ class AMTConnectClient(ABaseClient):
         """取 MTConnect 同步实例(内部属性)。"""
         return self._typed(MTConnectClient)
 
-    async def snapshot(self) -> Tuple[bool, Optional[Dict[str, str]]]:
+    async def snapshot(
+        self, *, path: Optional[str] = None
+    ) -> Tuple[bool, Optional[Dict[str, str]]]:
         """读取 /current 全量数据项快照(id/name → 文本值)。"""
-        return await self._run(lambda: self._client().snapshot())
+        return await self._run(lambda: self._client().snapshot(path=path))
 
-    async def read_conditions(self) -> Tuple[bool, Optional[List[Dict[str, str]]]]:
+    async def read_conditions(
+        self, *, path: Optional[str] = None
+    ) -> Tuple[bool, Optional[List[Dict[str, str]]]]:
         """读取条件项(报警/警告/正常)当前列表。"""
-        return await self._run(lambda: self._client().read_conditions())
+        return await self._run(lambda: self._client().read_conditions(path=path))
 
     async def probe(self) -> Tuple[bool, Optional[Dict[str, str]]]:
-        """读取 /probe 设备信息。"""
+        """读取 /probe 设备信息(多设备取首个)。"""
         return await self._run(lambda: self._client().probe())
+
+    async def probe_all(self) -> Tuple[bool, Optional[List[Dict[str, str]]]]:
+        """读取 /probe 全部 Device 属性。"""
+        return await self._run(lambda: self._client().probe_all())
+
+    async def read_sample(
+        self,
+        from_sequence: Optional[int] = None,
+        count: int = 100,
+        *,
+        path: Optional[str] = None,
+        at: Optional[int] = None,
+    ) -> Tuple[bool, Optional[Dict[str, object]]]:
+        """读取 /sample 历史流(语义同同步版)。"""
+        return await self._run(
+            lambda: self._client().read_sample(
+                from_sequence, count, path=path, at=at
+            )
+        )
+
+    async def read_assets(
+        self, asset_ids: Optional[List[str]] = None
+    ) -> Tuple[bool, Optional[List[Dict[str, object]]]]:
+        """读取 /assets(或其子集)(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_assets(asset_ids))
 
 
 class AAllenBradleyEthIpClient(ABaseClient):

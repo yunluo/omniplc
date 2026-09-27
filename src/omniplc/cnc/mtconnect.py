@@ -1,14 +1,16 @@
 """CNC MTConnect 客户端(HTTP/XML 只读数采,Agent 默认端口 5000)。
 
-依据:MTConnect Part1 Overview and Fundamentals(HTTP 请求 /probe、/current、/sample、
-/assets、/asset/{id})。
+依据:MTConnect Part1 Overview and Fundamentals v1.5——§8.2 `/probe` p.13-14、
+§8.3.1 `/current`、§8.3.3 Sample Request p.106-111、§8.3.4 Asset Request
+p.114-115、§6.5.2.2 Streams Header p.77-78(`nextSequence` 等)。
 
 MTConnect 是机床数控领域开放的互联标准:机器侧运行 MTConnect **Agent**
 (HTTP 服务,由 FANUC/三菱等控制器的适配器喂数),客户端以普通 HTTP GET
 读取 XML 文档——``/probe``(设备清单)、``/current``(全量当前值快照)、
-``/sample``(按序号的历史流)。本驱动用 Python 标准库 ``http.client`` +
-``xml.etree`` 直接实现,**零第三方依赖、跨平台**(Agent 与控制器品牌解耦);
-FANUC FOCAS / 三菱 EZSocket 类 Windows DLL 封装留后续版本。
+``/sample``(按序号的历史流)、``/assets``·``/asset/{id}``(资产)。本驱动用
+Python 标准库 ``http.client`` + ``xml.etree`` 直接实现,**零第三方依赖、
+跨平台**(Agent 与控制器品牌解耦);FANUC FOCAS / 三菱 EZSocket 类
+Windows DLL 封装留后续版本。
 
 类继承::
 
@@ -17,19 +19,21 @@ FANUC FOCAS / 三菱 EZSocket 类 Windows DLL 封装留后续版本。
 
 地址即**数据项 id**(兼容其 ``name`` 属性),如 ``Sspeed``/``Xact``/
 ``execution``;值为 Agent 返回的文本,按显式 DataType 收窄。数据项当前
-不可用(``UNAVAILABLE``/``NOT_AVAILABLE``)或不存在 → DeviceError
+不可用(``UNAVAILABLE``/``NOT_AVAILABLE``/**空元素**)或不存在 → DeviceError
 (设备侧条件,不断线);XML 非法/非 MTConnect 文档 → ProtocolFrameError
 断线;HTTP 4xx/5xx 携带 MTConnectError 文档 → DeviceError,否则 OSError。
 
 v1 范围:**只读监控**——类型化 ``read_*``、``snapshot()`` 全量快照、
-``read_conditions()`` 条件项(报警/警告/正常)、``probe()`` 设备信息。
-写入、/sample 历史流、订阅留后续版本。
+``read_conditions()`` 条件项(报警/警告/正常)、``probe()``/``probe_all()``
+设备信息、``read_sample()`` 历史流、``read_assets()`` 资产。写入、
+`/sample?interval` 流式持续推送、订阅留后续版本。
 """
 from __future__ import annotations
 
 import http.client
 import xml.etree.ElementTree as ElementTree
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
+from urllib.parse import quote
 
 from ..core.base_client import BaseClient, validate_endpoint
 from ..core.constants import (
@@ -45,6 +49,9 @@ from ..transport.base import BaseTransport
 
 _CURRENT_PATH = "/current"
 _PROBE_PATH = "/probe"
+_SAMPLE_PATH = "/sample"
+_ASSETS_PATH = "/assets"
+_ASSET_PATH = "/asset"
 
 _UNAVAILABLE_VALUES = ("unavailable", "not_available")
 """MTConnect 约定的"当前无值"文本(比较用小写)。"""
@@ -110,7 +117,12 @@ def _parse_document(body: bytes) -> ElementTree.Element:
     except ElementTree.ParseError as exc:
         raise ProtocolFrameError(f"MTConnect 响应不是合法 XML:{exc}") from exc
     name = _local_name(root.tag)
-    if name not in ("MTConnectStreams", "MTConnectDevices", "MTConnectError"):
+    if name not in (
+        "MTConnectStreams",
+        "MTConnectDevices",
+        "MTConnectAssets",
+        "MTConnectError",
+    ):
         raise ProtocolFrameError(f"MTConnect 响应文档类型非法:{name}")
     return root
 
@@ -130,6 +142,21 @@ def _new_connection(
 ) -> http.client.HTTPConnection:
     """创建 HTTP 连接(模块级,单测以假连接替换;内部函数)。"""
     return http.client.HTTPConnection(ip_address, port, timeout=timeout)
+
+
+def _query(path: Optional[str], params: Optional[Sequence[Tuple[str, str]]] = None) -> str:
+    """组装 HTTP 查询串(内部函数)。
+
+    :param path: 可选 XPath(``path=<XPath>``,URL 编码)
+    :param params: 其他 ``(键, 值)`` 对(原样按 URL 编码拼接)
+    :return: ``"?k=v&..."``;无参数时返回空串
+    """
+    parts = []
+    if path:
+        parts.append("path=" + quote(path, safe=""))
+    for key, value in params or ():
+        parts.append("{}={}".format(key, quote(str(value), safe="")))
+    return "?" + "&".join(parts) if parts else ""
 
 
 class _MtConnectSession(BaseTransport):
@@ -315,9 +342,12 @@ class MTConnectClient(BaseClient):
         """GET 一个 MTConnect 文档并解析(内部方法)。"""
         return _parse_document(self._session().request(path))
 
-    def _fetch_items(self) -> Dict[str, str]:
-        """读取 /current 快照,展开为 id/name → 文本值(内部方法)。"""
-        root = self._fetch(_CURRENT_PATH)
+    def _fetch_items(self, path: Optional[str] = None) -> Dict[str, str]:
+        """读取 /current 快照,展开为 id/name → 文本值(内部方法)。
+
+        :param path: 可选 XPath 查询(``/current?path=<XPath>`` 过滤)
+        """
+        root = self._fetch(_CURRENT_PATH + _query(path))
         if _local_name(root.tag) != "MTConnectStreams":
             raise ProtocolFrameError(
                 f"MTConnect /current 返回了 {_local_name(root.tag)} 文档"
@@ -327,18 +357,18 @@ class MTConnectClient(BaseClient):
             item_id = elem.attrib.get("dataItemId")
             if item_id is None:
                 continue
+            # 空元素/空文本是"当前无值"的合法形态(UNAVAILABLE 等价),
+            # 存空串而非跳过,供 _read 报"不可用"而非"不存在"
             text = (elem.text or "").strip()
-            if not text:
-                continue
             items[item_id] = text
             name = elem.attrib.get("name")
             if name is not None and name not in items:
                 items[name] = text
         return items
 
-    def _fetch_conditions(self) -> List[Dict[str, str]]:
+    def _fetch_conditions(self, path: Optional[str] = None) -> List[Dict[str, str]]:
         """读取 /current 条件项(报警/警告/正常)列表(内部方法)。"""
-        root = self._fetch(_CURRENT_PATH)
+        root = self._fetch(_CURRENT_PATH + _query(path))
         if _local_name(root.tag) != "MTConnectStreams":
             raise ProtocolFrameError(
                 f"MTConnect /current 返回了 {_local_name(root.tag)} 文档"
@@ -362,16 +392,112 @@ class MTConnectClient(BaseClient):
         return conditions
 
     def _fetch_probe(self) -> Dict[str, str]:
-        """读取 /probe,返回第一个 Device 的属性(内部方法)。"""
+        """读取 /probe,返回第一个 Device 的属性(内部方法,兼容保留)。"""
+        devices = self._fetch_probe_devices()
+        if not devices:
+            raise DeviceError("MTConnect /probe 未包含 Device", 0)
+        return devices[0]
+
+    def _fetch_probe_devices(self) -> List[Dict[str, str]]:
+        """读取 /probe,返回全部 Device 的属性列表(内部方法)。"""
         root = self._fetch(_PROBE_PATH)
         if _local_name(root.tag) != "MTConnectDevices":
             raise ProtocolFrameError(
                 f"MTConnect /probe 返回了 {_local_name(root.tag)} 文档"
             )
+        devices: List[Dict[str, str]] = []
         for elem in root.iter():
             if _local_name(elem.tag) == "Device":
-                return dict(elem.attrib)
-        raise DeviceError("MTConnect /probe 未包含 Device", 0)
+                devices.append(dict(elem.attrib))
+        return devices
+
+    def _fetch_sample(
+        self,
+        from_sequence: Optional[int],
+        count: int,
+        path: Optional[str],
+        at: Optional[int],
+    ) -> Dict[str, object]:
+        """读取 /sample 历史流(内部方法)。
+
+        Query 依 Part1 §8.3.3.2 p.108-109:``from``(uint64 起始序号)、
+        ``count``(样本数,缺省 100)、``path``(XPath 过滤)、``at``(指定序号)。
+        响应 Header 的 ``nextSequence``(= lastSequence+1)供游标续拉。
+        """
+        params: List[Tuple[str, str]] = []
+        if at is not None:
+            params.append(("at", str(int(at))))
+        elif from_sequence is not None:
+            params.append(("from", str(int(from_sequence))))
+        params.append(("count", str(int(count))))
+        root = self._fetch(_SAMPLE_PATH + _query(path, params))
+        if _local_name(root.tag) != "MTConnectStreams":
+            raise ProtocolFrameError(
+                f"MTConnect /sample 返回了 {_local_name(root.tag)} 文档"
+            )
+        next_sequence: Optional[int] = None
+        samples: List[Dict[str, object]] = []
+        for elem in root.iter():
+            tag = _local_name(elem.tag)
+            if tag == "Header":
+                raw_next = elem.attrib.get("nextSequence")
+                if raw_next is not None:
+                    try:
+                        next_sequence = int(raw_next)
+                    except ValueError:
+                        next_sequence = None
+                continue
+            sequence = elem.attrib.get("sequence")
+            data_item_id = elem.attrib.get("dataItemId")
+            if sequence is None or data_item_id is None:
+                continue
+            try:
+                seq_number: Optional[int] = int(sequence)
+            except ValueError:
+                continue
+            samples.append(
+                {
+                    "sequence": seq_number,
+                    "data_item_id": data_item_id,
+                    "name": elem.attrib.get("name", ""),
+                    "type": tag,
+                    "sub_type": elem.attrib.get("subType", ""),
+                    "timestamp": elem.attrib.get("timestamp", ""),
+                    "value": (elem.text or "").strip(),
+                }
+            )
+        return {"next_sequence": next_sequence, "samples": samples}
+
+    def _fetch_assets(self, asset_ids: Optional[List[str]]) -> List[Dict[str, object]]:
+        """读取 /assets(全量)或 /asset/{id;id}(指定)(内部方法)。"""
+        if asset_ids:
+            path = _ASSET_PATH + "/" + ";".join(asset_ids)
+        else:
+            path = _ASSETS_PATH
+        root = self._fetch(path)
+        if _local_name(root.tag) != "MTConnectAssets":
+            raise ProtocolFrameError(
+                f"MTConnect /asset 返回了 {_local_name(root.tag)} 文档"
+            )
+        assets_elem = None
+        for elem in root.iter():
+            if _local_name(elem.tag) == "Assets":
+                assets_elem = elem
+                break
+        if assets_elem is None:
+            return []
+        assets: List[Dict[str, object]] = []
+        for elem in list(assets_elem):
+            tag = _local_name(elem.tag)
+            assets.append(
+                {
+                    "type": tag,
+                    "id": elem.attrib.get("id", ""),
+                    "attributes": dict(elem.attrib),
+                    "text": (elem.text or "").strip(),
+                }
+            )
+        return assets
 
     # ------------------------------------------------------------------
     # 协议原语
@@ -392,9 +518,9 @@ class MTConnectClient(BaseClient):
         if text not in items:
             raise DeviceError(f"MTConnect 数据项不存在:{text}", 0)
         value = items[text]
-        if value.lower() in _UNAVAILABLE_VALUES:
+        if value == "" or value.lower() in _UNAVAILABLE_VALUES:
             raise DeviceError(
-                f"MTConnect 数据项当前不可用:{text}={value}", 0
+                f"MTConnect 数据项当前不可用:{text}={value or 'UNAVAILABLE'}", 0
             )
         return _coerce(value, data_type, address)
 
@@ -410,21 +536,27 @@ class MTConnectClient(BaseClient):
     # 公共采集接口
     # ------------------------------------------------------------------
 
-    def snapshot(self) -> Tuple[bool, Optional[Dict[str, str]]]:
+    def snapshot(
+        self, *, path: Optional[str] = None
+    ) -> Tuple[bool, Optional[Dict[str, str]]]:
         """读取 ``/current`` 全量数据项快照(id/name → 文本值)。
 
+        :param path: 可选 XPath 查询(``/current?path=<XPath>`` 过滤节点)
         :return: ``(是否成功, {数据项 id 或 name: 文本值})``;失败为
             ``(False, None)``
         """
-        return self._execute(self._fetch_items)
+        return self._execute(lambda: self._fetch_items(path))
 
-    def read_conditions(self) -> Tuple[bool, Optional[List[Dict[str, str]]]]:
+    def read_conditions(
+        self, *, path: Optional[str] = None
+    ) -> Tuple[bool, Optional[List[Dict[str, str]]]]:
         """读取 ``/current`` 条件项(报警 Fault/警告 Warning/正常 Normal)。
 
+        :param path: 可选 XPath 查询过滤条件节点
         :return: ``(是否成功, [{level, id, text, code, severity,
             qualifier, type}])``;无活动报警时为空列表,失败为 ``(False, None)``
         """
-        return self._execute(self._fetch_conditions)
+        return self._execute(lambda: self._fetch_conditions(path))
 
     def probe(self) -> Tuple[bool, Optional[Dict[str, str]]]:
         """读取 ``/probe`` 设备信息(多设备时取第一个 Device 的属性)。
@@ -433,6 +565,59 @@ class MTConnectClient(BaseClient):
             ``manufacturer`` 等(Agent 适配器填写而定);失败为 ``(False, None)``
         """
         return self._execute(self._fetch_probe)
+
+    def probe_all(self) -> Tuple[bool, Optional[List[Dict[str, str]]]]:
+        """读取 ``/probe`` 全部 Device 的属性(多设备 Agent;Part1 §8.2)。
+
+        :return: ``(是否成功, [{属性: 值}, ...])``;无 Device 时为空列表,
+            失败为 ``(False, None)``
+        """
+        return self._execute(self._fetch_probe_devices)
+
+    def read_sample(
+        self,
+        from_sequence: Optional[int] = None,
+        count: int = 100,
+        *,
+        path: Optional[str] = None,
+        at: Optional[int] = None,
+    ) -> Tuple[bool, Optional[Dict[str, object]]]:
+        """读取 ``/sample`` 历史流(Part1 §8.3.3 p.106-111)。
+
+        单次拉取样本序列;游标续拉:取返回值 ``next_sequence`` 作为下一次
+        ``from_sequence``。``count`` 缺省 100(手册默认);``at`` 与
+        ``from_sequence`` 互斥(``at`` 取指定序号的单点值)。
+
+        :param from_sequence: 起始序号(uint64;``None`` = 从缓冲区最早样本开始)
+        :param count: 本次最多返回的样本数(``>=1``)
+        :param path: 可选 XPath 过滤(``/sample?path=<XPath>``)
+        :param at: 取指定序号的值(与 ``from_sequence`` 互斥)
+        :return: ``(是否成功, {"next_sequence": int|None, "samples":
+            [{sequence, data_item_id, name, type, sub_type, timestamp, value}]})``
+        :raises ValueError: ``count < 1``,或 ``from_sequence`` 与 ``at`` 同时给出
+        """
+        if count < 1:
+            raise ValueError(f"count 必须大于等于 1,收到:{count}")
+        if from_sequence is not None and at is not None:
+            raise ValueError("from_sequence 与 at 互斥,只能给其一")
+        if from_sequence is not None and from_sequence < 0:
+            raise ValueError(f"from_sequence 不能为负,收到:{from_sequence}")
+        if at is not None and at < 0:
+            raise ValueError(f"at 不能为负,收到:{at}")
+        return self._execute(
+            lambda: self._fetch_sample(from_sequence, int(count), path, at)
+        )
+
+    def read_assets(
+        self, asset_ids: Optional[List[str]] = None
+    ) -> Tuple[bool, Optional[List[Dict[str, object]]]]:
+        """读取 ``/assets``(全量)或 ``/asset/{id;id}``(指定,Part1 §8.3.4)。
+
+        :param asset_ids: 指定资产 id 列表;``None``/空 = 全量 ``/assets``
+        :return: ``(是否成功, [{type, id, attributes, text}, ...])``;
+            失败为 ``(False, None)``
+        """
+        return self._execute(lambda: self._fetch_assets(asset_ids))
 
 
 def _check_address(address: str) -> str:
