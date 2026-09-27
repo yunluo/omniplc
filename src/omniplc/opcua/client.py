@@ -106,8 +106,12 @@ def _build_data_change_filter(
             )
     else:
         kind = asyncua.ua.DeadbandType.Absolute
+    # asyncua 生成类的字段类型是 UA 标量包装(UInt32/Double,均为 int/float 子类),
+    # 显式构造以满足静态检查,运行时与直接传裸值等价
     return asyncua.ua.DataChangeFilter(
-        Trigger=trigger, DeadbandType=kind, DeadbandValue=float(deadband_value)
+        Trigger=trigger,
+        DeadbandType=asyncua.ua.UInt32(int(kind)),
+        DeadbandValue=asyncua.ua.Double(float(deadband_value)),
     )
 
 
