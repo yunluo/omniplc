@@ -554,13 +554,38 @@ def test_read_many_random_single_transaction(fake: FakeActUtlType) -> None:
     assert [call[0] for call in fake.calls].count("ReadDeviceRandom") == 1
 
 
+def test_read_batch_wide_types(fake: FakeActUtlType) -> None:
+    """32/64 位条目各走块读(地址原文透传无法安全拆相邻字),顺序保持。"""
+    client = _client()
+    for index, word in enumerate(_encode_32(-2, DataType.INT)):
+        fake.put("D{}".format(100 + index), word)
+    for index, word in enumerate(_encode_32(1.5, DataType.FLOAT)):
+        fake.put("D{}".format(110 + index), word)
+    for index, word in enumerate(_encode_64(-2, DataType.LONG)):
+        fake.put("D{}".format(120 + index), word)
+    ok, values = client.read_batch([
+        ("M10", "bool"),
+        ("D100", "int"),
+        ("D110", "float"),
+        ("D120", "long"),
+    ])
+    assert ok is True and values is not None
+    assert values[0] is False       # M10 未置位(16 位随机读路径)
+    assert values[1] == -2          # INT 32 位块读
+    assert values[2] == pytest.approx(1.5)
+    assert values[3] == -2          # LONG 64 位块读
+    kinds = [call[0] for call in fake.calls]
+    assert kinds.count("ReadDeviceRandom") == 1  # 16 位条目合并一笔
+    assert kinds.count("ReadDeviceBlock") == 3   # 宽类型各一笔块读
+
+
 def test_read_batch_rejects(fake: FakeActUtlType) -> None:
-    """read_batch 拒绝路径:空列表、32 位类型(无法安全拆字)、条数超限。"""
+    """read_batch 拒绝路径:空列表、不支持类型(字符串)、条数超限。"""
     client = _client()
     with pytest.raises(ValueError):
         client.read_batch([])
     with pytest.raises(ValueError):
-        client.read_batch([("D100", "int")])
+        client.read_batch([("D100", "string")])
     with pytest.raises(ValueError):
         client.read_batch([("D{}".format(index), "short") for index in range(961)])
 

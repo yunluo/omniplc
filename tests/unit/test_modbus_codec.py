@@ -243,6 +243,16 @@ def test_device_id_response_duplicate_object_rejected() -> None:
     assert "重复" in exc_info.value.args[0]
 
 
+def test_device_id_response_read_code_echo_validated() -> None:
+    """FC43:给定 expected_read_code 时校验响应读取码回显。"""
+    body = bytes([0x2B, 0x0E, 0x01, 0x81, 0x00, 0x00, 1, 0x00, 0x01]) + b"A"
+    with pytest.raises(ProtocolFrameError) as exc_info:
+        codec.parse_device_id_response(body, expected_read_code=0x04)
+    assert "读取码回显" in exc_info.value.args[0]
+    parsed = codec.parse_device_id_response(body, expected_read_code=0x01)
+    assert parsed.objects == [(0x00, b"A")]
+
+
 def test_fc24_parse_byte_count_and_limits() -> None:
     """FC24:字节计数 = 2 + 2×FIFO 数;空队列返回空列表;超长/不自洽拒绝。"""
     assert codec.build_read_fifo_pdu(0x1234) == bytes.fromhex("181234")
@@ -256,5 +266,16 @@ def test_fc24_parse_byte_count_and_limits() -> None:
         codec.parse_read_fifo_response(bytes.fromhex("180002" "0020"))
     with pytest.raises(ProtocolFrameError):
         codec.expected_response_length(codec.build_read_fifo_pdu(0))
+
+
+def test_fc07_read_exception_status() -> None:
+    """FC07:请求仅功能码,响应 = 功能码 + 1 字节状态。"""
+    assert codec.build_read_exception_status_pdu() == bytes([0x07])
+    assert codec.parse_read_exception_status_response(bytes([0x07, 0x5A])) == 0x5A
+    assert codec.expected_response_length(bytes([0x07])) == 2
+    with pytest.raises(ProtocolFrameError):
+        codec.parse_read_exception_status_response(bytes([0x07]))
+    with pytest.raises(ProtocolFrameError):
+        codec.parse_read_exception_status_response(bytes([0x08, 0x5A]))
 
 

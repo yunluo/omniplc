@@ -454,10 +454,11 @@ ULONG/FLOAT/DOUBLE)要求字数与尺寸严格匹配;`BOOL` 取 1 个字、按"�
 - 上下文管理器用 `TypeVar(_C, bound="BaseClient")` 保持 self 类型;
 - 发布 **py.typed**(PEP 561),下游项目可直接获得类型检查;
 - CI 跑 `mypy` 与 `ruff` 双静态检查,语法越界在 CI 就被拦下:mypy 目标
-  版本 3.9(`pyproject.toml` 的 `[tool.mypy] python_version`,3.7 目标已
-  弃用),CI 在 Python 3.12(windows-latest)执行裸 `uvx mypy src/omniplc`,
-  不带 `--python-version` 覆盖;ruff 未设 `target-version`,规则集显式
-  圈定 `select = ["E4", "E7", "E9", "F"]`;
+  版本 3.10(`pyproject.toml` 的 `[tool.mypy] python_version`;<3.10 目标
+  已弃用),CI 在 Python 3.12(windows-latest)执行裸 `uvx mypy src/omniplc`,
+  不带 `--python-version` 覆盖;ruff 的 `target-version` 由
+  `requires-python = ">=3.7.9"` 推导为 **py37**(3.8+ 语法越界在此拦下),
+  规则集显式圈定 `select = ["E4", "E7", "E9", "F"]`;
 - 追加 **ty**(Astral)作为第二类型检查器(`uvx ty check`,配置见
   `pyproject.toml` 的 `[tool.ty.src]`),双检查器交叉验证;
   不使用 `# type: ignore[...]` 工具特定抑制码,可空传输引用一律用
@@ -910,10 +911,9 @@ MBAP 事务号/协议号/站号校验、RTU CRC16(0xA001 反射,低字节在前)
 - **起始地址 + 数量 越界前置拒绝**:规范状态图把
   `Starting Address + Quantity` 列为服务端校验项(越界回异常码 02),
   本库在组帧期直接拒绝(如 `hr65535` 读 2 字),不发必然被拒的请求。
-- **不做**:ASCII 走线、诊断/报告类功能码(07/08/0B/0C/11/17)、
-  文件记录类(14/15)与 FIFO 队列(18)与本库"点位读写"契约不符,
-  留 v1.x;RTU 收包靠长度推算而非 t1.5/t3.5 帧间时序(不做 3.5
-  字符静默)。
+- **不做**:ASCII 走线;报告类功能码 11/17(诊断 07/08/0B/0C、文件记录
+  14/15、FIFO 18 已实现);RTU 收包靠长度推算而非 t1.5/t3.5 帧间时序
+  (不做 3.5 字符静默)。
 
 实现选型:MC、FINS、Modbus 均**自研**(无同时支持 Python 3.7 的
 成熟维护依赖;报文简单,超时/重连/错误语义与全库完全统一;
@@ -1026,8 +1026,8 @@ FINS 协议复审(2026-09,对照欧姆龙 FINS 手册 W340):FINS 帧头 10 字�
   `NamedTuple`(如 `McAddress`、`FinsAddress`);禁止手写
   `__eq__/__hash__/__repr__` 样板;
 - 开发环境 `.python-version=3.7.9`(运行期最低版本口径,与 v0.31.4 履历
-  一致);静态检查目标版本另见 §6.2(mypy 目标 3.9、ruff 规则集显式圈定,
-  CI 在 Python 3.12 跑裸 `uvx mypy src/omniplc`);发布前用本机
+  一致);静态检查目标版本另见 §6.2(mypy 目标 3.10、ruff target-version 推导为
+  py37、规则集显式圈定,CI 在 Python 3.12 跑裸 `uvx mypy src/omniplc`);发布前用本机
   Python 3.7.9 做导入验证。
 
 ## 11. 路线图
@@ -1089,7 +1089,7 @@ FINS 协议复审(2026-09,对照欧姆龙 FINS 手册 W340):FINS 帧头 10 字�
 | v0.42.0 | 现场评审 P2/P3 批量修复 + 功能扩展:①**OpenTcp**——`encoding_fallback` 编码回退链、`start_marker`(STX/ETX)、`length_prefix` 长度前缀成帧(字节序可配)、`recv_chunk_size` 可配、`last_partial_frame` 半帧诊断,缓冲硬上限 = `max_frame` + 成帧开销;②**Modbus**——FC24 `read_fifo_queue`、FC08/11/12 诊断、FC20/21 文件记录、Modicon 6 位地址、FC22 `byte_order`、FC23 跨段提示、FC43 保留/重复对象号拒绝、STRING 拒绝 `.bit`、RTU `inter_frame_delay`;③**MC**——0406 响应严格长度校验(尾部多余字节按坏帧)、UDP 数据报边界检查、0406 位块合并(100 M 点 → 7 块);④**FINS**——结束码标志位解码 + 排查提示、以太网节点号 1~254、D/EM 位读回退;⑤**S7**——`read_wstring`/`write_wstring`(UTF-16BE)、DB/字节边界校验、`dll_path` 构造校验、优化块提示、BOOL 非原子告警;⑥**基恩士**——UDP 收包余量、hex 转储截断、SR 残行读净判定;⑦**AB**——Forward Open RPI 默认 ≈2.1s → 100ms(`rpi_us` 可配)、CIP 0x07 纳入重连触发、Forward Close 应答解析;⑧**ADS**——`set_timeout` 返回值告警;⑨**CI/测试**——四道门禁两条腿都跑、mypy 固定 3.12、pytest `--extra dev`、故障注入基建 + 6 例;行为变更:AB RPI 默认 100ms、MC 0406/UDP 尾部多余字节按坏帧、S7 DB0/非法字节起点解析期 `ValueError`;门禁 **1190 passed** / ruff / mypy(76) / ty 全零 | ✅ 完成 |
 | v0.42.1 | 补丁——MC `L` 设备码 P0 回归修复 + 测试清理 + 二轮复审入库:①**MC `L` 设备码**——`MC_DEVICE_CODES["L"]` `0xA0`→`0x92`,原值与 `B` 同码致 3E/4E/4C 下 `L` 读写静默落入链接继电器 `B` 空间(3C/1C 不受影响),v0.41.0 扩容引入;新增门禁 `test_mc_device_code_table_l_is_92_and_no_collisions`;②**测试清理**——删除恒真/冗余/自证用例并加固弱断言,1190→1149(加门禁 1150);③**评审**——`docs/review.md` 二轮全量复审(1 P0/4 P1 及若干 P2/P3 + 台账纠偏)与 `docs/protocol` 手册文本复核(SLMP `L=92H`;SH080008 0406 位块首软元件 bit15;TE1000 ADS `0x705` 为参数错误)入库,手册 PDF 经 `.gitignore` 仅本地留存;门禁 **1150 passed** / ruff / mypy(76) / ty 全零 | ✅ 完成 |
 | 之后 | Tag 完善 + 示例 → v1.0 | 待开工 |
-| v1.x | MC 2C 帧(A 兼容串口)、FINS Host Link、FINS 运维命令(0103 填充/0105 传送/0401·0402 启停/2301 强制置复位)与 EM bank≥16 扩展区、TOYOPUC 扩展区/PC10/中继/时钟、AB UDT 整体读取与分片读写(0x52)、松下 MEWTOCOL-COM 串口、Modbus ASCII 走线与文件记录/FIFO/串行诊断类功能码(14/15/18、07/08/0B/0C/11/17)、通用 TCP 长度域成帧/空闲切块成帧、FANUC FOCAS 与三菱 CNC EZSocket DLL 封装、心跳保活、轮询器、连接池 | 规划 |
+| v1.x | MC 2C 帧(A 兼容串口)、FINS Host Link、FINS 运维命令(0103 填充/0105 传送/0401·0402 启停/2301 强制置复位)与 EM bank≥16 扩展区、TOYOPUC 扩展区/PC10/中继/时钟、AB UDT 整体读取与分片读写(0x52)、松下 MEWTOCOL-COM 串口、Modbus ASCII 走线与报告类功能码(11/17;诊断 07/08/0B/0C 与文件记录 14/15、FIFO 18 已实现)、通用 TCP 空闲切块成帧、FANUC FOCAS 与三菱 CNC EZSocket DLL 封装、心跳保活、轮询器、连接池 | 规划 |
 | v2 | 更多品牌/协议按需扩展(drivers 插槽沿用 BaseClient 原语模式) | 规划 |
 
 ## 12. 原生异步层(`omniplc.native`)

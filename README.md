@@ -113,7 +113,8 @@ ok, info = client.read_device_id()
 print(info["vendor_name"], info["product_code"], info["major_minor_revision"])
 ok, raw = client.read_device_object(0x02)   # 单个对象(个体访问),返回原始字节
 
-# 诊断/事件(FC08/11/12):0x000C 读总线通信错误计数;事件计数/日志
+# 诊断/事件(FC07/08/11/12):0x000C 读总线通信错误计数;事件计数/日志
+ok, status = client.read_exception_status()          # FC07:1 字节异常状态
 ok, errors = client.diagnostics(0x000C)             # 返回 2 字节数据域
 ok, count = client.get_comm_event_counter()         # FC11
 ok, log = client.get_comm_event_log()               # FC12:状态/事件/报文计数 + events
@@ -158,8 +159,8 @@ mx = MelsecMxClient(logical_station_number=1)
 mx.connect()
 ok, value = mx.read_ushort("D100")
 ok = mx.write_bool("M10", True)
-# ReadDeviceRandom 原生随机读:仅 16 位类型(BOOL/SHORT/USHORT),单事务
-ok, values = mx.read_batch([("M10", "bool"), ("D100", "short")])
+# read_batch:16 位类型合并 ReadDeviceRandom 单笔;32/64 位类型各走一笔块读
+ok, values = mx.read_batch([("M10", "bool"), ("D100", "short"), ("D200", "int"), ("D300", "float")])
 
 # 欧姆龙 FINS:TCP 自动做节点分配握手,UDP 无握手
 fins = OmronFinsUdpClient(ip_address="192.168.250.1", port=9600)
@@ -313,7 +314,7 @@ ok = s7.write_wstring("DB1.DBW40", "温度正常")
 - 欧姆龙 FINS:`0104` 多存储区读(以太网上限 167 条)
 - AB / 欧姆龙 NJ-NX CIP:`0x0A` 多服务包(单事务 ≤32 条且估算字节 ≤480B,超限自动拆多个事务按序执行;BOOL 首次批量读做一次类型发现后缓存)
 - OPC-UA:UA Read 服务原生多节点(asyncua `read_values` 单请求);**任一节点非法或服务端拒绝则整批失败**,原因进 `last_error`,需要逐点容错请逐点 `read`
-- MX Component:`ReadDeviceRandom`(软元件列表换行分隔;仅 16 位类型)
+- MX Component:16 位类型(BOOL/SHORT/USHORT)合并 `ReadDeviceRandom`(软元件列表换行分隔);32/64 位类型(INT/UINT/FLOAT/LONG/ULONG/DOUBLE)因地址编号原文透传、无法安全推导相邻字,按条目各走一笔 `ReadDeviceBlock`(仍整批语义、顺序保持)
 - Modbus:`read_batch`/`write_batch` 按 (区域, 类型) 分组、组内**连续地址合并**为单条 FC(读 01/02/03/04,写 15/16)——Modbus 协议不支持跨 FC 单事务,故为 **K 笔**而非 1 笔(K ≤ 地址数,典型 1 笔);`read_write_registers`(FC23)可在一个事务内先写后读
 
 ```python
@@ -565,7 +566,7 @@ dump(client.stats)   # 键名拼错、字段用错类型在 mypy/pyright 阶段�
 | MTConnect        | MTConnect Agent  | 标准库 HTTP/XML,需 CNC 端 Agent     |
 | MX Component     | 三菱 MX            | 读写/批量/CPU 型号/时钟已真机核证;get_error_message(ActSupportMsg)待核证 |
 | Modbus FC22/23/24/43·14 | Modbus TCP/RTU | FC22 掩码写(可配字节序)、FC23 读写多寄存器、FC24 FIFO、FC43·14 设备标识均需设备支持,待真机核证 |
-| Modbus FC08/11/12/20/21 | Modbus TCP/RTU | 诊断/事件计数·日志/文件记录(FC20/21)按规范实现,设备支持情况待真机核证 |
+| Modbus FC07/08/11/12/20/21 | Modbus TCP/RTU | 异常状态(FC07)/诊断/事件计数·日志/文件记录(FC20/21)按规范实现,设备支持情况待真机核证 |
 
 实际真机联测通过项的核验记录见 [`docs/real-machine-checklist.md`](docs/real-machine-checklist.md)(按厂商/协议/读写独立勾选)。
 
@@ -575,7 +576,7 @@ dump(client.stats)   # 键名拼错、字段用错类型在 mypy/pyright 阶段�
 
 | 协议                                     | TCP                                                   | UDP     | RTU(串口)            | MX Component     |
 |----------------------------------------|-------------------------------------------------------|---------|--------------------|------------------|
-| Modbus(含 FC08 诊断 / FC11·12 事件 / FC22 掩码写 / FC23 读写多寄存器 / FC24 FIFO / FC20·21 文件记录 / FC43·14 设备标识) | ✅                                                     | —       | ✅(广播写)             | —                |
+| Modbus(含 FC07 异常状态 / FC08 诊断 / FC11·12 事件 / FC22 掩码写 / FC23 读写多寄存器 / FC24 FIFO / FC20·21 文件记录 / FC43·14 设备标识) | ✅                                                     | —       | ✅(广播写)             | —                |
 | 三菱 MC 3E/4E/1E                         | ✅                                                     | ✅       | ✅(1C/3C/4C 串口帧)     | ✅(Windows + COM) |
 | 欧姆龙 FINS                               | ✅                                                     | ✅       | v1.x(Host Link)    | —                |
 | 欧姆龙 CIP / 连接型 CIP(NJ/NX)               | ✅(44818,unconnected/connected)                        | —       | —                  | —                |

@@ -49,6 +49,9 @@ v1 评审稿逐条对源码复核后形成本版:
 - **二轮复审 P2 批 2 + P3(2026-09-26)**:①**convert**——`word_order` 校验/归一化 + `registers_to_*` 寄存器数量校验;②**OPC-UA**——browse 默认深度上限(10)、`_coerce_read` 整数范围收窄、NodeId 组件切分(`s=` 含分号 / `srv=`/`nsu=`);③**OpenTcp**——接收超时归 TIMEOUT、`length_prefix` 发送补前缀、`max_frame` 上界 16MiB;④**Modbus FC20** 子响应边界校验(坏帧不再裸 `IndexError`);⑤**aio `close()`** 不再吞 `CancelledError`(3.7 专属)。门禁 1169 → **1179**。
 - **二轮复审 P2 批 3 + P3(2026-09-26)**:①**MC `read_batch`** 非 BOOL 位号入参期拒绝;②**MEWTOCOL** 按字段宽度校验(字号 3 位/位号 1 位/起止 5 位/字值 16 位);③**convert** 整数编码越界/非整数改抛 `ValueError`(不再 `struct.error`/静默截断);④**`check_byte_field`** 改 `require_int`(拒绝 bool/float/str);并记录 Modbus `read_many` 跨度校验已随 P2 批 1 修复。门禁 1179 → **1183**。
 - **二轮复审 P3 批 4(2026-09-26)**:①**MC 1E** 响应尾部严格长度校验;②**Modbus** FC20/21 记录长度上界 0x7D、FC08/11 响应定长(拒尾字节)、位写仅线圈/保持寄存器(输入寄存器/离散输入前置拒绝、零字节下发);③**`__description__`** 与 pyproject 描述同步。门禁 1183 → **1189**。
+- **二轮复审 工程批 5(2026-09-26)**:①**Modbus FC43** 增 `expected_read_code` 回显校验(回归 `test_device_id_response_read_code_echo_validated`,同步订正 3 处测试夹具读取码回显);②**工程配置**——`pyproject` mypy `python_version` 3.9→3.10(注释说明 3.7 由 ruff py37 + 3.7.9 测试腿兜底)、`Development Status` Alpha→Production/Stable、`dev` extra `comtypes` 补 `platform_system == 'Windows'`;③**文档**——`CONTRIBUTING.md` 测试计数/mypy 目标、`architecture.md` §6.2 与 §10 静态检查描述订正。门禁 1189 → **1190**。
+- **二轮复审 P3 批 6(2026-09-26)**:①**Modbus FC07** 新增 `read_exception_status`(codec 构造/解析 + 客户端 + aio 镜像 + 原生 pending);②**RTU 增量收包长度 cap**——FC12/FC24 的 byte count 按 `MODBUS_RTU_MAX_ADU_SIZE=256` 封顶,越界按坏帧拒绝(不再发起超大 recv)。门禁 1190 → **1193**。
+- **二轮复审 MX 批 7(2026-09-26)**:`MxComponent.read_batch` 支持 32/64 位条目——16 位(BOOL/SHORT/USHORT)仍合并 `ReadDeviceRandom` 单笔;32/64 位(INT/UINT/FLOAT/LONG/ULONG/DOUBLE)按条目各发一笔 `ReadDeviceBlock`(地址原文透传,控件内部递增字号),同一锁内完成、顺序保持。**据手册 5.2.18/5.2.20 勘误**:`ReadDeviceBlock2`/`ReadDeviceRandom2` 是 16 位 SHORT 版而非 32 位,故实现走非 2 的 LONG 版块读。回归 `test_read_batch_wide_types`。门禁 1193 → **1194**。
 
 ---
 
@@ -98,7 +101,7 @@ v1 评审稿逐条对源码复核后形成本版:
 - **AB 0x0A 分块预算漏算偏移表(已核验)——已修复(2026-09-26)**:`plc/ab/ab.py:819` 每条 `entry` 补 2 字节偏移项。回归 `test_chunk_batch_requests_counts_offset_table`(15×30B 须拆块)。
 - **MTConnect DOCTYPE 防护可被 UTF-16 绕过(已核验)——已修复(2026-09-26)**:`cnc/mtconnect.py` 同时扫描剔除 NUL 字节后的形式(响应体上限在 `_read_body` 读取期已强制,先于解析)。回归 `test_doctype_utf16_payload_rejected`。
 - **连接退避指数无界(已核验)——已修复(2026-09-26)**:`core/base_client.py:730` 指数先按 `RECONNECT_BACKOFF_MAX_EXPONENT=32` 封顶再算。回归 `test_backoff_exponent_bounded`。
-- **MC `read_batch` 字软元件 `.bit` 静默忽略——已修复(2026-09-26)**:`plc/melsec/melsec.py` 非 BOOL 带位号入参期拒绝(与单点 read 一致),回归 `test_read_batch_rejects_bit_suffix_on_word_type`。**MEWTOCOL 字段溢出——已修复(2026-09-26)**:`codec_mewtocol.py` 单接点(字号 3 位/位号 1 位)与数据区(起止 5 位/字值 16 位)按字段宽度校验,回归 `test_codec_field_width_bounds`。**MX 32/64 位批读未支持**(`plc/melsec/mx.py:727`)仍待办。
+- **MC `read_batch` 字软元件 `.bit` 静默忽略——已修复(2026-09-26)**:`plc/melsec/melsec.py` 非 BOOL 带位号入参期拒绝(与单点 read 一致),回归 `test_read_batch_rejects_bit_suffix_on_word_type`。**MEWTOCOL 字段溢出——已修复(2026-09-26)**:`codec_mewtocol.py` 单接点(字号 3 位/位号 1 位)与数据区(起止 5 位/字值 16 位)按字段宽度校验,回归 `test_codec_field_width_bounds`。**MX 32/64 位批读未支持 —— 已修复(2026-09-26)**:`read_batch` 16 位条目仍合并 `ReadDeviceRandom`,32/64 位条目改按条目各发一笔 `ReadDeviceBlock`(地址编号原文透传、控件内部递增字号,规避进制未知导致的相邻字推导),同一 `_execute` 内完成、顺序保持;回归 `test_read_batch_wide_types`。**勘误**:原「手册复核」称 `ReadDeviceBlock2`/`ReadDeviceRandom2` 为「32 位版」——经 MX Component 手册 5.2.18/5.2.20 核对,二者标注「**2 字节数据**」、出参 `Short`,实为 **16 位(SHORT 元素)版本**;非 2 版(5.2.3/5.2.5)才是 LONG 元素。本次实现据后者,未使用 `...2` 变体。
 - **`convert`(已核验)——已修复(2026-09-26)**:`_reorder_bytes` 校验/归一化 `word_order`(非法抛 `ValueError`,字符串按枚举归一化,不再静默走 BADC);`registers_to_int32/uint32/int64/uint64/float32/float64` 校验寄存器数量。回归 `TestWordOrder32::test_bad_word_order_rejected` + 计数回归。
 - **OPC-UA——已修复(2026-09-26)**:`browse` 在 `max_depth=None` 时应用 `OPCUA_BROWSE_DEFAULT_MAX_DEPTH=10` 安全上限;`_coerce_read` 按声明类型做整数范围收窄(与写路径对称);NodeId 解析改组件切分,`s=` 吞掉其余(可含 `;`/`=`)、支持 `srv=`/`nsu=`。回归 `test_coerce_read_narrows_integer_range`、`test_browse_none_max_depth_uses_default_cap`、`test_parse_nodeid`。
 - **OpenTcp——已修复(2026-09-26)**:接收超时改抛 `TransportTimeoutError`(归类 TIMEOUT 而非 DEVICE);`length_prefix` 发送端补长度域(与收帧对称);`max_frame` 增上界 `OPEN_TCP_MAX_FRAME_LIMIT=16MiB`。回归 `test_receive_timeout_keeps_connection`、`test_send_text_prepends_length_prefix`、`test_max_frame_upper_bound_rejected`。
@@ -108,14 +111,14 @@ v1 评审稿逐条对源码复核后形成本版:
 
 - `convert` 越界整数编码抛 `struct.error` 而非 `ValueError` — **已修复(2026-09-26)**:`int32/uint32/int64/uint64_to_registers` 先 `require_int` + `check_range`,回归 `test_encode_overflow_raises_value_error`。`words_to_bytes`/`registers_to_canonical` 对超范围字静默 `&0xFFFF`(`convert.py:129/318`)仍待办。
 - `core/validation.py:60` `check_byte_field` 用 `int()` 收窄,静默接受 float/bool/str — **已修复(2026-09-26)**:改 `require_int`,回归 `test_check_byte_field_rejects_non_int`。
-- Modbus:~~`read_many` 地址跨度溢出不满足「零字节发送」~~(**已随 P2 批 1 的 `_check_address` 一并修复**);~~file-record 长度无上界~~ / ~~FC08/11 接受尾字节~~ / ~~`write_bool("ir0.0")`/`di` 先发一次读再抛~~(**已修复 2026-09-26**:记录长度上界 0x7D、FC08/11 响应定长、位写区域前置校验);FC43 不回显读码;缺 FC07/FC17;RTU 增量长度字段无 cap。
+- Modbus:~~`read_many` 地址跨度溢出不满足「零字节发送」~~(**已随 P2 批 1 的 `_check_address` 一并修复**);~~file-record 长度无上界~~ / ~~FC08/11 接受尾字节~~ / ~~`write_bool("ir0.0")`/`di` 先发一次读再抛~~(**已修复 2026-09-26**:记录长度上界 0x7D、FC08/11 响应定长、位写区域前置校验);~~FC43 不回显读码~~(**已修复 2026-09-26**:`parse_device_id_response` 增 `expected_read_code` 校验回显,回归 `test_device_id_response_read_code_echo_validated`);~~缺 FC07~~(**已新增 FC07 `read_exception_status` + aio 镜像 + 原生 pending,2026-09-26**);缺 FC17;~~RTU 增量长度字段无 cap~~(**已修复 2026-09-26**:FC12/FC24 增量长度按 `MODBUS_RTU_MAX_ADU_SIZE=256` 封顶,回归 `test_rtu_incremental_length_capped`)。
 - OpenTcp:缓冲头 `del self._buffer[:n]` O(n);无发送进度回调;无 IPv6(§2.13.4/6/8)。
 - ~~MC 1E 帧不校验尾多余字节(`codec_a.py:139`)~~(**已修复 2026-09-26**:尾部长度严格匹配,回归 `test_parse_response_1e_trailing_bytes_rejected`);MX `get_error_message` 新建 COM 控件不释放(`mx.py:877`);`MX_SUPPORT_MSG_PROG_ID` 存疑(`constants.py:679`)。
 - TOYOPUC 打包段校验口径不一致(`toyopuc/address.py:133` vs `:141`)。
 - OPC-UA:回调线程无锁写 `last_error`(`client.py:254`);`unsubscribe` 非线程安全(`:356`);`browse` 单点失败吞成 `{}`;aio 回调异常不落 `last_error`(与 README:485 矛盾);`browse` 仅 Hierarchical。
 - MTConnect:缺 `/sample`/`/asset`;`/probe` 仅首 Device;条件项无过滤;空元素 UNAVAILABLE 误报「不存在」;keep-alive 异常集偏窄(`mtconnect.py:49`)。
 - S7 缺多变量批读;ADS 缺 >32KB 分块与句柄失效(0x1D)处理。
-- 工程:`pyproject.toml:112` `python_version="3.9"` 与运行时 3.7.9 错位;ruff 未含 B;`Development Status Alpha`;`dev` extra 的 `comtypes` 缺 `platform_system`;无 `pytest-timeout`;`CONTRIBUTING.md:9/36/38` 数字 stale;~~`src/omniplc/__init__.py:79` `__description__` 未同步~~(**已修复 2026-09-26**,回归 `test_description_covers_supported_protocols`);~~`docs/architecture.md:687` OpenTcp 长度域「留 v1.x」过时~~(**已订正**)、`§6.2` 静态检查描述过时。
+- 工程:~~`pyproject.toml:112` `python_version="3.9"` 与运行时 3.7.9 错位~~(**已修复 2026-09-26**:改 `3.10`——mypy 已不支持 <3.10,3.7 语法由 ruff target-version=py37 兜底并注释说明);ruff 未含 B(暂缓);~~`Development Status Alpha`~~(**已改 5 - Production/Stable**);~~`dev` extra 的 `comtypes` 缺 `platform_system`~~(**已补 `; platform_system == 'Windows'`**);无 `pytest-timeout`;~~`CONTRIBUTING.md:9/36/38` 数字 stale~~(**已订正**:测试计数、mypy 目标与语义);~~`src/omniplc/__init__.py:79` `__description__` 未同步~~(**已修复 2026-09-26**,回归 `test_description_covers_supported_protocols`);~~`docs/architecture.md:687` OpenTcp 长度域「留 v1.x」过时~~(**已订正**)、`§6.2` 静态检查描述过时(**已订正**,含 §6.2 与 §10 两处)。
 
 ### 台账纠偏(二轮)
 
@@ -148,7 +151,7 @@ v1 评审稿逐条对源码复核后形成本版:
 - **§2.2.3 / 二轮 P0 `L=92H`(SLMP 手册)**:**「Latch relay (L) L*** … (92H)」** —— 独立证实 P0 修复值正确。
 - **§2.2.6 0406(SH-080008 §8.4 + §8.1)**:子命令 0000 标准 / 0080·0082 设备扩展;「bit device is **16-bit for one point**」;位字打包**首软元件在 bit15**(M10~M14 首点占最高 nibble,32 点 M16~M47 的 `AB1234CD` 以 M16 为最高 nibble);块数上限 `01H~78H`(1~120)。→ 与本库 `codec_qna.py:13` 口径一致,二轮「只能由黄金向量自洽」的疑虑**消除**。
 - **§2.5.1 ADS 错误码(TE1000)**:`0x6`=Target port not found、`0x7`=Target machine not found、`0xD`=Port not connected、`0x12`=Port disabled、`0x1B`=Host unreachable、`0x1D`=TLS send error;Router 组 `0x500+`;而 **`0x705`=ADSERR_DEVICE_INVALIDSIZE「Parameter size not correct」**(`0x706`=Invalid data / `0x725`=License expired 同属设备语义)。→ 手册独立印证二轮 P1:原码集把「参数尺寸」当 transport,漏了真通断码。**已据此修复(2026-09-26)。**
-- **§2.2.11 MX 32 位批读(MX Component 手册)**:存在 `ReadDeviceBlock2`/`ReadDeviceRandom2`(32 位版)。→ 本库拒绝 32/64 位批量属真实功能缺口。
+- **§2.2.11 MX 批量读(MX Component 手册)**:原记「`ReadDeviceBlock2`/`ReadDeviceRandom2` 为 32 位版」**有误**——手册 5.2.18/5.2.20 标题为「(2 字节数据)」、出参 `Short`,是 **16 位(SHORT 元素)版**;LONG 元素版为非 2 的 5.2.3/5.2.5。功能缺口结论仍成立(原库拒绝 32/64 位批量),已用**非 2 的块读**按条目实现 32/64 位批量(见「P2」与「修复记录」)。
 - **§2.12.1/2.12.4 MTConnect(Part 1 标准)**:定义 `/probe`、`/current`、`/sample`、`/assets`、`/asset/{id}`。→ 缺 `/sample`、`/asset` 属实。
 - **§2.7.8 SR `LON` bank(SR-2000 手册)**:存在 `LON,b`(b=01~16 库编号)。→ 带 bank 的 LON 为设备能力;老固件兼容需按机型。
 - **§2.8.2 Inovance C200~C255(H3U 手册)**:C200~C255 为 32 位计数器,占两个 16 位寄存器。→ 型号事实确认。

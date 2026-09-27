@@ -39,6 +39,7 @@ from ..core.constants import (
     MODBUS_DEVICE_ID_MAX_PAGES,
     MODBUS_DEVICE_ID_OBJECT_NAMES,
     MODBUS_EXCEPTION_FLAG,
+    MODBUS_RTU_MAX_ADU_SIZE,
     MODBUS_MAX_WRITE_BITS,
     MODBUS_MAX_WRITE_REGISTERS,
     MODBUS_STATION_MAX,
@@ -736,6 +737,22 @@ class ModbusBaseClient(BaseClient):
             lambda: self._read_device_object_once(int(object_id))
         )
 
+    def read_exception_status(self) -> Tuple[bool, Optional[int]]:
+        """读异常状态(FC07,规范 §6.7):返回设备 1 字节异常状态字。
+
+        状态位含义由设备厂商定义(串行子站常用作 8 位离散状态打包)。
+        并非所有设备支持 FC07,不支持时设备以异常码 01 应答(失败见
+        ``last_error``)。
+
+        :return: ``(是否成功, 状态字节 0~255)``;失败为 ``(False, None)``
+        """
+        self._reject_broadcast_read()
+        return self._execute(
+            lambda: codec.parse_read_exception_status_response(
+                self._transact(codec.build_read_exception_status_pdu())
+            )
+        )
+
     def diagnostics(self, sub_function: int, data: int = 0x0000) -> Tuple[bool, Optional[int]]:
         """诊断(FC08,规范 §6.8):返回设备回显的 2 字节数据域。
 
@@ -865,7 +882,9 @@ class ModbusBaseClient(BaseClient):
         object_id = 0
         for _ in range(MODBUS_DEVICE_ID_MAX_PAGES):
             pdu = codec.build_device_id_pdu(code, object_id)
-            parsed = codec.parse_device_id_response(self._transact(pdu))
+            parsed = codec.parse_device_id_response(
+                self._transact(pdu), expected_read_code=code
+            )
             for item_id, raw in parsed.objects:
                 collected.setdefault(item_id, raw)
             if not parsed.more_follows:
@@ -889,7 +908,10 @@ class ModbusBaseClient(BaseClient):
         pdu = codec.build_device_id_pdu(
             MODBUS_DEVICE_ID_CODE_INDIVIDUAL, object_id
         )
-        parsed = codec.parse_device_id_response(self._transact(pdu))
+        parsed = codec.parse_device_id_response(
+            self._transact(pdu),
+            expected_read_code=MODBUS_DEVICE_ID_CODE_INDIVIDUAL,
+        )
         for item_id, raw in parsed.objects:
             if item_id == object_id:
                 return raw
@@ -1075,13 +1097,24 @@ class ModbusRtuClient(ModbusBaseClient):
         elif pdu[0] == codec.ModbusFunction.GET_COMM_EVENT_LOG:
             # FC12 响应长度随事件字节数变化:先读 byte count 再收其余(含 CRC)
             byte_count = transport.recv(1)
+            if 3 + byte_count[0] + 2 > MODBUS_RTU_MAX_ADU_SIZE:
+                raise ProtocolFrameError(
+                    "FC12 响应长度 {} 超出 Modbus RTU ADU 上限 {}".format(
+                        byte_count[0] + 5, MODBUS_RTU_MAX_ADU_SIZE
+                    )
+                )
             frame = head + byte_count + transport.recv(byte_count[0] + 2)
         elif pdu[0] == codec.ModbusFunction.READ_FIFO_QUEUE:
             # FC24 响应长度随 FIFO 计数变化:先读 byte count(2) 再收其余(含 CRC)
             byte_count = transport.recv(2)
-            frame = head + byte_count + transport.recv(
-                int.from_bytes(byte_count, "big") + 2
-            )
+            fifo_count = int.from_bytes(byte_count, "big")
+            if 4 + fifo_count + 2 > MODBUS_RTU_MAX_ADU_SIZE:
+                raise ProtocolFrameError(
+                    "FC24 响应长度 {} 超出 Modbus RTU ADU 上限 {}".format(
+                        fifo_count + 6, MODBUS_RTU_MAX_ADU_SIZE
+                    )
+                )
+            frame = head + byte_count + transport.recv(fifo_count + 2)
         else:
             frame = head + transport.recv(codec.expected_response_length(pdu) + 1)
         received_station, response_pdu = codec.parse_rtu_frame(frame)

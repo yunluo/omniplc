@@ -689,14 +689,19 @@ class MelsecMxClient(BaseClient):
     def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
-        """随机批量读取(ReadDeviceRandom,单事务混读多个软元件)。
+        """批量读取:16 位条目合并随机读,32/64 位条目各走一笔块读。
 
-        ActUtlType 原生随机读(MX Component 手册 5.2.5):软元件列表以
-        换行符分隔,每条读 1 点(字)。仅支持 16 位类型——BOOL(位软元件
-        取最低位;字软元件读字提位)、SHORT/USHORT;**32/64 位类型不
-        支持**:本驱动地址编号原文透传(进制由通信设置实用程序中的 CPU
-        配置决定),无法安全把 32 位值拆分为相邻两条字读取,请逐点读取。
-        条数上限与块读同口径(:data:`MX_MAX_BLOCK_WORDS`)。
+        16 位条目(BOOL/SHORT/USHORT)合并为一笔 ``ReadDeviceRandom``
+        (MX Component 手册 5.2.5:软元件列表换行分隔,每条 1 点);32/64 位
+        条目(INT/UINT/FLOAT/LONG/ULONG/DOUBLE)因本驱动地址编号**原文透传**
+        (进制由通信设置实用程序中的 CPU 配置决定),无法安全推导相邻字地址,
+        改按条目各发一笔 ``ReadDeviceBlock``(手册 5.2.3,控件内部自行递增
+        字号),同一 ``_execute`` 锁内完成,返回值顺序仍与 items 一致。
+
+        注:手册的 ``ReadDeviceBlock2``/``ReadDeviceRandom2`` 为 **16 位
+        (SHORT 元素)版本**(5.2.18/5.2.20「2 字节数据」),并非 32 位版,
+        故 32/64 位不借助它们。条数上限与块读同口径
+        (:data:`MX_MAX_BLOCK_WORDS`)。
 
         :raises ValueError: 列表为空/类型不支持/条数超限
         """
@@ -706,42 +711,55 @@ class MelsecMxClient(BaseClient):
             raise ValueError(
                 "read_batch 条目数超出上限 {}:{}".format(MX_MAX_BLOCK_WORDS, len(items))
             )
-        texts: List[str] = []
-        # 解码计划:(类别, 地址, 位号, 数据类型)
-        plan: List[Tuple[str, str, int, DataType]] = []
+        random_texts: List[str] = []
+        # 解码计划:(类别, 地址, 位号, 数据类型, 字数);类别 random/block
+        plan: List[Tuple[str, str, int, DataType, int]] = []
         for address, data_type in items:
             data_type_enum = DataType.coerce(data_type)
             parsed = _check_address(address)
             if data_type_enum is DataType.BOOL:
                 if _is_bit_device(parsed.device):
-                    texts.append(_device_text(parsed))
-                    plan.append(("bitdev", address, 0, data_type_enum))
+                    random_texts.append(_device_text(parsed))
+                    plan.append(("random", address, 0, data_type_enum, 0))
                 else:
-                    texts.append(_base_text(parsed))
-                    plan.append(("wordbit", address, parsed.bit or 0, data_type_enum))
+                    random_texts.append(_base_text(parsed))
+                    plan.append(("random", address, parsed.bit or 0, data_type_enum, 0))
                 continue
             if data_type_enum in (DataType.SHORT, DataType.USHORT):
-                texts.append(_device_text(parsed))
-                plan.append(("word", address, 0, data_type_enum))
+                random_texts.append(_device_text(parsed))
+                plan.append(("random", address, 0, data_type_enum, 0))
                 continue
-            raise ValueError(
-                "MX 随机批量读仅支持 16 位类型(BOOL/SHORT/USHORT),"
-                "{} 请逐点读取:随机读每条 1 字,地址编号原文透传无法"
-                "安全拆分相邻字".format(data_type_enum)
-            )
+            if data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
+                words = 2
+            elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
+                words = 4
+            else:
+                raise ValueError(
+                    f"MX 批量读取不支持的数据类型:{data_type_enum}"
+                )
+            plan.append(("block", address, 0, data_type_enum, words))
 
         def operation() -> List[PrimitiveValue]:
-            raws = self._read_random(texts)
+            raws = self._read_random(random_texts) if random_texts else []
             values: List[PrimitiveValue] = []
-            for (kind, _address, bit, data_type_enum), raw in zip(plan, raws):
-                if kind == "bitdev":
-                    values.append(bool(raw & 1))
-                elif kind == "wordbit":
-                    values.append(bool((raw >> bit) & 1))
-                elif data_type_enum is DataType.SHORT:
-                    values.append(convert.to_signed(raw, 16))
+            cursor = 0
+            for kind, address, bit, data_type_enum, words in plan:
+                if kind == "random":
+                    raw = raws[cursor]
+                    cursor += 1
+                    if data_type_enum is DataType.BOOL:
+                        values.append(bool((raw >> bit) & 1))
+                    elif data_type_enum is DataType.SHORT:
+                        values.append(convert.to_signed(raw, 16))
+                    else:
+                        values.append(raw)
+                    continue
+                parsed = _check_address(address)
+                block = self._read_words(_device_text(parsed), words)
+                if words == 2:
+                    values.append(_decode_32(block, data_type_enum))
                 else:
-                    values.append(raw)
+                    values.append(_decode_64(block, data_type_enum))
             return values
 
         return self._execute(operation)

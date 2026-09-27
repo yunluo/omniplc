@@ -571,6 +571,11 @@ class AModbusBaseClient(ABaseClient):
         sync = self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
         return await self._run(lambda: sync.read_device_object(object_id))
 
+    async def read_exception_status(self) -> Tuple[bool, Optional[int]]:
+        """读异常状态(FC07,语义同同步版)。"""
+        sync = self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
+        return await self._run(sync.read_exception_status)
+
     async def diagnostics(
         self, sub_function: int, data: int = 0x0000
     ) -> Tuple[bool, Optional[int]]:

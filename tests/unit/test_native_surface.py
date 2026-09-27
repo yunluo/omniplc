@@ -28,6 +28,7 @@ _MODBUS_PENDING = {
     "read_batch",
     "read_device_id",
     "read_device_object",
+    "read_exception_status",
     "read_fifo_queue",
     "read_file_record",
     "read_many",

@@ -33,9 +33,9 @@
 本仓库门禁四件套,**任一挂下即不通过**:
 
 ```bash
-uv run python -m pytest tests -q         # 全量(当前 842 例,随批次增长;无平台跳过)
-uvx ruff check src tests                 # 0 告警(规则集显式固定,与 ruff 版本漂移解耦)
-uvx mypy src/omniplc                     # 0 问题(70 源文件,目标 python_version=3.9,配置见 pyproject.toml)
+uv run python -m pytest tests -q         # 全量(当前 1189 例,随批次增长;无平台跳过)
+uvx ruff check src tests                 # 0 告警(规则集显式固定,target-version 由 requires-python 推导为 py37)
+uvx mypy src/omniplc                     # 0 问题(76 源文件,目标 python_version=3.10;mypy 已不支持 <3.10,3.7 兼容由 ruff + 3.7.9 测试腿兜底)
 uvx ty check src/omniplc                 # 0 问题(Astral 第二类型检查器,与 mypy 互补)
 ```
 

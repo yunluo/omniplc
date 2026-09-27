@@ -752,7 +752,7 @@ ads = [
 ]
 dev = [
     { name = "asyncua" },
-    { name = "comtypes" },
+    { name = "comtypes", marker = "sys_platform == 'win32'" },
     { name = "pyads" },
     { name = "pyserial" },
     { name = "pytest", version = "7.4.4", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.8'" },
@@ -786,8 +786,8 @@ serial = [
 requires-dist = [
     { name = "asyncua", marker = "extra == 'dev'", specifier = "==1.1.5" },
     { name = "asyncua", marker = "extra == 'opcua'", specifier = "==1.1.5" },
+    { name = "comtypes", marker = "sys_platform == 'win32' and extra == 'dev'", specifier = "==1.4.6" },
     { name = "comtypes", marker = "sys_platform == 'win32' and extra == 'mx'", specifier = "==1.4.6" },
-    { name = "comtypes", marker = "extra == 'dev'", specifier = "==1.4.6" },
     { name = "pyads", marker = "extra == 'ads'", specifier = "==3.5.1" },
     { name = "pyads", marker = "extra == 'dev'", specifier = "==3.5.1" },
     { name = "pyserial", marker = "extra == 'dev'", specifier = "==3.5" },

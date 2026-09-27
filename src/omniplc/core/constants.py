@@ -115,6 +115,8 @@ MODBUS_COMMAND_READ_DEVICE_ID: int = 0x2B
 """读设备标识命令(FC43,MEI 隧道)。"""
 MODBUS_COMMAND_DIAGNOSTICS: int = 0x08
 """诊断命令(FC08,子功能 + 2 字节数据;子功能 0x000A 清计数器、0x000B~0x000E 读计数)。"""
+MODBUS_COMMAND_READ_EXCEPTION_STATUS: int = 0x07
+"""读异常状态命令(FC07;请求仅功能码,响应 = 功能码 + 1 字节状态)。"""
 MODBUS_DIAGNOSTICS_PDU_SIZE: int = 5
 """FC08 请求/响应 PDU 长度:功能码(1) + 子功能(2) + 数据(2)。"""
 MODBUS_COMMAND_GET_COMM_EVENT_COUNTER: int = 0x0B
@@ -173,6 +175,8 @@ MODBUS_DEVICE_ID_MAX_PAGES: int = 8
 """FC43 流式访问翻页次数上限(防设备重复下发同一页导致死循环)。"""
 MODBUS_MAX_ADU_SIZE: int = 260
 """MBAP 最大帧长 = 帧头 7 + 最大 PDU 253(UDP 整包接收缓冲)。"""
+MODBUS_RTU_MAX_ADU_SIZE: int = 256
+"""Modbus RTU 最大 ADU(地址 1 + PDU 253 + CRC 2;增量收包长度字段须落在此上限内)。"""
 MODBUS_MBAP_LENGTH_MAX: int = MODBUS_MAX_ADU_SIZE - MBAP_HEADER_SIZE + 1
 """MBAP 长度域合法上限(= 站号 1 + PDU 253);超出按坏帧处理,防止按长收包挂死。"""
 MODBUS_EXCEPTION_TEXT: Dict[int, str] = {

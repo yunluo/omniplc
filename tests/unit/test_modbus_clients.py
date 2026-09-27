@@ -18,7 +18,7 @@ import pytest
 
 from omniplc import ModbusRtuClient, ModbusTcpClient
 from omniplc.core.debug import format_hex
-from omniplc.core.errors import ErrorCategory, TransportTimeoutError
+from omniplc.core.errors import ErrorCategory, ProtocolFrameError, TransportTimeoutError
 from omniplc.modbus import codec
 from omniplc.transport.base import BaseTransport
 from scripted import ScriptedTransport as _ScriptedTransport, mount_real_tcp
@@ -974,9 +974,11 @@ def test_read_write_registers_rejects() -> None:
 # ----------------------------------------------------------------------
 
 
-def _device_id_response(objects: list, more_follows: int = 0, next_id: int = 0) -> bytes:
-    """构造读设备标识响应 PDU(测试夹具,符合级别 0x81)。"""
-    body = bytearray([0x2B, 0x0E, 0x01, 0x81, more_follows, next_id, len(objects)])
+def _device_id_response(
+    objects: list, more_follows: int = 0, next_id: int = 0, read_code: int = 0x01
+) -> bytes:
+    """构造读设备标识响应 PDU(测试夹具,符合级别 0x81;read_code 回显请求读取码)。"""
+    body = bytearray([0x2B, 0x0E, read_code, 0x81, more_follows, next_id, len(objects)])
     for object_id, raw in objects:
         body += bytes([object_id, len(raw)]) + raw
     return bytes(body)
@@ -1053,7 +1055,7 @@ def test_tcp_read_device_id_private_object_naming(
     """FC43 厂商私有对象(0x80~0xFF)用 object_0xNN 兜底命名。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)
     response = _mbap_response(
-        1, 1, _device_id_response([(0x00, b"ACME"), (0x80, b"\xff\xfe")])
+        1, 1, _device_id_response([(0x00, b"ACME"), (0x80, b"\xff\xfe")], read_code=0x03)
     )
     scripted = _ScriptedTransport([response[:7], response[7:]])
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
@@ -1088,7 +1090,7 @@ def test_rtu_read_device_id_incremental_recv(monkeypatch: pytest.MonkeyPatch) ->
 def test_read_device_object(monkeypatch: pytest.MonkeyPatch) -> None:
     """FC43 个体访问(读取码 04):返回请求对象的原始字节。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)
-    response = _mbap_response(1, 1, _device_id_response([(0x02, b"V2.11")]))
+    response = _mbap_response(1, 1, _device_id_response([(0x02, b"V2.11")], read_code=0x04))
     scripted = _ScriptedTransport([response[:7], response[7:]])
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
@@ -1193,7 +1195,7 @@ def test_async_read_device_object_aio_mirror(
 
     async def scenario() -> None:
         client = AModbusTcpClient("127.0.0.1", 502, 1)
-        response = _mbap_response(1, 1, _device_id_response([(0x01, b"MDL-1")]))
+        response = _mbap_response(1, 1, _device_id_response([(0x01, b"MDL-1")], read_code=0x04))
         scripted = _ScriptedTransport([response[:7], response[7:]])
         monkeypatch.setattr(client._sync, "_create_transport", lambda: scripted)
         assert await client.connect() is True
@@ -1748,4 +1750,26 @@ def test_write_bool_register_bit_requires_holding(monkeypatch: pytest.MonkeyPatc
     with pytest.raises(ValueError):
         client.write_bool("di0.0", True)
     assert bytes(scripted.sent) == b""  # 校验在组帧前,零字节下发
+
+
+def test_fc07_read_exception_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC07 读异常状态:请求仅功能码,解析 1 字节状态。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    response = _mbap_response(1, 1, bytes([0x07, 0x5A]))
+    scripted = _ScriptedTransport([response[:7], response[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_exception_status() == (True, 0x5A)
+    assert bytes(scripted.sent) == codec.build_mbap(
+        1, 1, codec.build_read_exception_status_pdu()
+    )
+
+
+def test_rtu_incremental_length_capped() -> None:
+    """RTU 增量长度字段声明超 ADU 上限时按坏帧拒绝,不发起超大 recv。"""
+    client = ModbusRtuClient(1)
+    client._transport = _ScriptedTransport([bytes([0x01, 0x0C]), bytes([0xFF])])  # type: ignore[assignment]
+    client._connected = True
+    with pytest.raises(ProtocolFrameError):
+        client._transact(codec.build_get_comm_event_log_pdu())
 

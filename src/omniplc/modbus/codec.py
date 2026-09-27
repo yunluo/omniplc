@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import struct
 from enum import IntEnum
-from typing import Dict, List, NamedTuple, Sequence, Tuple
+from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 from ..convert import crc16
 from ..core.constants import (
@@ -27,6 +27,7 @@ from ..core.constants import (
     MODBUS_COMMAND_GET_COMM_EVENT_LOG,
     MODBUS_COMMAND_MASK_WRITE,
     MODBUS_COMMAND_READ_DEVICE_ID,
+    MODBUS_COMMAND_READ_EXCEPTION_STATUS,
     MODBUS_COMMAND_READ_FIFO,
     MODBUS_COMMAND_READ_FILE_RECORD,
     MODBUS_COMMAND_READ_WRITE_MULTIPLE,
@@ -84,6 +85,7 @@ class ModbusFunction(IntEnum):
     WRITE_FILE_RECORD = MODBUS_COMMAND_WRITE_FILE_RECORD
     READ_FIFO_QUEUE = MODBUS_COMMAND_READ_FIFO
     DIAGNOSTICS = MODBUS_COMMAND_DIAGNOSTICS
+    READ_EXCEPTION_STATUS = MODBUS_COMMAND_READ_EXCEPTION_STATUS
     GET_COMM_EVENT_COUNTER = MODBUS_COMMAND_GET_COMM_EVENT_COUNTER
     GET_COMM_EVENT_LOG = MODBUS_COMMAND_GET_COMM_EVENT_LOG
     READ_DEVICE_IDENTIFICATION = MODBUS_COMMAND_READ_DEVICE_ID
@@ -460,15 +462,20 @@ def build_device_id_pdu(read_device_id_code: int, object_id: int) -> bytes:
     )
 
 
-def parse_device_id_response(pdu: bytes) -> DeviceIdentification:
+def parse_device_id_response(
+    pdu: bytes, expected_read_code: Optional[int] = None
+) -> DeviceIdentification:
     """解析读设备标识响应 PDU(FC 43 / MEI 0x0E)。
 
     响应 = 功能码(1) + MEI(1) + 读取码(1) + 符合级别(1) +
     MoreFollows(1) + 下一对象号(1) + 对象数(1)
     + 对象数 × [对象号(1) + 长度(1) + 值(长度)]。
 
+    :param pdu: 响应 PDU
+    :param expected_read_code: 期望回显的读取码(请求侧读取码);给定时校验
+        响应第 3 字节,不符按坏帧拒绝
     :raises DeviceError: PLC 返回异常码
-    :raises ProtocolFrameError: MEI 回显不符、响应截断或对象长度自洽校验失败
+    :raises ProtocolFrameError: MEI/读取码回显不符、响应截断或对象长度自洽校验失败
     """
     check_response_exception(pdu, ModbusFunction.READ_DEVICE_IDENTIFICATION)
     if len(pdu) < MODBUS_DEVICE_ID_PDU_HEAD_SIZE:
@@ -481,6 +488,12 @@ def parse_device_id_response(pdu: bytes) -> DeviceIdentification:
         raise ProtocolFrameError(
             "设备标识响应 MEI 类型不符:期望 0x{:02X},收到 0x{:02X}(收到的原始数据:{})".format(
                 MODBUS_MEI_TYPE_DEVICE_ID, pdu[1], format_hex(pdu)
+            )
+        )
+    if expected_read_code is not None and pdu[2] != expected_read_code:
+        raise ProtocolFrameError(
+            "设备标识响应读取码回显不符:期望 0x{:02X},收到 0x{:02X}(收到的原始数据:{})".format(
+                expected_read_code, pdu[2], format_hex(pdu)
             )
         )
     conformity_level = pdu[3]
@@ -737,6 +750,8 @@ def expected_response_length(request_pdu: bytes) -> int:
         return MODBUS_MASK_WRITE_PDU_SIZE
     if function_code == ModbusFunction.DIAGNOSTICS:
         return MODBUS_DIAGNOSTICS_PDU_SIZE
+    if function_code == ModbusFunction.READ_EXCEPTION_STATUS:
+        return 2
     if function_code == ModbusFunction.GET_COMM_EVENT_COUNTER:
         return MODBUS_EVENT_COUNTER_PDU_SIZE
     if function_code == ModbusFunction.GET_COMM_EVENT_LOG:
@@ -788,6 +803,23 @@ def parse_diagnostics_response(pdu: bytes, sub_function: int) -> int:
             "FC08 子功能回显不符:期望 0x{:04X},收到 0x{:04X}".format(sub_function, echoed)
         )
     return struct.unpack(">H", pdu[3:5])[0]
+
+
+def build_read_exception_status_pdu() -> bytes:
+    """构造读异常状态请求 PDU(FC07:仅功能码)。"""
+    return bytes([ModbusFunction.READ_EXCEPTION_STATUS])
+
+
+def parse_read_exception_status_response(pdu: bytes) -> int:
+    """解析读异常状态响应,返回 1 字节状态(FC07)。
+
+    :raises ProtocolFrameError: PDU 非 2 字节或功能码不符
+    """
+    if len(pdu) != 2 or pdu[0] != ModbusFunction.READ_EXCEPTION_STATUS:
+        raise ProtocolFrameError(
+            "FC07 响应非法:{}(收到的原始 PDU:{})".format(len(pdu), format_hex(pdu))
+        )
+    return pdu[1]
 
 
 def build_get_comm_event_counter_pdu() -> bytes:
