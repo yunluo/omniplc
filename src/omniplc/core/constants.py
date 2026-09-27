@@ -210,7 +210,12 @@ MC_DEST_MODULE_IO: int = 0x03FF
 MC_DEST_MODULE_STATION: int = 0
 """目标模块局号(CPU 直连恒为 0)。"""
 MC_MAX_TRANSFER_POINTS: int = 900
-"""3E/4E 单事务读/写点数上限(保守分块取值,实际以模块处理能力为准)。"""
+"""MC 单事务读/写点数上限(保守分块取值,实际以模块处理能力为准)。
+
+3E/4E(以太网)与 3C/4C(串口)共用;手册 Appendix 5(印刷页 466)上限为
+960 点(iQ-R/iQ-L/Q/L)/480 点(QnA),900 不越规但偏保守——QnA 机型实际
+上限 480,超限由 PLC 以异常码裁决,不分机型收紧以保持分块口径统一。
+"""
 MC_RESPONSE_HEAD_SIZE: int = 9
 """3E/4E 响应头长度:副头部2+网络1+PC1+IO2+局1+应答数据长2。"""
 MC_RESPONSE_SUBHEADER_3E: int = 0xD0

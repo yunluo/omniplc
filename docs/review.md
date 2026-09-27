@@ -63,6 +63,7 @@ v1 评审稿逐条对源码复核后形成本版:
 - **三轮复审 P1 批(2026-09-27)**:①**`write_tag` 恒等缩放回归**——恒等分支保留「整数值 float → int 还原」,`write_tag(整数点位, 5.0)` 恢复写 5(回归 `test_write_tag_identity_scale_restores_float_to_int`,旧实现实测 FAILED);②**native 镜像恒等缩放**——`native/base.py` `read_tag`/`write_tag` 各补恒等分支(64 位直通不过 float64),并入同步/异步对拍用例 `read_tag_identity_long`/`write_tag_identity_long`(Selector/Proactor 双循环,旧实现 4 例 FAILED);③**Modbus 区域×类型匹配**——`_check_address`(同步/native 共用收口点)对字类型仅放行 hr/ir,`read_short("c0")` 类错区请求入参期拒绝、零字节发送(回归 `test_word_type_rejects_bit_area_before_any_frame`,旧实现 DID NOT RAISE);BOOL 不限区域(hr.3 读词提位/读-改-写为既有语义);④**TOYOPUC 负 32/64 位写**——`_write_raw` 负值按二补数转无符号再编码(回归 `test_tcp_write_negative_int_and_long`,旧实现 OverflowError)。门禁 1216 → **1223**(+7:同步 2 + Modbus 1 + TOYOPUC 1 + native 对拍 Selector/Proactor 双循环读/写 4 −1 归并)。
 - **三轮复审 P2 批 1(2026-09-27)**:①**AB `ListIdentity` 解析重写**——CPF 标准布局(ItemCount+Type 0x000C+Length+EncapVer 2+SocketAddr 16,Vendor ID 自载荷第 48 字节起),Item 头非法按坏帧拒绝;依据 Rockwell Explicit Messaging Guide p.20-21 + pycomm3 1.2.16 参考实现裁决(旧「2 字节兼容前缀」口径经实测裁决系误判,夹具一并订正,结论记 architecture.md §8.1);②**OPC-UA `active_subscriptions` 改状态锁**——快照与订阅索引增删全部走 `_state_lock`,`ua_sub.delete()` I/O 锁外;③**OPC-UA 读侧越界改 `DeviceError(code=0)`**——服务端返回越界属设备条件(写路径仍 `ValueError`)。回归 3 项(旧实现均 FAILED)。门禁 1223 → **1225**。
 - **逐协议专项 Modbus(2026-09-27)**:依 Modbus 应用协议 V1.1b3 手册逐功能码核对(§6.5-§6.21 印刷页 17-44),核对通过项与 6 项修复见「Modbus 专项」小节——写响应回显校验(FC05/06/15/16,§6.5/6.6/6.11/6.12)、FC21/FC08-0x000A 广播合法化、FC12 byte count ≤0x46(§6.10 印刷页 27)、批量写只读区入参期拒绝(`_check_address` 增 `is_write`)、RTU FC24 变量名订正;汇川夹具非规范 FC16 回显一并订正。回归 7 例(4 例旧实现 FAILED)+ 汇川 1 例订正。门禁 1225 → **1231**。
+- **逐协议专项 三菱 MC 串口(2026-09-27)**:依 SH-080008 §4/§17/Appendix 5/Appendix 7 逐字节核对 1C/3C/4C 三层实现(帧格式/控制码/识别码/和校验范围含 ETX/ACK·NAK 长度/1C 六上限/256 点传 00/附加码),**全部一致,无行为缺陷**;Appendix 7 黄金向量 7 例已逐字节在库。文档订正 2 处(`MC_MAX_TRANSFER_POINTS` 注释改述 3E/4E 与 3C/4C 共用口径并引 Appendix 5 印刷页 466 上限 960/480、codec_serial docstring 补黄金算例页码引用)。无新增用例,门禁仍 **1231**。
 
 ---
 
@@ -228,7 +229,7 @@ PyMuPDF 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、门�
 |---|---|---|
 | 三菱 MX Component | ✅ 已完成 | P1 ProgID(`ActSupportMsg.ActSupportMsg`)、P2 控件创建兜底、P3 位软元件字访问口径统一——见下「MX 专项」 |
 | 三菱 MC 以太网(3E/4E/1E) | ✅ 已完成 | P0 设备码(三轮)+ ZR/1E X·Y 进制、字符串位号(本批)全修;见下「三菱 MC 专项」 |
-| 三菱 MC 串口(1C/3C/4C) | ⏳ 待查 | — |
+| 三菱 MC 串口(1C/3C/4C) | ✅ 已完成 | 三层实现与手册逐字节一致(黄金向量在库),点数上限口径注释订正——见下「三菱 MC 串口专项」 |
 | 欧姆龙 FINS | ⏳ 待查 | — |
 | 欧姆龙 NJ/NX CIP | ⏳ 待查 | — |
 | Modbus(TCP/RTU) | ✅ 已完成 | 写响应回显校验、FC21/FC08 广播合法化、FC12 上界 0x46、写区域收口、FC24 变量名——见下「Modbus 专项」;另 FC20 上界 0x7D 维持自加宽容(见 P3 残留) |
@@ -264,6 +265,32 @@ PyMuPDF 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、门�
   - **1E PC 号(站号)范围手册为 `01H~40H`(1~64)**,而 1E 客户端默认沿用 `MC_DEFAULT_PC_NUMBER=0xFF`(3E/4E 直连约定)→ 默认对 1E 非法(PLC 回 `5BH`/异常码 `10H`)。合法直连值待真机核证,暂不改默认(避免误伤既有用法)。
   - 1E 表缺手册支持的 `F/B/W/T(N·S·C)/C(N·S·C)`;3E/4E 表缺长定时器/计数器(`LTS/LTC/LTN`、`LSTS/LSTC/LSTN`、`LCS/LCC/LCN`)、`LZ`、`RD`(§8.1;注 §8.4 的 0406 禁用长定时/计数与 LZ)。
   - 手册另注 AnACPU 下 `L/S/R` 不可访问(本库 1E 表含,按模块差异登记)。
+
+### 三菱 MC 串口专项(1C/3C/4C,2026-09-27,逐协议深入;SH-080008 §4/§17/Appendix 5/Appendix 7 手册文本核对)
+
+核对通过(三层:codec_serial / codec_serial_a / melsec 串口走线,均与手册逐字节一致):
+3C 帧格式 4(ENQ + 帧识别码 "F9" + 路由 8 + 核心命令 + 和校验 + CR LF;§4.2 印刷页
+31-32)、4C 帧格式 5(DLE STX 定界 + 数据长小端 + 附加码规则 + 和校验 ASCII;§4.2
+印刷页 33 + §4.3 附加码算例印刷页 35)、帧识别码 F9/F8 与 2C=FB/1C 无识别码(§4.3
+印刷页 36)、控制码表(ENQ/STX/ETX/ACK/NAK/DLE/EOT/CL;§4.3 印刷页 34)、和校验 =
+范围字节和低 8 位且读响应**含 ETX**(Appendix 7 算例:请求 22BH+3DF=60AH、响应
+22BH+18F=3BAH,黄金向量测试已锁定)、ACK/NAK 响应长度(13/17 字节,NAK 错误代码
+4 位)与走线 `recv` 预算、1C 帧 BR/WR/BW/WW 命令与 256 点传 "00"(§17.2 印刷页
+353「Specify '00' for 256 points」)、1C 点数上限六常量 = 手册 A 列(BR 256/BW
+160/WR·WW 64 字/位软元件按字 WR 32·WW 10)、1C 错误代码 2 位规格、1C T/C 三位编号
+与 TS/TC/TN 映射、4C 路由 7 字节(站/网/PC/模块 IO 小端/局/本站)、4C 应答识别码
+FFFFH + 结束代码、4C 收包超时按整帧 deadline 拆连重同步(§1.4 既有结论)、3C/4C
+命令域 "0401"/"1401"(Appendix 7 印刷页 479-482)、软元件码 `*` 补位与编号域 6 字符。
+
+- **P3 文档订正(已落地)**:`MC_MAX_TRANSFER_POINTS=900` 注释曾称「3E/4E 单事务」
+  却同时约束 3C/4C——手册 Appendix 5(印刷页 466)上限为 960 点(iQ-R/iQ-L/Q/L)/
+  480 点(QnA);900 不越规但未分机型,注释改述共用口径与依据,维持不分机型收紧
+  (超限由 PLC 异常码裁决)。
+- **P3 引用补足(已落地)**:codec_serial 模块 docstring 和校验段补 Appendix 7
+  黄金算例页码(印刷页 479),与既有黄金向量测试对应。
+- **无新增回归测试**:Appendix 7 黄金向量(3C 读/写请求与响应、4C 读/写请求与响应、
+  附加码、位写 10H 填充)已有 7 例逐字节门禁(test_mc_serial_clients.py::golden),
+  本专项核证其与手册印刷页 479-482 一致,无需新增。
 
 ### Modbus 专项(2026-09-27,逐协议深入;Modbus 应用协议 V1.1b3 手册文本核对)
 
