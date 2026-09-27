@@ -18,41 +18,22 @@ import pytest
 import omniplc as pkg
 import omniplc.native as native
 
-_SYNC_BASE_PENDING = {"read_many", "write_many"}
-"""同步基类里**尚未**进入原生首批的公开面(批量读写,后续批次对齐)。"""
+_SYNC_BASE_PENDING: set = set()
+"""同步基类里**尚未**进入原生层的公开面(批量读写已随本批补齐,表空)。"""
 
-_MODBUS_PENDING = {
-    "diagnostics",
-    "get_comm_event_counter",
-    "get_comm_event_log",
-    "read_batch",
-    "read_device_id",
-    "read_device_object",
-    "read_exception_status",
-    "read_fifo_queue",
-    "read_file_record",
-    "read_many",
-    "read_write_registers",
-    "report_server_id",
-    "write_batch",
-    "write_file_record",
-    "write_many",
-    "write_mask_register",
-}
-"""同步 Modbus TCP 里尚未进入原生首批的公开面(批量/扩展功能码)。"""
+_MODBUS_PENDING: set = set()
+"""同步 Modbus TCP 里尚未进入原生层的公开面(批量与扩展功能码已补齐,表空)。"""
 
 _MELSEC_PENDING = {
     "get_cpu_type",
     "random_read",
     "random_write",
     "read_batch",
-    "read_many",
-    "write_many",
 }
-"""同步 MC 客户端里尚未进入原生首批的公开面(批量与扩展命令)。"""
+"""同步 MC 客户端里尚未进入原生层的公开面(批量合并与扩展命令)。"""
 
-_FINS_PENDING = {"read_batch", "read_many", "write_many"}
-"""同步 FINS 客户端里尚未进入原生首批的公开面(0104 多存储区读)。"""
+_FINS_PENDING = {"read_batch"}
+"""同步 FINS 客户端里尚未进入原生层的公开面(0104 多存储区读)。"""
 
 
 def _public(cls: type) -> set:

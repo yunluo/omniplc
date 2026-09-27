@@ -153,30 +153,36 @@ def _snapshot(client: Any) -> Dict[str, Any]:
     }
 
 
-def _run_sync(monkeypatch: pytest.MonkeyPatch, case: Case) -> Tuple[bytes, Any, Dict[str, Any], str]:
+def _run_sync(
+    monkeypatch: pytest.MonkeyPatch, case: Any, invoke: Any = None
+) -> Tuple[bytes, Any, Dict[str, Any], str]:
+    call = invoke or _call
     client = ModbusTcpClient("127.0.0.1", 502, 1)
-    if case.tag is not None:
-        client.bind_tags(TagTable([case.tag]))
+    tag = getattr(case, "tag", None)
+    if tag is not None:
+        client.bind_tags(TagTable([tag]))
     scripted = ScriptedTransport(_chunks(case.responses))
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     assert client.connect() is True
-    result = _call(client, case, is_async=False)
+    result = call(client, case, is_async=False)
     return bytes(scripted.sent), result, _snapshot(client), client.last_error or ""
 
 
 def _run_async(
-    monkeypatch: pytest.MonkeyPatch, case: Case, loop: Any
+    monkeypatch: pytest.MonkeyPatch, case: Any, loop: Any, invoke: Any = None
 ) -> Tuple[bytes, Any, Dict[str, Any], str]:
+    call = invoke or _call
     holder: Dict[str, Any] = {}
 
     async def scenario() -> None:
         client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
-        if case.tag is not None:
-            client.bind_tags(TagTable([case.tag]))
+        tag = getattr(case, "tag", None)
+        if tag is not None:
+            client.bind_tags(TagTable([tag]))
         scripted = ScriptedAsyncTransport(_chunks(case.responses))
         monkeypatch.setattr(client, "_create_transport", lambda: scripted)
         assert await client.connect() is True
-        result = await _call(client, case, is_async=True)
+        result = await call(client, case, is_async=True)
         holder["sent"] = bytes(scripted.sent)
         holder["result"] = result
         holder["snapshot"] = _snapshot(client)
@@ -331,6 +337,222 @@ def test_cancel_while_queued_keeps_connection(
     assert holder["cancelled"] is True
     assert holder["first"] == (True, 20)
     assert holder["connected"] is True
+
+
+# ----------------------------------------------------------------------
+# 扩展面平展:批量合并与扩展功能码(FC 07/08/11/12/17/20/21/22/23/24、FC 43)
+# ----------------------------------------------------------------------
+
+_DEVICE_ID_PAGE1 = (
+    bytes([0x2B, 0x0E, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x04]) + b"ACME"
+)
+"""FC43 流式第 1 页:读码 1、符合级别 1、无后续、1 个对象(0x00 厂商名)。"""
+_DEVICE_ID_PAGE2 = (
+    bytes([0x2B, 0x0E, 0x01, 0x01, 0x00, 0x03, 0x01, 0x01, 0x02]) + b"PC"
+)
+"""FC43 第 2 页(请求对象号 0x03 起):1 个对象(0x01 产品代码)。"""
+
+
+class ExtCase(NamedTuple):
+    """一条扩展面对拍用例(参数化调用客户端,两侧比对帧/结果/错误口径)。
+
+    ``expect_fc`` 为**按序**期望的请求功能码列表——逐字节对拍只能证明"两层
+    一样",这里额外把"该合并的确实合并成了一笔"钉住(如 read_many 三点连续
+    地址 = 1 笔 FC03,而非 3 笔)。
+    """
+
+    name: str
+    op: str
+    args: Tuple[Any, ...]
+    responses: Sequence[Tuple[int, bytes]]
+    expect_fc: Tuple[int, ...]
+
+
+_EXT_CASES = [
+    # 批量读:连续地址合一笔;留空洞各起一笔
+    ExtCase("read_many_coalesced", "read_many", (("hr0", "hr1", "hr2"), "ushort"),
+            ((1, _resp_registers(struct.pack(">HHH", 10, 20, 30))),), (3,)),
+    ExtCase("read_many_gap", "read_many", (("hr0", "hr5"), "ushort"),
+            ((1, _resp_registers(struct.pack(">H", 10))), (2, _resp_registers(struct.pack(">H", 50)))), (3, 3)),
+    ExtCase("read_batch_mixed", "read_batch",
+            ((("hr0", "ushort"), ("hr1", "float"), ("c0", "bool")),),
+            ((1, _resp_registers(struct.pack(">H", 7))),
+             (2, _resp_registers(struct.pack(">f", 1.5))),
+             (3, bytes([1, 1, 0x01]))), (3, 3, 1)),
+    # 批量写:FC16 合并;寄存器位写走 RMW(FC03 读 + FC06 写)
+    ExtCase("write_many_coalesced", "write_many",
+            ((("hr0", "ushort", 10), ("hr1", "ushort", 20)),),
+            ((1, bytes([0x10, 0x00, 0x00, 0x00, 0x02])),), (0x10,)),
+    ExtCase("write_many_rmw_then_chunk", "write_many",
+            ((("hr0.3", "bool", True), ("hr1", "ushort", 20)),),
+            ((1, bytes([3, 2, 0x00, 0x00])), (2, bytes([6, 0x00, 0x00, 0x00, 0x08])),
+             (3, bytes([0x10, 0x00, 0x01, 0x00, 0x01]))), (3, 6, 0x10)),
+    ExtCase("write_batch_mixed", "write_batch",
+            ((("c0", "bool", True), ("hr1", "ushort", 20)),),
+            ((1, bytes([0x0F, 0x00, 0x00, 0x00, 0x01])),
+             (2, bytes([0x10, 0x00, 0x01, 0x00, 0x01]))), (0x0F, 0x10)),
+    # FC22 掩码写:正常响应 = 请求 PDU 逐字节回显
+    ExtCase("write_mask_register", "mask_write", ("hr10", 0x00F0, 0x000F),
+            ((1, codec.build_mask_write_pdu(10, 0x00F0, 0x000F, "big")),), (0x16,)),
+    # FC23 单事务"先写后读"
+    ExtCase("read_write_registers", "rw", ("hr0", 2, "hr10", [1, 2]),
+            ((1, bytes([0x17, 0x04]) + struct.pack(">HH", 100, 200)),), (0x17,)),
+    # FC43 流式访问:单页;两页(MoreFollows)自动翻页
+    ExtCase("read_device_id_one_page", "device_id", ("basic",), ((1, _DEVICE_ID_PAGE1),), (0x2B,)),
+    ExtCase("read_device_id_paged", "device_id", ("basic",),
+            ((1, bytes([0x2B, 0x0E, 0x01, 0x01, 0xFF, 0x03, 0x01, 0x00, 0x04]) + b"ACME"),
+             (2, _DEVICE_ID_PAGE2)), (0x2B, 0x2B)),
+    # FC43 个体访问(读取码 4)
+    ExtCase("read_device_object", "device_object", (0x01,),
+            ((1, bytes([0x2B, 0x0E, 0x04, 0x01, 0x00, 0x00, 0x01, 0x01, 0x02]) + b"PC"),), (0x2B,)),
+    # 串行线诊断族:FC07 / FC17 / FC08 / FC11 / FC12
+    ExtCase("read_exception_status", "fc07", (), ((1, bytes([0x07, 0xAB])),), (0x07,)),
+    ExtCase("report_server_id", "fc17", (),
+            ((1, bytes([0x11, 0x04, 0x42, 0x00, 0xAA, 0xBB])),), (0x11,)),
+    ExtCase("diagnostics", "fc08", (0x0000, 0x1234),
+            ((1, bytes([0x08, 0x00, 0x00, 0x12, 0x34])),), (0x08,)),
+    ExtCase("get_comm_event_counter", "fc11", (),
+            ((1, bytes([0x0B, 0x00, 0x00, 0x12, 0x34])),), (0x0B,)),
+    ExtCase("get_comm_event_log", "fc12", (),
+            ((1, bytes([0x0C, 0x08, 0x00, 0x00, 0x00, 0x05, 0x00, 0x03, 0xAA, 0xBB])),), (0x0C,)),
+    # FC20 读文件记录:子响应 = File resp. length(1) + 引用类型(1) + 数据(2N)
+    ExtCase("read_file_record", "fc20", (((1, 0, 2),),),
+            ((1, bytes([0x14, 0x06, 0x05, 0x06]) + struct.pack(">HH", 111, 222)),), (0x14,)),
+    # FC21 写文件记录:正常响应 = 请求 PDU 逐字节回显
+    ExtCase("write_file_record", "fc21", (((1, 0, [1, 2]),),),
+            ((1, codec.build_write_file_record_pdu([(1, 0, [1, 2])])),), (0x15,)),
+    # FC24 读 FIFO 队列(byte count = 2 + 2×FIFO 数)
+    ExtCase("read_fifo_queue", "fc24", ("hr10",),
+            ((1, bytes([0x18, 0x00, 0x06, 0x00, 0x02]) + struct.pack(">HH", 7, 8)),), (0x18,)),
+]
+
+
+def _call_ext(client: Any, case: ExtCase, is_async: bool = False) -> Any:
+    """按用例调用扩展方法(同步客户端返回结果,异步客户端返回协程)。
+
+    ``is_async`` 与 :func:`_call` 同形参但同样不使用——调用哪个方法由客户端
+    类型决定,协程由异步运行器 ``await``。
+    """
+    op, args = case.op, case.args
+    if op == "read_many":
+        return client.read_many(*args)
+    if op == "read_batch":
+        return client.read_batch(*args)
+    if op == "write_many":
+        return client.write_many(*args)
+    if op == "write_batch":
+        return client.write_batch(*args)
+    if op == "mask_write":
+        return client.write_mask_register(*args)
+    if op == "rw":
+        return client.read_write_registers(*args)
+    if op == "device_id":
+        return client.read_device_id(*args)
+    if op == "device_object":
+        return client.read_device_object(*args)
+    if op == "fc07":
+        return client.read_exception_status()
+    if op == "fc17":
+        return client.report_server_id()
+    if op == "fc08":
+        return client.diagnostics(*args)
+    if op == "fc11":
+        return client.get_comm_event_counter()
+    if op == "fc12":
+        return client.get_comm_event_log()
+    if op == "fc20":
+        return client.read_file_record(*args)
+    if op == "fc21":
+        return client.write_file_record(*args)
+    if op == "fc24":
+        return client.read_fifo_queue(*args)
+    raise AssertionError("未知扩展用例操作:{}".format(op))
+
+
+def _frame_pdus(data: bytes) -> list:
+    """把脚本记录到的连续 MBAP 帧拆成 ``[(事务号, PDU), ...]``(测试脚手架)。"""
+    frames = []
+    offset = 0
+    while offset < len(data):
+        length = int.from_bytes(data[offset + 4:offset + 6], "big")
+        total = 6 + length  # MBAP 头 6 字节 + 长度域(含 Unit ID)
+        frames.append(
+            (int.from_bytes(data[offset:offset + 2], "big"), data[offset + 7:offset + total])
+        )
+        offset += total
+    return frames
+
+
+@pytest.mark.parametrize("case", _EXT_CASES, ids=[case.name for case in _EXT_CASES])
+def test_sync_async_parity_extended(
+    monkeypatch: pytest.MonkeyPatch, loop: Any, case: ExtCase
+) -> None:
+    """扩展面对拍:请求帧逐字节相同 + 结果/错误口径/计数一致 + 合并笔数符合期望。"""
+    sync_sent, sync_result, sync_snapshot, _sync_error = _run_sync(
+        monkeypatch, case, invoke=_call_ext
+    )
+    async_sent, async_result, async_snapshot, _async_error = _run_async(
+        monkeypatch, case, loop, invoke=_call_ext
+    )
+
+    assert async_sent == sync_sent, "请求帧必须逐字节相同"
+    assert async_result == sync_result
+    assert async_snapshot == sync_snapshot
+    assert tuple(pdu[0] for _tid, pdu in _frame_pdus(sync_sent)) == case.expect_fc
+
+
+def test_read_many_fails_whole_batch(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
+    """任一笔 FC 失败 → 整批 ``(False, None)``(不放出部分值,与同步 read_many 同口径)。"""
+    holder: Dict[str, Any] = {}
+
+    async def scenario() -> None:
+        client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+        scripted = ScriptedAsyncTransport(
+            _chunks([(1, _resp_registers(struct.pack(">H", 10))), (2, _RESP_DEVICE_ERROR)])
+        )
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        await client.connect()
+        # hr0 与 hr5 留空洞 → 两笔 FC03;第二笔 PLC 回异常码 02
+        holder["result"] = await client.read_many(("hr0", "hr5"), DataType.USHORT)
+        holder["category"] = client.last_error_category
+        holder["code"] = client.last_error_code
+        await client.close()
+
+    loop.run_until_complete(scenario())
+    assert holder["result"] == [(False, None), (False, None)]
+    assert holder["category"] == ErrorCategory.DEVICE
+    assert holder["code"] == 2
+
+
+def test_write_many_chunks_fail_independently(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """``write_many`` 逐 chunk 独立事务:失败的 chunk 置 False,其余照常写入。
+
+    与 ``write_batch`` 的"整批 (False, None)"是两种刻意不同的契约
+    (见同步层 ``_coalesce_and_write`` 的 ``fail_fast`` 分流)。
+    """
+    holder: Dict[str, Any] = {}
+
+    async def scenario() -> None:
+        client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+        scripted = ScriptedAsyncTransport(
+            _chunks(
+                [
+                    (1, bytes([0x10, 0x00, 0x00, 0x00, 0x02])),  # hr0~hr1 写成功
+                    (2, _RESP_DEVICE_ERROR),  # hr5 那笔被 PLC 拒绝
+                ]
+            )
+        )
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        await client.connect()
+        holder["result"] = await client.write_many(
+            (("hr0", DataType.USHORT, 1), ("hr1", DataType.USHORT, 2), ("hr5", DataType.USHORT, 3))
+        )
+        await client.close()
+
+    loop.run_until_complete(scenario())
+    assert holder["result"] == [True, True, False]
 
 
 # ----------------------------------------------------------------------

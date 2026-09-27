@@ -30,7 +30,19 @@ import random
 import time
 from abc import ABC, abstractmethod
 from types import TracebackType
-from typing import Awaitable, Callable, Dict, Optional, Tuple, Type, TypeVar, Union, cast
+from typing import (
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+    cast,
+)
 
 from .transport import AsyncBaseTransport
 from ..core.base_client import (
@@ -404,6 +416,44 @@ class AsyncBaseClient(ABC):
             lambda: self._write(address, data_type_enum, value), is_write=True
         )
         return ok
+
+    async def read_many(
+        self, addresses: Sequence[str], data_type: Union[DataType, str]
+    ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
+        """批量读取,逐点独立容错:单点失败不影响其他点。
+
+        契约与同步 :meth:`~omniplc.core.BaseClient.read_many` 一致——基类实现
+        为**逐点独立事务**,驱动可覆写为协议级批量合并(接口不变):Modbus
+        按 (区, 类型) 合笔、MC 0406 位块合并、FINS 0104 多存储区读均已覆写
+        (整批容错,见各驱动 ``read_many`` docstring)。
+
+        与同步版的差别只在**逐点之间让出事件循环**:N 个点仍各成 N 笔事务,
+        但每个 ``await`` 之间同循环的其他任务照常推进。这不是"并行读"——
+        同一客户端上的并发仍由事务锁串行 FIFO。
+
+        :param addresses: 地址列表
+        :param data_type: 数据类型,推荐 :class:`omniplc.types.DataType` 枚举
+        :return: 与地址顺序对应的 ``[(是否成功, 值)]`` 列表
+        :raises ValueError: 地址/类型参数非法(任一点非法即抛出)
+        """
+        return [await self.read(address, data_type) for address in addresses]
+
+    async def write_many(
+        self, items: Sequence[Tuple[str, Union[DataType, str], PrimitiveValue]]
+    ) -> List[bool]:
+        """批量写入,逐点独立容错(基类实现为逐点独立事务)。
+
+        Modbus 覆写为按 (区, 类型) 合笔;MC / FINS 维持逐点(协议无跨软元件
+        单事务写原语),与同步层同面同语义。
+
+        :param items: ``(地址, 数据类型, 值)`` 三元组序列
+        :return: 与 items 顺序对应的布尔结果列表
+        :raises ValueError: 地址/类型/值参数非法(任一项非法即抛出)
+        """
+        return [
+            await self.write(address, data_type, value)
+            for address, data_type, value in items
+        ]
 
     # ------------------------------------------------------------------
     # 类型化读写(一次实现,全协议共享;口径与同步基类逐条对齐)
