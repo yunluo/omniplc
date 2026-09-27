@@ -1,13 +1,15 @@
 """丰田 TOYOPUC 计算机链接客户端(TCP/UDP)。
 
-依据状态:**TOYOPUC PC Link 通讯手册未收录**(`docs/protocol/README.md`
-「待补」),帧格式/命令码/软元件基址表均取自既有实现,**未经官方手册逐项
-核证**——整体待核。已知未实现面(均因缺手册未做,不臆造):
+依据状态:**TOYOPUC PC Link 官方手册未收录**(`docs/protocol/README.md`
+「待补」),帧格式/命令码/软元件基址表经**同源参考实现 `plc-comm-toyopuc`
+4.2.0 双向裁决**逐项一致(帧 `00 00 LL LH CMD` / `80 RC LL LH CMD`、
+`FT_COMMAND=0x00`/`FT_RESPONSE=0x80`、CMD 1C/1D/1E/1F/20/21、位/字/字节
+基址表均相同;裁决记入 `docs/architecture.md` §8.1),官方手册拿到后可再核。
+已知未实现面(均因缺官方手册未做,不臆造):
 
 - 扩展区命令 CMD=0x94/0x95、PC10 CMD=0xC2~0xC6;
 - 多站/中继命令 CMD=0x60/0x61;
-- PLC 状态与错误日志查询 CMD=0x70/0x7E;
-- 位软元件 L/H/W 的"编号"口径冲突(见 :mod:`.address` 模块 docstring「待核」)。
+- PLC 状态与错误日志查询 CMD=0x70/0x7E。
 
 二进制帧协议:命令 ``00 00 LL LH CMD [数据...]``,响应
 ``80 RC LL LH CMD [数据...]``;TCP 走线按帧头长度分段收包,

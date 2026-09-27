@@ -242,7 +242,7 @@ pdfplumber 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、�
 | OPC-UA | ✅ 已完成 | P2 Deadband 透传(DataChangeFilter);P3 GUID 格式严格校验(8-4-4-4-12)+ browse ReferenceType;§2.11.5/7/8 已由既有修复覆盖——见下「OPC-UA 专项」 |
 | MTConnect | ✅ 已完成 | P2 `/sample` 历史流 + `/asset` + 多 Device `/probe`;P3 空元素 UNAVAILABLE + path 过滤——见下「MTConnect 专项」 |
 | 汇川 H3U/H5U(Modbus + MC 兼容) | ✅ 已完成 | P2 X/Y 上限按 H5U 放宽到 X1777(1024 点)、P2 C200~C255 32 位计数器字访问(0xF700 双寄存器 + 32 位类型门控);地址表逐项对照 H3U 9.4.3 / H5U 9.5.1 与 MC 16.4——见下「汇川专项」 |
-| 丰田 TOYOPUC / 松下 / 基恩士 KV·SR | ⚠️ 丰田已核对(无手册,仅登记待核);其余待查 | 丰田:整体待核 + 定位到 L/H/W 编号口径冲突;见下「丰田 TOYOPUC 专项」 |
+| 丰田 TOYOPUC / 松下 / 基恩士 KV·SR | ⚠️ 丰田已完成(同源参考裁决修正);其余待查 | 丰田:打包字/字节编号口径经 `plc-comm-toyopuc` 4.2.0 双向裁决 → 修正校验多移 4 位;缺命令待官方手册;见下「丰田 TOYOPUC 专项」 |
 | native / aio 层 | ⏳ 待查 | 三轮 P1 恒等缩放(同步回归 + native 镜像)、Modbus 区域×类型、TOYOPUC 负写已修(2026-09-27);退避封顶等 P2 待处理 |
 
 ### MX 专项(2026-09-27,逐协议深入;PyMuPDF 抽取《MX Component Version 4 编程手册》全 564 页)
@@ -361,19 +361,16 @@ byte count、FC43 按对象头)与 CRC 低字节在前。
 
 门禁:全量 **1267 passed**(+8)/ ruff / mypy(76) / ty 全零。
 
-### 丰田 TOYOPUC 专项(2026-09-27;PC Link 手册未收录,按铁律仅核对与登记)
+### 丰田 TOYOPUC 专项(2026-09-27;同源参考实现双向裁决)
 
-**依据状态**:`docs/protocol/` 无 TOYOPUC PC Link 手册(见「待补」表),帧格式/命令码/软元件基址表均**未经官方手册核证**,整体标 **待核**。按 AGENTS「协议依据铁律」**不得据现有代码臆改帧语义**,故本轮**不改协议行为**,只做核对、精确定位与登记:
+**依据**:`docs/protocol/` 无 TOYOPUC PC Link 官方手册(见「待补」)。按 AGENTS「参考实现双向裁决」惯例,以**同源参考实现** `plc-comm-toyopuc` **4.2.0**(临时环境 `pip install plc-comm-toyopuc`;模块 `toyopuc.address`/`toyopuc.protocol`)逐字段对照,裁决结果记入 `docs/architecture.md` §8.1。
 
-- **帧层核对(内部自洽)**:命令帧 `00 00 LL LH CMD [数据]` / 响应 `80 RC LL LH CMD [数据]`,长度域 = CMD + 数据字节数;命令码 1C/1D(字)、1E/1F(字节)、20/21(位);`RC=10` 详细出错码提取(无数据时在 CMD 字节,否则取数据末字节);地址/点数 16 位小端、多字小端低字在前——`codec.py` 与模块 docstring 一致,`parse/check_response` 长度与命令回显校验完备。
-- **基址表内部一致性**:逐项验证 `_BYTE_BASE == _WORD_BASE << 1`(全部成立)、`_BIT_BASE == _WORD_BASE << 4`(P/K/V/T/C/L/X/Y/M 全部成立)→ 物理模型「16 位/字、8 位/字节、位号 = 字索引×16 + 位内偏移」。
-- **定位到一处真实冲突(P3,需手册裁定)**:**位软元件 L/H/W 的"编号"口径不一致**——`parse_toyopuc_address` 校验按「编号是**位号**」(`number >> 4` 落在 `_PACKED_SEGMENTS` = 位段右移 4 位的字索引段);`encode_word_address`/`encode_byte_address` 却按「编号是**字索引**」直用(`_WORD_BASE + number` / `_BYTE_BASE + number*2`)。两者不可同时成立:库内基址不变量(`_BIT_BASE == _WORD_BASE << 4`)与校验指向"位号",而现有测试(`test_parse_address` 断言 `X0010H → 0x221`、`test_tcp_read_packed_word` 断言 `M0201W → 0x180+0x201`)指向"字索引"。**未定夺**——拿到手册后统一两处口径并订正测试;现按现状保留(不臆改),已在 `address.py` 模块 docstring 与两处编码函数标注「待核」。
-- **未实现面登记(缺手册,不臆造)**:扩展区 CMD 0x94/0x95、PC10 CMD 0xC2~0xC6、多站/中继 0x60/0x61、PLC 状态与错误日志 0x70/0x7E(对应 §2.10.1-3);L 第二段位段范围(§2.10.4)同样待手册。
-- **文档化**:`docs/protocol/README.md`「待补」TOYOPUC 行已列明拿到手册后须裁定的三项(编号口径 / 缺命令 / L 第二段)。
+- **确认为同源**:参考实现帧格式(``FT_COMMAND=0x00``/``FT_RESPONSE=0x80``、``build_command=[00 00 LL LH cmd]+data``、命令 **0x1C/1D/1E/1F/20/21**、``pack_u16_le``)与本库**逐字段一致**;``_BIT_BASE``/``_WORD_BASE``/``_BYTE_BASE`` 与位段表(``P/K/V/T/C/L/X/Y/M`` 各值)与本库**完全相同**。即本库基础区实现可信。
+- **P3 修正(实锤)——位软元件 L/H/W 编号是"字索引",校验多移 4 位**:`parse_toyopuc_address` 原按"编号是位号"以 ``number >> 4`` 校验打包段,而编码 ``encode_word_address``/``encode_byte_address`` 按"编号是字索引"直用(``_WORD_BASE + number`` / ``_BYTE_BASE + number*2``),两处冲突。**裁决**:参考实现 ``_validate_packed_index`` **直接**以字索引校验 ``_BASIC_PACKED_SEGMENTS``(无 ``>>4``),且其编码方向与本库一致 → **本库编码对、校验错**。**已修正**:校验改为直接以 ``number`` 校验 ``_PACKED_SEGMENTS``(越界编号如 ``M0201W``/``M080W`` 现入参期拒绝,原先误放行并会算出域外地址)。门禁 `test_packed_bit_device_index_is_word_index` + 订正 `test_parse_address`/`test_tcp_read_packed_word`(``M0201W`` 为非法编号,改用 ``M0100W``/``M010W``)。
+- **核对通过**:``D0100→0x1100``、``M0201→0x1A01``、``X0010H→0x221``、``D0100L→0x2200``、``M010W→0x190``、``M100W→0x280`` 等与参考实现逐值一致。
+- **未实现面(官方手册仍缺,不臆造)**:扩展区 CMD 0x94/0x95、PC10 0xC2~0xC6、多站/中继 0x60/0x61、状态与错误日志 0x70/0x7E(参考实现有,但按铁律新增实现需官方文档;如需可另评估)。L 第二段位段范围已由位段表覆盖(``L: 0-0x7FF / 0x1000-0x2FFF``,与参考一致,§2.10.4 结案)。
 
-**结论**:丰田 TOYOPUC 在拿到 PC Link 手册前**冻结在「待核」**——本轮产出为文档化与精确定位,不做协议面改动。
-
-门禁:全量 **1290 passed**(纯注释/文档,无新增用例)/ ruff / mypy(76) / ty 全零。
+门禁:全量 **1291 passed**(+1)/ ruff / mypy(76) / ty 全零。
 
 ### MTConnect 专项(2026-09-27;Part1 v1.5 pdfplumber 全 142 页核对)
 核对通过:Part1 §8.2 `/probe`(§p.13-14)、§8.3.1 `/current`、§8.3.3 Sample Request p.106-111、§8.3.4 Asset Request p.114-115、§6.5.2.2 Streams Header p.77-78(`nextSequence`/`firstSequence`/`lastSequence`/`instanceId`)。`/probe`、`/current`、`/sample`、`/assets`、`/asset/{id}` 端点定义与实现一致。
@@ -1022,15 +1019,15 @@ R `0x3000`(R0~R32767));串口默认 9600-8N2(H5U 印刷页 418)。MC 兼容侧 1
 
 ### 2.10 丰田 TOYOPUC
 
-#### 2.10.1 缺扩展区命令(CMD 0x94/0x95) — **P2(实锤)**
+#### 2.10.1 缺扩展区命令(CMD 0x94/0x95) — **P2(待官方手册;参考实现有,不臆造)**
 - `plc/toyopuc/toyopuc.py`
 
-#### 2.10.2 缺多站命令(CMD 0x60/0x61) — **P2(实锤)**
+#### 2.10.2 缺多站命令(CMD 0x60/0x61) — **P2(待官方手册)**
 
-#### 2.10.3 缺 PLC 状态/错误日志查询(CMD 0x70/0x7E) — **P2(实锤)**
+#### 2.10.3 缺 PLC 状态/错误日志查询(CMD 0x70/0x7E) — **P2(待官方手册)**
 
-#### 2.10.4 L 第二段位编码假设未文档化 — **P3(待核证)**
-- `plc/toyopuc/address.py:53-63`
+#### 2.10.4 L 第二段位编码假设 — **已结案(2026-09-27,参考实现裁决)**
+- `plc/toyopuc/address.py` 位段表 `L: (0-0x7FF, 0x1000-0x2FFF)` 与参考实现 `plc-comm-toyopuc` 4.2.0 `_BASIC_BIT_SEGMENTS` 一致(L/M 第二段成立);同批修正打包字/字节编号口径(见下「丰田 TOYOPUC 专项」)。
 
 ---
 

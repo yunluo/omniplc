@@ -946,7 +946,7 @@ MBAP 事务号/协议号/站号校验、RTU CRC16(0xA001 反射,低字节在前)
 | 松下 MC 兼容(已实现) | 松下 FP0H 产品页/以太网通信手册(QnA 兼容 3E 帧,仅二进制成批读/写;软元件码与三菱 Q/L 同码,字号×16+位号、R≥900→SM、D≥90000→SD);协议帧层复用本库 MC 模块 |
 | 松下 MEWTOCOL(已实现) | Panasonic《MEWTOCOL Communication User's Manual》(帧结构/错误码 20~67)、Autopack《MEWTOCOL Protocol》(接点=十进制字号+十六进制位号);Pro-face《MEWTOCOL-COM Ethernet Driver》(以太网目标端口 1024);帧层为本库原生纯函数实现 |
 | 基恩士 SR 扫码枪(已实现) | 协议要点:TCP 9004、LON/LOFF 时序——应答在 LOFF 之后才发送、bank 0~15、BCLR/RESET、ERROR/OK 应答 |
-| 丰田 TOYOPUC 计算机链接(已实现) | 协议要点:帧格式 `00 00 LL LH CMD`/`80 RC LL LH CMD`、CMD=1C~21 基础区字/字节/位命令、软元件字/字节/位基地址与编号段、RC=10 出错码表、低字在前多字节序;架构沿用本库 BaseClient/Transport 模式 |
+| 丰田 TOYOPUC 计算机链接(已实现) | 协议要点:帧格式 `00 00 LL LH CMD`/`80 RC LL LH CMD`、CMD=1C~21 基础区字/字节/位命令、软元件字/字节/位基地址与编号段、RC=10 出错码表、低字在前多字节序;架构沿用本库 BaseClient/Transport 模式。**同源参考实现双向裁决(2026-09-27)**:`plc-comm-toyopuc` 4.2.0(临时环境 `pip install plc-comm-toyopuc` 后 `toyopuc.address/protocol`)与本库逐字段一致——`FT_COMMAND=0x00`/`FT_RESPONSE=0x80`、`build_command=[00 00 LL LH cmd]+data`、CMD 1C/1D/1E/1F/20/21、`_BIT_BASE`/`_WORD_BASE`/`_BYTE_BASE` 与位段表完全相同;并据其 `_validate_packed_index`(字索引**直接**校验打包段,无 `>>4`)裁决本库校验多移 4 位的缺陷(位软元件 L/H/W 编号=**字索引**;编码方向一致,校验已订正)。官方 PC Link 手册仍缺(见 `docs/protocol/README.md`「待补」) |
 | OPC-UA(已实现) | 依赖库 `asyncua==1.1.5`(封装):sync.Client 会话、`ua.VariantType` 类型表、`ua.uaerrors` 异常层次 |
 | MTConnect(已实现) | MTConnect 官方规范(<https://www.mtconnect.org/>;MTConnectStreams/Devices/Error 文档结构与数据项语义);FOCAS 函数参考留作后续封装备查 |
 | 西门子 S7(已实现) | 依赖库 `python-snap7`(封装;3.7~3.9 → 1.3,3.10+ → 3.x 纯 Python):Client 会话、`check_error` 约定、`Areas` 枚举码表(裸 int 区码被拒) |

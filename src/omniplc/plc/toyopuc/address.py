@@ -23,21 +23,25 @@
   :data:`_BIT_SEGMENTS` 的段内(L/M 有 0x1000 起的第二段);
 - 字节访问 ``地址 = 字节基地址 + 编号×2 + (H ? 1 : 0)``。
 
-.. warning:: **待核——位软元件 L/H/W 的"编号"口径冲突(需 PC Link 手册裁定)**
+.. note:: 位软元件 L/H/W 的"编号"是**字索引**(不是位号)
 
-   位软元件的字节/打包字访问存在**两套不可同时成立的口径**:
+   ``M010W`` = M 区第 0x10 个字;``M010L``/``M010H`` = 该字的低/高字节。
+   校验按字索引落在 :data:`_PACKED_SEGMENTS`(= 位段右移 4 位的字索引段)内;
+   编码 ``M010W → _WORD_BASE + 0x10``、``M010L → _BYTE_BASE + 0x10*2``。
 
-   - **校验**(:func:`parse_toyopuc_address`)按「编号是**位号**」处理——
-     ``number >> 4`` 落在 :data:`_PACKED_SEGMENTS`(位段右移 4 位的字索引段);
-   - **编码**(:func:`encode_word_address` / :func:`encode_byte_address`)却按
-     「编号是**字索引**」直接使用(``_WORD_BASE + number`` /
-     ``_BYTE_BASE + number*2``)。
+   依据(参考实现双向裁决 + 库内不变量):
 
-   库内证据指向"编号是位号":位/字基址表满足 ``_BIT_BASE == _WORD_BASE << 4``
-   (16 位/字,即 位号 = 字索引×16 + 位内偏移,故字索引 = 位号 >> 4)。但现有
-   测试(``test_parse_address`` / ``test_tcp_read_packed_word``)按"编号是字
-   索引"断言(``X0010H → 0x221``、``M0201W → 0x180+0x201``)。**未定夺**——
-   拿到手册后须统一两处口径并订正测试;在那之前 L/H/W 行为按现状保留(不臆改)。
+   - 库内基址表满足 ``_BIT_BASE == _WORD_BASE << 4``(16 位/字),位号与
+     字/字节视图共存,字索引 = 位号 >> 4;
+   - 同源参考实现 `plc-comm-toyopuc` 4.2.0(临时环境 `pip install
+     plc-comm-toyopuc` 后 `toyopuc.address`):其 ``encode_word_address`` /
+     ``encode_byte_address`` 与本库一致,``_validate_packed_index`` **直接**
+     以字索引校验 ``_BASIC_PACKED_SEGMENTS``(无 ``>>4``);其帧格式
+     (``00 00 LL LH CMD``、CMD 1C/1D/1E/1F/20/21、``FT_COMMAND=0x00`` /
+     ``FT_RESPONSE=0x80``)与本库逐字段一致,确认为同源实现。
+   - **官方 PC Link 手册仍未收录**(见 `docs/protocol/README.md`「待补」),
+     本规则为参考实现裁决结果,拿到手册后可再核;裁决结论记入
+     `docs/architecture.md` §8.1。
 """
 from __future__ import annotations
 
@@ -149,17 +153,18 @@ def parse_toyopuc_address(address: str) -> ToyopucAddress:
     if suffix == "" and area in TOYOPUC_BIT_DEVICES:
         _require_in_segments(address, number, _BIT_SEGMENTS[area])
     if suffix in ("L", "H", "W") and area in TOYOPUC_BIT_DEVICES:
-        # 待核:此处按"编号是位号"(number>>4 → 字索引)校验,但编码函数按
-        # "编号是字索引"直用,两处口径冲突,待 PC Link 手册裁定(见模块 docstring)
-        _require_in_segments(address, number >> 4, _PACKED_SEGMENTS[area])
+        # 编号是"字索引"(非位号):直接以字索引校验打包段
+        # (参考实现 plc-comm-toyopuc 4.2.0 _validate_packed_index 口径;
+        #  与 encode_word_address/encode_byte_address 的 `+ number` 一致)
+        _require_in_segments(address, number, _PACKED_SEGMENTS[area])
     return ToyopucAddress(area=area, number=number, suffix=suffix)
 
 
 def encode_word_address(parsed: ToyopucAddress) -> int:
     """把字访问地址编码为协议地址(CMD=1C/1D,内部函数)。
 
-    待核:位软元件打包字(``W`` 后缀)此处按"编号是字索引"直用 ``+ number``,
-    与 :func:`parse_toyopuc_address` 的 ``number >> 4`` 校验口径冲突;需手册裁定。
+    位软元件打包字(``W`` 后缀)的编号是字索引,``地址 = _WORD_BASE + 编号``
+    (与参考实现 plc-comm-toyopuc 4.2.0 一致;见模块 docstring)。
     """
     if parsed.unit != "word":
         raise ValueError(f"期望字访问地址,收到:{parsed!r}")
@@ -169,8 +174,8 @@ def encode_word_address(parsed: ToyopucAddress) -> int:
 def encode_byte_address(parsed: ToyopucAddress) -> int:
     """把字节访问地址编码为协议地址(CMD=1E/1F,内部函数)。
 
-    待核:位软元件字节(``L``/``H`` 后缀)同理按"编号是字索引"直用
-    ``+ number*2``,与校验的 ``number >> 4`` 口径冲突;需手册裁定。
+    位软元件字节(``L``/``H`` 后缀)的编号是字索引,``地址 = _BYTE_BASE +
+    编号*2 + (H?1:0)``(与参考实现 plc-comm-toyopuc 4.2.0 一致)。
     """
     if parsed.unit != "byte":
         raise ValueError(f"期望字节访问地址,收到:{parsed!r}")

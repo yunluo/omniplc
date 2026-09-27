@@ -61,12 +61,29 @@ def test_parse_address() -> None:
     assert parse_toyopuc_address("M0201").unit == "bit"
     assert parse_toyopuc_address("X0010H").unit == "byte"
     assert parse_toyopuc_address("X0010H").high is True
-    assert parse_toyopuc_address("M0201W").unit == "word"
+    assert parse_toyopuc_address("M0100W").unit == "word"
     assert parse_toyopuc_address("L0100L").area == "L"  # 软元件 L + 低字节后缀
     assert encode_word_address(parse_toyopuc_address("D0100")) == 0x1100
     assert encode_bit_address(parse_toyopuc_address("M0201")) == 0x1A01
     assert encode_byte_address(parse_toyopuc_address("X0010H")) == 0x221
     assert encode_byte_address(parse_toyopuc_address("D0100L")) == 0x2200
+
+
+def test_packed_bit_device_index_is_word_index() -> None:
+    """位软元件 L/H/W 的编号是"字索引"(参考实现 plc-comm-toyopuc 4.2.0 裁决)。
+
+    回归:校验曾按"位号"多移 4 位(number>>4),导致越界编号(如 M0201W)被放行、
+    合法编号被误算;现直接以字索引校验,与 encode_*_address 一致。
+    """
+    # 合法:字索引落在打包段(M: 0x000-0x07F / 0x100-0x17F)
+    assert encode_word_address(parse_toyopuc_address("M010W")) == 0x190   # 0x180+0x10
+    assert encode_word_address(parse_toyopuc_address("M100W")) == 0x280   # 0x180+0x100
+    assert encode_byte_address(parse_toyopuc_address("M010L")) == 0x320   # 0x300+0x10*2
+    assert encode_byte_address(parse_toyopuc_address("M010H")) == 0x321
+    # 越界:字索引 0x080 / 0x200 不在打包段 → 解析期拒绝(旧实现 number>>4 会放行)
+    for bad in ("M080W", "M200W", "K030W", "M0201W"):
+        with pytest.raises(ValueError):
+            parse_toyopuc_address(bad)
 
 
 def test_parse_address_errors() -> None:
@@ -211,13 +228,13 @@ def test_tcp_read_bit_device(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_tcp_read_packed_word(monkeypatch: pytest.MonkeyPatch) -> None:
-    """TCP:位软元件打包字访问(M0201W → CMD=1C,字地址 = 0x180 + 0x201)。"""
+    """TCP:位软元件打包字访问(M010W → CMD=1C,字地址 = 0x180 + 0x10)。"""
     client = ToyopucTcpClient("127.0.0.1", 1025)
     scripted = ScriptedTransport(_chunks(_response(0x1C, b"\x05\x00")))
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
-    assert client.read_ushort("M0201W") == (True, 5)
-    assert bytes(scripted.sent) == b"\x00\x00\x05\x00\x1c\x81\x03\x01\x00"
+    assert client.read_ushort("M010W") == (True, 5)
+    assert bytes(scripted.sent) == b"\x00\x00\x05\x00\x1c\x90\x01\x01\x00"
 
 
 def test_tcp_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
