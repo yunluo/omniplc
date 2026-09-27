@@ -74,6 +74,8 @@ def _cases() -> List[Tuple[str, str, str, str, _Op]]:
             ("write_short_range", "short 越界", lambda c: c.write_short("D100", 40000)),
             ("bool_word_no_bit", "字软元件无位号读 BOOL", lambda c: c.read_bool("D100")),
             ("bit_address_suffix", "位软元件带位号", lambda c: c.read("M10.3", DataType.BOOL)),
+            ("string_bit_suffix", "字符串带位号", lambda c: c.read_string("D100.5", 4)),
+            ("write_string_bit_suffix", "字符串写带位号", lambda c: c.write_string("D100.5", "AB")),
         ],
         "fins": [
             ("bad_area", "未知区域", lambda c: c.read("QQ100", DataType.USHORT)),

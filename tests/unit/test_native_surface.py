@@ -24,13 +24,8 @@ _SYNC_BASE_PENDING: set = set()
 _MODBUS_PENDING: set = set()
 """同步 Modbus TCP 里尚未进入原生层的公开面(批量与扩展功能码已补齐,表空)。"""
 
-_MELSEC_PENDING = {
-    "get_cpu_type",
-    "random_read",
-    "random_write",
-    "read_batch",
-}
-"""同步 MC 客户端里尚未进入原生层的公开面(批量合并与扩展命令)。"""
+_MELSEC_PENDING: set = set()
+"""同步 MC 客户端里尚未进入原生层的公开面(批量合并与扩展命令已补齐,表空)。"""
 
 _FINS_PENDING = {"read_batch"}
 """同步 FINS 客户端里尚未进入原生层的公开面(0104 多存储区读)。"""
@@ -98,11 +93,11 @@ def test_fins_clients_surface_mirrored_or_pending() -> None:
         )
 
 
-def test_melsec_native_supports_first_batch_frames_only() -> None:
-    """原生 MC 首批 1E/3E:4E 与串口帧构造期显式拒绝(不留半成品)。"""
-    for frame in ("1E", "3E"):
+def test_melsec_native_supports_ethernet_frames_only() -> None:
+    """原生 MC 覆盖以太网三种帧(1E/3E/4E);串口帧构造期显式拒绝(不留半成品)。"""
+    for frame in ("1E", "3E", "4E"):
         assert native.AsyncMelsecMcTcpClient("127.0.0.1", 2000, frame).frame.value == frame
-    for frame in ("4E", "3C", "4C", "1C"):
+    for frame in ("3C", "4C", "1C"):
         with pytest.raises(ValueError):
             native.AsyncMelsecMcTcpClient("127.0.0.1", 2000, frame)
 

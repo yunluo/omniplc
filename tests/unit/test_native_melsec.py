@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, NamedTuple, Optional, Sequence
+from typing import Any, Dict, NamedTuple, Optional, Sequence, Tuple
 
 import pytest
 
@@ -55,6 +55,58 @@ def _one_e_read_response(values: Sequence[int]) -> bytes:
 def _one_e_write_response() -> bytes:
     """构造 1E 字写响应(副头 = 字写 0x03 + 0x80)。"""
     return bytes([0x83, 0x00])
+
+
+def _qna_4e_response(
+    values: Sequence[int], serial: int = 1, end_code: int = 0
+) -> bytes:
+    """构造 4E 读响应(13 字节头:副头 + 序列号 + 长度域在偏移 11)。
+
+    ``serial`` 默认 1:新建客户端首笔请求的序列号即 1(4E 解析会校验回显)。
+    """
+    data = b"".join(value.to_bytes(2, "little") for value in values)
+    head = (
+        b"\xd4\x00"
+        + serial.to_bytes(2, "little")
+        + b"\x00\x00"
+        + b"\x00\xff\xff\x03\x00"
+        + (2 + len(data)).to_bytes(2, "little")
+    )
+    return head + end_code.to_bytes(2, "little") + data
+
+
+def _qna_batch_read_response(
+    words: Sequence[int],
+    bits: Sequence[int] = (),
+    serial: int = 1,
+    frame: str = "3E",
+) -> bytes:
+    """构造 0406 多块批量读响应:字数据(2B/点)+ 位数据(2B/点)小端。"""
+    values = list(words) + list(bits)
+    if frame == "4E":
+        return _qna_4e_response(values, serial=serial)
+    return _qna_read_response(values)
+
+
+def _cpu_model_response(name: str, code: int, frame: str = "3E") -> bytes:
+    """构造 0101 读 CPU 型号响应:模型名 16 字节右补空格 + 代码 2 字节小端。"""
+    data = name.encode("ascii").ljust(16, b" ") + code.to_bytes(2, "little")
+    length = (2 + len(data)).to_bytes(2, "little")
+    if frame == "4E":
+        head = (
+            b"\xd4\x00"
+            + (1).to_bytes(2, "little")
+            + b"\x00\x00"
+            + b"\x00\xff\xff\x03\x00"
+            + length
+        )
+    else:
+        head = b"\xd0\x00" + b"\x00\xff\xff\x03\x00" + length
+    return head + b"\x00\x00" + data
+
+
+def _split_4e(frame: bytes) -> Sequence[bytes]:
+    return (frame[:13], frame[13:])
 
 
 class Case(NamedTuple):
@@ -119,9 +171,14 @@ _CASES = [
     Case("tcp_1e_read", "1E", False, "read", "D100", DataType.USHORT, None, _split_1e(_1E_READ), True, 20, True, None),
     Case("tcp_1e_write", "1E", False, "write", "D100", DataType.USHORT, 20, _split_1e(_1E_WRITE), True, None, True, None),
     Case("tcp_1e_read_bit", "1E", False, "read", "M10", DataType.BOOL, None, _split_1e(_1E_BIT_READ), True, True, True, None),
+    # 4E 帧(13 字节响应头 + 序列号回显校验)
+    Case("tcp_4e_read", "4E", False, "read", "D100", DataType.USHORT, None, _split_4e(_qna_4e_response([20])), True, 20, True, None),
+    Case("tcp_4e_write", "4E", False, "write", "D100", DataType.USHORT, 20, _split_4e(_qna_4e_response([])), True, None, True, None),
+    Case("tcp_4e_read_long", "4E", False, "read", "D100", DataType.LONG, None, _split_4e(_qna_4e_response(_encode_64(-2, DataType.LONG))), True, -2, True, None),
     Case("udp_3e_read", "3E", True, "read", "D100", DataType.USHORT, None, (_3E_READ,), True, 20, True, None),
     Case("udp_3e_read_double", "3E", True, "read", "D100", DataType.DOUBLE, None, (_3E_DOUBLE,), True, 1.5, True, None),
     Case("udp_1e_read", "1E", True, "read", "D100", DataType.USHORT, None, (_1E_READ,), True, 20, True, None),
+    Case("udp_4e_read", "4E", True, "read", "D100", DataType.USHORT, None, (_qna_4e_response([20]),), True, 20, True, None),
     # 结束码非 0(PLC 明确报错):不断线、分类 DEVICE
     Case("tcp_3e_device_error", "3E", False, "read", "D100", DataType.USHORT, None, _split_3e(_qna_read_response([], end_code=0xC059)), False, None, True, ErrorCategory.DEVICE),
     # 副头部非法(串话/迟到帧/网关错配):坏帧拆连,分类 PROTOCOL
@@ -347,3 +404,154 @@ def test_udp_cancel_then_close_keeps_loop_alive() -> None:
             loop.close()
     finally:
         responder.stop()
+
+
+# ----------------------------------------------------------------------
+# 4E 帧与扩展命令面:批量读(0406)、随机读(0403)、随机写(1402)、CPU 型号(0101)
+# ----------------------------------------------------------------------
+
+
+_F32_1_5 = _encode_32(1.5, DataType.FLOAT)  # [低字, 高字](MC 小端字序)
+
+
+def _qna_requests(data: bytes, frame: str) -> list:
+    """把脚本记录到的连续请求帧拆开,返回 ``[(命令域 2 字节, 帧字节), ...]``。
+
+    请求帧总长 = 头(3E 9 / 4E 13)+ 数据长域(数据长含监视定时器 2 字节);
+    命令域紧随监视定时器,即 3E 偏移 11、4E 偏移 15。
+    """
+    core_offset = 15 if frame == "4E" else 11
+    length_offset = core_offset - 4
+    frames = []
+    offset = 0
+    while offset < len(data):
+        length = int.from_bytes(
+            data[offset + length_offset:offset + length_offset + 2], "little"
+        )
+        total = (core_offset - 2) + length
+        frames.append(
+            (
+                data[offset + core_offset:offset + core_offset + 2],
+                data[offset:offset + total],
+            )
+        )
+        offset += total
+    return frames
+
+
+class ExtCase(NamedTuple):
+    """扩展命令对拍用例(``frame`` / ``datagram`` 复用主表字段名)。"""
+
+    name: str
+    frame: str
+    datagram: bool
+    op: str
+    args: Tuple[Any, ...]
+    responses: Sequence[bytes]
+    expect_fc: Tuple[str, ...]
+    """按序期望的命令域**线序字节**(MC 命令按小端下发:0406H → ``06 04``),
+    钉住"该合并的确实合并成一块"。"""
+
+
+_EXT_CASES = [
+    # 0406 多块批量读:同软元件连续 BOOL 合并为 1 个位块
+    ExtCase(
+        "read_many_3e_words", "3E", False, "read_many", (("D100", "D101", "D102"), "ushort"),
+        _split_3e(_qna_batch_read_response([10, 20, 30])), ("0604",),
+    ),
+    ExtCase(
+        "read_batch_3e_mixed", "3E", False, "read_batch",
+        ((("D100", "ushort"), ("D101", "float"), ("M10", "bool"), ("M11", "bool")),),
+        _split_3e(_qna_batch_read_response([7] + list(_F32_1_5), [0x8000])), ("0604",),
+    ),
+    ExtCase(
+        "read_batch_4e_mixed", "4E", False, "read_batch",
+        ((("D100", "ushort"), ("M10", "bool")),),
+        _split_4e(_qna_batch_read_response([7], [0x8000], frame="4E")), ("0604",),
+    ),
+    # 0403 随机读:字访问 + 双字访问分节
+    ExtCase(
+        "random_read_3e", "3E", False, "random_read",
+        ((("D0", "ushort"), ("D500", "short")), (("D100", "int"),)),
+        _split_3e(_qna_batch_read_response([100, 0xFFFE, 0x002A, 0x0000])), ("0304",),
+    ),
+    # 1402 随机写:无响应数据(只有应答头)
+    ExtCase(
+        "random_write_3e", "3E", False, "random_write",
+        ((("D0", 1234),), (("D100", 0xDEADBEEF),)),
+        _split_3e(_qna_write_response()), ("0214",),
+    ),
+    # 0101 CPU 型号
+    ExtCase(
+        "get_cpu_type_3e", "3E", False, "get_cpu_type", (),
+        _split_3e(_cpu_model_response("Q02UCPU", 0x6302)), ("0101",),
+    ),
+    ExtCase(
+        "get_cpu_type_4e", "4E", False, "get_cpu_type", (),
+        _split_4e(_cpu_model_response("Q02UCPU", 0x6302, frame="4E")), ("0101",),
+    ),
+    # 帧型不支持:1E 下扩展命令入参期拒绝(零字节发送)
+    ExtCase("random_read_1e_rejected", "1E", False, "random_read",
+            ((("D0", "ushort"),), ()), (), ()),
+]
+
+
+def _call_ext(client: Any, case: ExtCase) -> Any:
+    """按用例调用扩展命令(同步返回结果,异步返回协程)。"""
+    op, args = case.op, case.args
+    if op == "read_many":
+        return client.read_many(*args)
+    if op == "read_batch":
+        return client.read_batch(*args)
+    if op == "random_read":
+        return client.random_read(*args)
+    if op == "random_write":
+        return client.random_write(*args)
+    if op == "get_cpu_type":
+        return client.get_cpu_type()
+    raise AssertionError("未知扩展用例操作:{}".format(op))
+
+
+@pytest.mark.parametrize("case", _EXT_CASES, ids=[case.name for case in _EXT_CASES])
+def test_sync_async_parity_extended(
+    monkeypatch: pytest.MonkeyPatch, loop: Any, case: ExtCase
+) -> None:
+    """扩展命令对拍:请求帧逐字节相同 + 结果/错误口径一致 + 命令域符合期望。"""
+    sync_client = _make_sync_client(case)
+    sync_scripted = ScriptedTransport(list(case.responses), datagram=case.datagram)
+    monkeypatch.setattr(sync_client, "_create_transport", lambda: sync_scripted)
+    assert sync_client.connect() is True
+    if case.expect_fc:
+        sync_result = _call_ext(sync_client, case)
+    else:
+        with pytest.raises(ValueError):
+            _call_ext(sync_client, case)
+        sync_result = None
+    sync_state = _snapshot(sync_client)
+
+    holder: Dict[str, Any] = {}
+
+    async def scenario() -> None:
+        client = _make_async_client(case)
+        scripted = ScriptedAsyncTransport(list(case.responses), datagram=case.datagram)
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        if case.expect_fc:
+            holder["result"] = await _call_ext(client, case)
+        else:
+            with pytest.raises(ValueError):
+                await _call_ext(client, case)
+            holder["result"] = None
+        holder["sent"] = bytes(scripted.sent)
+        holder["state"] = _snapshot(client)
+        await client.close()
+
+    loop.run_until_complete(scenario())
+
+    assert holder["sent"] == bytes(sync_scripted.sent), "请求帧必须逐字节相同"
+    assert holder["result"] == sync_result
+    assert holder["state"] == sync_state
+    if case.expect_fc:
+        assert tuple(
+            command.hex() for command, _frame in _qna_requests(bytes(sync_scripted.sent), case.frame)
+        ) == case.expect_fc
