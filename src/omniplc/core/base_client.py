@@ -660,10 +660,20 @@ class BaseClient(ABC):
                 if isinstance(value, float) and value.is_integer():
                     value = int(value)
             else:
-                value = (value - resolved.offset) / resolved.scale
-                if isinstance(value, float) and value.is_integer():
-                    # 真除法恒为 float,还原整数,否则底层整数类型校验拒收
-                    value = int(value)
+                scaled = (value - resolved.offset) / resolved.scale
+                if DataType.coerce(resolved.data_type) in (
+                    DataType.SHORT,
+                    DataType.USHORT,
+                    DataType.INT,
+                    DataType.UINT,
+                    DataType.LONG,
+                    DataType.ULONG,
+                ):
+                    # 整数点位:工程量按 scale 逆算后取最近整数,避免
+                    # (0.3-0)/0.1=2.9999… 这类浮点误差被底层整数校验拒收
+                    value = int(round(scaled))
+                else:
+                    value = scaled
         return self.write(resolved.address, resolved.data_type, value)
 
     def _resolve_tag(self, tag: Union[str, Tag]) -> Tag:

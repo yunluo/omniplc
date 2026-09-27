@@ -1402,8 +1402,13 @@ def _check_address(
                         parsed.area.value, address
                     )
                 )
-            if parsed.bit is not None and parsed.area == ModbusArea.DISCRETE_INPUT:
-                raise ValueError(f"离散输入(di)只读,不可写:{address!r}")
+            if parsed.bit is not None and parsed.area in (
+                ModbusArea.DISCRETE_INPUT,
+                ModbusArea.INPUT_REGISTER,
+            ):
+                raise ValueError(
+                    f"{parsed.area.value} 区只读,不可写:{address!r}"
+                )
     else:
         if parsed.area not in (ModbusArea.HOLDING_REGISTER, ModbusArea.INPUT_REGISTER):
             raise ValueError(

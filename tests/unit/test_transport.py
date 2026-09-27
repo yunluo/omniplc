@@ -86,6 +86,29 @@ class TestUdpTransport:
         with pytest.raises(TransportClosedError):
             transport.send(b"x")
 
+    def test_connect_failure_closes_socket(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """UDP connect 失败须关闭刚建的套接字(回归:惰性重连反复泄漏 FD)。"""
+        closed: list = []
+
+        class FailingSocket:
+            def settimeout(self, _value: float) -> None:
+                pass
+
+            def connect(self, _addr: object) -> None:
+                raise OSError("unreachable")
+
+            def close(self) -> None:
+                closed.append(True)
+
+        monkeypatch.setattr(
+            "omniplc.transport.udp.socket.socket", lambda *a, **k: FailingSocket()
+        )
+        transport = UdpTransport("127.0.0.1", 9600)
+        with pytest.raises(OSError):
+            transport.connect()
+        assert closed == [True]
+        assert transport._socket is None
+
     def test_recv_truncation_logs_warning(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:

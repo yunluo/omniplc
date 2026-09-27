@@ -703,6 +703,17 @@ def test_extended_status_attached_to_device_error() -> None:
     assert "实例不足" in str(exc_info.value)
 
 
+def test_extended_status_size_one_reads_full_word() -> None:
+    """size_of_additional=1(1 个 16 位字)须读 2 字节:高字节非零码不再丢(回归)。
+
+    原实现按 ``cip[4]`` 只读 1 字节,16 位扩展码(如 0x0100)被截成 0x00 查表落空。
+    """
+    cip = bytes((0x81, 0x00, 0x01, 0x01)) + struct.pack("<H", 0x0100)
+    text = codec_cip._extended_status_text(0x01, cip)
+    assert text is not None
+    assert "0100" in text
+
+
 def test_extended_status_unknown_omitted() -> None:
     """cip_status=0x04 + 扩展 0x9999:扩展码未命中,消息不含扩展文本。
 

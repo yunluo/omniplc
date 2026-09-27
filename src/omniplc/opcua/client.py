@@ -629,9 +629,20 @@ class OpcUaClient(BaseClient):
         if not node_text:
             raise ValueError("node_text 不能为空")
         node_text_resolved = _resolve_browse_alias(node_text)
-        reference_type_resolved: Optional[str] = None
+        reference_type_resolved: Optional[int] = None
         if reference_type_id:
-            reference_type_resolved = parse_opcua_nodeid(reference_type_id).text
+            parsed_ref = parse_opcua_nodeid(reference_type_id)
+            identifier: Optional[int] = None
+            for part in parsed_ref.text.split(";"):
+                if part.startswith("i="):
+                    identifier = int(part[2:])
+            if identifier is None or parsed_ref.namespace != 0:
+                raise ValueError(
+                    "reference_type_id 须为命名空间 0 的数字标识符(如 i=33):{!r}".format(
+                        reference_type_id
+                    )
+                )
+            reference_type_resolved = identifier
 
         def operation() -> dict:
             session = self._session()
@@ -652,7 +663,7 @@ class OpcUaClient(BaseClient):
         recursive: bool,
         current_depth: int,
         max_depth: Optional[int],
-        reference_type_text: Optional[str] = None,
+        reference_type_id: Optional[int] = None,
     ) -> dict:
         """递归枚举单层;子节点失败跳过,不影响父级(内部方法)。
 
@@ -662,7 +673,11 @@ class OpcUaClient(BaseClient):
         if recursive and max_depth is None:
             max_depth = OPCUA_BROWSE_DEFAULT_MAX_DEPTH
         try:
-            children = node.get_children()
+            if reference_type_id is not None:
+                # asyncua get_children(refs=) 收命名空间 0 的 ObjectId(int)
+                children = node.get_children(refs=reference_type_id)
+            else:
+                children = node.get_children()
         except Exception:
             return {}
         out: Dict[str, dict] = {}
@@ -681,7 +696,7 @@ class OpcUaClient(BaseClient):
             if recursive and (max_depth is None or current_depth < max_depth):
                 try:
                     entry["children"] = self._browse_node(
-                        child, recursive, current_depth + 1, max_depth, reference_type_text
+                        child, recursive, current_depth + 1, max_depth, reference_type_id
                     )
                 except Exception:
                     entry["children"] = {}  # 子层失败 → 空 dict,不挂外层
@@ -768,6 +783,25 @@ class OpcUaClient(BaseClient):
                     )
                     mids = handles
                 monitored = list(mids) if isinstance(mids, (list, tuple)) else [mids]
+                # asyncua 对 list 入参不 check():失败项以 StatusCode 混在结果里,
+                # 须显式判失败,否则订阅被服务端拒绝时静默报成功
+                import asyncua.ua
+
+                rejected = [
+                    item
+                    for item in monitored
+                    if isinstance(item, asyncua.ua.StatusCode)
+                ]
+                if rejected:
+                    raise DeviceError(
+                        "OPC-UA 订阅被服务端拒绝:{}".format(rejected[0]), 0
+                    )
+            except DeviceError:
+                try:
+                    ua_sub.delete()
+                except Exception:
+                    pass
+                raise
             except Exception as exc:
                 try:
                     ua_sub.delete()
@@ -854,7 +888,9 @@ class OpcUaClient(BaseClient):
                     ua_sub.delete()  # 删除订阅即取消其全部 monitored item
                 except Exception:
                     ok = False
-                with self._lock:
+                # 订阅索引统一走状态锁(与 data-change / 快照 / disconnect 同口径;
+                # 原用事务锁会与长事务争用,违反状态锁短临界区纪律)
+                with self._state_lock:
                     self._active_subscriptions.pop(sub_id, None)
                 return ok
 

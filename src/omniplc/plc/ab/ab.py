@@ -643,6 +643,8 @@ class AllenBradleyEthIpClient(BaseClient):
                         ))
                         plan.append(("booltag", address, 0, data_type_enum))
                     continue
+                if parsed.bit is not None:
+                    raise ValueError(f"仅布尔类型支持位访问:{address!r}")
                 requests.append(codec_cip.build_tag_read(
                     codec_cip.tag_type_path(parsed), 1
                 ))

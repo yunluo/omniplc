@@ -122,11 +122,23 @@ def test_build_data_change_filter() -> None:
 
 
 def test_browse_accepts_reference_type_kwarg() -> None:
-    """browse 新增 reference_type_id 关键字参数(未实现运行时透传,签名先行)。"""
+    """browse 新增 reference_type_id 关键字参数。"""
     import inspect
 
     sig = inspect.signature(OpcUaClient.browse)
     assert "reference_type_id" in sig.parameters
+
+
+def test_browse_reference_type_requires_ns0_numeric() -> None:
+    """reference_type_id 须为命名空间 0 数字标识符(i=..);字符串/他命名空间拒绝。
+
+    回归:P2——原实现把任意 NodeId 文本透传后再未使用(死参数),且类型错。
+    """
+    client = OpcUaClient("127.0.0.1", 4840)
+    with pytest.raises(ValueError):
+        client.browse("Root", reference_type_id="s=SomeRef")
+    with pytest.raises(ValueError):
+        client.browse("Root", reference_type_id="ns=2;i=33")
 
 
 def test_parse_nodeid_guid_format_strict() -> None:

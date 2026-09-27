@@ -371,7 +371,9 @@ class _MelsecMcBase(BaseClient):
         不可访问。字符串请用 :meth:`read_string`。
 
         :param word_items: 字访问 ``(地址, 数据类型)`` 序列;类型限
-            SHORT/USHORT/INT/UINT/FLOAT/BOOL(位软元件)
+            **SHORT/USHORT**(16 位)/ BOOL(位软元件);32 位类型(INT/UINT/
+            FLOAT)须放 ``double_word_items``(0403 字访问 1 字/点,双字访问
+            2 字/点;SH-080008 §8.3)
         :param double_word_items: 双字访问 ``(地址, 数据类型)`` 序列;
             类型限 INT/UINT/FLOAT(按 32 位读取,响应 4 字节/点;
             0403 双字 = 32 位,LONG/ULONG/DOUBLE 64 位类型不支持)
@@ -445,8 +447,7 @@ class _MelsecMcBase(BaseClient):
         allowed = (
             (DataType.INT, DataType.UINT, DataType.FLOAT)
             if is_double
-            else (DataType.BOOL, DataType.SHORT, DataType.USHORT, DataType.INT,
-                  DataType.UINT, DataType.FLOAT)
+            else (DataType.BOOL, DataType.SHORT, DataType.USHORT)
         )
         for index, (address, data_type) in enumerate(items):
             data_type_enum = DataType.coerce(data_type)
@@ -460,10 +461,14 @@ class _MelsecMcBase(BaseClient):
                 )
             parsed = self._translate_address(parse_mc_address(address))
             code, is_bit_device, base = self._device_info(parsed.device)
-            if data_type_enum is DataType.BOOL and not is_bit_device:
-                raise ValueError(
-                    f"MC 随机读 BOOL 需要位软元件:{address!r}"
-                )
+            if data_type_enum is not DataType.BOOL and parsed.bit is not None:
+                raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+            if data_type_enum is DataType.BOOL:
+                if not is_bit_device:
+                    raise ValueError(
+                        f"MC 随机读 BOOL 需要位软元件:{address!r}"
+                    )
+                codec_qna.reject_bit_suffix_on_bit_device(parsed)
             if data_type_enum is not DataType.BOOL and is_bit_device:
                 raise ValueError(
                     "MC 随机读:位软元件 {}{} 只支持 BOOL".format(
@@ -507,6 +512,11 @@ class _MelsecMcBase(BaseClient):
             out: List[Tuple[int, int, int]] = []
             for address, value in items:
                 parsed = self._translate_address(parse_mc_address(address))
+                if parsed.bit is not None:
+                    raise ValueError(
+                        f"MC 随机写地址不支持位号后缀:{address!r}"
+                        "(位软元件直接写编号,按 16 点/字)"
+                    )
                 code, is_bit_device, base = self._device_info(parsed.device)
                 number = codec_qna.device_number(parsed.device, parsed.number, base)
                 if is_bit_device and not 0 <= number <= 0xFFFFFF - 15:
@@ -537,7 +547,10 @@ class _MelsecMcBase(BaseClient):
                 word_devices,
                 dword_devices,
             )
-            self._transact(request)
+            # 1402 响应无数据但有结束码(SH-080008 §5.3 印刷页 46);
+            # 结束码非 0 须抛 DeviceError,不可当成功
+            response = self._transact(request)
+            self._parse_write(response, False)
 
         ok, _ = self._execute(operation, is_write=True)
         return ok

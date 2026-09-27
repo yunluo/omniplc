@@ -83,6 +83,18 @@ def test_scan_error_response(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrC
     assert client.connected is True
     # 无读出是链路成功的正常结果,不计入设备错误码
     assert client.stats["device_error_count"] == 0
+
+
+def test_scan_command_error_response_rejected(
+    monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient
+) -> None:
+    """命令错误应答 ``ER,LON,21`` 不可当条码:按设备错误失败(回归:P2)。"""
+    scripted = ScriptedTransport(_chunks_of(b"ER,LON,21\r"))
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.scan() == (False, None)
+    assert client.last_error is not None and "ER,LON,21" in client.last_error
+    assert client.connected is True
     assert client.stats["transactions"] == 1
 
 

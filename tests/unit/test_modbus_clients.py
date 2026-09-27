@@ -350,9 +350,13 @@ def test_write_readonly_area_rejected_before_lock() -> None:
     with pytest.raises(ValueError):
         client.write_bool("di0", True)
     with pytest.raises(ValueError):
+        client.write_bool("ir0.3", True)  # 输入寄存器位:只读(回归:原漏判)
+    with pytest.raises(ValueError):
         client.write_many([("ir0", "short", 5)])
     with pytest.raises(ValueError):
         client.write_batch([("ir0", "short", 5)])
+    with pytest.raises(ValueError):
+        client.write_batch([("ir0.3", "bool", True)])
     # 零字节发送:全部在校验期拦截
     assert bytes(scripted.sent) == b""
 

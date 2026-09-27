@@ -95,18 +95,25 @@ class TcpTransport(BaseTransport):
         deadline = time.monotonic() + self._receive_timeout
         chunks = []
         received = 0
-        while received < size:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise socket.timeout(
-                    f"TCP 接收超时({self._receive_timeout}s)"
-                )
-            sock.settimeout(remaining)
-            chunk = sock.recv(size - received)
-            if not chunk:
-                raise TransportClosedError("TCP 连接已被对端关闭")
-            chunks.append(chunk)
-            received += len(chunk)
+        try:
+            while received < size:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise socket.timeout(
+                        f"TCP 接收超时({self._receive_timeout}s)"
+                    )
+                sock.settimeout(remaining)
+                chunk = sock.recv(size - received)
+                if not chunk:
+                    raise TransportClosedError("TCP 连接已被对端关闭")
+                chunks.append(chunk)
+                received += len(chunk)
+        finally:
+            # 恢复 socket 超时:否则下一事务 sendall 会继承本次残留的极小超时
+            try:
+                sock.settimeout(self._receive_timeout)
+            except OSError:
+                pass
         frame = b"".join(chunks)
         log_frame(self._debug_label, RECV_MARK, frame)
         return frame

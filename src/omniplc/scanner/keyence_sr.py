@@ -139,7 +139,20 @@ class KeyenceSrClient(BaseClient):
         previous_timeout = transport.receive_timeout
         transport.receive_timeout = read_timeout
         try:
-            return self._read_line(transport, read_timeout)
+            line = self._read_line(transport, read_timeout)
+            if line.strip().upper().startswith("ER,"):
+                # 命令错误应答 ``ER,<命令名称>,<错误代码>``(SR-2000 手册 Rev6.0 §12-1
+                # 印刷页 76);不可当条码返回,按设备错误抛出(不断线)
+                fields = line.strip().split(",")
+                code_text = fields[2].strip() if len(fields) >= 3 else ""
+                code = int(code_text) if code_text.isdigit() else 0
+                raise DeviceError(
+                    "SR 命令错误应答:{}(错误代码 {})".format(
+                        line.strip(), code_text or "未知"
+                    ),
+                    code,
+                )
+            return line
         except socket.timeout:
             # 读码窗口内无应答:链路仍然完好,不断线
             self._drain_line(transport)

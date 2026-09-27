@@ -61,8 +61,13 @@ class UdpTransport(BaseTransport):
         :raises OSError: 地址解析失败或端口绑定错误
         """
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(self._connect_timeout)
-        sock.connect((self._ip_address, self._port))
+        try:
+            sock.settimeout(self._connect_timeout)
+            sock.connect((self._ip_address, self._port))
+        except OSError:
+            # connect 失败时清理局部套接字,避免惰性重连反复泄漏 FD
+            sock.close()
+            raise
         sock.settimeout(self._receive_timeout)
         self._socket = sock
         log_op(self._debug_label, "已连接")

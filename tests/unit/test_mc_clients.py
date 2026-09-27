@@ -361,6 +361,45 @@ def test_tcp_3e_random_write_validation(monkeypatch: pytest.MonkeyPatch) -> None
     assert client.connected is True
 
 
+def test_tcp_3e_random_read_rejects_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """random_read 入参校验:字软元件位号后缀 / 位软元件带位号 / 32 位入门字列表
+    均入参期拒绝(0403 字访问 1 字/点,SH-080008 §8.3)。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    _mount(monkeypatch, client, ScriptedTransport([]))
+    client.connect()
+    with pytest.raises(ValueError):
+        client.random_read([("D100.3", DataType.SHORT)])   # 字软元件位号后缀静默丢位(原 P0)
+    with pytest.raises(ValueError):
+        client.random_read([("M100.3", DataType.BOOL)])    # 位软元件不带位号
+    with pytest.raises(ValueError):
+        client.random_read([("D100", DataType.INT)])       # 32 位须走双字列表
+    assert client.connected is True
+
+
+def test_tcp_3e_random_write_rejects_bit_suffix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """random_write 位号后缀入参期拒绝(1402 无位号字段)。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    _mount(monkeypatch, client, ScriptedTransport([]))
+    client.connect()
+    with pytest.raises(ValueError):
+        client.random_write([("D100.3", 1)])
+    with pytest.raises(ValueError):
+        client.random_write([], [("D500.1", 1)])
+    assert client.connected is True
+
+
+def test_tcp_3e_random_write_validates_end_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    """random_write 结束码非 0 → False + last_error,不断线(原 P1:只发不收判)。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    frame = _qna_read_response([], frame="3E", end_code=0xC059)
+    scripted = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.random_write([("D100", 0x1234)]) is False
+    assert client.last_error is not None and "结束代码 0xC059" in client.last_error
+    assert client.connected is True
+
+
 def test_tcp_3e_get_cpu_type_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP 3E get_cpu_type:0101 请求 → (模型名, 模型代码)。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000)

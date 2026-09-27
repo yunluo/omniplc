@@ -990,7 +990,8 @@ def _extended_status_text(status: int, cip: bytes) -> Optional[str]:
     if len(cip) < 4 + ext_bytes:
         return None
     if word_count == 1:
-        extended = cip[4]
+        # 字段单位是 16 位字:1 字 = 2 字节扩展状态(原只读 1 字节,16 位码丢高字节)
+        extended = struct.unpack_from("<H", cip, 4)[0]
     elif word_count == 2:
         extended = struct.unpack_from("<H", cip, 4)[0]
     elif word_count == 4:

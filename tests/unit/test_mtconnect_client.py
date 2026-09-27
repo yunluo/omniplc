@@ -705,3 +705,24 @@ def test_async_mirror_sample_and_assets(monkeypatch: pytest.MonkeyPatch) -> None
         await client.disconnect()
 
     asyncio.run(scenario())
+
+
+def test_read_integer_out_of_declared_range(monkeypatch: pytest.MonkeyPatch) -> None:
+    """整数读按声明类型收窄:文本超出范围 → (False, None) 设备侧条件,不断线。
+
+    回归:P2——原 `_coerce` 直接 `int(value)` 不收窄,read_short 可返回 40000。
+    """
+    xml = (
+        '<?xml version="1.0"?>'
+        '<MTConnectStreams xmlns="urn:mtconnect.org:MTConnectStreams:1.3">'
+        '<Header instanceId="1"/><Streams><DeviceStream name="d" uuid="u">'
+        '<ComponentStream component="C" id="c"><Samples>'
+        '<Position dataItemId="big">40000</Position>'
+        '<Position dataItemId="ok">123</Position>'
+        '</Samples></ComponentStream></DeviceStream></Streams></MTConnectStreams>'
+    )
+    client = _client_with(monkeypatch, {"/current": (200, xml.encode("utf-8"))})
+    assert client.read_short("big") == (False, None)
+    assert client.last_error is not None and "超出声明类型范围" in client.last_error
+    assert client.connected is True
+    assert client.read_short("ok") == (True, 123)

@@ -37,10 +37,19 @@ from urllib.parse import quote
 
 from ..core.base_client import BaseClient, validate_endpoint
 from ..core.constants import (
+    INT16_MAX,
+    INT16_MIN,
+    INT32_MAX,
+    INT32_MIN,
+    INT64_MAX,
+    INT64_MIN,
     MTCONNECT_DEFAULT_PORT,
     MTCONNECT_MAX_BODY,
     MTCONNECT_MAX_NUMERIC_TEXT,
     MTCONNECT_READ_CHUNK,
+    UINT16_MAX,
+    UINT32_MAX,
+    UINT64_MAX,
 )
 from ..core.debug import log_op
 from ..core.errors import DeviceError, ProtocolFrameError, TransportClosedError
@@ -655,8 +664,29 @@ def _coerce(value: str, data_type: DataType, address: str) -> PrimitiveValue:
                 f"MTConnect 数据项不是数值:{address} ← {value!r}"
             )
     try:
-        return int(value)
+        number = int(value)
     except ValueError:
         raise ValueError(
             f"MTConnect 数据项不是整数:{address} ← {value!r}"
         )
+    # 按声明类型收窄范围:Agent 文本超出该类型属设备侧条件(不断线)
+    bounds = _INT_RANGES.get(data_type)
+    if bounds is not None and not bounds[0] <= number <= bounds[1]:
+        raise DeviceError(
+            "MTConnect 数据项超出声明类型范围:{}({} 允许 {}~{})".format(
+                address, data_type.name, bounds[0], bounds[1]
+            ),
+            0,
+        )
+    return number
+
+
+_INT_RANGES = {
+    DataType.SHORT: (INT16_MIN, INT16_MAX),
+    DataType.USHORT: (0, UINT16_MAX),
+    DataType.INT: (INT32_MIN, INT32_MAX),
+    DataType.UINT: (0, UINT32_MAX),
+    DataType.LONG: (INT64_MIN, INT64_MAX),
+    DataType.ULONG: (0, UINT64_MAX),
+}
+"""整数 DataType → (下限, 上限);_coerce 读侧按此收窄。"""

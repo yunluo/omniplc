@@ -354,6 +354,19 @@ class TestTagScaling:
         assert client.write_tag("设定", 5.5) is True
         assert client.last_written == 5.5
 
+    def test_write_tag_inverse_scale_rounds_float_noise(self) -> None:
+        """非恒等逆缩放的浮点误差须取整(回归:(0.3-0)/0.1=2.9999… 被整数驱动拒收)。
+
+        原实现仅在结果为精确整数时还原 int,``(0.3-0)/0.1`` 得
+        ``2.9999999999999996`` → 非整 float 透传 → 整数驱动 ``require_int``
+        拒绝,异常逃出公共 API。
+        """
+        client = _ScriptedClient()
+        client.bind_tags(TagTable([Tag("设定", "hr0", "short", scale=0.1)]))
+        assert client.write_tag("设定", 0.3) is True
+        assert client.last_written == 3
+        assert isinstance(client.last_written, int)
+
 
 class TestCategorizeOrder:
     """_categorize 判断顺序覆盖测试。

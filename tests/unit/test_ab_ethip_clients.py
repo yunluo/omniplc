@@ -1124,6 +1124,8 @@ def test_read_batch_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     _mount(monkeypatch, client, scripted)
     assert client.connect() is True
+    with pytest.raises(ValueError):
+        client.read_batch([("MyDint.3", DataType.INT)])  # 非 BOOL 带位号(回归:P2)
     assert client.read_batch([(tag, "int") for tag in tags]) == (
         True,
         list(range(40)),
