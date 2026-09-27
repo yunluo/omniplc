@@ -579,17 +579,25 @@ def test_frame_walkline_constraints() -> None:
 
 
 def test_route_parameter_validation() -> None:
-    """路由参数校验:站号/PC 编号/目标模块 I/O 越界拒绝。"""
+    """路由参数校验:站号/PC 编号/目标模块 I/O 越界拒绝。
+
+    PC 编号合法范围 0~120 或 0xFF(SH-080008 §6.2 印刷页 54:他站 01H~78H;
+    原实现限死 0~3/FF,串口多站他站在入参期即被拒)。
+    """
     with pytest.raises(ValueError):
         MelsecMcSerialClient(station_number=32)
     with pytest.raises(ValueError):
-        MelsecMcSerialClient(pc_number=4)
+        MelsecMcSerialClient(pc_number=121)
+    with pytest.raises(ValueError):
+        MelsecMcSerialClient(pc_number=-1)
     with pytest.raises(ValueError):
         MelsecMcSerialClient(module_io=0x10000)
     client = MelsecMcSerialClient(
         station_number=31, pc_number=3, self_station_number=3, module_station=2
     )
     assert client.station_number == 31 and client.pc_number == 3
+    assert MelsecMcSerialClient(pc_number=4).pc_number == 4   # 他站(经网络)合法
+    assert MelsecMcSerialClient(pc_number=120).pc_number == 120  # 上界 0x78
     assert client.network_number == 0
     assert client.self_station_number == 3
     assert client.module_station == 2

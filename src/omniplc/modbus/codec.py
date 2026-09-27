@@ -963,6 +963,15 @@ def build_read_file_record_pdu(requests: "Sequence[Tuple[int, int, int]]") -> by
                 MODBUS_MAX_READ_FILE_BYTES, len(sub)
             )
         )
+    # 规范 §6.14:聚合响应不得超过 MODBUS PDU 253 字节(响应 = 功能码 1 +
+    # byte count 1 + 数据 ≤0xF5)。超限请求设备只能回异常码,入参期拦截。
+    response_bytes = 2 + sum(2 + 2 * record_length for _, _, record_length in requests)
+    if response_bytes > MODBUS_MAX_READ_FILE_BYTES + 2:
+        raise ValueError(
+            "FC20 响应总长超出 PDU 上限:{} > {} 字节,请拆分请求".format(
+                response_bytes, MODBUS_MAX_READ_FILE_BYTES + 2
+            )
+        )
     return bytes([ModbusFunction.READ_FILE_RECORD, len(sub)]) + bytes(sub)
 
 
@@ -998,6 +1007,12 @@ def parse_read_file_record_response(
             "FC20 响应非法:{}(收到的原始 PDU:{})".format(len(pdu), format_hex(pdu))
         )
     body = pdu[2:]
+    if pdu[1] > MODBUS_MAX_READ_FILE_BYTES:
+        raise ProtocolFrameError(
+            "FC20 响应数据长越界:0x{:02X} > 0x{:02X}(规范 §6.14 上限)".format(
+                pdu[1], MODBUS_MAX_READ_FILE_BYTES
+            )
+        )
     if len(body) != pdu[1]:
         raise ProtocolFrameError(
             "FC20 响应数据长与 byte count 不符:声明 {},实际 {}".format(pdu[1], len(body))

@@ -529,9 +529,18 @@ class AsyncMelsecMcBase(AsyncBaseClient):
             )
 
         async def operation() -> Tuple[str, int]:
-            request = codec_qna.build_read_cpu_model(self._frame.value)
+            # 0101 同样按客户端路由字段组帧;4E 响应按序列号回显校验(镜像同步侧)
+            request = codec_qna.build_read_cpu_model(
+                self._frame.value,
+                self._next_serial(),
+                self._network_number,
+                self._pc_number,
+                MC_DEFAULT_MONITOR_TIMER,
+            )
             return codec_qna.parse_read_cpu_model_response(
-                await self._transact(request), self._frame.value
+                await self._transact(request),
+                self._frame.value,
+                expected_serial=self._serial,
             )
 
         return await self._execute(operation)

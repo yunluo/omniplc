@@ -513,15 +513,26 @@ def build_random_write_devices(
     )
 
 
-def build_read_cpu_model(frame: str) -> bytes:
-    """构造 3E/4E 读 CPU 型号请求(命令 0101,SH-080008 §11.2 印刷页 176)。
+def build_read_cpu_model(
+    frame: str,
+    serial: int = 0,
+    network_number: int = 0,
+    pc_number: int = MC_DEFAULT_PC_NUMBER,
+    monitoring_timer: int = MC_DEFAULT_MONITOR_TIMER,
+) -> bytes:
+    """构造 3E/4E 帧 CPU 型号请求(命令 0101,SH-080008 §11.2 印刷页 176)。
 
     请求核心 = 命令(2) + 子命令 0000(2),无附加数据;响应核心 =
-    模型名(16 字节,不足补空格)+ 模型代码(2 字节)。
+    模型名 16 字节(不足补空格)+ 模型代码(2 字节)。
+
+    :param serial: 4E 序列号(3E 忽略)
+    :param network_number: 目标网络号(跨网访问他站时按客户端配置)
+    :param pc_number: 目标 PC 号(默认 0xFF = 本局 CPU 直连约定)
+    :param monitoring_timer: CPU 监视定时器
     """
     core = MC_COMMAND_READ_CPU_MODEL.to_bytes(2, "big")
     core += MC_SUBCOMMAND_WORD_UNITS.to_bytes(2, "little")
-    return _wrap_request(frame, 0, 0, MC_DEFAULT_PC_NUMBER, MC_DEFAULT_MONITOR_TIMER, core)
+    return _wrap_request(frame, serial, network_number, pc_number, monitoring_timer, core)
 
 
 def parse_read_cpu_model_response(

@@ -33,6 +33,7 @@ from .constants import (
     RECONNECT_BACKOFF_MAX,
     RECONNECT_BACKOFF_MAX_EXPONENT,
 )
+from .debug import log_warning
 from .errors import (
     DeviceError,
     ErrorCategory,
@@ -638,6 +639,14 @@ class BaseClient(ABC):
             return True, value
         if resolved.scale == 1.0 and resolved.offset == 0.0:
             return True, value
+        if isinstance(value, int) and not isinstance(value, bool) and abs(value) > 2 ** 53:
+            # 非恒等缩放必经 float64:|值| > 2^53 时低位静默丢失,至少告警
+            log_warning(
+                getattr(self, "_debug_label", "omniplc"),
+                "read_tag 点位 %s 为 64 位整数且 |值|>2^53,非恒等缩放将丢精度:%d",
+                resolved.tag_id,
+                value,
+            )
         return True, value * resolved.scale + resolved.offset
 
     def write_tag(self, tag: Union[str, Tag], value: PrimitiveValue) -> bool:

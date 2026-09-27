@@ -636,12 +636,18 @@ class ModbusBaseClient(BaseClient):
             raise ValueError(f"掩码写地址不支持位号后缀:{address!r}")
         order = byte_order.value if isinstance(byte_order, ByteOrder) else str(byte_order)
         pdu = codec.build_mask_write_pdu(
-            parsed.offset, int(and_mask), int(or_mask), order
+            parsed.offset, require_int(and_mask), require_int(or_mask), order
         )
-        ok, _ = self._execute(
-            lambda: codec.parse_mask_write_response(self._transact(pdu), pdu),
-            is_write=True,
-        )
+
+        def operation() -> None:
+            # 广播(RTU 站号 0)不等响应,与 FC05/06/15/16/21 同口径
+            response = self._transact(pdu, expect_response=not (
+                self._station == 0 and self._BROADCAST_WITHOUT_RESPONSE
+            ))
+            if response:
+                codec.parse_mask_write_response(response, pdu)
+
+        ok, _ = self._execute(operation, is_write=True)
         return ok
 
     def read_write_registers(
@@ -673,9 +679,9 @@ class ModbusBaseClient(BaseClient):
         read_parsed = _check_holding_register(read_address, "FC23 读地址")
         write_parsed = _check_holding_register(write_address, "FC23 写地址")
         self._reject_broadcast_read()
-        data = [int(value) for value in values]
+        data = [require_int(value) for value in values]
         pdu = codec.build_read_write_registers_pdu(
-            read_parsed.offset, int(read_count), write_parsed.offset, data
+            read_parsed.offset, require_int(read_count), write_parsed.offset, data
         )
 
         def operation() -> List[int]:
@@ -847,7 +853,8 @@ class ModbusBaseClient(BaseClient):
         :raises ValueError: 入参非法
         """
         trimmed = [
-            (int(file), int(record), int(length)) for file, record, length in requests
+            (require_int(file), require_int(record), require_int(length))
+            for file, record, length in requests
         ]
         self._reject_broadcast_read()
 
@@ -867,7 +874,7 @@ class ModbusBaseClient(BaseClient):
         :raises ValueError: 入参非法
         """
         trimmed = [
-            (int(file), int(record), [int(value) for value in values])
+            (require_int(file), require_int(record), [require_int(value) for value in values])
             for file, record, values in records
         ]
 
@@ -1498,14 +1505,24 @@ def _recv_device_id_tail(transport: BaseTransport) -> bytes:
     FC 43 响应长度随对象数与对象长度变化,无法按请求推算:先读固定头
     (MEI/读取码/符合级别/MoreFollows/下一对象号/对象数 共 6 字节),
     再按对象数逐个读「对象号 + 长度」两字节头与其后的值,最后补 CRC。
+    累计长度按 ``MODBUS_RTU_MAX_ADU_SIZE`` 封顶(与 FC12/17/24 同口径),
+    噪声/畸形响应不再能让读循环消费远超一帧的数据。
 
     :return: 功能码之后的全部字节(含 CRC,交由走线层统一校验)
+    :raises ProtocolFrameError: 累计字节超 ADU 上限
     """
+    tail_limit = MODBUS_RTU_MAX_ADU_SIZE - 2  # 地址(1)+ 功能码(1)之后的部分
     tail = bytearray(transport.recv(MODBUS_DEVICE_ID_FIXED_HEAD_SIZE))
     for _ in range(codec.device_id_object_count(bytes(tail))):
         header = transport.recv(2)
         tail += header
         tail += transport.recv(header[1])
+        if len(tail) > tail_limit:
+            raise ProtocolFrameError(
+                "FC43 响应累计长度超 RTU ADU 上限:{} > {}".format(
+                    len(tail) + 2, MODBUS_RTU_MAX_ADU_SIZE
+                )
+            )
     tail += transport.recv(2)
     return bytes(tail)
 

@@ -217,9 +217,15 @@ class AsyncBaseClient(ABC):
                 _categorize(exc),
                 _extract_code(exc),
             )
-            # 清理钩子须在关传输**之前**(注销帧要发得出去)
+            # 清理钩子须在关传输**之前**(注销帧要发得出去)。
+            # 取消在 3.7 是 Exception(会被本 handler 捕获)、3.8+ 是
+            # BaseException(在本 handler 内部抛出)——两种形态都必须:
+            # ①不吞取消(上抛);②清理照常落地(否则半开传输泄漏 FD)。
+            cancelled: Optional[BaseException] = None
             try:
                 await self._after_connect_failure()
+            except _CANCELLED_ERRORS as cancel_exc:
+                cancelled = cancel_exc
             except Exception:
                 pass
             try:
@@ -228,6 +234,8 @@ class AsyncBaseClient(ABC):
                 pass
             self._transport = None
             self._connected = False
+            if cancelled is not None:
+                raise cancelled
             return False
         self._connected = True
         self._clear_error()
@@ -246,7 +254,12 @@ class AsyncBaseClient(ABC):
             return self._disconnect_locked()
 
     def _disconnect_locked(self) -> bool:
-        """断开实现(内部方法,**调用方须已持有事务锁**)。"""
+        """断开实现(内部方法,**调用方须已持有事务锁**)。
+
+        尽力而为:跨循环/已关循环的传输 ``close()`` 可能抛
+        ``RuntimeError``(不止 OSError)——吞掉并记错误,不中断断开流程
+        (否则清理半途而废,``self._transport`` 已置 None,连接泄漏)。
+        """
         transport = self._transport
         self._transport = None
         self._connected = False
@@ -255,7 +268,7 @@ class AsyncBaseClient(ABC):
             return True
         try:
             transport.close()
-        except OSError as exc:
+        except Exception as exc:
             self._set_error(f"关闭连接失败:{exc}", _categorize(exc), _extract_code(exc))
             return False
         self._counters["disconnect_count"] += 1

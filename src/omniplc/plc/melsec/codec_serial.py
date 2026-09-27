@@ -86,10 +86,15 @@ def check_station_number(station: int) -> int:
 
 
 def check_pc_number(pc_number: int) -> int:
-    """校验 PC 编号(0~3 或 0xFF),非法抛 :class:`ValueError`。"""
+    """校验 PC 编号(0~120 或 0xFF),非法抛 :class:`ValueError`。
+
+    依 SH-080008 §6.2 印刷页 54:经网络访问他站时 PC 编号为 01H~78H(1~120);
+    0xFF 为本局 CPU 直连约定值;0~3 保留 A 系列串口直连旧口径。
+    原实现限死 0~3/FF,串口多站(经网桥访问他站)在入参期即被拒。
+    """
     value = int(pc_number)
-    if value != 0xFF and not 0 <= value <= 3:
-        raise ValueError(f"PC 编号必须是 0~3 或 0xFF,收到:{pc_number}")
+    if value != 0xFF and not 0 <= value <= 120:
+        raise ValueError(f"PC 编号必须是 0~120 或 0xFF,收到:{pc_number}")
     return value
 
 

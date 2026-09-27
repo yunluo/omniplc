@@ -78,40 +78,70 @@
   **修复**:`ER,` 前缀按命令错误抛 `DeviceError`(码取自第 3 字段),不断线。
   门禁:`test_scan_command_error_response_rejected`。
 
+### 第二批(继续处理 P2)
+
+- **[P2] `read_tag` 非恒等缩放对 64 位整数静默丢精度**
+  `core/base_client.py`:`LONG` 配非恒等 `scale/offset` 走 float64,>2^53 静默舍入。
+  **修复**:整数且 `|值|>2^53` 时输出 WARNING(非恒等缩放必经 float64,不中断既有用法);docstring 口径不变。
+
+- **[P2] native `connect()` 清理钩子取消语义 + 跨循环 `close()` 泄漏**
+  `native/base.py::_connect`:清理钩子 `await` 被 `except Exception: pass` 包住——3.7 吞取消(`CancelledError` 是 Exception 子类)、3.8+ 跳过 `transport.close()`(半开传输泄漏);`native/transport.py::AsyncTcpTransport.close` 与 `native/base.py::_disconnect_locked` 只捕 `OSError`,跨循环 `writer.close()` 抛 `RuntimeError` 致清理中断。
+  **修复**:①钩子取消按 `_CANCELLED_ERRORS` 捕获 → 照常落地清理后 `raise`(不吞取消、不跳过清理);②两处 close 捕获放宽为 `Exception`(尽力而为,不中断断开流程)。
+  依据:3.7 `CancelledError` 为 `Exception` 子类的历史坑(见 `core/errors.py` 注释)。
+
+- **[P2] native UDP `connect()` 失败泄漏套接字**
+  `native/transport.py::AsyncUdpTransport._connect`:`sock.connect` 抛错时局部句柄未挂 `self._socket`,`close()` 收不到 → 惰性重连反复泄 FD。
+  **修复**:`try: setblocking/connect except OSError: sock.close(); raise`(与同步层 UDP 同口径)。
+
+- **[P2] Modbus FC22 未处理 RTU 广播**
+  `modbus/modbus.py::write_mask_register` 未传 `expect_response=not(站号0)` → 广播掩码写永远等超时。
+  **修复**:与 `_write_pdu`(FC05/06/15/16/21)同口径——广播下不等响应、跳过回显。
+
+- **[P2] Modbus FC20 响应无 PDU 总长上界**
+  `modbus/codec.py::build_read_file_record_pdu` 只校请求侧,35×125 记录可构造 `expected_response_length≈8822`(规范 §6.14:聚合响应 ≤253B);解析侧对 `pdu[1]` 无上限。
+  **修复**:构造期按 `2+Σ(2+2×记录长) ≤ 247` 入参期拒绝;解析期 `pdu[1] > 0xF5` 按坏帧。
+
+- **[P2] Modbus FC43 RTU 增量收包无 ADU 上界**
+  `modbus/modbus.py::_recv_device_id_tail`:最坏可读 ~64KB(FC12/17/24 均已封顶 256,独漏 FC43)。
+  **修复**:累计长度按 `MODBUS_RTU_MAX_ADU_SIZE-2` 封顶,越界按坏帧 `ProtocolFrameError`。
+
+- **[P2] Modbus 多处 `int()` 静默截断浮点**
+  `write_mask_register` 掩码、`read_write_registers` 读数量与写值、FC20/21 文件号/记录号/长度/值:`1.9→1` 静默写错值。
+  **修复**:统一改 `require_int`(越界/非整数入参期 `ValueError`)。
+
+- **[P2] 三菱 MC `get_cpu_type` 忽略客户端路由、4E 序列号不校验**
+  `codec_qna.build_read_cpu_model` 硬编码 network 0/PC 0xFF;多站/跨网读错站。
+  **修复**:签名补 `serial/network_number/pc_number/monitoring_timer`;同步与 native 客户端传自身路由 + `_next_serial()`,响应按 `expected_serial` 回显校验。
+
+- **[P2] 三菱 MC 串口 PC 号被限死 0~3/FF**
+  `plc/melsec/codec_serial.py::check_pc_number`:SH-080008 §6.2 印刷页 54 允他站 `01H~78H`(1~120),串口多站在入参期即被拒。
+  **修复**:范围放宽为 `0~120 或 0xFF`(0~3 保留 A 系列直连旧口径);门禁更新(`pc_number=121/-1` 拒绝,`4/120` 放行)。
+
 ---
 
 ## 二、待修复(尚未处理,按严重度)
 
 ### P2
-- **[P2] `read_tag` 非恒等缩放对 64 位整数静默丢精度** — `core/base_client.py:639-641`:`LONG` 配非恒等 `scale/offset` 走 float64,>2^53 静默舍入;docstring 仅承诺恒等保精度。建议整数类型且 `abs(value)>2^53` 时告警或拒绝非恒等缩放。
-- **[P2] native `connect()` 清理钩子取消语义/跨循环清理** — `native/base.py:221-230`:`await self._after_connect_failure()` 被 `except Exception: pass` 包住,3.7 吞取消、3.8+ 跳过 `transport.close()`;`native/transport.py:256-267` 跨循环 `close()` 抛 `RuntimeError` 致连接泄漏。建议取消路径先关传输再 `raise`,清理收进 `finally`;`close()` 放宽捕获。
-- **[P2] native `transport.py:397-401` UDP `connect()` 失败泄漏套接字** — 同同步层 UDP 缺陷,需同样 `try/except close`。
-- **[P2] Modbus FC22 未处理 RTU 广播** — `modbus/modbus.py:641-644`:`write_mask_register` 未传 `expect_response=not(站号0)`;广播掩码写永远超时。建议同 `_write_pdu`。
-- **[P2] Modbus FC20 响应无 PDU 总长/子计数上界** — `modbus/codec.py:960-1032` + `modbus/modbus.py:1168`:35×125 记录可构造 `expected_response_length=8822`,RTU 会发起超大读;规范 §6.14 限聚合 ≤253B。建议构造期按 `2+Σ(2+2×len)≤253` 拒绝,解析期封顶 `pdu[1]≤0xF5`。
-- **[P2] Modbus FC43 RTU 增量收包无 ADU 上界** — `modbus/modbus.py:1499-1505`:最坏可读 ~64KB;FC12/17/24 已按 `MODBUS_RTU_MAX_ADU_SIZE=256` 封顶,FC43 遗漏。建议累加已读字节超 ADU 即坏帧。
-- **[P2] Modbus 多处 `int()` 静默截断浮点** — `modbus/modbus.py`(`write_mask_register`/`read_write_registers`/`read_file_record`/`write_file_record`):`1.9→1` 静默写错值;其他路径走 `require_int`。建议统一校验。
-- **[P2] 三菱 MC `get_cpu_type` 忽略客户端路由** — `plc/melsec/melsec.py:559-563` + `codec_qna.py:516-524`:硬编码 network 0/PC 0xFF,`network_number`/`pc_number` 配置不生效;4E 序列号也未回显校验。多站/跨网读错站。
-- **[P2] 三菱 MC 串口 PC 号范围被限死 0~3/FF** — `plc/melsec/codec_serial.py:88-93`(及 `melsec.py` 3C/4C/1C 组路由):SH-080008 §6.2 印刷页 54 允 01H~78H(1~120);串口多站访问他站在入参期被拒。
-- **[P2·待核] S7 断线判定依赖 snap7 1.3 `get_connected()`** — `plc/siemens/client.py:336-351`:1.3 该 API 自述「有时断线仍返回 True」,死链可能被误判为在线→不再重连。建议结合异常/主动 disconnect,或 1.3 线改「读失败即拆连」保守口径(真机待核)。
+- **[P2·待核] S7 断线判定依赖 snap7 1.3 `get_connected()`** — `plc/siemens/client.py:336-351`:1.3 该 API 自述「有时断线仍返回 True」,死链可能被误判为在线→不再重连。建议结合异常/主动 disconnect,或 1.3 线改「读失败即拆连」保守口径(真机待核,未改)。
 
 ### P3
 - **[P3] MC 随机读上限 192 取 iQ-R/Q/L 口径;QnA 实为 96** — `codec_qna.py:396-397`:QnA 超 96 点必被 PLC 拒(现交 PLC 裁决)。建议按机型/子命令分档或文档化默认。
 - **[P3] MC 1E `X/Y` 进制 docstring 说「八进制」与实现(16)矛盾** — `plc/melsec/address.py:12-14`;1E 表 `M/L/S` 同码注释有 `L` 但字典无 `L`;1E 点数上限 255 丢掉手册「256→00H」特殊值;CPU 型号文档写 `0x6302` 实现为 `0x0263`(手册 `63H 02H`)。均为文档/表订正类。
-- **[P3] FINS D/EM 位回退比较未屏蔽结束码标志位** — `plc/omron/omron.py:357-360`/`376-379`:`exc.code == 0x1101` 精确比较,带 bit6/7/15 标志(如 0x1141)时不触发回退。建议屏蔽标志后比较。
-- **[P3] S7 未初始化 STRING(声明长 0)写入 >255 字节抛裸 `ValueError`** — `plc/siemens/client.py:546-555`:在 `_execute` 内执行,异常逃逸而非落 `last_error`。建议提前按 STRING 上限校验并给明确文案。
-- **[P3·待核] AB Forward Open 超时乘数 0x03 疑为 ×32 而非自述 ×4** — `plc/ab/codec_cip.py:123` + `core/constants.py:921-925`:若确为 32×RPI,则「降 RPI 消除连接抖动」方向相反(真机待核)。
-- **[P3] OPC-UA GUID 校验允许单侧花括号** — `opcua/address.py:26-29`:正则两侧各自可选,`g={...`/`g=...}` 也通过;应成对约束。
-- **[P3] OPC-UA 惰性重连不清订阅索引** — `core/base_client.py::_mark_disconnected` 只关传输,**不清 `_active_subscriptions`**,故障后 `active_subscriptions` 仍报失效句柄。建议在重连/传输关闭路径同步清理。
-- **[P3] MTConnect `/asset/{id;id}` 的 id 未 URL 编码** — `cnc/mtconnect.py:473-474`:含 `?`/`#`/空格 的 id 破坏请求行。建议 `quote(id, safe="")`。
-- **[P3] 统计计数由两把锁混护 / 退避门控计入 `transactions` / `connect()` 覆盖根因 / `write_short` 静默截断 float** — `core/base_client.py:392-397,563-585,701-738`:一致性与语义偏差,低危但建议统一口径。
-- **[P3] OpenTcp 长度前缀发送未做范围校验** — `opentcp/client.py:336-341`:`len(payload).to_bytes(prefix)` 溢出抛 `OverflowError` 而非契约 `ValueError`。
-- **[P3] `convert` 两处边界** — `convert.py:248-252` `float32_to_registers` 未把 `OverflowError` 归一 `ValueError`;`convert.py:487-491` `_reorder_bytes` 对奇数长静默补 0;`convert.py:357` `registers_to_canonical` 对越界寄存器 `&0xFFFF` 静默掩码。
-- **[P3] `validation.check_range` 未先 `require_int`;`types.from_name` 非 str 抛 `AttributeError`** — `core/validation.py:49-57`、`types.py:56-60`:与其它入口口径不一致。
-- **[P3] aio `word_order` 返回 str(同步/native 返回枚举)** — `aio/__init__.py:510-512`:跨层比较会分支错误。
-- **[P3] native 取消/超时细节** — `native/transport.py:75-90` 超时竞态可能丢弃已到响应(写侧重试有双写风险);`:78-82` 外层取消不 `await` 内层落地;`:522-525` `_clear_stale_selector` 主线程无循环时可能顺手创建事件循环。
-- **[P3] Modbus FC22 little-endian 掩码非规范** — `modbus/codec.py:301-307`:注释称施耐德机型需要,地址大端而掩码小端自相矛盾(待核)。
-- **[P3] Modbus More-follows 仅认 0xFF** — `modbus/codec.py:504`:非 0x00/0xFF 时应坏帧而非静默截断分页。
-- **[P3] Modbus `write_batch` 整批在单个写事务内** — `modbus/modbus.py:404-409`:`write_retries>0` 时传输失败整批重放,已成功 chunk 重复写(默认 0 可规避)。
+- **[P3] FINS D/EM 位回退比较未屏蔽结束码标志位** — `plc/omron/omron.py`:`exc.code == 0x1101` 精确比较,带 bit6/7/15 标志(如 0x1141)时不触发回退。建议屏蔽标志后比较。
+- **[P3] S7 未初始化 STRING(声明长 0)写入 >255 字节抛裸 `ValueError`** — `plc/siemens/client.py`:在 `_execute` 内执行,异常逃逸而非落 `last_error`。建议提前按 STRING 上限校验并给明确文案。
+- **[P3·待核] AB Forward Open 超时乘数 0x03 疑为 ×32 而非自述 ×4** — `plc/ab/codec_cip.py` + `core/constants.py`:若确为 32×RPI,则「降 RPI 消除连接抖动」方向相反(真机待核)。
+- **[P3] OPC-UA GUID 校验允许单侧花括号** — `opcua/address.py`:正则两侧各自可选,`g={...`/`g=...}` 也通过;应成对约束。
+- **[P3] OPC-UA 惰性重连不清订阅索引** — `core/base_client.py::_mark_disconnected` 只关传输,不清 `_active_subscriptions`,故障后 `active_subscriptions` 仍报失效句柄。
+- **[P3] MTConnect `/asset/{id;id}` 的 id 未 URL 编码** — `cnc/mtconnect.py`:含 `?`/`#`/空格 的 id 破坏请求行。建议 `quote(id, safe="")`。
+- **[P3] 统计计数由两把锁混护 / 退避门控计入 `transactions` / `connect()` 覆盖根因 / `write_short` 静默截断 float** — `core/base_client.py`:一致性与语义偏差,低危但建议统一口径。
+- **[P3] OpenTcp 长度前缀发送未做范围校验** — `opentcp/client.py`:`len(payload).to_bytes(prefix)` 溢出抛 `OverflowError` 而非契约 `ValueError`。
+- **[P3] `convert` 两处边界** — `float32_to_registers` 未把 `OverflowError` 归一 `ValueError`;`_reorder_bytes` 对奇数长静默补 0;`registers_to_canonical` 对越界寄存器 `&0xFFFF` 静默掩码。
+- **[P3] `validation.check_range` 未先 `require_int`;`types.from_name` 非 str 抛 `AttributeError`** — 与其它入口口径不一致。
+- **[P3] aio `word_order` 返回 str(同步/native 返回枚举)** — `aio/__init__.py`:跨层比较会分支错误。
+- **[P3] native 取消/超时细节** — 超时竞态可能丢弃已到响应(写侧重试有双写风险);外层取消不 `await` 内层落地;`_clear_stale_selector` 主线程无循环时可能顺手创建事件循环。
+- **[P3] Modbus FC22 little-endian 掩码非规范** — `modbus/codec.py`:注释称施耐德机型需要,地址大端而掩码小端自相矛盾(待核)。
+- **[P3] Modbus More-follows 仅认 0xFF** — `modbus/codec.py`:非 0x00/0xFF 时应坏帧而非静默截断分页。
+- **[P3] Modbus `write_batch` 整批在单个写事务内** — `modbus/modbus.py`:`write_retries>0` 时传输失败整批重放,已成功 chunk 重复写(默认 0 可规避)。
 
 ---
 
@@ -127,4 +157,4 @@
 ## 四、门禁与结论
 
 门禁(3.7.9):**1387 passed** / ruff / mypy(76 files) / ty 全零。
-本轮修复 15 项(P0×1、P1×5、P2×9),新增回归门禁 10+ 条;其余 P2/P3 与待核项已登记如上,按项目排期处理。整体无 P0 残留;核心传输/协议契约未发现新的数据损坏级缺陷。
+累计修复 24 项(P0×1、P1×5、P2×18),新增回归门禁 20+ 条;其余 P3 与待核项已登记如上,按项目排期处理。整体无 P0/P1 残留;核心传输/协议契约未发现新的数据损坏级缺陷。

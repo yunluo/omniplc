@@ -570,9 +570,17 @@ class _MelsecMcBase(BaseClient):
             )
 
         def operation() -> Tuple[str, int]:
-            request = codec_qna.build_read_cpu_model(self._frame.value)
+            # 0101 同样按客户端路由字段组帧(跨网/他站访问他站 CPU);
+            # 4E 响应按序列号回显校验
+            request = codec_qna.build_read_cpu_model(
+                self._frame.value,
+                self._next_serial(),
+                self._network_number,
+                self._pc_number,
+                MC_DEFAULT_MONITOR_TIMER,
+            )
             return codec_qna.parse_read_cpu_model_response(
-                self._transact(request), self._frame.value
+                self._transact(request), self._frame.value, expected_serial=self._serial
             )
 
         return self._execute(operation)

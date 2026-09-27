@@ -255,14 +255,19 @@ class AsyncTcpTransport(AsyncBaseTransport):
         log_op(self._debug_label, "已连接")
 
     def close(self) -> None:
-        """关闭 TCP 连接,幂等(不等待底层完成,见模块 docstring)。"""
+        """关闭 TCP 连接,幂等(不等待底层完成,见模块 docstring)。
+
+        **尽力而为**:传输若建在已关闭的旧事件循环上,``writer.close()``
+        会抛 ``RuntimeError("Event loop is closed")``——吞掉而不是让
+        ``disconnect()``/``close()`` 中断(否则清理半途而废,连接泄漏)。
+        """
         writer = self._writer
         self._reader = None
         self._writer = None
         if writer is not None:
             try:
                 writer.close()
-            except OSError:
+            except Exception:
                 pass
             log_op(self._debug_label, "已断开")
 
@@ -396,8 +401,14 @@ class AsyncUdpTransport(AsyncBaseTransport):
         )
         family, _, _, _, sockaddr = infos[0]
         sock = socket.socket(family, socket.SOCK_DGRAM)
-        sock.setblocking(False)
-        sock.connect(sockaddr)
+        try:
+            sock.setblocking(False)
+            sock.connect(sockaddr)
+        except OSError:
+            # connect 失败时清理局部套接字(_connect_locked 的 close() 收不到
+            # 未挂到 self._socket 的句柄,漏关即惰性重连反复泄 FD)
+            sock.close()
+            raise
         self._socket = sock
         self._peer_ip = str(sockaddr[0])
         log_op(self._debug_label, "已连接")
