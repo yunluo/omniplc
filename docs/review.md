@@ -242,7 +242,7 @@ pdfplumber 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、�
 | OPC-UA | ✅ 已完成 | P2 Deadband 透传(DataChangeFilter);P3 GUID 格式严格校验(8-4-4-4-12)+ browse ReferenceType;§2.11.5/7/8 已由既有修复覆盖——见下「OPC-UA 专项」 |
 | MTConnect | ✅ 已完成 | P2 `/sample` 历史流 + `/asset` + 多 Device `/probe`;P3 空元素 UNAVAILABLE + path 过滤——见下「MTConnect 专项」 |
 | 汇川 H3U/H5U(Modbus + MC 兼容) | ✅ 已完成 | P2 X/Y 上限按 H5U 放宽到 X1777(1024 点)、P2 C200~C255 32 位计数器字访问(0xF700 双寄存器 + 32 位类型门控);地址表逐项对照 H3U 9.4.3 / H5U 9.5.1 与 MC 16.4——见下「汇川专项」 |
-| 丰田 TOYOPUC / 松下 / 基恩士 KV·SR | ⏳ 待查 | 部分厂商手册在「待补」表 |
+| 丰田 TOYOPUC / 松下 / 基恩士 KV·SR | ⚠️ 丰田已核对(无手册,仅登记待核);其余待查 | 丰田:整体待核 + 定位到 L/H/W 编号口径冲突;见下「丰田 TOYOPUC 专项」 |
 | native / aio 层 | ⏳ 待查 | 三轮 P1 恒等缩放(同步回归 + native 镜像)、Modbus 区域×类型、TOYOPUC 负写已修(2026-09-27);退避封顶等 P2 待处理 |
 
 ### MX 专项(2026-09-27,逐协议深入;PyMuPDF 抽取《MX Component Version 4 编程手册》全 564 页)
@@ -361,8 +361,21 @@ byte count、FC43 按对象头)与 CRC 低字节在前。
 
 门禁:全量 **1267 passed**(+8)/ ruff / mypy(76) / ty 全零。
 
-### MTConnect 专项(2026-09-27;Part1 v1.5 pdfplumber 全 142 页核对)
+### 丰田 TOYOPUC 专项(2026-09-27;PC Link 手册未收录,按铁律仅核对与登记)
 
+**依据状态**:`docs/protocol/` 无 TOYOPUC PC Link 手册(见「待补」表),帧格式/命令码/软元件基址表均**未经官方手册核证**,整体标 **待核**。按 AGENTS「协议依据铁律」**不得据现有代码臆改帧语义**,故本轮**不改协议行为**,只做核对、精确定位与登记:
+
+- **帧层核对(内部自洽)**:命令帧 `00 00 LL LH CMD [数据]` / 响应 `80 RC LL LH CMD [数据]`,长度域 = CMD + 数据字节数;命令码 1C/1D(字)、1E/1F(字节)、20/21(位);`RC=10` 详细出错码提取(无数据时在 CMD 字节,否则取数据末字节);地址/点数 16 位小端、多字小端低字在前——`codec.py` 与模块 docstring 一致,`parse/check_response` 长度与命令回显校验完备。
+- **基址表内部一致性**:逐项验证 `_BYTE_BASE == _WORD_BASE << 1`(全部成立)、`_BIT_BASE == _WORD_BASE << 4`(P/K/V/T/C/L/X/Y/M 全部成立)→ 物理模型「16 位/字、8 位/字节、位号 = 字索引×16 + 位内偏移」。
+- **定位到一处真实冲突(P3,需手册裁定)**:**位软元件 L/H/W 的"编号"口径不一致**——`parse_toyopuc_address` 校验按「编号是**位号**」(`number >> 4` 落在 `_PACKED_SEGMENTS` = 位段右移 4 位的字索引段);`encode_word_address`/`encode_byte_address` 却按「编号是**字索引**」直用(`_WORD_BASE + number` / `_BYTE_BASE + number*2`)。两者不可同时成立:库内基址不变量(`_BIT_BASE == _WORD_BASE << 4`)与校验指向"位号",而现有测试(`test_parse_address` 断言 `X0010H → 0x221`、`test_tcp_read_packed_word` 断言 `M0201W → 0x180+0x201`)指向"字索引"。**未定夺**——拿到手册后统一两处口径并订正测试;现按现状保留(不臆改),已在 `address.py` 模块 docstring 与两处编码函数标注「待核」。
+- **未实现面登记(缺手册,不臆造)**:扩展区 CMD 0x94/0x95、PC10 CMD 0xC2~0xC6、多站/中继 0x60/0x61、PLC 状态与错误日志 0x70/0x7E(对应 §2.10.1-3);L 第二段位段范围(§2.10.4)同样待手册。
+- **文档化**:`docs/protocol/README.md`「待补」TOYOPUC 行已列明拿到手册后须裁定的三项(编号口径 / 缺命令 / L 第二段)。
+
+**结论**:丰田 TOYOPUC 在拿到 PC Link 手册前**冻结在「待核」**——本轮产出为文档化与精确定位,不做协议面改动。
+
+门禁:全量 **1290 passed**(纯注释/文档,无新增用例)/ ruff / mypy(76) / ty 全零。
+
+### MTConnect 专项(2026-09-27;Part1 v1.5 pdfplumber 全 142 页核对)
 核对通过:Part1 §8.2 `/probe`(§p.13-14)、§8.3.1 `/current`、§8.3.3 Sample Request p.106-111、§8.3.4 Asset Request p.114-115、§6.5.2.2 Streams Header p.77-78(`nextSequence`/`firstSequence`/`lastSequence`/`instanceId`)。`/probe`、`/current`、`/sample`、`/assets`、`/asset/{id}` 端点定义与实现一致。
 
 - **P2 §2.12.1 无 `/sample` 历史流——已修复**:新增 `read_sample(from_sequence=None, count=100, *, path=None, at=None)`——Query 依 Part1 §8.3.3.2 p.108-109(`from` uint64 起始序号 / `count`(缺省 100)/ `path` XPath / `at` 指定序号);响应解析 Streams 逐样本(sequence/dataItemId/name/type/subType/timestamp/value)+ Header `nextSequence`(= lastSequence+1,供游标续拉)。`count<1` / `from` 与 `at` 互斥 / 负数 → 入参期 `ValueError`(零请求)。

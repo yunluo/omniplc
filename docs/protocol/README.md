@@ -93,7 +93,7 @@ omniplc 已实现且**仍完全无对应文档**的协议(需厂商账号或付�
 | 协议 | 缺口 | 关联客户端 |
 |---|---|---|
 | 松下 FP | FP0H/FP7 通信手册 MC 篇 / MEWTOCOL-COM 手册 | `PanasonicMcTcpClient` / `PanasonicMewtocolTcpClient` |
-| 丰田 TOYOPUC | PC Link 通讯手册 | `ToyopucTcpClient` |
+| 丰田 TOYOPUC | PC Link 通讯手册 | `ToyopucTcpClient` / `ToyopucUdpClient`(整体待核;拿到手册后须裁定:①位软元件 L/H/W 的"编号"是位号还是字索引——现校验按位号 `>>4`、编码按字索引直用,两处冲突;②补扩展区 CMD 0x94/0x95、多站 0x60/0x61、状态/错误日志 0x70/0x7E;③L 第二段位段范围) |
 
 omniplc 已实现且**有部分覆盖**但关键官方手册仍缺的协议:
 
