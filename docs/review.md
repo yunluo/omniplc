@@ -67,6 +67,7 @@ v1 评审稿逐条对源码复核后形成本版:
 - **MC 能力补齐批(2026-09-27)**:新增三项 QnA 兼容帧能力(依 SH-080008,黄金样本探针逐字节核证后固化)——①**随机读 0403**(`random_read`:乱序不连续软元件单事务,字访问 + 双字访问分节,响应字/双字分节解析;上限 192 点,双字 = 32 位,限 INT/UINT/FLOAT);②**随机写 1402**(`random_write`:乱序写,加权点数 字×12+双字×14 ≤1920,无响应数据);③**CPU 型号 0101**(`get_cpu_type`:模型名 16 字节 + 代码 2 字节小端,Q02UCPU → 0x6302,§11.2 印刷页 176-178)。codec 层新增 6 函数(`codec_qna.build_random_read_devices/parse_random_read_devices_response/build_random_write_devices/build_read_cpu_model/parse_read_cpu_model_response/_random_device·_random_word_value/_decode_dword`)+ 常量 4 项;3E/4E 客户端 + aio 三类镜像(TCP/UDP/串口)对齐;**0701/0702 时钟命令经 SH-080008 与 SLMP 手册全文检索均无收录,按铁律不臆造,登记 `docs/protocol/README.md` 待补表**(缺 QCPU 用户手册基础系统篇)。回归 14 例(codec 7 + 客户端 7)。门禁 1231 → **1245**。
 - **逐协议专项 AB EtherNet/IP(CIP)(2026-09-27)**:依 Rockwell EM Guide p.22 + CIP Vol 1 章节号,并以 pycomm3 1.2.16 / pylogix / OpENer 参考实现对照裁决——①**P1 Get_Attribute_List(0x03)应答逐项布局错**(原按 `属性数 + 每项[长度 u16][值]` 解,实为 `属性数 u16 + 每项[属性号 u16][状态 u16][值]`,值不带类型码与长度域;真机上 `get_attribute_list()` 必解码失败):解码器契约改「收剩余字节 → `(值, 已消费字节数)`」、逐项状态非 0 返 `None`、Identity 属性 1~7 **任意子集**走内置解器、非 Identity 原样返项区字节;②**P2 附加状态 16 位字步进**(`_parse_service_payload`/`parse_service_reply`/`parse_forward_open_reply` 三处 `4+N` → `4+2N`,统一 `_service_data_offset()` 收口,三轮 §2.4.7 结案);③**P3** 类型码 0xC9 `LWORD`→`ULINT`、Forward Open 连接尺寸构造期校验(普通 9 位/Large 16 位)。UC-Send 信封、Forward Open/Close、SendUnitData 逐字段与参考实现一致(无改动,核证结论记 architecture.md §8.1)。回归 8 例(codec 6 + 客户端 2,旧实现全 FAILED)+ 尺寸校验 1 例。门禁 **1270 passed**(本批 +8;同机另有 7 个 `test_opcua_client.py` 失败属另一代理在途 WIP)。
 - **逐协议专项 汇川(2026-09-27)**:依 H3U 手册 9.4.3(印刷页 575-576)与 H5U&Easy 手册 9.5.1/16.4(印刷页 418-419/661)逐项核对地址表与 MC 码表——①**P2 X/Y 上限**由 256(H3U 口径)改 **1024**(H5U X0~X1777,0xF800-0xFBFF/0xFC00-0xFFFF),解开 H5U 上 X400~X1777 被误拒;②**P2 C200~C255 32 位计数器**补字访问——新增 `INOVANCE_C32_BASE/FIRST/LAST`(0xF700 起、每只占两个 16 位寄存器,手册算例 C205 → 0xF70A)+ `to_modbus_address` 双寄存器展开 + `check_counter_word_type` 32 位类型门控(INT/UINT/FLOAT;手册注明 32 位寄存器不支持 FC06,写路径落 FC16);③**P3** 串口默认停止位口径订正(8N2 是 H5U 默认、H3U 手册示例为 8N1)+ 机型差异(§2.8.1)与 MC 点数码表(§2.8.4)文档化;§2.8.3 结案为文档化边界(厂商私有 FC 无手册依据,自由协议帧走 `OpenTcpClient`)、§2.8.5 已核证(R → D8000 与手册一致)。回归 5 例(codec 3 + 客户端 2,前 4 例旧实现 FAILED)。门禁 **1290 passed**(本批 +5)。
+- **逐协议专项 native·aio 层(2026-09-27)**:修复四项 + 同步能力面整体平展——①**P2 native 退避指数未封顶**按 `RECONNECT_BACKOFF_MAX_EXPONENT` 封顶;②**P3 `__aexit__` 改走 `close()`**(关闸,与 aio 同口径);③**P3 UDP `close()` 漏关 FD**:摘 selector 注册与关句柄分开兜底,无当前事件循环(非主线程收尾/循环已关闭)时也必定关句柄,`_clear_stale_selector` 对 `EBADF`/`EINVAL` 记 WARNING(原静默吞,§1.7);④**native 补漏两项**——MC `_device_info` 未传生效码表(`xy_octal` 下查表与组帧不同源)、MC 字符串读写未拒 `.bit`(同步侧已拒,native 静默按整字读写)。**平展**:基类 `read_many`/`write_many`;Modbus `read_batch`/`write_batch`(共用 `_classify`/`_coalesce_group`/`_encode_value_for_write` 三个纯助手)+ FC 07/08/11/12/17/20/21/22/23/24 + FC 43/14 设备标识(自动翻页)+ FC15 `_write_bools_impl` 与位写区域守卫;MC 4E 帧(收包头按帧型取 9/13 字节)+ 0406 多块批量读 + 0403 随机读 + 1402 随机写 + 0101 CPU 型号;FINS 0104 多存储区批量读。守卫测试 `test_native_surface.py` 的"未到批次表"由 26 项清零(现为"同步公开面 ⊆ 原生面"的强断言)。回归 4 例 + 对拍新增 19(Modbus)×2 循环、4(MC 4E)×2、8(MC 扩展)×2、5(FINS)×2;门禁 **1292 → 1374 passed**。
 
 ---
 
@@ -209,13 +210,13 @@ v1 评审稿逐条对源码复核后形成本版:
 - ~~**ADS transport 码集缺 `0x1A ERR_TCPSEND`(已核手册)**~~:**已修复(2026-09-27,ADS 专项)**——TE1000 §8 p.128 `0x1A ERR_TCPSEND` 补入(原 `0x1B/0x1D` 独缺 `0x1A`,TCP 发送失败当设备错误不断线)。
 - **OPC-UA `_coerce_read` 设备越界抛 `ValueError`(已核验复现)——已修复(2026-09-27)**:`_narrow_int` 捕获范围校验的 `ValueError` 转译为 `DeviceError(code=0)`——越界值来自**服务端**属设备侧条件(与"节点值为空"同口径,`_execute` 转 `(False, None)` 不断线);写路径维持 `ValueError`(调用方参数错误)。回归更新 `test_coerce_read_narrows_integer_range`(旧实现 FAILED)。原描述:`opcua/client.py:867` 读侧设备返回越界(如 `read_ushort` 遇 70000)应 `DeviceError` 却抛 `ValueError` 逃出 `_execute`。
 - ~~**Keyence SR `bank` 范围错(已核手册)**~~:**已修复(2026-09-27,基恩士专项)**——手册 `LON,b` 为 **b:01~16**;`SR_BANK_MAX` 15→16、加 `SR_BANK_MIN=1`,校验 `1~16`(原 `0~15` 致 `bank=0` 发非法 `LON,00`、`bank=16` 被误拒)。
-- 其余 P2:**native 退避指数未封顶**(`native/base.py:670`,`OverflowError` 逃出);~~**ADS transport 错误分类为 UNKNOWN**(`ads.py:135`,应 TRANSPORT)~~(**已修复 2026-09-27**:transport 分支改抛 `TransportClosedError`,归 TRANSPORT);~~**ADS `write(addr, STRING)` 绕过声明长预检**(`ads.py:382`)~~(**已修复 2026-09-27**:STRING 分支路由 `_write_string` 预检);**AB/FINS/MX 非 BOOL `.bit` 未拒/未处理**(`ab.py` read_batch、`omron.py` 字符串、`mx.py` 读;其中 **FINS 字符串已修 2026-09-27** 见 FINS 专项);**1E `X/Y` 八进制 vs 手册十六进制**(`constants.py:291`,待核);**Inovance 0406 未列手册**(`melsec.py:242`,待核);**AB 自定义 STRING<88 仍按 88 写**(`codec_cip.py:1174`);**AB 单条超预算不拆**(`ab.py:818`)。
+- 其余 P2:**native 退避指数未封顶**(`native/base.py:670`,`OverflowError` 逃出)——~~未修~~ **已修复 2026-09-27**(按 `RECONNECT_BACKOFF_MAX_EXPONENT` 封顶,与同步基类同口径);~~**ADS transport 错误分类为 UNKNOWN**(`ads.py:135`,应 TRANSPORT)~~(**已修复 2026-09-27**:transport 分支改抛 `TransportClosedError`,归 TRANSPORT);~~**ADS `write(addr, STRING)` 绕过声明长预检**(`ads.py:382`)~~(**已修复 2026-09-27**:STRING 分支路由 `_write_string` 预检);**AB/FINS/MX 非 BOOL `.bit` 未拒/未处理**(`ab.py` read_batch、`omron.py` 字符串、`mx.py` 读;其中 **FINS 字符串已修 2026-09-27** 见 FINS 专项);**1E `X/Y` 八进制 vs 手册十六进制**(`constants.py:291`,待核);**Inovance 0406 未列手册**(`melsec.py:242`,待核);**AB 自定义 STRING<88 仍按 88 写**(`codec_cip.py:1174`);**AB 单条超预算不拆**(`ab.py:818`)。
 
 ### P3(合并)
 
 - Modbus:FC20 上界 `0x7D` 非规范(聚合响应无上界,`codec.py:877/896`;**专项复核维持自加宽容**——超限帧交 PLC 侧异常码 02 裁决,客户端不预拦);RTU FC43 增量无 ADU cap(`modbus.py:1409`;**已核 FC43 走对象头增量收包,无此问题**,见 Modbus 专项);~~FC05/06/15/16 写响应不回显~~(**已修复 2026-09-27**,Modbus 专项);~~批量写只读区在锁内才抛~~(**已修复 2026-09-27**);~~FC08 清计数器广播被误拒~~(**已修复 2026-09-27**);异常响应对尾字节宽容(`codec.py:186`);~~FC12 事件 0~64 未限~~(**已修复 2026-09-27**:byte count ≤0x46);掩码/批量值 `int()` 静默截断 float;设备标识翻页非法 `NextObjectId` 抛裸 `ValueError`。
 - OpenTcp:`max_frame` 不严格遵守(单分片自带分隔符可超)、`recv_chunk_size` 无上界、长度前缀 `to_bytes` 可溢出发送端。
-- native:`__aexit__` 用 `disconnect()`(aio 用 `close()`);UDP `close` 在无当前 loop 时可能漏关 FD。
+- native:~~`__aexit__` 用 `disconnect()`(aio 用 `close()`)~~(**已修复 2026-09-27**:改走 `close()` 关闸,块外再用抛 `RuntimeError`);~~UDP `close` 在无当前 loop 时可能漏关 FD~~(**已修复 2026-09-27**:摘注册与关句柄分开兜底;`_clear_stale_selector` 无循环时静默返回、`EBADF`/`EINVAL` 记 WARNING)。
 - 工程:`docs/architecture.md` §6.2/§10 与 `CONTRIBUTING.md:9` 仍称「CI 裸 mypy / 仅 3.12」与 3.7.9+3.12 矩阵不符(review 台账曾误标已订正;已订正 2026-09-27);`[tool.mypy] files=["src","tests"]` 因显式路径而失效(tests 实际未检查);MTConnect 单点读每次拉整份 `/current`;~~**S7 `_write` 未支持类型抛 `KeyError`、docstring 引用不存在的 `DataType.BYTE`**~~(**已修 2026-09-27**:_SIZES 校验 + STRING 路由预检 + docstring BYTE 引用修,S7 专项);TOYOPUC packed 地址校验与编码口径自相矛盾(`address.py:132` vs `139`,待手册)。
 - **文档/引用纪律(审计 + 补足,2026-09-27)**:协议实现 × `docs/protocol` 索引全面核对——①**MC 依据误标** `SH-080956`(SLMP)统一改为 **`SH-080008`**(MC 协议);②**FINS 依据误标** `W340` → **`W342`**(§5-1-3 结束码 / §5-2-1·§5-2-2 存储区):`omron/codec.py`、`core/constants.py` 及 `architecture.md` 5 处;③`keyence/mc.py` 的 `SH081257ENG` 未见于索引 → 改引 SLMP `SH-080956` 并标 **待核**;④`core/constants.py` MEWTOCOL 端口来源 Pro-face 标 **第三方非官方·待核**;⑤**补足缺失引用**:`melsec/address.py`(SH-080008 §8.1/8.2)、`modbus/address.py`(Modbus §4.4 + Modicon 记法存档)、`omron/address.py`(W342 §5-2)、`ab/address.py`(Rockwell Explicit Messaging)、`siemens/client.py`·`address.py`(S7-1500 §3.5/§6.4/§3;S7comm 编码待核)、`opcua/client.py`(Part1 §6.3.3/§7.11;Part 4 待核)、`cnc/mtconnect.py`(Part1 HTTP 端点)、`scanner/keyence_sr.py`(SR-2000 LON,b)、`plc/omron/cip.py`(W506 §7/W627)、`plc/ab/codec_cip.py`(ODVA EtherNet/IP/PUB00123/Rockwell)。`CONTRIBUTING.md` 铁律补两条硬约束(引用须指向正确文档编号、码表/错误码禁止按连续性推断须逐项对表),PR 流程加「列出依据手册编号+页码/章节」;CI 版本矩阵措辞(3.7.9+3.12)订正。**无文档依据者一律标「待核」**,不臆造。
 
@@ -245,7 +246,7 @@ pdfplumber 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、�
 | 丰田 TOYOPUC 计算机链接 | ✅ 已完成(同源参考裁决修正) | 打包字/字节编号口径经 `plc-comm-toyopuc` 4.2.0 双向裁决 → 修正校验多移 4 位;缺命令待官方手册——见下「丰田 TOYOPUC 专项」 |
 | 松下 FP(MC / MEWTOCOL) | ⏳ 待查 | 官方手册缺(MEWTOCOL-COM 手册待补);协议要点在 §2.9 |
 | 基恩士 KV·SR | ⚠️ SR 已完成(bank 范围修正);KV 待查 | SR:P2 bank 范围 01~16 修正 + 缺口登记;KV 官方手册缺——见下「基恩士 SR/KV 专项」 |
-| native / aio 层 | ⏳ 待查 | 三轮 P1 恒等缩放(同步回归 + native 镜像)、Modbus 区域×类型、TOYOPUC 负写已修(2026-09-27);退避封顶等 P2 待处理 |
+| native / aio 层 | ✅ 已完成 | 三轮 P1 恒等缩放(同步回归 + native 镜像)、Modbus 区域×类型、TOYOPUC 负写已修(2026-09-27);本批补齐退避封顶 / `__aexit__` 关闸 / UDP close 漏关 FD / selector 摘注册告警四项,并把同步层能力面**整体平展到 native**(基类批量 + Modbus 扩展码 + MC 4E·0406·0403·1402·0101 + FINS 0104)——见下「native·aio 层专项」 |
 
 ### MX 专项(2026-09-27,逐协议深入;PyMuPDF 抽取《MX Component Version 4 编程手册》全 564 页)
 
@@ -523,6 +524,66 @@ R `0x3000`(R0~R32767));串口默认 9600-8N2(H5U 印刷页 418)。MC 兼容侧 1
   0x2400 是**不同地址空间**(线圈 vs 保持寄存器),非笔误。
 
 门禁:全量 **1290 passed**(本批 +5)/ ruff / mypy(76) / ty(本批文件零诊断)。
+
+### native·aio 层专项(2026-09-27,逐协议深入;与同步层逐方法对照 + 对拍锁口径)
+
+范围:`omniplc.native`(原生 asyncio 孪生层)与 `omniplc.aio`(线程池包装层)。
+aio 层经镜像守卫测试与同步层同面,本身无需平展;本专项处理 native 层的
+**四项遗留修复**与**同步能力面整体平展**。
+
+核对通过(逐方法对照同步孪生):事务模板(`_execute` 的惰性重连 / 重试与
+`write_retries` / 退避门控 / 错误三分口径)、类型化方法签名与收窄
+(`_narrow_int`/`_narrow_float`)、点位表恒等缩放(64 位直通)、取消语义
+(已发出 → 拆连)、TCP/UDP 超时口径(socket.timeout 拆连 vs
+`TransportTimeoutError` 不拆连)、UDP 地址族钉 `AF_INET`、FINS/UDP 节点推导用
+`peer_ip` 字面量(不阻塞 DNS)——均有既有用例锁定,本批未改动。
+
+- **P2 退避指数未封顶 — 已修复**:`native/base.py` 的 `_register_connect_failure`
+  直接算 `FACTOR ** fail_count`;长跑轮询下失败次数持续增长时 `2.0 ** 5000`
+  抛 `OverflowError` 逃出连接路径(同步基类早按 `RECONNECT_BACKOFF_MAX_EXPONENT`
+  封顶)。现同口径封顶;门禁 `test_backoff_exponent_is_capped`(旧实现实测
+  `OverflowError`)。
+- **P3 `__aexit__` 未关闸 — 已修复**:退出 `async with` 原走 `disconnect()`,
+  块外再用同一实例会**静默惰性重连**(与 `omniplc.aio` 的 `close()` 口径相反)。
+  现改走 `close()`:退出即关闸,块外调用抛 `RuntimeError`;门禁
+  `test_async_with_exit_gates_the_client_like_close`(旧实现 `DID NOT RAISE`)。
+- **P3 UDP `close()` 可能漏关句柄 — 已修复**:`AsyncUdpTransport.close()` 把
+  "摘 selector 注册"与"关句柄"放在同一个 `try` 里,而摘注册要取事件循环——
+  无当前循环(非主线程收尾、循环已关闭)时 `asyncio.get_event_loop()` 抛
+  `RuntimeError`,`sock.close()` 被跳过 → **fd 泄漏**。现两步分开兜底,摘注册
+  失败也必须关句柄;门禁 `test_udp_close_closes_socket_without_event_loop`。
+- **P3 `_clear_stale_selector` 吞所有 OSError(§1.7)— 已修复**:`errno` 属
+  `EBADF`/`EINVAL`(fd 提前失效)时记 WARNING,其余(注册本就不存在)静默;
+  无循环时直接返回(见上条);门禁 `test_udp_stale_selector_ebadf_logs_warning`。
+- **补漏(native 未镜像同步侧两处)— 已修复**:①**MC `_device_info` 未传生效码表**
+  ——同步侧为 `codec_qna.device_info(device, self._effective_codes())`,native 漏传,
+  `xy_octal=True` 时**查表与组帧不同源**(FX5U 表的 X/Y 进制与默认表不同);
+  ②**MC 字符串读写未拒 `.bit`**——同步侧 `_read_string`/`_write_string` 显式拒绝,
+  native 未校验,`read_string("D100.3")` 静默按 D100 整字读写(与 MC 专项 P1 同类)。
+  门禁:边界对拍表补 `melsec-string_bit_suffix`/`write_string_bit_suffix`
+  (旧实现实测 FAILED)。
+- **同步能力面平展(本批主体)**:native 原为"单点读写"首批,批量与扩展命令
+  全部缺席(守卫测试以"未到批次表"声明 26 项)。现按协议补足,**合并/规划算法
+  复用同步侧纯助手**,只有事务循环是 `await` 版:
+  - **基类**:`read_many` / `write_many`(基类逐点事务)
+  - **Modbus**:`read_many`/`read_batch`/`write_many`/`write_batch`(共用
+    `_classify`/`_coalesce_group`/`_encode_value_for_write`;RMW 分流与
+    `fail_fast` 两种失败语义逐条对齐)、FC22 掩码写、FC23 读写复合、FC43 流式
+    (自动翻页)+ FC43/14 个体访问、FC07/08/11/12/17/20/21/24,并补 FC15
+    `_write_bools_impl` 与 `_write_bool_impl` 的"输入寄存器/离散输入不可写"守卫
+  - **三菱 MC**:**4E 帧**(收包头按帧型取 9/13 字节——原按 9 字节收 4E 必坏帧)、
+    0406 多块批量读(复用 `_merge_bit_blocks` 的位块合并)、0403 随机读(字/双字
+    分节)、1402 随机写、0101 CPU 型号;串口帧(1C/3C/4C)构造期显式拒绝
+  - **FINS**:0104 多存储区批量读(32/64 位拆相邻多条、BOOL 提位、T/C 与
+    变长字符串入参期拒绝);写侧维持基类逐点(协议无跨存储区单事务写原语)
+  - **守卫测试收紧**:`test_native_surface.py` 三张"未到批次表"清零,现为
+    "同步公开面 ⊆ 原生公开面"的强断言(新增同步 API 忘了镜像即变红)
+- **测试**:扩展面对拍 19(Modbus)/ 4(MC 4E)/ 8(MC 扩展)/ 5(FINS)例,
+  Selector × Proactor 双循环;每例断言**请求帧逐字节相同** + 结果/连接态/
+  错误三件套/计数一致 + **命令域符合期望**(钉住"该合并的确实合并为一笔");
+  另加整批容错与逐 chunk 独立失败两例。
+
+门禁:全量 **1374 passed**(本批 1292 → 1374)/ ruff / mypy(76) / ty(零诊断)。
 
 ### 发布记录(2026-09-27)
 

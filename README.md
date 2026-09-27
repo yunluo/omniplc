@@ -55,10 +55,10 @@ AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient / APanason
 APanasonicMewtocolUdpClient / AKeyenceSrClient / AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient
 AOpenTcpClient / AMTConnectClient / ASiemensS7Client
 
-原生异步(omniplc.native):独立层,类名 = 同步类名前加 Async,首批 5 个
+原生异步(omniplc.native):独立层,类名 = 同步类名前加 Async,覆盖三协议 5 个
 AsyncBaseClient(异步基类,事务模板与同步层同口径)
 AsyncModbusTcpClient
-AsyncMelsecMcTcpClient / AsyncMelsecMcUdpClient(1E/3E)
+AsyncMelsecMcTcpClient / AsyncMelsecMcUdpClient(1E/3E/4E)
 AsyncOmronFinsTcpClient / AsyncOmronFinsUdpClient
 ```
 
@@ -356,13 +356,13 @@ omniplc.set_debug(False)  # 关闭
 | | `omniplc.aio`(**包装层**,类名前加 `A`) | `omniplc.native`(**原生层**,类名前加 `Async`) |
 |---|---|---|
 | 实现 | 同步 I/O + 单线程 `ThreadPoolExecutor` 包装 | 原生 `asyncio` 协议栈(零第三方依赖) |
-| 覆盖面 | **全部**协议(自动镜像的过渡层) | 首批:Modbus TCP / 三菱 MC 1E·3E(TCP/UDP)/ 欧姆龙 FINS(TCP/UDP) |
-| 能力面 | 与同步层同面 | 单点读写 + 类型化方法 + 字符串 + 点位表(**批量留后续批次**) |
+| 覆盖面 | **全部**协议(自动镜像的过渡层) | Modbus TCP / 三菱 MC(以太网 1E·3E·4E,TCP/UDP)/ 欧姆龙 FINS(TCP/UDP) |
+| 能力面 | 与同步层同面 | 上述三协议**与同步层同面**(单点与批量、扩展功能码一应俱全;见下) |
 | 属性读取 | 抢事务锁,最长阻塞一个 `receive_timeout` | 直接读字段、不阻塞事件循环(单线程下是真原子快照) |
 | 取消 | `wait_for` 超时只放弃等待,已提交事务照跑完 | **真中断**:取消时按"是否已发出请求"决定是否拆连 |
-| 适用 | 协议尚未进原生首批、或需要该协议的批量/扩展方法 | 首批协议的新代码,尤其是需要原生取消与严格超时的场景 |
+| 适用 | 需要原生层尚未覆盖的协议(AB / S7 / OPC-UA / 基恩士 / 松下 / TOYOPUC / MTConnect / 通用 TCP 等) | 三协议的新代码,尤其是需要原生取消与严格超时的场景 |
 
-两套都保留:包装层继续覆盖全部协议(过渡期用),原生层逐批补齐;同一个
+两套都保留:包装层继续覆盖全部协议,原生层按协议逐个补齐能力面;同一个
 `import asyncio` 项目里可以混用(互不影响)。
 
 **包装层 `omniplc.aio` 的实现方式与边界**:它**不是原生 asyncio 协议栈**,
@@ -429,9 +429,15 @@ asyncio.run(main())
   ——与同步 `UdpTransport` 的收/发两条路径逐条对应。
 - **一个实例绑定一个事件循环**(事务锁按首次使用时的循环惰性创建,模块级
   构造再 `asyncio.run` 也正常);跨循环/跨线程共享同一实例不支持。
-- **能力面**:单点读写 + 类型化方法 + `read_string`/`write_string` + 点位表;
-  批量(`read_many`/`read_batch`)与各家扩展方法(FC 22/23/43、MC 0406、
-  FINS 0104 等)**尚未进入原生层**,需要时用包装层或同步客户端。
+- **能力面**(2026-09-27 起与同步层同面):
+  - 基类:`read_many` / `write_many`(逐点事务;驱动按协议覆写为合并版)
+  - Modbus:`read_batch` / `write_batch`(按 (区,类型) 合笔的批量读写)、
+    FC 07/08/11/12/17/20/21/22/23/24、FC 43/14 设备标识(自动翻页)
+  - 三菱 MC:1E/3E/**4E** 帧、0406 多块批量读、0403 随机读、1402 随机写、
+    0101 CPU 型号
+  - 欧姆龙 FINS:0104 多存储区批量读
+  串口走线(Modbus RTU / MC 1C·3C·4C)与其余协议(AB / S7 / ADS / OPC-UA /
+  基恩士 / 松下 / TOYOPUC / MTConnect / 通用 TCP)仍走包装层或同步客户端。
 
 
 #### 点位表(可选)
