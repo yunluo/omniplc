@@ -219,13 +219,14 @@ ok = kvmc.write_bool("R5", True)
 kvmc_u = KeyenceMcUdpClient(ip_address="192.168.1.22", port=5000)  # UDP 走线,一问一答一数据报
 
 # 汇川 H3U/H5U:Modbus TCP/RTU + 汇川软元件地址映射
-# 地址如 D100 / R100 / M10 / SM10 / X17(八进制)/ D100.3;T/C 位=接点、字=当前值
+# 地址如 D100 / R100 / M10 / SM10 / X17(八进制, H5U 到 X1777)/ D100.3;
+# T/C 位=接点、字=当前值;C200~C255 为 32 位计数器(用 read_uint/read_int/read_float)
 from omniplc import InovanceTcpClient, InovanceRtuClient
 h3u = InovanceTcpClient(ip_address="192.168.1.88", port=502, station=1)
 ok, value = h3u.read_ushort("D100")
 ok = h3u.write_bool("M10", True)
 rtu2 = InovanceRtuClient(station=1)
-rtu2.configure_serial("COM3")   # 汇川缺省 9600-8N2
+rtu2.configure_serial("COM3")   # H5U 缺省 9600-8N2(H3U 手册示例为 8N1,按现场 D8120)
 
 # 汇川 MC 协议兼容(3E 帧,Easy 系列/H5U 固件 V6.4.0.0+ 的"MC配置"功能)
 # 帧按三菱口径编码;S 按三菱 L 码、R 与 D 统一编址(R100=D8100)、X/Y 八进制命名

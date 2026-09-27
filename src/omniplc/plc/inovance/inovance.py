@@ -12,15 +12,16 @@ Modbus 线圈/保持寄存器地址,见 :mod:`.address`。
     R100      保持寄存器(H5U,基址 0x3000)
     M10 / B10 / S10        位软元件(线圈区)
     SM10 / SD10            特殊软元件(H3U)
-    T10 / C10  位 = 接点,字 = 当前值(C 字仅 C0~C199)
-    X17 / Y17  输入/输出(八进制编号)
+    T10 / C10  位 = 接点,字 = 当前值(C 字:C0~C199 为 16 位;
+               C200~C255 为 32 位计数器,仅 32 位类型 INT/UINT/FLOAT)
+    X17 / Y17  输入/输出(八进制编号;H5U 到 X/Y1777,H3U 到 X/Y377)
     D100.3    字软元件位访问(读-改-写)
 """
 from __future__ import annotations
 
 from typing import Union
 
-from .address import to_modbus_address
+from .address import check_counter_word_type, parse_inovance_address, to_modbus_address
 from ...core.constants import (
     INOVANCE_SERIAL_DEFAULT_STOP_BITS,
     MODBUS_DEFAULT_PORT,
@@ -38,21 +39,36 @@ class _InovanceBase(ModbusBaseClient):
 
     位软元件映射到线圈区,字软元件映射到保持寄存器区,
     功能码选择/字序/事务/重连全部由 Modbus 实现承担。
+    32 位计数器(C200~C255)的 32 位类型门控在翻译收口处完成
+    (``C205`` → ``hr63242``,双寄存器展开由 Modbus 层按类型自动完成)。
     """
 
+    def _translate(self, address: str, data_type: DataType) -> str:
+        """地址翻译 + 32 位计数器类型门控(内部方法)。
+
+        :raises ValueError: 地址非法 / 以非 32 位类型访问 C200~C255
+        """
+        if data_type is DataType.BOOL:
+            return to_modbus_address(address, True)
+        parsed = parse_inovance_address(address)
+        check_counter_word_type(parsed, data_type)
+        return to_modbus_address(parsed, False)
+
     def _read(self, address: str, data_type: DataType) -> PrimitiveValue:
-        is_bool = data_type is DataType.BOOL
-        return ModbusBaseClient._read(self, to_modbus_address(address, is_bool), data_type)
+        return ModbusBaseClient._read(self, self._translate(address, data_type), data_type)
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
-        is_bool = data_type is DataType.BOOL
-        ModbusBaseClient._write(self, to_modbus_address(address, is_bool), data_type, value)
+        ModbusBaseClient._write(self, self._translate(address, data_type), data_type, value)
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
-        return ModbusBaseClient._read_string(self, to_modbus_address(address), length, encoding)
+        return ModbusBaseClient._read_string(
+            self, self._translate(address, DataType.STRING), length, encoding
+        )
 
     def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
-        return ModbusBaseClient._write_string(self, to_modbus_address(address), value, encoding)
+        return ModbusBaseClient._write_string(
+            self, self._translate(address, DataType.STRING), value, encoding
+        )
 
 
 class InovanceTcpClient(_InovanceBase, ModbusTcpClient):
@@ -96,13 +112,17 @@ class InovanceRtuClient(_InovanceBase, ModbusRtuClient):
         stop_bits: float = INOVANCE_SERIAL_DEFAULT_STOP_BITS,
         parity: Union[SerialParity, str] = SERIAL_DEFAULT_PARITY,
     ) -> None:
-        """配置串口参数,汇川缺省 9600-8N2(停止位默认 2,参数同手册)。
+        """配置串口参数(参数以 PLC 侧 D8110/D8120 配置为准)。
+
+        H5U&Easy 手册 9.5.1(印刷页 418)从站默认 9600-8N2(停止位默认 2);
+        H3U 手册的 Modbus-RTU 示例为 9600-8N1(D8120=H081),两机型默认并不
+        一致——本库默认按 H5U 口径给 2,接 H3U 时按现场配置显式传参。
 
         :param port_name: 串口名,如 ``"COM3"``
         :param baud_rate: 波特率,默认 9600
         :param data_bits: 数据位,Modbus RTU 为 8
-        :param stop_bits: 停止位,汇川缺省 2
-        :param parity: 校验位,汇川缺省无校验
+        :param stop_bits: 停止位,默认 2(H5U 口径)
+        :param parity: 校验位,缺省无校验
         :raises ValueError: 参数非法
         """
         ModbusRtuClient.configure_serial(

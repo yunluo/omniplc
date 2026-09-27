@@ -12,18 +12,20 @@
 ``S0~``    线圈        基址 0xE000 + 编号
 ``T0~``    线圈        基址 0xF000 + 编号            定时器接点(位访问)
 ``C0~``    线圈        基址 0xF400 + 编号            计数器接点(位访问)
-``X0~``    线圈        基址 0xF800 + 编号(八进制)    X0~X377
-``Y0~``    线圈        基址 0xFC00 + 编号(八进制)    Y0~Y377
+``X0~``    线圈        基址 0xF800 + 编号(八进制)    H5U X0~X1777;H3U 仅 X0~X377
+``Y0~``    线圈        基址 0xFC00 + 编号(八进制)    H5U Y0~Y1777;H3U 仅 Y0~Y377
 ``B0~``    线圈        基址 0x3000 + 编号            H5U
 ``D0~``    保持寄存器  基址 0x0000 + 编号
 ``SD0~``   保持寄存器  基址 0x2400 + 编号            H3U
 ``R0~``    保持寄存器  基址 0x3000 + 编号
 ``T0~``    保持寄存器  基址 0xF000 + 编号            定时器当前值(字访问,0~255)
-``C0~``    保持寄存器  基址 0xF400 + 编号            C0~C199;C200+ 为 32 位,不支持字访问
+``C0~``    保持寄存器  基址 0xF400 + 编号            C0~C199 为 16 位当前值
+``C200~``  保持寄存器  基址 0xF700 + 2×(编号-200)    32 位计数器,每只占两个 16 位寄存器
 =========  ==========  ============================  ==========
 
 T/C 为位/字双性质软元件:位访问(BOOL)取接点,字访问取当前值,
-因此 :func:`to_modbus_address` 需要 ``is_bool`` 区分。
+因此 :func:`to_modbus_address` 需要 ``is_bool`` 区分。C200~C255 为 32 位
+计数器:双寄存器展开 + 类型门控见 :func:`check_counter_word_type`。
 """
 from __future__ import annotations
 
@@ -35,14 +37,21 @@ from typing import Optional, Union
 from ...core.constants import (
     ADDRESS_CACHE_MAXSIZE,
     INOVANCE_BIT_DEVICES,
+    INOVANCE_C32_BASE,
+    INOVANCE_C32_FIRST,
+    INOVANCE_C32_LAST,
     INOVANCE_OCTAL_DEVICES,
     INOVANCE_WORD_DEVICES,
     MODBUS_REGISTER_BIT_MAX,
 )
+from ...types import DataType
 
 _INOVANCE_ADDRESS_RE = re.compile(
     r"^(SM|SD|M|S|T|C|X|Y|B|D|R)(\d+)(?:\.(\d+))?$", re.IGNORECASE
 )
+
+_C32_ALLOWED_TYPES = frozenset((DataType.INT, DataType.UINT, DataType.FLOAT))
+"""32 位计数器(C200~C255)可用的数据类型:32 位整型 + 32 位浮点。"""
 
 
 @dataclass(frozen=True)
@@ -101,7 +110,9 @@ def to_modbus_address(address: Union[InovanceAddress, str], is_bool: bool = Fals
     位访问(BOOL):位软元件 → 线圈(如 ``M10`` → ``c10``、``X17`` → 八进制
     换算后的线圈偏移);字软元件不定位号的 BOOL 走保持寄存器提取 bit0。
     字访问:字软元件 → 保持寄存器(``D100`` → ``hr100``,``D100.3`` →
-    ``hr100.3``);纯位软元件不支持字访问。
+    ``hr100.3``);纯位软元件不支持字访问;**32 位计数器** ``C200~C255`` →
+    ``hr{0xF700 + 2×(编号-200)}``(每只占两个 16 位寄存器空间,H3U 9.4.3
+    印刷页 575-576 算例 C205 → 0xF70A)。
 
     :param address: :class:`InovanceAddress` 或地址字符串
     :param is_bool: 是否按位访问(T/C 双性质软元件据此选择接点/当前值)
@@ -116,10 +127,45 @@ def to_modbus_address(address: Union[InovanceAddress, str], is_bool: bool = Fals
     if parsed.device in INOVANCE_WORD_DEVICES:
         base, limit = INOVANCE_WORD_DEVICES[parsed.device]
         _check_number(parsed.device, parsed.number, limit)
+        if parsed.device == "C" and parsed.number >= INOVANCE_C32_FIRST:
+            # 32 位计数器:双寄存器展开,位号后缀未定义(接点位访问请走 BOOL)
+            if parsed.bit is not None:
+                raise ValueError(
+                    "C{}(32 位计数器)不支持位号后缀:{!r}(接点位访问请用 BOOL 读)".format(
+                        parsed.number, address
+                    )
+                )
+            return "hr{}".format(
+                INOVANCE_C32_BASE + 2 * (parsed.number - INOVANCE_C32_FIRST)
+            )
         if parsed.bit is not None:
             return "hr{}.{}".format(base + parsed.number, parsed.bit)
         return "hr{}".format(base + parsed.number)
     raise ValueError(f"软元件 {parsed.device} 为位软元件,不支持字访问")
+
+
+def check_counter_word_type(parsed: InovanceAddress, data_type: DataType) -> None:
+    """32 位计数器(C200~C255)访问类型门控(公开辅助函数)。
+
+    H3U 手册 9.4.3(印刷页 575-576):C200~C255 为 **32 位**寄存器,每只占
+    两个 16 位寄存器空间(算例 C205~C208 → Modbus 地址 0xF70A、数量 8),
+    且**32 位寄存器不支持写单个寄存器(FC06)**。按 16 位类型读到的只是
+    计数器半字、64 位会跨两只计数器,故本库只放行 32 位类型
+    (INT/UINT/FLOAT)——双寄存器展开与 FC16 写由 Modbus 层按类型自动选择。
+
+    :param parsed: 已解析的汇川地址
+    :param data_type: 本次访问的数据类型
+    :raises ValueError: 以 16/64 位或字符串类型访问 32 位计数器
+    """
+    if parsed.device != "C" or parsed.number < INOVANCE_C32_FIRST:
+        return
+    if data_type not in _C32_ALLOWED_TYPES:
+        raise ValueError(
+            "C{} 为 32 位计数器(C{}~{}),仅支持 32 位类型(INT/UINT/FLOAT),"
+            "收到:{}".format(
+                parsed.number, INOVANCE_C32_FIRST, INOVANCE_C32_LAST, data_type
+            )
+        )
 
 
 def _check_number(device: str, number: int, limit: int) -> None:

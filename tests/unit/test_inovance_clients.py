@@ -16,6 +16,7 @@ from omniplc.types import WordOrder
 from scripted import ScriptedTransport
 
 _RESPONSE_ONE_REGISTER = bytes([3, 2, 0x00, 0x14])
+_RESPONSE_TWO_REGISTERS = bytes([3, 4, 0x00, 0x0D, 0x00, 0x04])
 _RESPONSE_ONE_COIL = bytes([1, 1, 1])
 
 
@@ -56,8 +57,78 @@ def test_octal_addressing_x_y() -> None:
     assert to_modbus_address("Y377", is_bool=True) == "c64767"  # 0xFC00 + 255
 
 
+def test_xy_extended_range_h5u() -> None:
+    """X/Y 上限取 H5U 口径(X0~X1777 = 1024 点,H5U 9.5.1 印刷页 419)。
+
+    H3U 表只到 X/Y377(256 点),超出部分在 H3U 上落地址空洞由 PLC 报异常,
+    故按宽口径放行不影响 H3U 现场使用。
+    """
+    assert parse_inovance_address("X1000").number == 512        # 八进制 1000 = 512
+    assert to_modbus_address("X1000", is_bool=True) == "c64000"  # 0xF800 + 512
+    assert to_modbus_address("X1777", is_bool=True) == "c64511"  # 0xF800 + 1023
+    assert to_modbus_address("Y1777", is_bool=True) == "c65535"  # 0xFC00 + 1023
+    with pytest.raises(ValueError):
+        to_modbus_address("Y2000", is_bool=True)                # 八进制 2000 = 1024 超上限
+
+
+def test_c32_counter_word_mapping() -> None:
+    """C200~C255 32 位计数器:0xF700 起、每只占两个 16 位寄存器(H3U 9.4.3 印刷页 575)。"""
+    assert to_modbus_address("C199") == "hr62663"   # 0xF400 + 199(16 位当前值段)
+    assert to_modbus_address("C200") == "hr63232"   # 0xF700 + 0
+    assert to_modbus_address("C205") == "hr63242"   # 0xF700 + 10(手册算例 0xF70A)
+    assert to_modbus_address("C255") == "hr63342"   # 0xF700 + 110
+    with pytest.raises(ValueError):
+        to_modbus_address("C256")                   # 上限 C255
+    with pytest.raises(ValueError):
+        to_modbus_address("C205.3")                 # 32 位计数器无位号定义
+    assert to_modbus_address("C205", is_bool=True) == "c62669"   # 接点位仍走线圈
+
+
+def test_tcp_read_uint_c32_counter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """读 32 位计数器 C200:FC03 读 2 个寄存器(0xF700 双寄存器展开)。"""
+    client = InovanceTcpClient("127.0.0.1", 502, 1)
+    frame = codec.build_mbap(1, 1, _RESPONSE_TWO_REGISTERS)
+    scripted = ScriptedTransport([frame[:7], frame[7:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_uint("C200") == (True, 0x000D0004)
+    assert bytes(scripted.sent) == codec.build_mbap(
+        1, 1, codec.build_read_pdu(3, 63232, 2)
+    )
+
+
+def test_tcp_write_uint_c32_counter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """写 32 位计数器 C255 走 FC16 双寄存器(手册注明 32 位寄存器不支持 FC06)。"""
+    client = InovanceTcpClient("127.0.0.1", 502, 1)
+    registers = list(convert.uint32_to_registers(0x00010000, WordOrder.ABCD))
+    pdu = codec.build_write_multi_pdu(16, 63342, registers)
+    frame = codec.build_mbap(1, 1, pdu[:5])
+    scripted = ScriptedTransport([frame[:7], frame[7:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.write_uint("C255", 0x00010000) is True
+    sent = bytes(scripted.sent)
+    assert sent == codec.build_mbap(1, 1, pdu)
+    assert sent[7] == 16                                # FC16(非 FC06)
+
+
+def test_c32_counter_type_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """类型门控:16 位/字符串访问 32 位计数器入参期拒绝,零字节发送。"""
+    client = InovanceTcpClient("127.0.0.1", 502, 1)
+    scripted = ScriptedTransport([])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    with pytest.raises(ValueError):
+        client.read_ushort("C205")
+    with pytest.raises(ValueError):
+        client.write_ushort("C205", 1)
+    with pytest.raises(ValueError):
+        client.read_string("C205", 2)
+    assert bytes(scripted.sent) == b""
+
+
 def test_invalid_addresses() -> None:
-    """非法地址:越界、八进制含 8/9、位软元件带位号、C200+ 字访问、未知软元件。"""
+    """非法地址:越界、八进制含 8/9、位软元件带位号、未知软元件。"""
     with pytest.raises(ValueError):
         to_modbus_address("X38", is_bool=True)      # 八进制不能有 8
     with pytest.raises(ValueError):
@@ -67,7 +138,7 @@ def test_invalid_addresses() -> None:
     with pytest.raises(ValueError):
         to_modbus_address("S4096", is_bool=True)    # S 上限 4095
     with pytest.raises(ValueError):
-        to_modbus_address("C200")                   # C200+ 为 32 位计数器,字访问不支持
+        to_modbus_address("C256", is_bool=True)     # C 接点上限 C255
     with pytest.raises(ValueError):
         to_modbus_address("M10.1", is_bool=True)    # 位软元件不支持位号后缀
     with pytest.raises(ValueError):
