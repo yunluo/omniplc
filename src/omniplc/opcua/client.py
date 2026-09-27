@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import re
 import struct
+import threading
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from ..core.base_client import BaseClient, validate_endpoint
@@ -349,6 +350,7 @@ class OpcUaSubscription:
         self._asyncua_subscription = _asyncua_subscription
         self._monitored_items = _monitored_items
         self._unsub_done = False
+        self._unsub_lock = threading.Lock()
 
     @property
     def node_id(self) -> str:
@@ -361,13 +363,14 @@ class OpcUaSubscription:
         return self._subscription_id
 
     def unsubscribe(self) -> bool:
-        """取消订阅(幂等)。
+        """取消订阅(幂等,线程安全)。
 
         :return: ``True`` 此次调用真正执行了取消;``False`` 已取消 / 已断开。
         """
-        if self._unsub_done:
-            return False
-        self._unsub_done = True
+        with self._unsub_lock:
+            if self._unsub_done:
+                return False
+            self._unsub_done = True
         return self._unsub()
 
 

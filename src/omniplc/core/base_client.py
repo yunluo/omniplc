@@ -120,6 +120,10 @@ class BaseClient(ABC):
         self._retries: int = 0
         self._write_retries: int = 0
         self._lock = threading.RLock()
+        # 状态锁:仅保护错误三件套与统计计数(短临界区,绝不包 I/O)。
+        # 与事务锁 _lock 分离——订阅回调在 asyncua 自己的线程里调用
+        # _set_error,不能去抢可能被长事务持有的 _lock(会阻塞通知处理)。
+        self._state_lock = threading.RLock()
         self._transport: Optional[BaseTransport] = None
         self._connected: bool = False
         self._last_error: Optional[str] = None
@@ -382,15 +386,17 @@ class BaseClient(ABC):
         时间戳为单调钟相对值,跨重启无意义;用于现场判断"多久前
         出错/多久没成功"。
 
-        无锁读取:GIL 下对固定键字典做值级拷贝安全(键集在构造期固定),
-        故 aio 层转发不会阻塞事件循环。
+        读取在**状态锁**内拷贝(短临界区、不涉 I/O):跨线程调用的订阅
+        回调不会阻塞事件循环,也不会读到撕裂的 ``error_count``/``last_error``。
         """
-        return cast(ClientStats, dict(self._counters, **self._timestamps))
+        with self._state_lock:
+            return cast(ClientStats, dict(self._counters, **self._timestamps))
 
     def _record_error(self) -> None:
-        """登记一次失败(错误计数 + 时间戳,内部方法,须锁内调用)。"""
-        self._counters["error_count"] += 1
-        self._timestamps["last_error_at"] = time.monotonic()
+        """登记一次失败(错误计数 + 时间戳,内部方法;状态锁保护)。"""
+        with self._state_lock:
+            self._counters["error_count"] += 1
+            self._timestamps["last_error_at"] = time.monotonic()
 
     def _set_error(
         self,
@@ -399,22 +405,24 @@ class BaseClient(ABC):
         code: Optional[int],
         record: bool = True,
     ) -> None:
-        """登记失败原因三件套(内部方法,须锁内调用)。
+        """登记失败原因三件套(内部方法;状态锁保护,可从任意线程调用)。
 
         :param record: 是否同时计一次失败统计(门控拒绝等无网络动作的
             失败传 False,不污染 ``stats["error_count"]``)
         """
-        self._last_error = message
-        self._last_error_category = category
-        self._last_error_code = code
-        if record:
-            self._record_error()
+        with self._state_lock:
+            self._last_error = message
+            self._last_error_category = category
+            self._last_error_code = code
+            if record:
+                self._record_error()
 
     def _clear_error(self) -> None:
-        """清空失败原因三件套(内部方法,须锁内调用)。"""
-        self._last_error = None
-        self._last_error_category = None
-        self._last_error_code = None
+        """清空失败原因三件套(内部方法;状态锁保护)。"""
+        with self._state_lock:
+            self._last_error = None
+            self._last_error_category = None
+            self._last_error_code = None
 
     # ------------------------------------------------------------------
     # 通用读写(模板方法,公共 API)

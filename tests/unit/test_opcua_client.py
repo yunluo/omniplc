@@ -22,7 +22,7 @@ import pytest
 
 from omniplc import OpcUaClient
 from omniplc.aio import AOpcUaClient
-from omniplc.core.errors import DeviceError, OmniPLCInternalError
+from omniplc.core.errors import DeviceError, ErrorCategory, OmniPLCInternalError
 from omniplc.opcua.address import parse_opcua_nodeid
 from omniplc.opcua.client import (
     OpcUaSubscription,
@@ -842,3 +842,58 @@ def test_aio_browse_returns_dict() -> None:
         await aclient.close()
 
     _asyncio.run(scenario())
+
+
+# ----------------------------------------------------------------------
+# 线程安全:订阅回调写状态 / unsubscribe 并发
+# ----------------------------------------------------------------------
+
+
+def test_unsubscribe_is_thread_safe() -> None:
+    """并发 unsubscribe:底层取消只执行一次,仅一个线程返回 True。"""
+    calls: list = []
+
+    def unsub() -> bool:
+        calls.append(1)
+        return True
+
+    handle = OpcUaSubscription(
+        node_id="ns=2;s=x",
+        subscription_id=1,
+        unsub=unsub,
+        _asyncua_subscription=None,
+        _monitored_items=[],
+    )
+    results: list = []
+    barrier = _threading.Barrier(8)
+
+    def worker() -> None:
+        barrier.wait()
+        results.append(handle.unsubscribe())
+
+    threads = [_threading.Thread(target=worker) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len(calls) == 1            # 底层取消仅一次
+    assert results.count(True) == 1   # 仅一个线程拿到"真正取消"
+
+
+def test_set_error_counter_is_thread_safe() -> None:
+    """订阅回调线程写状态:并发 _set_error 不丢 error_count 计数。"""
+    client = OpcUaClient("127.0.0.1", _OPCUA_TEST_PORT)
+    workers, iterations = 8, 2000
+    barrier = _threading.Barrier(workers)
+
+    def worker() -> None:
+        barrier.wait()
+        for _ in range(iterations):
+            client._set_error("订阅回调异常", ErrorCategory.UNKNOWN, None)
+
+    threads = [_threading.Thread(target=worker) for _ in range(workers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert client.stats["error_count"] == workers * iterations

@@ -52,6 +52,8 @@ v1 评审稿逐条对源码复核后形成本版:
 - **二轮复审 工程批 5(2026-09-26)**:①**Modbus FC43** 增 `expected_read_code` 回显校验(回归 `test_device_id_response_read_code_echo_validated`,同步订正 3 处测试夹具读取码回显);②**工程配置**——`pyproject` mypy `python_version` 3.9→3.10(注释说明 3.7 由 ruff py37 + 3.7.9 测试腿兜底)、`Development Status` Alpha→Production/Stable、`dev` extra `comtypes` 补 `platform_system == 'Windows'`;③**文档**——`CONTRIBUTING.md` 测试计数/mypy 目标、`architecture.md` §6.2 与 §10 静态检查描述订正。门禁 1189 → **1190**。
 - **二轮复审 P3 批 6(2026-09-26)**:①**Modbus FC07** 新增 `read_exception_status`(codec 构造/解析 + 客户端 + aio 镜像 + 原生 pending);②**RTU 增量收包长度 cap**——FC12/FC24 的 byte count 按 `MODBUS_RTU_MAX_ADU_SIZE=256` 封顶,越界按坏帧拒绝(不再发起超大 recv)。门禁 1190 → **1193**。
 - **二轮复审 MX 批 7(2026-09-26)**:`MxComponent.read_batch` 支持 32/64 位条目——16 位(BOOL/SHORT/USHORT)仍合并 `ReadDeviceRandom` 单笔;32/64 位(INT/UINT/FLOAT/LONG/ULONG/DOUBLE)按条目各发一笔 `ReadDeviceBlock`(地址原文透传,控件内部递增字号),同一锁内完成、顺序保持。**据手册 5.2.18/5.2.20 勘误**:`ReadDeviceBlock2`/`ReadDeviceRandom2` 是 16 位 SHORT 版而非 32 位,故实现走非 2 的 LONG 版块读。回归 `test_read_batch_wide_types`。门禁 1193 → **1194**。
+- **二轮复审 OPC-UA 线程安全批 8(2026-09-26)**:①`BaseClient` 增独立**状态锁** `_state_lock`(与事务锁 `_lock` 分离,短临界区不涉 I/O),护 `_set_error`/`_clear_error`/`_record_error`/`stats`;订阅回调在 asyncua 线程写 `last_error`/`error_count` 不再丢计数或阻塞事件循环;②`OpcUaSubscription.unsubscribe` 增 `_unsub_lock`,并发首取消原子化。回归 `test_set_error_counter_is_thread_safe`、`test_unsubscribe_is_thread_safe`。门禁 1194 → **1196**。
+- **工程批 9(2026-09-26)**:引入 **pytest-timeout** 防卡死——`dev` 依赖加 `pytest-timeout>=2.1`(解析 2.4.0,3.7 可用),`[tool.pytest.ini_options]` 设 `timeout=120` / `timeout_method=thread`(全局兜底,慢链路用例可就近 `@pytest.mark.timeout` 放宽);`CONTRIBUTING.md` 门禁说明同步。门禁仍 1196(纯门禁加固,无新用例)。
 
 ---
 
@@ -115,10 +117,10 @@ v1 评审稿逐条对源码复核后形成本版:
 - OpenTcp:缓冲头 `del self._buffer[:n]` O(n);无发送进度回调;无 IPv6(§2.13.4/6/8)。
 - ~~MC 1E 帧不校验尾多余字节(`codec_a.py:139`)~~(**已修复 2026-09-26**:尾部长度严格匹配,回归 `test_parse_response_1e_trailing_bytes_rejected`);MX `get_error_message` 新建 COM 控件不释放(`mx.py:877`);`MX_SUPPORT_MSG_PROG_ID` 存疑(`constants.py:679`)。
 - TOYOPUC 打包段校验口径不一致(`toyopuc/address.py:133` vs `:141`)。
-- OPC-UA:回调线程无锁写 `last_error`(`client.py:254`);`unsubscribe` 非线程安全(`:356`);`browse` 单点失败吞成 `{}`;aio 回调异常不落 `last_error`(与 README:485 矛盾);`browse` 仅 Hierarchical。
+- OPC-UA:~~回调线程无锁写 `last_error`(订阅回调在 asyncua 线程调用 `_set_error`)~~(**已修复 2026-09-26**:`BaseClient` 新增独立**状态锁** `_state_lock`,仅护错误三件套/计数(`_set_error`/`_clear_error`/`_record_error`/`stats`),短临界区不涉 I/O,不与可能被长事务持有的 `_lock` 争用;回归 `test_set_error_counter_is_thread_safe`);~~`unsubscribe` 非线程安全~~(**已修复 2026-09-26**:`OpcUaSubscription` 增 `_unsub_lock`,首次取消 check-then-set 原子化,回归 `test_unsubscribe_is_thread_safe`);`browse` 单点失败吞成 `{}`;aio 回调异常不落 `last_error`(与 README:485 矛盾);`browse` 仅 Hierarchical。
 - MTConnect:缺 `/sample`/`/asset`;`/probe` 仅首 Device;条件项无过滤;空元素 UNAVAILABLE 误报「不存在」;keep-alive 异常集偏窄(`mtconnect.py:49`)。
 - S7 缺多变量批读;ADS 缺 >32KB 分块与句柄失效(0x1D)处理。
-- 工程:~~`pyproject.toml:112` `python_version="3.9"` 与运行时 3.7.9 错位~~(**已修复 2026-09-26**:改 `3.10`——mypy 已不支持 <3.10,3.7 语法由 ruff target-version=py37 兜底并注释说明);ruff 未含 B(暂缓);~~`Development Status Alpha`~~(**已改 5 - Production/Stable**);~~`dev` extra 的 `comtypes` 缺 `platform_system`~~(**已补 `; platform_system == 'Windows'`**);无 `pytest-timeout`;~~`CONTRIBUTING.md:9/36/38` 数字 stale~~(**已订正**:测试计数、mypy 目标与语义);~~`src/omniplc/__init__.py:79` `__description__` 未同步~~(**已修复 2026-09-26**,回归 `test_description_covers_supported_protocols`);~~`docs/architecture.md:687` OpenTcp 长度域「留 v1.x」过时~~(**已订正**)、`§6.2` 静态检查描述过时(**已订正**,含 §6.2 与 §10 两处)。
+- 工程:~~`pyproject.toml:112` `python_version="3.9"` 与运行时 3.7.9 错位~~(**已修复 2026-09-26**:改 `3.10`——mypy 已不支持 <3.10,3.7 语法由 ruff target-version=py37 兜底并注释说明);ruff 未含 B(暂缓);~~`Development Status Alpha`~~(**已改 5 - Production/Stable**);~~`dev` extra 的 `comtypes` 缺 `platform_system`~~(**已补 `; platform_system == 'Windows'`**);~~无 `pytest-timeout`~~(**已加 2026-09-26**:`dev` 依赖 + `[tool.pytest.ini_options] timeout=120 / timeout_method=thread`,防卡死);~~`CONTRIBUTING.md:9/36/38` 数字 stale~~(**已订正**:测试计数、mypy 目标与语义);~~`src/omniplc/__init__.py:79` `__description__` 未同步~~(**已修复 2026-09-26**,回归 `test_description_covers_supported_protocols`);~~`docs/architecture.md:687` OpenTcp 长度域「留 v1.x」过时~~(**已订正**)、`§6.2` 静态检查描述过时(**已订正**,含 §6.2 与 §10 两处)。
 
 ### 台账纠偏(二轮)
 
