@@ -129,6 +129,8 @@ MODBUS_SERVER_ID_MIN_BYTE_COUNT: int = 2
 """FC17 长度域下限:从站 ID(1) + 运行指示状态(1);附加数据可为空。"""
 MODBUS_COMMAND_GET_COMM_EVENT_LOG: int = 0x0C
 """取通信事件日志命令(FC12;响应长度随事件字节数变化,RTU 走增量收包)。"""
+MODBUS_EVENT_LOG_MAX_BYTE_COUNT: int = 0x46
+"""FC12 响应 byte count 上限(规范 §6.10:事件字节 0~64,+ 状态/计数 6 字节)。"""
 MODBUS_COMMAND_READ_FILE_RECORD: int = 0x14
 """读文件记录命令(FC20)。"""
 MODBUS_COMMAND_WRITE_FILE_RECORD: int = 0x15

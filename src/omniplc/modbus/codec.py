@@ -43,6 +43,7 @@ from ..core.constants import (
     MODBUS_DEVICE_ID_RESERVED_MIN,
     MODBUS_DIAGNOSTICS_PDU_SIZE,
     MODBUS_EVENT_COUNTER_PDU_SIZE,
+    MODBUS_EVENT_LOG_MAX_BYTE_COUNT,
     MODBUS_EXCEPTION_FLAG,
     MODBUS_EXCEPTION_TEXT,
     MODBUS_FILE_REFERENCE_TYPE,
@@ -890,14 +891,23 @@ def parse_comm_event_log_pdu(pdu: bytes) -> Dict[str, object]:
     布局:功能码(1) + byte count(1) + 状态字(2) + 事件计数(2) + 报文计数(2)
     + 事件字节(byte count − 6)。返回 ``{status, event_count, message_count, events}``。
 
-    :raises ProtocolFrameError: PDU 过短/功能码不符/长度与 byte count 不一致
+    规范 §6.10(印刷页 26-27):事件字节字段为 **0~64 字节**,即 byte count
+    上限 ``0x46``(= 64 + 6);越界按坏帧拒绝。
+
+    :raises ProtocolFrameError: PDU 过短/功能码不符/长度与 byte count 不一致/byte count 超上限
     """
     if len(pdu) < 2 or pdu[0] != ModbusFunction.GET_COMM_EVENT_LOG:
         raise ProtocolFrameError(
             "FC12 响应非法:{}(收到的原始 PDU:{})".format(len(pdu), format_hex(pdu))
         )
     byte_count = pdu[1]
-    if byte_count < 6 or len(pdu) != 2 + byte_count:
+    if byte_count < 6 or byte_count > MODBUS_EVENT_LOG_MAX_BYTE_COUNT:
+        raise ProtocolFrameError(
+            "FC12 byte count 越界(规范 6~{}):{}".format(
+                MODBUS_EVENT_LOG_MAX_BYTE_COUNT, byte_count
+            )
+        )
+    if len(pdu) != 2 + byte_count:
         raise ProtocolFrameError(
             "FC12 byte count 与长度不符:声明 {},实际 {}".format(byte_count, len(pdu) - 2)
         )

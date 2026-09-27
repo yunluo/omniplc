@@ -122,7 +122,9 @@ def test_tcp_write_float_d(monkeypatch: pytest.MonkeyPatch) -> None:
     client = InovanceTcpClient("127.0.0.1", 502, 1)
     registers = list(convert.float32_to_registers(3.14, WordOrder.ABCD))
     pdu = codec.build_write_multi_pdu(16, 200, registers)
-    frame = codec.build_mbap(1, 1, pdu)
+    # 规范 §6.12(印刷页 30):FC16 正常响应 = 请求前 5 字节回显(FC+地址+数量),
+    # 不含数据域
+    frame = codec.build_mbap(1, 1, pdu[:5])
     scripted = ScriptedTransport([frame[:7], frame[7:]])
     _mount(monkeypatch, client, scripted)
     client.connect()

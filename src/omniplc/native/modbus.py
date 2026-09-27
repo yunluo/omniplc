@@ -127,7 +127,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         self, address: str, data_type: DataType, value: PrimitiveValue
     ) -> None:
         """按数据类型分发到位/寄存器写原语。"""
-        parsed = _check_address(address, data_type)
+        parsed = _check_address(address, data_type, is_write=True)
         if data_type is DataType.BOOL:
             await self._write_bool_impl(parsed, require_bool(value))
             return

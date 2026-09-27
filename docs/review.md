@@ -62,6 +62,7 @@ v1 评审稿逐条对源码复核后形成本版:
 - **二轮复审 Modbus FC17(2026-09-27)**:新增 **FC17 `report_server_id`**(报告从站 ID,规范 §6.13、印刷页 31,依 PyMuPDF 抽取手册文本核对)——codec 构造/解析(长度域与实收严格一致、下限 2 = 从站 ID + 运行指示)、客户端 + aio 镜像、**RTU 按 byte count 增量收包**并随 FC12/FC24 同口径按 `MODBUS_RTU_MAX_ADU_SIZE=256` 封顶;`expected_response_length` 对 FC17 显式抛错(长度随附加数据变化);原生层维持 pending(与 FC07 同)。回归 5 例(codec 1 + 客户端/RTU/aio 4);README 示例与待真机表、全协议矩阵同步。同批订正 README ADS 行残留的旧错误码集描述(0x705/0x706/0x725 → TE1000 §8 码集)。门禁 1200 → **1205**。
 - **三轮复审 P1 批(2026-09-27)**:①**`write_tag` 恒等缩放回归**——恒等分支保留「整数值 float → int 还原」,`write_tag(整数点位, 5.0)` 恢复写 5(回归 `test_write_tag_identity_scale_restores_float_to_int`,旧实现实测 FAILED);②**native 镜像恒等缩放**——`native/base.py` `read_tag`/`write_tag` 各补恒等分支(64 位直通不过 float64),并入同步/异步对拍用例 `read_tag_identity_long`/`write_tag_identity_long`(Selector/Proactor 双循环,旧实现 4 例 FAILED);③**Modbus 区域×类型匹配**——`_check_address`(同步/native 共用收口点)对字类型仅放行 hr/ir,`read_short("c0")` 类错区请求入参期拒绝、零字节发送(回归 `test_word_type_rejects_bit_area_before_any_frame`,旧实现 DID NOT RAISE);BOOL 不限区域(hr.3 读词提位/读-改-写为既有语义);④**TOYOPUC 负 32/64 位写**——`_write_raw` 负值按二补数转无符号再编码(回归 `test_tcp_write_negative_int_and_long`,旧实现 OverflowError)。门禁 1216 → **1223**(+7:同步 2 + Modbus 1 + TOYOPUC 1 + native 对拍 Selector/Proactor 双循环读/写 4 −1 归并)。
 - **三轮复审 P2 批 1(2026-09-27)**:①**AB `ListIdentity` 解析重写**——CPF 标准布局(ItemCount+Type 0x000C+Length+EncapVer 2+SocketAddr 16,Vendor ID 自载荷第 48 字节起),Item 头非法按坏帧拒绝;依据 Rockwell Explicit Messaging Guide p.20-21 + pycomm3 1.2.16 参考实现裁决(旧「2 字节兼容前缀」口径经实测裁决系误判,夹具一并订正,结论记 architecture.md §8.1);②**OPC-UA `active_subscriptions` 改状态锁**——快照与订阅索引增删全部走 `_state_lock`,`ua_sub.delete()` I/O 锁外;③**OPC-UA 读侧越界改 `DeviceError(code=0)`**——服务端返回越界属设备条件(写路径仍 `ValueError`)。回归 3 项(旧实现均 FAILED)。门禁 1223 → **1225**。
+- **逐协议专项 Modbus(2026-09-27)**:依 Modbus 应用协议 V1.1b3 手册逐功能码核对(§6.5-§6.21 印刷页 17-44),核对通过项与 6 项修复见「Modbus 专项」小节——写响应回显校验(FC05/06/15/16,§6.5/6.6/6.11/6.12)、FC21/FC08-0x000A 广播合法化、FC12 byte count ≤0x46(§6.10 印刷页 27)、批量写只读区入参期拒绝(`_check_address` 增 `is_write`)、RTU FC24 变量名订正;汇川夹具非规范 FC16 回显一并订正。回归 7 例(4 例旧实现 FAILED)+ 汇川 1 例订正。门禁 1225 → **1231**。
 
 ---
 
@@ -208,7 +209,7 @@ v1 评审稿逐条对源码复核后形成本版:
 
 ### P3(合并)
 
-- Modbus:FC20 上界 `0x7D` 非规范(聚合响应无上界,`codec.py:877/896`);RTU FC43 增量无 ADU cap(`modbus.py:1409`);FC05/06/15/16 写响应不回显(`_write_pdu` 未用 `parse_write_response`);批量写只读区在锁内才抛(`write_many`/`write_batch`);FC08 清计数器广播被误拒;异常响应对尾字节宽容(`codec.py:186`);FC12 事件 0~64 未限;掩码/批量值 `int()` 静默截断 float;设备标识翻页非法 `NextObjectId` 抛裸 `ValueError`。
+- Modbus:FC20 上界 `0x7D` 非规范(聚合响应无上界,`codec.py:877/896`;**专项复核维持自加宽容**——超限帧交 PLC 侧异常码 02 裁决,客户端不预拦);RTU FC43 增量无 ADU cap(`modbus.py:1409`;**已核 FC43 走对象头增量收包,无此问题**,见 Modbus 专项);~~FC05/06/15/16 写响应不回显~~(**已修复 2026-09-27**,Modbus 专项);~~批量写只读区在锁内才抛~~(**已修复 2026-09-27**);~~FC08 清计数器广播被误拒~~(**已修复 2026-09-27**);异常响应对尾字节宽容(`codec.py:186`);~~FC12 事件 0~64 未限~~(**已修复 2026-09-27**:byte count ≤0x46);掩码/批量值 `int()` 静默截断 float;设备标识翻页非法 `NextObjectId` 抛裸 `ValueError`。
 - OpenTcp:`max_frame` 不严格遵守(单分片自带分隔符可超)、`recv_chunk_size` 无上界、长度前缀 `to_bytes` 可溢出发送端。
 - native:`__aexit__` 用 `disconnect()`(aio 用 `close()`);UDP `close` 在无当前 loop 时可能漏关 FD。
 - 工程:`docs/architecture.md` §6.2/§10 与 `CONTRIBUTING.md:9` 仍称「CI 裸 mypy / 仅 3.12」与 3.7.9+3.12 矩阵不符(review 台账曾误标已订正;已订正 2026-09-27);`[tool.mypy] files=["src","tests"]` 因显式路径而失效(tests 实际未检查);MTConnect 单点读每次拉整份 `/current`;S7 `_write` 未支持类型抛 `KeyError`、docstring 引用不存在的 `DataType.BYTE`;TOYOPUC packed 地址校验与编码口径自相矛盾(`address.py:132` vs `139`,待手册)。
@@ -230,7 +231,7 @@ PyMuPDF 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、门�
 | 三菱 MC 串口(1C/3C/4C) | ⏳ 待查 | — |
 | 欧姆龙 FINS | ⏳ 待查 | — |
 | 欧姆龙 NJ/NX CIP | ⏳ 待查 | — |
-| Modbus(TCP/RTU) | ⏳ 待查 | — |
+| Modbus(TCP/RTU) | ✅ 已完成 | 写响应回显校验、FC21/FC08 广播合法化、FC12 上界 0x46、写区域收口、FC24 变量名——见下「Modbus 专项」;另 FC20 上界 0x7D 维持自加宽容(见 P3 残留) |
 | AB EtherNet/IP(CIP) | ⏳ 待查 | 三轮 P2(ListIdentity 偏移、read_batch `.bit`)已修(2026-09-27,详见 P2 批);其余待查 |
 | 倍福 TwinCAT ADS | ⏳ 待查 | — |
 | 西门子 S7 | ⏳ 待查 | 三轮 P3(`_write` 未支持类型 `KeyError`)待处理 |
@@ -263,6 +264,40 @@ PyMuPDF 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、门�
   - **1E PC 号(站号)范围手册为 `01H~40H`(1~64)**,而 1E 客户端默认沿用 `MC_DEFAULT_PC_NUMBER=0xFF`(3E/4E 直连约定)→ 默认对 1E 非法(PLC 回 `5BH`/异常码 `10H`)。合法直连值待真机核证,暂不改默认(避免误伤既有用法)。
   - 1E 表缺手册支持的 `F/B/W/T(N·S·C)/C(N·S·C)`;3E/4E 表缺长定时器/计数器(`LTS/LTC/LTN`、`LSTS/LSTC/LSTN`、`LCS/LCC/LCN`)、`LZ`、`RD`(§8.1;注 §8.4 的 0406 禁用长定时/计数与 LZ)。
   - 手册另注 AnACPU 下 `L/S/R` 不可访问(本库 1E 表含,按模块差异登记)。
+
+### Modbus 专项(2026-09-27,逐协议深入;Modbus 应用协议 V1.1b3 手册文本核对)
+
+核对通过:FC01-04 数量上限(2000 位/125 寄存器)与读响应长度自洽校验、FC05/06 值域、
+FC07 响应 2 字节、FC08 响应回显 5 字节与子功能回显校验、FC11 响应 5 字节、FC15 数量
+0x07B0=1968、FC16 数量 0x007B=123、FC17 长度域下限 2(§6.13 印刷页 31)、FC20 请求
+byte count 0x07~0xF5 与子请求 7 字节结构(§6.14 印刷页 32-33)、FC21 请求 0x09~0xFB
+与请求回显(§6.15 印刷页 34-35)、FC22 掩码写 7 字节回显(§6.16 印刷页 37)、FC23 读
+0x007D=125/写 0x0079=121(§6.17 印刷页 38)、FC24 FIFO ≤31 与 byte count 自洽
+(§6.18 印刷页 40)、FC43/14 对象号保留区 0x07~0x7F 与 MoreFollows/NextObjectId 语义
+(§6.21 印刷页 43-44)、MBAP 长度域上限与 RTU ADU 256、RTU 增量收包(FC12/17/24 按
+byte count、FC43 按对象头)与 CRC 低字节在前。
+
+- **P2 写响应不校验回显(已修复)**:`_write_pdu` 曾把 FC05/06/15/16 响应 PDU 直接
+  丢弃;规范 §6.5/6.6/6.11/6.12(印刷页 17/19/29/30)正常响应为请求 PDU 前 5 字节
+  回显。现 `_write_pdu` 经 `parse_write_response` 校验回显,不符按坏帧(错配/串包);
+  广播(expect_response=False)跳过。回归 `test_write_response_echo_mismatch_rejected`
+  (旧实现 FAILED);顺带订正汇川夹具的非规范 FC16 全帧回显。
+- **P3 FC21 广播误拒(已修复)**:`write_file_record` 曾调 `_reject_broadcast_read`——
+  FC21 是写语义(§6.15),RTU 广播写合法不等响应,与 FC05/06/15/16 口径一致;广播下
+  跳过回显校验。回归 `test_fc21_broadcast_write_allowed`(旧实现 FAILED)。
+- **P3 FC08 广播误拒(已修复)**:`diagnostics` 曾一律拒广播;`0x000A` 清计数器为写
+  语义允许广播(§6.8,印刷页 22,设备不回包),其余只读子功能仍拒。回归
+  `test_fc08_clear_counters_broadcast_allowed`(旧实现 FAILED)+ 只读仍拒用例。
+- **P3 FC12 事件字节无上界(已修复)**:响应 byte count 曾仅查下限 6;规范 §6.10
+  (印刷页 27)事件字节 0~64,byte count ≤ **0x46**,越界按坏帧拒绝(与 FC12 RTU
+  增量收包的 ADU 封顶互补)。回归 `test_fc12_event_log_byte_count_capped`(旧实现 FAILED)。
+- **P3 批量写只读区锁内才抛(已修复)**:`_check_address` 增 `is_write` 参数——写入口
+  收口为可写区域(字类型仅 hr、BOOL 仅 c/hr 位号 RMW),ir/di 写在入参期拒绝、零字节
+  发送;`_write`/`write_many`/`write_batch` 与 native `_write` 同步收口。回归
+  `test_write_readonly_area_rejected_before_lock`。
+- **P3 RTU FC24 增量收包变量名误导(已订正)**:byte count 域值曾名 `fifo_count`,
+  实为「Byte Count = 2 + 2×N」;逻辑复核无误(剩余 = 计数(2)+值(2N)+CRC(2)),仅正名
+  并补注释。
 
 ### 发布记录(2026-09-27)
 

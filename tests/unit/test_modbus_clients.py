@@ -271,6 +271,92 @@ def test_tcp_station_zero_waits_response(monkeypatch: pytest.MonkeyPatch) -> Non
     assert bytes(scripted.sent) == codec.build_mbap(1, 0, request_pdu)
 
 
+# ----------------------------------------------------------------------
+# Modbus 专项(2026-09-27):写回显校验 / 广播合法化 / 写区域收口
+# ----------------------------------------------------------------------
+
+
+def test_write_response_echo_mismatch_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC06 写响应回显不符(地址错)按坏帧拒绝(回归:曾不校验回显直接成功)。
+
+    规范 §6.5/6.6/6.11/6.12(印刷页 17/19/29/30):FC05/06/15/16 正常响应
+    为请求 PDU 前 5 字节回显。
+    """
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    # 应答地址域与请求不符(写 hr100,回显 hr101)
+    wrong_echo = codec.build_write_single_pdu(6, 101, 1234)
+    _mount(client, monkeypatch, [_mbap_response(1, 1, wrong_echo)])
+    client.connect()
+    assert client.write_ushort("hr100", 1234) is False
+    assert client.last_error is not None and "回显" in client.last_error
+
+
+def test_fc21_broadcast_write_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """RTU 广播 FC21 写文件记录合法(回归:曾被 _reject_broadcast_read 误拒)。"""
+    client = ModbusRtuClient(station=0)
+    client.configure_serial("COM3")
+    scripted = _ScriptedTransport([])  # 无应答分片:广播不等响应
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.write_file_record([(4, 7, [0x06AF, 0x04BE])]) is True
+    assert bytes(scripted.sent) == codec.build_rtu_frame(
+        0, codec.build_write_file_record_pdu([(4, 7, [0x06AF, 0x04BE])])
+    )
+
+
+def test_fc08_clear_counters_broadcast_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """RTU 广播 FC08 0x000A 清计数器合法(回归:曾被 _reject_broadcast_read 误拒)。"""
+    client = ModbusRtuClient(station=0)
+    client.configure_serial("COM3")
+    scripted = _ScriptedTransport([])  # 无应答分片:广播不等响应
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, data = client.diagnostics(0x000A)
+    assert ok is True and data == 0  # 广播无响应,数据域无意义
+    assert bytes(scripted.sent) == codec.build_rtu_frame(
+        0, codec.build_diagnostics_pdu(0x000A)
+    )
+
+
+def test_fc08_read_subfunction_broadcast_rejected() -> None:
+    """RTU 广播 FC08 只读子功能仍拒绝(需读回数据,设备不回包)。"""
+    client = ModbusRtuClient(station=0)
+    client.configure_serial("COM3")
+    with pytest.raises(ValueError):
+        client.diagnostics(0x000B)
+
+
+def test_fc12_event_log_byte_count_capped() -> None:
+    """FC12 byte count 超规范上限 0x46(事件字节 ≤64)按坏帧拒绝。
+
+    规范 §6.10(印刷页 27):事件字节字段 0~64 字节,byte count = 事件数 + 6。
+    """
+    from omniplc.core.constants import MODBUS_EVENT_LOG_MAX_BYTE_COUNT
+
+    assert MODBUS_EVENT_LOG_MAX_BYTE_COUNT == 0x46
+    over = bytes([0x0C, 0x47]) + b"\x00" * 0x47  # byte count 0x47 = 65 + 6
+    with pytest.raises(ProtocolFrameError):
+        codec.parse_comm_event_log_pdu(over)
+
+
+def test_write_readonly_area_rejected_before_lock() -> None:
+    """写 ir/di 只读区域入参期拒绝,零字节发送(回归:曾锁内 FC16 后才被拒)。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    scripted = _ScriptedTransport([])
+    client._transport = scripted  # type: ignore[assignment]
+    client._connected = True
+    with pytest.raises(ValueError):
+        client.write_short("ir0", 5)
+    with pytest.raises(ValueError):
+        client.write_bool("di0", True)
+    with pytest.raises(ValueError):
+        client.write_many([("ir0", "short", 5)])
+    with pytest.raises(ValueError):
+        client.write_batch([("ir0", "short", 5)])
+    # 零字节发送:全部在校验期拦截
+    assert bytes(scripted.sent) == b""
+
+
 def test_mask_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP:FC22 掩码写请求/回显响应全链路。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)

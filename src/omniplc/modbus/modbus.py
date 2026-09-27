@@ -133,7 +133,7 @@ class ModbusBaseClient(BaseClient):
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """按数据类型分发到位/寄存器写原语。"""
-        parsed = _check_address(address, data_type)
+        parsed = _check_address(address, data_type, is_write=True)
         if data_type is DataType.BOOL:
             self._write_bool_impl(parsed, require_bool(value))
             return
@@ -353,12 +353,13 @@ class ModbusBaseClient(BaseClient):
         :param items: ``(地址, 数据类型, 值)`` 三元组序列
         :return: 与 items 顺序对应的 ``bool`` 列表;成功 ``True``
         """
-        # 1) 入参合法性前置校验:任一非法即同步抛出,不进事务
+        # 1) 入参合法性前置校验:任一非法即同步抛出,不进事务(含写区域收口:
+        #    ir/di 只读,批量写不再"锁内才抛")
         parsed_items: List[Tuple[ModbusAddress, DataType, PrimitiveValue]] = []
         for address, dtype, value in items:
             data_type_enum = DataType.coerce(dtype)
             parsed_items.append(
-                (_check_address(address, data_type_enum), data_type_enum, value)
+                (_check_address(address, data_type_enum, is_write=True), data_type_enum, value)
             )
         # 外层不再套 _execute:每个 chunk / RMW 项各自成事务(见 _coalesce_and_write),
         # 否则外层会把内层刚记下的失败当成功 _clear_error(),失败原因丢失
@@ -393,12 +394,12 @@ class ModbusBaseClient(BaseClient):
         """
         if not items:
             raise ValueError("write_batch 至少需要一个 (地址, 数据类型, 值) 项")
-        # 1) 入参合法性前置校验
+        # 1) 入参合法性前置校验(含写区域收口:ir/di 只读)
         parsed_items: List[Tuple[ModbusAddress, DataType, PrimitiveValue]] = []
         for address, dtype, value in items:
             data_type_enum = DataType.coerce(dtype)
             parsed_items.append(
-                (_check_address(address, data_type_enum), data_type_enum, value)
+                (_check_address(address, data_type_enum, is_write=True), data_type_enum, value)
             )
         # 整批容错:任一 FC 失败 → (False, None);异常穿透到 _execute,
         # 失败原因(设备异常码 / 越界)随 last_error 与分类记录;
@@ -782,14 +783,22 @@ class ModbusBaseClient(BaseClient):
         :param sub_function: 子功能码(0~65535)
         :param data: 数据域(0~65535);仅"回显/清计数器"等子功能使用
         :return: ``(是否成功, 2 字节数据值)``;失败为 ``(False, None)``
+        :raises ValueError: 广播站号下的只读诊断子功能(仅 0x000A 清计数器
+            允许广播——写语义,设备不回包;规范 §6.8 未禁止 FC08 广播)
         """
-        self._reject_broadcast_read()
+        if not (int(sub_function) == 0x000A):
+            # 0x000A(清计数器与诊断寄存器)是写语义,广播合法;其余子功能
+            # 需要读回数据,广播下设备不回包,等待只会超时
+            self._reject_broadcast_read()
 
         def operation() -> int:
             pdu = codec.build_diagnostics_pdu(int(sub_function), int(data))
-            return codec.parse_diagnostics_response(
-                self._transact(pdu), int(sub_function)
-            )
+            response = self._transact(pdu, expect_response=not (
+                self._station == 0 and self._BROADCAST_WITHOUT_RESPONSE
+            ))
+            if not response:
+                return 0  # 广播清计数器:无响应,数据域无意义
+            return codec.parse_diagnostics_response(response, int(sub_function))
 
         # 仅 0x000A(清计数器与诊断寄存器)是写语义;其余子功能为只读查询
         return self._execute(operation, is_write=int(sub_function) == 0x000A)
@@ -861,11 +870,15 @@ class ModbusBaseClient(BaseClient):
             (int(file), int(record), [int(value) for value in values])
             for file, record, values in records
         ]
-        self._reject_broadcast_read()
 
         def operation() -> None:
             pdu = codec.build_write_file_record_pdu(trimmed)
-            codec.parse_write_file_record_response(self._transact(pdu), pdu)
+            response = self._transact(pdu, expect_response=not (
+                self._station == 0 and self._BROADCAST_WITHOUT_RESPONSE
+            ))
+            if response:
+                # 广播(RTU 站号 0)无响应:跳过回显校验;单播须逐字节回显
+                codec.parse_write_file_record_response(response, pdu)
 
         ok, _ = self._execute(operation, is_write=True)
         return ok
@@ -940,11 +953,17 @@ class ModbusBaseClient(BaseClient):
         )
 
     def _write_pdu(self, pdu: bytes) -> None:
-        """发送写 PDU;具备广播语义的走线在广播站号下不等响应(内部方法)。"""
-        if self._station == 0 and self._BROADCAST_WITHOUT_RESPONSE:
-            self._transact(pdu, expect_response=False)
-            return
-        self._transact(pdu)
+        """发送写 PDU 并校验正常响应回显(内部方法)。
+
+        规范 §6.5/6.6/6.11/6.12:FC 05/06/15/16 正常响应为请求 PDU 前
+        5 字节的回显,回显不符按坏帧处理(错配/串包);具备广播语义的走线
+        (RTU 站号 0)在广播下不等响应,跳过回显校验。
+        """
+        response = self._transact(pdu, expect_response=not (
+            self._station == 0 and self._BROADCAST_WITHOUT_RESPONSE
+        ))
+        if response:
+            codec.parse_write_response(response, pdu)
 
     def _reject_broadcast_read(self) -> None:
         """广播站号禁止读操作(设备不回包,等待只会超时,内部方法)。"""
@@ -1125,15 +1144,16 @@ class ModbusRtuClient(ModbusBaseClient):
             frame = head + byte_count + transport.recv(byte_count[0] + 2)
         elif pdu[0] == codec.ModbusFunction.READ_FIFO_QUEUE:
             # FC24 响应长度随 FIFO 计数变化:先读 byte count(2) 再收其余(含 CRC)
+            # byte count = 2 + 2×N → 剩余 = FIFO 计数(2) + 值(2N) + CRC(2) = byte_count + 2
             byte_count = transport.recv(2)
-            fifo_count = int.from_bytes(byte_count, "big")
-            if 4 + fifo_count + 2 > MODBUS_RTU_MAX_ADU_SIZE:
+            byte_count_value = int.from_bytes(byte_count, "big")
+            if 4 + byte_count_value + 2 > MODBUS_RTU_MAX_ADU_SIZE:
                 raise ProtocolFrameError(
                     "FC24 响应长度 {} 超出 Modbus RTU ADU 上限 {}".format(
-                        fifo_count + 6, MODBUS_RTU_MAX_ADU_SIZE
+                        byte_count_value + 6, MODBUS_RTU_MAX_ADU_SIZE
                     )
                 )
-            frame = head + byte_count + transport.recv(fifo_count + 2)
+            frame = head + byte_count + transport.recv(byte_count_value + 2)
         elif pdu[0] == codec.ModbusFunction.REPORT_SERVER_ID:
             # FC17 响应长度随附加数据变化:先读 byte count 再收其余(含 CRC)
             byte_count = transport.recv(1)
@@ -1346,7 +1366,9 @@ def _read_and_fill(
         raise ValueError(f"Modbus 不支持的数据类型:{dtype}")
 
 
-def _check_address(address: str, data_type: DataType) -> ModbusAddress:
+def _check_address(
+    address: str, data_type: DataType, is_write: bool = False
+) -> ModbusAddress:
     """地址校验:解析 + 类型与位访问的匹配检查 + 地址跨度不越界 + 区域×类型匹配。
 
     跨度校验在**组帧前**同步完成:32/64 位类型占 2/4 个寄存器,``hr65535``
@@ -1359,13 +1381,29 @@ def _check_address(address: str, data_type: DataType) -> ModbusAddress:
     原生读写;寄存器区走位号后缀读词提位 / 读-改-写(既有语义)。同步与
     native 共用本函数,单点收口。
 
-    :raises ValueError: 地址非法 / 位访问与类型不匹配 / 地址跨度越界 / 区域与类型不匹配
+    ``is_write=True``(写入口)进一步收口为**可写区域**:字类型仅 hr、
+    BOOL 仅 c(hr 位号写走读-改-写,例外放行)——ir/di 只读,写请求入参期
+    拒绝而非锁内才被设备拒。
+
+    :param is_write: 是否写路径校验(默认 False = 读口径)
+    :raises ValueError: 地址非法 / 位访问与类型不匹配 / 地址跨度越界 /
+        区域与类型不匹配 / 写入只读区域
     """
     parsed = parse_address(address)
     if data_type is not DataType.BOOL and parsed.bit is not None:
         raise ValueError(f"仅布尔类型支持位访问:{address!r}")
     if data_type is DataType.BOOL or parsed.bit is not None:
         units = 1  # 位访问 / 布尔量恒占 1 个单位(线圈位或寄存器位所在字)
+        if is_write:
+            if parsed.bit is None and parsed.area != ModbusArea.COIL:
+                # 不带位号的 BOOL 写仅线圈;ir/di 只读,hr 位写走 RMW(带位号)
+                raise ValueError(
+                    "布尔写仅支持线圈区(c)或寄存器位号后缀(hr0.3),收到:{}({})".format(
+                        parsed.area.value, address
+                    )
+                )
+            if parsed.bit is not None and parsed.area == ModbusArea.DISCRETE_INPUT:
+                raise ValueError(f"离散输入(di)只读,不可写:{address!r}")
     else:
         if parsed.area not in (ModbusArea.HOLDING_REGISTER, ModbusArea.INPUT_REGISTER):
             raise ValueError(
@@ -1373,6 +1411,8 @@ def _check_address(address: str, data_type: DataType) -> ModbusAddress:
                     parsed.area.value, address
                 )
             )
+        if is_write and parsed.area == ModbusArea.INPUT_REGISTER:
+            raise ValueError(f"输入寄存器(ir)只读,写请用保持寄存器(hr):{address!r}")
         units = data_type.register_size
     if parsed.offset + units > MODBUS_ADDRESS_MAX + 1:
         raise ValueError(
