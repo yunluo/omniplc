@@ -701,12 +701,15 @@ MX_DEFAULT_LOGICAL_STATION: int = 0
 MX_LOGICAL_STATION_MAX: int = 1023
 """逻辑站号上限(手册:可设置范围 0~1023)。"""
 MX_MAX_BLOCK_WORDS: int = 960
-"""单次批量读/写的字数上限(保守值,防止超大块拖死 COM 调用)。"""
+"""单次批量读/写的字数上限(**驱动自定**保守值,防止超大块拖死 COM 调用;
+手册未给 960 的依据——`ReadDeviceRandom` 的 `lSize` 上限远大于此)。"""
 MX_BIT_DEVICES: Tuple[str, ...] = (
     "X", "Y", "M", "L", "S", "F", "V", "B", "SB", "DX", "DY",
-    "TS", "TC", "ST", "STS", "STC", "CS", "CC", "SM",
+    "TS", "TC", "STS", "STC", "CS", "CC", "SM",
 )
-"""Q/R 系列常见位软元件表(用于区分位/字访问);表外软元件按字软元件处理。"""
+"""Q/R 系列常见位软元件表(用于区分位/字访问);表外软元件按字软元件处理。
+依据:MX Component 手册软元件表——定时器/计数器接点/线圈为 TS/TC/STS/STC/CS/CC,
+步进继电器为 S(无单独 "ST" 记号)。"""
 
 # ---------------------------------------------------------------- 基恩士 KV Host Link
 KV_DEFAULT_PORT: int = 8000

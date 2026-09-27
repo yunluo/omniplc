@@ -640,6 +640,7 @@ class MelsecMxClient(BaseClient):
     def _read(self, address: str, data_type: DataType) -> PrimitiveValue:
         """按数据类型分发到单点/块读取原语。"""
         parsed = _check_address(address)
+        _reject_non_bool_access(parsed, data_type, address)
         if data_type is DataType.BOOL:
             return self._read_bool_impl(parsed)
         if data_type in (DataType.SHORT, DataType.USHORT):
@@ -656,6 +657,7 @@ class MelsecMxClient(BaseClient):
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """按数据类型分发到单点/块写入原语。"""
         parsed = _check_address(address)
+        _reject_non_bool_access(parsed, data_type, address)
         if data_type is DataType.BOOL:
             self._write_bool_impl(parsed, require_bool(value))
             return
@@ -740,6 +742,7 @@ class MelsecMxClient(BaseClient):
         for address, data_type in items:
             data_type_enum = DataType.coerce(data_type)
             parsed = _check_address(address)
+            _reject_non_bool_access(parsed, data_type_enum, address)
             if data_type_enum is DataType.BOOL:
                 if _is_bit_device(parsed.device):
                     random_texts.append(_device_text(parsed))
@@ -829,7 +832,12 @@ class MelsecMxClient(BaseClient):
                 words.append(1 if value else 0)
                 continue
             if isinstance(value, int):
-                if not INT16_MIN <= value <= UINT16_MAX:
+                if _is_bit_device(parsed.device):
+                    if value not in (0, 1):
+                        raise ValueError(
+                            f"write_batch 位软元件 {address!r} 的值必须为 0/1:{value!r}"
+                        )
+                elif not INT16_MIN <= value <= UINT16_MAX:
                     raise ValueError(
                         f"write_batch 整数值超出 16 位范围(-32768~65535):{value!r}"
                     )
@@ -988,6 +996,29 @@ def _require_word_device(address: str) -> McAddress:
     if parsed.bit is not None or _is_bit_device(parsed.device):
         raise ValueError(f"字符串只能从字软元件存取,收到:{address!r}")
     return parsed
+
+
+def _reject_non_bool_access(
+    parsed: McAddress, data_type: DataType, address: str
+) -> None:
+    """非 BOOL 的「位号后缀 / 位软元件」访问入参期拒绝(内部函数)。
+
+    MX 对位软元件的单点读(`GetDevice` 返回位 0/1)与块读(`ReadDeviceBlock`
+    按 16 点/字)语义不一致,字软元件位号后缀亦无字访问含义;统一拒绝,
+    与 MC 的 `read_batch` 口径一致(需要字访问请改用字软元件如 ``D``)。
+
+    :raises ValueError: 非 BOOL 类型带位号后缀,或落在位软元件上
+    """
+    if data_type is DataType.BOOL:
+        return
+    if parsed.bit is not None:
+        raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+    if _is_bit_device(parsed.device):
+        raise ValueError(
+            "位软元件 {}{} 只支持 BOOL,字/数值请改用字软元件(如 D)".format(
+                parsed.device, parsed.number
+            )
+        )
 
 
 def _format_code(code: int) -> str:

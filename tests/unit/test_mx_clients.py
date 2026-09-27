@@ -735,3 +735,47 @@ def test_get_error_message_creation_failure_returns_false(
 
     monkeypatch.setattr(mx_module, "_new_support_msg_com", boom)
     assert client.get_error_message(0xC0500100) == (False, None)
+
+
+# ----------------------------------------------------------------------
+# P3:位软元件字访问限制 / 位号后缀 / 位值范围 / 软元件表
+# ----------------------------------------------------------------------
+
+
+def test_bit_device_table_excludes_invalid_st() -> None:
+    """位软元件表不得含手册外的 "ST"(手册为 STS/STC;步进继电器为 S)。"""
+    from omniplc.core.constants import MX_BIT_DEVICES
+
+    assert "ST" not in MX_BIT_DEVICES
+    assert "STS" in MX_BIT_DEVICES and "STC" in MX_BIT_DEVICES
+
+
+def test_bit_device_rejects_non_bool(fake: FakeActUtlType) -> None:
+    """位软元件非 BOOL:GetDevice(位)与块读(16 点/字)口径不一,入参期拒绝。"""
+    client = _client()
+    client.connect()
+    with pytest.raises(ValueError):
+        client.read_ushort("M10")
+    with pytest.raises(ValueError):
+        client.write_int("M10", 5)
+    with pytest.raises(ValueError):
+        client.read_batch([("M10", "int")])
+
+
+def test_word_device_bit_suffix_rejects_non_bool(fake: FakeActUtlType) -> None:
+    """字软元件位号后缀仅 BOOL 可用;非 BOOL 拒绝(与 MC/Modbus 一致)。"""
+    client = _client()
+    client.connect()
+    with pytest.raises(ValueError):
+        client.read_short("D100.3")
+    with pytest.raises(ValueError):
+        client.write_int("D100.3", 5)
+
+
+def test_write_batch_bit_device_value_must_be_0_or_1(fake: FakeActUtlType) -> None:
+    """write_batch 对位软元件的整数值必须是 0/1(手册位写取值)。"""
+    client = _client()
+    client.connect()
+    with pytest.raises(ValueError):
+        client.write_batch([("M20", 2)])
+    assert client.write_batch([("M20", 1)]) is True
