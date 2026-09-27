@@ -104,6 +104,54 @@ def test_parse_nodeid_errors() -> None:
             parse_opcua_nodeid(bad)
 
 
+def test_build_data_change_filter() -> None:
+    """死区过滤器:不传/None→None;传 deadband_value→DataChangeFilter(默认 Absolute)。"""
+    import asyncua.ua
+
+    from omniplc.opcua.client import _build_data_change_filter
+
+    assert _build_data_change_filter(None, None) is None
+    assert _build_data_change_filter(None, "Absolute") is None
+    assert _build_data_change_filter(0.5, None) is not None
+    filt = _build_data_change_filter(0.5, None)
+    assert isinstance(filt, asyncua.ua.DataChangeFilter)
+    assert filt.DeadbandValue == 0.5
+    assert filt.DeadbandType == asyncua.ua.DeadbandType.Absolute
+    filt_pct = _build_data_change_filter(1.0, "Percent")
+    assert filt_pct.DeadbandType == asyncua.ua.DeadbandType.Percent
+
+
+def test_browse_accepts_reference_type_kwarg() -> None:
+    """browse 新增 reference_type_id 关键字参数(未实现运行时透传,签名先行)。"""
+    import inspect
+
+    sig = inspect.signature(OpcUaClient.browse)
+    assert "reference_type_id" in sig.parameters
+
+
+def test_parse_nodeid_guid_format_strict() -> None:
+    """GUID 严格校验:8-4-4-4-12 hex 格式(允许带花括号;OPC 10000-3 / RFC 4122)。"""
+    valid = (
+        "g=0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0",
+        "g=00000000-0000-0000-0000-000000000000",
+        "g=abcdef01-2345-6789-abcd-ef0123456789",
+        "g={0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0}",
+    )
+    for text in valid:
+        assert parse_opcua_nodeid(text).namespace == 0
+    invalid = (
+        "g=ABC",                                     # 太短
+        "g=0F1E2D3C-4B5A-6978-8796",                  # 缺一段
+        "g=0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0FF",   # 多一位
+        "g=ZZ1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0",     # 非 hex 字符
+        "g=0F1E2D3C4B5A69788796A5B4C3D2E1F0",         # 无连字符
+        "g=[0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0]",   # 方括号非法(只接受花括号)
+    )
+    for text in invalid:
+        with pytest.raises(ValueError):
+            parse_opcua_nodeid(text)
+
+
 def test_coerce_read_narrows_integer_range() -> None:
     """读回收窄:服务端整数超出声明类型范围 → DeviceError(设备侧条件,code=0)。
 

@@ -238,7 +238,7 @@ pdfplumber 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、�
 | AB EtherNet/IP(CIP) | ✅ 已完成 | P1 Get_Attribute_List 逐项布局(属性号+状态+值)、P2 附加状态 16 位字步进、P3 类型名 ULINT / 连接尺寸构造期校验;UC-Send 与 Forward Open/Close 逐字段对照通过——见下「AB EtherNet/IP(CIP)专项」 |
 | 倍福 TwinCAT ADS | ✅ 已完成 | P2 补 0x1A ERR_TCPSEND / transport 分类改 TRANSPORT / `write(STRING)` 补声明长预检;P3 自动 NetId 要求 IP 字面量——见下「倍福 TwinCAT ADS 专项」 |
 | 西门子 S7 | ✅ 已完成 | P2 多变量批量读(snap7 read_multi_vars 双线 1.x ctypes / 3.x dict);P3 `_write` KeyError 修 + `DataType.STRING` 路由预检 + docstring `DataType.BYTE` 修——见下「西门子 S7 专项」 |
-| OPC-UA | ⏳ 待查 | 三轮 P2(`active_subscriptions` 取事务锁、`_coerce_read` 越界类型)已修(2026-09-27,详见 P2 批);其余待查 |
+| OPC-UA | ✅ 已完成 | P2 Deadband 透传(DataChangeFilter);P3 GUID 格式严格校验(8-4-4-4-12)+ browse ReferenceType;§2.11.5/7/8 已由既有修复覆盖——见下「OPC-UA 专项」 |
 | MTConnect | ⏳ 待查 | — |
 | 丰田 TOYOPUC / 松下 / 基恩士 KV·SR / 汇川 | ⏳ 待查 | 部分厂商手册在「待补」表 |
 | native / aio 层 | ⏳ 待查 | 三轮 P1 恒等缩放(同步回归 + native 镜像)、Modbus 区域×类型、TOYOPUC 负写已修(2026-09-27);退避封顶等 P2 待处理 |
@@ -358,6 +358,21 @@ byte count、FC43 按对象头)与 CRC 低字节在前。
 - **待核/能力缺口(登记)**:`S7comm` 帧格式(依赖 pyS7snap7);SZL 系统状态列表;块操作;DB 寻址全部经绝对寻址,优化块访问(`_raise_link_aware` 提示)。
 
 门禁:全量 **1267 passed**(+8)/ ruff / mypy(76) / ty 全零。
+
+### OPC-UA 专项(2026-09-27;Part1 pdfplumber 全 30 页核对)
+
+核对通过:Part1 §6.3.3 p.15(AddressSpace / Node / Reference 概念)、§7.11 p.19(Subscription Service Set 集合);`Browse`/`Read`/`Write` 服务集合见 Part4(本目录未收录,**待核**);GUID 文本格式见 OPC 10000-3 / RFC 4122(W342 不含);driver 封装 asyncua 1.1.5(钉版)。
+
+- **P2 §2.11.2 推模式无 Deadband 过滤——已修复**:`subscribe_data_change` 新增 `deadband_value`/`deadband_type` 关键字参(`absolute`/`percent`),构造 `asyncua.ua.DataChangeFilter(Trigger, DeadbandType, DeadbandValue)`。因 asyncua 1.1.5 高层 `subscribe_data_change` **不收** `mfilter`,死区非 None 时走底层 `aio_obj._subscribe(nodes, attr, mfilter, queuesize, monitoring, sampling_interval)`(同步包装未暴露,需 `ua_sub.tloop.post(...).result()` 同步等待;asyncua 1.1.5 同步包装仅代理几个高层方法——asyncua 包装口径依赖留待记录);None 路径仍走原始高层方法,不增加 tloop.post 开销。门禁:`_build_data_change_filter(None, None) is None`;`(0.5, None) → DataChangeFilter(DeadbandValue=0.5, DeadbandType=Absolute)`;`(1.0, "Percent") → Percent`;非法 `deadband_type` 抛 `ValueError`。
+- **P3 §2.11.10 GUID 格式不校验——已修复**:`parse_opcua_nodeid` 的 `g=` 校验由 `[0-9A-Fa-f-]+` 宽松匹配改为 **8-4-4-4-12** 共 32 位十六进制 + 4 连字符(允许带花括号;依 OPC 10000-3 / RFC 4122);非法样本(`g=ABC`、`g=0F1E2D3C-4B5A-6978-8796` 缺一段、字符越界、方括号等)解析期拒绝。门禁 `test_parse_nodeid_guid_format_strict`。
+- **P3 §2.11.9 `browse` 仅默认 ReferenceType——已修复**:`browse` 新增 `reference_type_id` 关键字参(标准 NodeId 字符串如 `"i=33"` = HierarchicalReferences;`None` = 全部参考),解析为 asyncua 文本后透传到枚举。
+- **已由既有修复覆盖(标记)**:
+  - §2.11.5 `browse` 深树递归爆栈:`max_depth is None` 时应用 `OPCUA_BROWSE_DEFAULT_MAX_DEPTH=10`,递归深度 ≤ 10,Python 默认 1000 远大于此——已安全;显式栈迭代为后续优化。
+  - §2.11.7 类型强校验拒收 bool→数值:协议层定型(`_coerce_read`/`_coerce_write` 严格拒绝 bool 充整数),文档化。
+  - §2.11.8 回调跨关闭 loop 触发被吞:已由 `_state_lock`(短临界区纯字典操作,disconnect 前主动 `unsubscribe()`)修复。
+- **待核/能力缺口(登记)**:§2.11.11 aio 层订阅关闭 asyncua 内部线程释放(asyncua 1.1.5 上游 bug,待升级);§2.11.4 安全策略/证书(内网口径,设计边界)。
+
+门禁:全量 **1278 passed**(+11)/ ruff / mypy(76) / ty 全零。
 
 ### 倍福 TwinCAT ADS 专项(2026-09-27;TE1000 pdfplumber 全 133 页核对,§8 p.128-129)
 

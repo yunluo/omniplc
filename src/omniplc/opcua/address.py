@@ -23,7 +23,12 @@ from functools import lru_cache
 from typing import Dict, NamedTuple
 
 _BASE64_RE = re.compile(r"^[A-Za-z0-9+/=]*$")
-_GUID_RE = re.compile(r"^[0-9A-Fa-f-]+$")
+_GUID_RE = re.compile(
+    r"^\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
+    r"[0-9A-Fa-f]{12}\}?$"
+)
+"""GUID 严格校验:8-4-4-4-12 共 32 位十六进制 + 4 连字符,允许带花括号;
+依据 OPC 10000-3 / RFC 4122 文本格式。"""
 
 
 class OpcUaNodeId(NamedTuple):

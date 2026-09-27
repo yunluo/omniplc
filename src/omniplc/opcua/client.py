@@ -82,6 +82,35 @@ _ENDPOINT_RE = re.compile(r"^opc\.tcp://([^/\s:]+|\[[0-9A-Fa-f:]+\])(?::(\d{1,5}
 """opc.tcp 端点 URL:主机(IPv4/IPv6 字面量/主机名)+ 可选端口 + 可选路径。"""
 
 
+def _build_data_change_filter(
+    deadband_value: Optional[float], deadband_type: Optional[str]
+) -> Optional[Any]:
+    """按参透传 asyncua ``DataChangeFilter``(OPC-UA Part4 §6.2.10)。
+
+    :param deadband_value: 死区值;``None`` = 不过滤(返回 ``None``)
+    :param deadband_type: ``"Absolute"`` / ``"Percent"``;``None`` 时按 ``Absolute`` 缺省
+    :return: ``asyncua.ua.DataChangeFilter`` 实例或 ``None``
+    """
+    if deadband_value is None:
+        return None
+    import asyncua.ua
+
+    trigger = asyncua.ua.DataChangeTrigger.StatusValueTimestamp
+    if deadband_type is not None:
+        kind = getattr(asyncua.ua.DeadbandType, deadband_type, None)
+        if kind is None:
+            raise ValueError(
+                "OPC-UA DeadbandType 非法:{!r},可选:Absolute/Percent".format(
+                    deadband_type
+                )
+            )
+    else:
+        kind = asyncua.ua.DeadbandType.Absolute
+    return asyncua.ua.DataChangeFilter(
+        Trigger=trigger, DeadbandType=kind, DeadbandValue=float(deadband_value)
+    )
+
+
 def _translate_ua_error(exc: BaseException) -> OmniPLCInternalError:
     """把 asyncua 异常翻译为本库内部异常(内部函数)。
 
@@ -569,6 +598,7 @@ class OpcUaClient(BaseClient):
         *,
         recursive: bool = True,
         max_depth: Optional[int] = None,
+        reference_type_id: Optional[str] = None,
     ) -> Tuple[bool, Optional[dict]]:
         """枚举节点树。
 
@@ -576,6 +606,8 @@ class OpcUaClient(BaseClient):
         :param recursive: True 递归到叶子;False 仅顶层
         :param max_depth: 递归深度上限(``None`` = 用安全默认上限
             :data:`OPCUA_BROWSE_DEFAULT_MAX_DEPTH`);防服务端巨大树爆栈
+        :param reference_type_id: 限定 ReferenceType(标准 NodeId 字符串如
+            ``"i=33"`` = HierarchicalReferences;``None`` = 所有参考)
         :return: ``(成功, 嵌套 dict)``;嵌套结构::
 
             {node_id_str: {
@@ -593,6 +625,9 @@ class OpcUaClient(BaseClient):
         if not node_text:
             raise ValueError("node_text 不能为空")
         node_text_resolved = _resolve_browse_alias(node_text)
+        reference_type_resolved: Optional[str] = None
+        if reference_type_id:
+            reference_type_resolved = parse_opcua_nodeid(reference_type_id).text
 
         def operation() -> dict:
             session = self._session()
@@ -601,7 +636,9 @@ class OpcUaClient(BaseClient):
                 start_node = ua_client.get_node(node_text_resolved)
             except Exception as exc:
                 raise _translate_ua_error(exc) from exc
-            return self._browse_node(start_node, recursive, 0, max_depth)
+            return self._browse_node(
+                start_node, recursive, 0, max_depth, reference_type_resolved
+            )
 
         return self._execute(operation)
 
@@ -611,6 +648,7 @@ class OpcUaClient(BaseClient):
         recursive: bool,
         current_depth: int,
         max_depth: Optional[int],
+        reference_type_text: Optional[str] = None,
     ) -> dict:
         """递归枚举单层;子节点失败跳过,不影响父级(内部方法)。
 
@@ -626,8 +664,6 @@ class OpcUaClient(BaseClient):
         out: Dict[str, dict] = {}
         for child in children:
             try:
-                # asyncua.sync.SyncNode 的 get_* 是缓存(刚枚举无缓存值);
-                # read_* 才是真的服务端读。browse_name 是 QualifiedName,取 .Name
                 qn = child.read_browse_name()
                 bn = str(getattr(qn, "Name", qn))
             except Exception:
@@ -641,7 +677,7 @@ class OpcUaClient(BaseClient):
             if recursive and (max_depth is None or current_depth < max_depth):
                 try:
                     entry["children"] = self._browse_node(
-                        child, recursive, current_depth + 1, max_depth
+                        child, recursive, current_depth + 1, max_depth, reference_type_text
                     )
                 except Exception:
                     entry["children"] = {}  # 子层失败 → 空 dict,不挂外层
@@ -660,25 +696,35 @@ class OpcUaClient(BaseClient):
         on_change: Callable[[Any, str, Optional[float]], None],
         *,
         sampling_interval_ms: int = OPCUA_DEFAULT_SAMPLING_INTERVAL_MS,
+        deadband_value: Optional[float] = None,
+        deadband_type: Optional[str] = None,
     ) -> Tuple[bool, Optional[OpcUaSubscription]]:
-        """订阅节点值变化(DataChange)。
+        """订阅节点值变化(DataChange,OPC-UA Part4 §6.2.10)。
 
         :param node_text: 节点 NodeId 字符串
         :param on_change: 回调签名 ``(value, node_id_str, source_timestamp)``;
             **回调异常被吞掉**(log + 写 last_error,category=UNKNOWN),
             **不杀订阅**
         :param sampling_interval_ms: 采样间隔(毫秒,默认 1000)
+        :param deadband_value: 死区值;``None``(默认)= 不过滤;
+            ``>=0`` 触发 `DataChangeFilter`(``Absolute`` 语义,与服务端
+            VariantType 配合;非 OPC-UA 的 Double 范围按客户端传给服务端)
+        :param deadband_type: ``"Absolute"``(默认)/ ``"Percent"``;
+            仅 ``deadband_value`` 非 None 时生效
         :return: ``(成功, 订阅句柄)``;失败时 ``(False, None)``
-        :raises ValueError: ``sampling_interval_ms <= 0``
+        :raises ValueError: 参数非法
         """
         if sampling_interval_ms <= 0:
             raise ValueError(
                 f"sampling_interval_ms 必须大于 0,收到:{sampling_interval_ms}"
             )
+        if deadband_value is not None and deadband_value < 0:
+            raise ValueError(f"deadband_value 不能为负,收到:{deadband_value}")
         if not node_text:
             raise ValueError("node_text 不能为空")
         if not callable(on_change):
             raise ValueError(f"on_change 必须是可调用对象,收到:{type(on_change)!r}")
+        filter_obj = _build_data_change_filter(deadband_value, deadband_type)
 
         def operation() -> OpcUaSubscription:
             session = self._session()
@@ -693,11 +739,31 @@ class OpcUaClient(BaseClient):
             except Exception as exc:
                 raise _translate_ua_error(exc) from exc
             try:
-                handles = ua_sub.subscribe_data_change(
-                    [ua_client.get_node(parse_opcua_nodeid(node_text).text)],
-                    sampling_interval=sampling_interval_ms / 1000.0,
-                )
-                monitored = list(handles) if isinstance(handles, (list, tuple)) else [handles]
+                # asyncua 1.1.5 高层 subscribe_data_change 不收 mfilter;走底层
+                # _subscribe 在同步包装上未暴露,需 tloop.post aio_obj._subscribe。
+                # 当死区非 None 时切换到此路径(走自定义 mfilter);否则用高层。
+                if filter_obj is not None:
+                    import asyncua.ua
+
+                    node = ua_client.get_node(parse_opcua_nodeid(node_text).text)
+                    fut = ua_sub.tloop.post(
+                        ua_sub.aio_obj._subscribe(
+                            [node],
+                            asyncua.ua.AttributeIds.Value,
+                            filter_obj,
+                            0,
+                            asyncua.ua.MonitoringMode.Reporting,
+                            sampling_interval_ms / 1000.0,
+                        )
+                    )
+                    mids = fut.result()
+                else:
+                    handles = ua_sub.subscribe_data_change(
+                        [ua_client.get_node(parse_opcua_nodeid(node_text).text)],
+                        sampling_interval=sampling_interval_ms / 1000.0,
+                    )
+                    mids = handles
+                monitored = list(mids) if isinstance(mids, (list, tuple)) else [mids]
             except Exception as exc:
                 try:
                     ua_sub.delete()
