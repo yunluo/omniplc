@@ -7,9 +7,8 @@
 ``_build_write`` / ``_words_to_value`` / ``_value_to_words`` / ``_node_from_host``
 / ``_local_ip_for``),本模块只把 ``_transact`` / ``_after_connect`` 换成协程版。
 
-首发能力面:单点读/写(位、字、字符串)+ 类型化方法 + 点位表。
-
-**尚未包含**:``read_many``/``read_batch``(0104 多存储区读)——留后续批次。
+能力面与同步层对齐:单点读/写(位、字、字符串)+ 类型化方法 + 点位表 + 批量
+(0104 多存储区读;写按基类逐点,协议无跨存储区单事务写原语)。
 
 :example::
 
@@ -21,7 +20,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import List, Optional
+from typing import List, Optional, Sequence, Tuple, Union
 
 from .base import AsyncBaseClient
 from .transport import AsyncBaseTransport, AsyncTcpTransport, AsyncUdpTransport
@@ -242,6 +241,102 @@ class AsyncOmronFinsBase(AsyncBaseClient):
         words = [int.from_bytes(raw[i:i + 2], "big") for i in range(0, len(raw), 2)]
         await self._write_words(parsed, words)
         return value
+
+    # ------------------------------------------------------------------
+    # 批量读取(0104 多存储区读,单事务)
+    # ------------------------------------------------------------------
+
+    async def read_many(
+        self, addresses: Sequence[str], data_type: Union[DataType, str]
+    ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
+        """批量读取:覆写为 0104 多存储区读(单事务)。
+
+        与基类逐点独立容错不同:任一地址非法或 PLC 拒绝则**整批失败**
+        (原因见 ``last_error``);需要逐点容错请逐点调用 :meth:`read`。
+        契约与同步 :meth:`~omniplc.plc.omron.OmronFinsTcpClient.read_many` 一致。
+
+        :param addresses: 地址列表(存储区可各不相同)
+        :param data_type: 统一数据类型
+        :return: 与地址顺序对应的 ``[(是否成功, 值)]`` 列表
+        """
+        data_type_enum = DataType.coerce(data_type)
+        ok, values = await self.read_batch(
+            [(address, data_type_enum) for address in addresses]
+        )
+        if not ok or values is None:
+            return [(False, None) for _ in addresses]
+        return [(True, value) for value in values]
+
+    async def read_batch(
+        self, items: Sequence[Tuple[str, Union[DataType, str]]]
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """多存储区批量读取:0104 单事务混读多个非连续字(TCP/UDP 通用)。
+
+        每条目读 1 个字,软元件/类型可各不相同(W342 §5-3-5):32/64 位类型拆成
+        相邻多条,BOOL 走包含字的字区码后本地提位(0104 仅字码);T/C 完成标志
+        为位区,不支持批量(T/C 当前值可按字批量读)。条目上限 167(Ethernet /
+        Controller Link 口径,由 ``codec.build_multiple_area_read`` 收口)。
+        规划与解析**复用同步侧同一套助手**。
+
+        :param items: ``(地址, 数据类型)`` 序列
+        :return: ``(是否成功, 与 items 顺序对应的值列表)``
+        :raises ValueError: 列表为空/地址或类型非法/条目数超限
+        """
+        if not items:
+            raise ValueError("read_batch 至少需要一个 (地址, 数据类型) 项")
+        entries: List[Tuple[int, int]] = []
+        plan: List[Tuple[str, int, int, DataType]] = []
+        for address, data_type in items:
+            data_type_enum = DataType.coerce(data_type)
+            parsed = parse_fins_address(address)
+            if data_type_enum is not DataType.BOOL and parsed.bit is not None:
+                raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+            if data_type_enum is DataType.BOOL:
+                if parsed.area in FINS_TIMER_COUNTER_AREAS:
+                    raise ValueError(
+                        f"T/C 完成标志不支持批量读取(0104 仅字区):{address!r}"
+                    )
+                _, word_code = codec.memory_codes(parsed.area, parsed.bank)
+                plan.append(("wordbit", len(entries), parsed.bit or 0, data_type_enum))
+                entries.append((word_code, parsed.offset))
+                continue
+            if data_type_enum in (DataType.SHORT, DataType.USHORT):
+                words = 1
+            elif data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
+                words = 2
+            elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
+                words = 4
+            else:
+                raise ValueError(f"FINS 批量读取不支持的数据类型:{data_type_enum}")
+            _, word_code = codec.memory_codes(parsed.area, parsed.bank)
+            plan.append(("word", len(entries), words, data_type_enum))
+            for index in range(words):
+                entries.append((word_code, parsed.offset + index))
+        codes = [code for code, _ in entries]
+
+        async def operation() -> List[PrimitiveValue]:
+            frame = codec.build_multiple_area_read(
+                self._destination_network,
+                self._destination_node,
+                self._destination_unit,
+                self._source_network,
+                self._source_node,
+                self._source_unit,
+                self._next_sid(),
+                entries,
+            )
+            words = codec.parse_multiple_area_read(
+                await self._transact(frame), frame, codes
+            )
+            values: List[PrimitiveValue] = []
+            for kind, index, extra, item_type in plan:
+                if kind == "wordbit":
+                    values.append(bool(convert.get_bit(words[index], extra)))
+                else:
+                    values.append(_words_to_value(words[index:index + extra], item_type))
+            return values
+
+        return await self._execute(operation)
 
     # ------------------------------------------------------------------
     # 位/字原语(Area Read/Write 帧)

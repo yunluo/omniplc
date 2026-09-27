@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import socket
-from typing import Any, Dict, NamedTuple, Optional, Sequence
+from typing import Any, Dict, NamedTuple, Optional, Sequence, Tuple
 
 import pytest
 
@@ -69,6 +69,25 @@ def _tcp_chunks(*fins_frames: bytes) -> Sequence[bytes]:
 def _words_be(values: Sequence[int]) -> bytes:
     """字序列按 FINS 大端字序拼字节(测试脚手架)。"""
     return b"".join(value.to_bytes(2, "big") for value in values)
+
+
+def _fins_requests(data: bytes, datagram: bool) -> list:
+    """拆出脚本记录到的 FINS 请求帧,返回 ``[(命令 2 字节, 帧字节), ...]``。
+
+    命令域在 FINS 帧偏移 10(帧头 10 字节:ICF..SID);TCP 走线先有握手请求
+    (命令+错误码+节点共 12 字节,无 FINS 载荷,按"剩余不足帧头 10 字节"跳过)。
+    """
+    if datagram:
+        return [(data[10:12], data)] if data else []
+    frames = []
+    offset = 0
+    while offset < len(data):
+        length = int.from_bytes(data[offset + 4:offset + 8], "big")
+        body = data[offset + 8:offset + 8 + length]
+        if len(body) >= 8 + 10:  # 命令(4)+错误码(4)+ 至少一个完整 FINS 帧头
+            frames.append((body[18:20], body[8:]))
+        offset += 8 + length
+    return frames
 
 
 _READ_RESP = _fins_response(1, 0x0101, data=_words_be([20]))  # D100 = 20
@@ -429,6 +448,105 @@ def test_expected_request_frame_matches_codec(
         await client.close()
 
     loop.run_until_complete(scenario())
+
+
+# ----------------------------------------------------------------------
+# 批量读(0104 多存储区读):与同步层同帧同解析
+# ----------------------------------------------------------------------
+
+_F32_1_5_BE = [0x3FC0, 0x0000]  # 1.5f 的 FINS 大端字序
+
+
+class ExtCase(NamedTuple):
+    """批量读对拍用例。"""
+
+    name: str
+    datagram: bool
+    op: str
+    args: Tuple[Any, ...]
+    responses: Sequence[bytes]
+    expect_fc: Tuple[str, ...]
+    """按序期望的命令域(线序十六进制;0104 在线序即 ``01 04``)。"""
+
+
+_EXT_CASES = [
+    ExtCase(
+        "udp_read_batch_mixed", True, "read_batch",
+        ((("D100", "ushort"), ("D101", "float"), ("CIO0.5", "bool")),),
+        (_fins_response(1, 0x0104, data=_words_be([7] + _F32_1_5_BE + [0x0020])),),
+        ("0104",),
+    ),
+    ExtCase(
+        "udp_read_many", True, "read_many", (("D100", "D101"), "ushort"),
+        (_fins_response(1, 0x0104, data=_words_be([10, 20])),), ("0104",),
+    ),
+    ExtCase(
+        "tcp_read_batch", False, "read_batch",
+        ((("D100", "long"),),),
+        tuple(_tcp_chunks(_fins_response(1, 0x0104, data=_words_be([0xFFFF, 0xFFFF, 0xFFFF, 0xFFFE])))),
+        ("0104",),
+    ),
+    # T/C 完成标志是位区,0104 只有字码 → 入参期拒绝(零字节发送)
+    ExtCase("read_batch_tc_rejected", True, "read_batch", ((("T0", "bool"),),), (), ()),
+    # 不支持的类型(字符串变长)同样入参期拒绝
+    ExtCase("read_batch_string_rejected", True, "read_batch", ((("D100", "STRING"),),), (), ()),
+]
+
+
+def _call_ext(client: Any, case: ExtCase) -> Any:
+    """按用例调用批量读(同步返回结果,异步返回协程)。"""
+    op, args = case.op, case.args
+    if op == "read_many":
+        return client.read_many(*args)
+    if op == "read_batch":
+        return client.read_batch(*args)
+    raise AssertionError("未知扩展用例操作:{}".format(op))
+
+
+@pytest.mark.parametrize("case", _EXT_CASES, ids=[case.name for case in _EXT_CASES])
+def test_sync_async_parity_batch(
+    monkeypatch: pytest.MonkeyPatch, loop: Any, case: ExtCase
+) -> None:
+    """批量读对拍:请求帧逐字节相同 + 结果/错误口径一致 + 命令域符合期望。"""
+    sync_client = _make_sync_client(case)
+    sync_scripted = ScriptedTransport(list(case.responses), datagram=case.datagram)
+    monkeypatch.setattr(sync_client, "_create_transport", lambda: sync_scripted)
+    assert sync_client.connect() is True
+    if case.expect_fc:
+        sync_result = _call_ext(sync_client, case)
+    else:
+        with pytest.raises(ValueError):
+            _call_ext(sync_client, case)
+        sync_result = None
+    sync_state = _snapshot(sync_client)
+
+    holder: Dict[str, Any] = {}
+
+    async def scenario() -> None:
+        client = _make_async_client(case)
+        scripted = ScriptedAsyncTransport(list(case.responses), datagram=case.datagram)
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        if case.expect_fc:
+            holder["result"] = await _call_ext(client, case)
+        else:
+            with pytest.raises(ValueError):
+                await _call_ext(client, case)
+            holder["result"] = None
+        holder["sent"] = bytes(scripted.sent)
+        holder["state"] = _snapshot(client)
+        await client.close()
+
+    loop.run_until_complete(scenario())
+
+    assert holder["sent"] == bytes(sync_scripted.sent), "请求帧必须逐字节相同"
+    assert holder["result"] == sync_result
+    assert holder["state"] == sync_state
+    if case.expect_fc:
+        assert tuple(
+            command.hex()
+            for command, _frame in _fins_requests(bytes(sync_scripted.sent), case.datagram)
+        ) == case.expect_fc
 
 
 def test_d_area_bit_read_falls_back_on_1101(

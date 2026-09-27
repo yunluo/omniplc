@@ -27,8 +27,8 @@ _MODBUS_PENDING: set = set()
 _MELSEC_PENDING: set = set()
 """同步 MC 客户端里尚未进入原生层的公开面(批量合并与扩展命令已补齐,表空)。"""
 
-_FINS_PENDING = {"read_batch"}
-"""同步 FINS 客户端里尚未进入原生层的公开面(0104 多存储区读)。"""
+_FINS_PENDING: set = set()
+"""同步 FINS 客户端里尚未进入原生层的公开面(0104 多存储区读已补齐,表空)。"""
 
 
 def _public(cls: type) -> set:
