@@ -262,6 +262,12 @@ PyMuPDF 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、门�
   - 1E 表缺手册支持的 `F/B/W/T(N·S·C)/C(N·S·C)`;3E/4E 表缺长定时器/计数器(`LTS/LTC/LTN`、`LSTS/LSTC/LSTN`、`LCS/LCC/LCN`)、`LZ`、`RD`(§8.1;注 §8.4 的 0406 禁用长定时/计数与 LZ)。
   - 手册另注 AnACPU 下 `L/S/R` 不可访问(本库 1E 表含,按模块差异登记)。
 
+### 发布记录(2026-09-27)
+
+- **v0.43.1**(补丁):汇总本台账三轮复审 P0 与逐协议专项——①三轮 P0 MC 设备码(`TC/TN/CC/CN`、1E `S`);②文档引用审计与补足(MC `SH-080008`/FINS `W342`、10 模块补页码级引用、CONTRIBUTING 铁律加固);③三菱 MX 专项(P1 ProgID / P2 创建兜底 / P3 位口径统一 + 控件配对释放);④三菱 MC 专项(`ZR`/1E `X·Y` 进制、字符串位号、0406 响应预算、1E 16 倍数);⑤Modbus FC17;⑥AGENTS.md。五落点(pyproject / `__version__` / CHANGELOG / architecture 版本行 + §11 / README)+ `uv.lock` 一致;tag `v0.43.1` → `34289c7`;已推 `origin`(Gitee)+ `github`。门禁 3.7.9 **1216 passed** / ruff / mypy(76) / ty 全零。**注**:区间含 `feat: Modbus FC17`(新增公共 API),本次按用户要求并入补丁发布,严格 semver 应为次版本,特此登记。
+- **v0.43.0**(次版本,2026-09-26):二轮复审修复收口 + 小功能扩展;门禁 1196 passed。
+- **v0.42.1**(补丁,2026-09-26):MC `L` 设备码回归修复(`0xA0→0x92`)+ 测试清理;门禁 1150 passed。
+
 ---
 
 ## 一、总体架构层面
