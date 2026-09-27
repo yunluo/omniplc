@@ -289,6 +289,91 @@ def test_read_batch_empty_rejected() -> None:
         MelsecMcTcpClient("127.0.0.1", 2000).read_batch([])
 
 
+# ----------------------------------------------------------------------
+# 随机读/写(0403/1402)与 CPU 型号(0101)全链路
+# ----------------------------------------------------------------------
+
+
+def test_tcp_3e_random_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TCP 3E random_read:乱序不连续软元件单事务读取(字 + 双字)。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    # 响应数据布局:字数据(D100=5, M0 位字=1)在前,双字数据(D500=0x12345678)在后
+    data = (
+        (0x0005).to_bytes(2, "little")                      # D100 字
+        + (0x0001).to_bytes(2, "little")                    # M0 位字
+        + (0x12345678).to_bytes(4, "little")                # D500 双字
+    )
+    frame = b"\xd0\x00" + b"\x00\xff\xff\x03\x00" + (2 + len(data)).to_bytes(2, "little") + b"\x00\x00" + data
+    scripted = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, values = client.random_read(
+        [("D100", DataType.SHORT), ("M0", DataType.BOOL)],
+        [("D500", DataType.UINT)],
+    )
+    assert ok is True and values == [5, True, 0x12345678]
+    assert bytes(scripted.sent) == codec_qna.build_random_read_devices(
+        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER,
+        [(0xA8, 100), (0x90, 0)],
+        [(0xA8, 500)],
+    )
+
+
+def test_tcp_3e_random_read_frame_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1E 帧 random_read:直接拒绝(0403 仅 QnA 兼容帧)。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000, frame="1E")
+    _mount(monkeypatch, client, ScriptedTransport([]))
+    client.connect()
+    with pytest.raises(ValueError):
+        client.random_read([("D0", "short")])
+
+
+def test_tcp_3e_random_read_empty_rejected() -> None:
+    """random_read 空列表:参数错误直接抛出。"""
+    with pytest.raises(ValueError):
+        MelsecMcTcpClient("127.0.0.1", 2000).random_read([])
+
+
+def test_tcp_3e_random_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TCP 3E random_write:乱序写(无响应数据,应答头即成功)。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    frame = b"\xd0\x00" + b"\x00\xff\xff\x03\x00" + (2).to_bytes(2, "little") + b"\x00\x00"
+    scripted = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.random_write([("D100", 0x1234)], [("D500", 0x89ABCDEF)]) is True
+    assert bytes(scripted.sent) == codec_qna.build_random_write_devices(
+        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER,
+        [(0xA8, 100, 0x1234)],
+        [(0xA8, 500, 0x89ABCDEF)],
+    )
+
+
+def test_tcp_3e_random_write_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """random_write:双列表均空拒绝;负值拒绝(不触碰连接)。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    _mount(monkeypatch, client, ScriptedTransport([]))
+    client.connect()
+    with pytest.raises(ValueError):
+        client.random_write([])
+    with pytest.raises(ValueError):
+        client.random_write([("D100", -5)])
+    assert client.connected is True
+
+
+def test_tcp_3e_get_cpu_type_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TCP 3E get_cpu_type:0101 请求 → (模型名, 模型代码)。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    data = b"Q06HCPU".ljust(16) + bytes.fromhex("0b02")
+    frame = b"\xd0\x00" + b"\x00\xff\xff\x03\x00" + (2 + len(data)).to_bytes(2, "little") + b"\x00\x00" + data
+    scripted = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, info = client.get_cpu_type()
+    assert ok is True and info == ("Q06HCPU", 0x020B)
+    assert bytes(scripted.sent) == codec_qna.build_read_cpu_model("3E")
+
+
 def test_read_batch_rejects_bit_suffix_on_word_type() -> None:
     """read_batch 字软元件非 BOOL 带位号 → 拒绝(与单点 read 口径一致)。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000)

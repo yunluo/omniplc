@@ -41,8 +41,15 @@ _MODBUS_PENDING = {
 }
 """同步 Modbus TCP 里尚未进入原生首批的公开面(批量/扩展功能码)。"""
 
-_MELSEC_PENDING = {"read_batch", "read_many", "write_many"}
-"""同步 MC 客户端里尚未进入原生首批的公开面(0406 多块批量读)。"""
+_MELSEC_PENDING = {
+    "get_cpu_type",
+    "random_read",
+    "random_write",
+    "read_batch",
+    "read_many",
+    "write_many",
+}
+"""同步 MC 客户端里尚未进入原生首批的公开面(批量与扩展命令)。"""
 
 _FINS_PENDING = {"read_batch", "read_many", "write_many"}
 """同步 FINS 客户端里尚未进入原生首批的公开面(0104 多存储区读)。"""

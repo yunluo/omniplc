@@ -32,12 +32,20 @@ from ...core.constants import (
     MC_COMMAND_BATCH_READ,
     MC_COMMAND_BATCH_READ_BLOCKS,
     MC_COMMAND_BATCH_WRITE,
+    MC_COMMAND_RANDOM_READ,
+    MC_COMMAND_RANDOM_WRITE,
+    MC_COMMAND_READ_CPU_MODEL,
+    MC_CPU_MODEL_RESPONSE_SIZE,
+    MC_DEFAULT_MONITOR_TIMER,
+    MC_DEFAULT_PC_NUMBER,
     MC_DEVICE_CODES,
     MC_DEST_MODULE_IO,
     MC_DEST_MODULE_STATION,
     MC_MAX_RANDOM_BLOCKS,
     MC_MAX_RESPONSE_CONTENT,
     MC_MAX_TRANSFER_POINTS,
+    MC_RANDOM_READ_MAX_POINTS,
+    MC_RANDOM_WRITE_MAX_POINTS,
     MC_RESPONSE_HEAD_SIZE,
     MC_RESPONSE_SUBHEADER_3E,
     MC_RESPONSE_SUBHEADER_4E,
@@ -368,6 +376,202 @@ def parse_random_read_response(
         for i in range(0, bit_bytes, 2)
     ]
     return words, bits
+
+
+def build_random_read_devices(
+    frame: str,
+    serial: int,
+    network_number: int,
+    pc_number: int,
+    monitoring_timer: int,
+    word_devices: Sequence[Tuple[int, int]],
+    double_word_devices: Sequence[Tuple[int, int]],
+) -> bytes:
+    """构造 3E/4E 随机读请求(命令 0403,SH-080008 §8.3 印刷页 97-100)。
+
+    单事务乱序读取多个**不连续**软元件点:字访问 ``(软元件码, 编号)`` m 点 +
+    双字访问 n 点(双字按 32 位读,响应 4 字节)。请求 = 命令(2) + 子命令
+    0000(2,小端) + 字访问点数(2,小端) + 双字访问点数(2,小端) + 字软元件
+    ×m(码 1 + 编号 3 小端) + 双字软元件 ×n。总点数(字 m + 双字 n)上限
+    :data:`~omniplc.core.constants.MC_RANDOM_READ_MAX_POINTS`(192,iQ-R/L/Q/L
+    子命令 0000;QnA 为 96,超限由 PLC 异常码裁决)。
+
+    位软元件以 16 点/字、双字访问以 32 点/双字为单位指定(§8.3 印刷页 98)。
+    长定时器/长计数器(LTS/LTC/LSTS/LSTC/LCS/LCC)不可访问(§8.3 印刷页 99)。
+
+    :param word_devices: 字访问软元件 ``(码, 编号)`` 序列(编号为帧内数值)
+    :param double_word_devices: 双字访问软元件 ``(码, 编号)`` 序列
+    :raises ValueError: 帧型非法、总点数超限或软元件参数非法
+    """
+    frame_name = _check_frame(frame)
+    total = len(word_devices) + len(double_word_devices)
+    if total == 0:
+        raise ValueError("随机读至少需要一个字访问或双字访问软元件")
+    if total > MC_RANDOM_READ_MAX_POINTS:
+        raise ValueError(
+            "随机读总点数(字 {} + 双字 {})超出上限 {}:{}".format(
+                len(word_devices),
+                len(double_word_devices),
+                MC_RANDOM_READ_MAX_POINTS,
+                total,
+            )
+        )
+    core = bytearray(MC_COMMAND_RANDOM_READ.to_bytes(2, "big"))
+    core += MC_SUBCOMMAND_WORD_UNITS.to_bytes(2, "little")
+    core += len(word_devices).to_bytes(2, "little")
+    core += len(double_word_devices).to_bytes(2, "little")
+    for code, number in word_devices:
+        core += _random_device(code, number)
+    for code, number in double_word_devices:
+        core += _random_device(code, number)
+    return _wrap_request(
+        frame_name, serial, network_number, pc_number, monitoring_timer, bytes(core)
+    )
+
+
+def parse_random_read_devices_response(
+    frame: bytes,
+    frame_type: str,
+    word_points: int,
+    double_word_points: int,
+    expected_serial: Optional[int] = None,
+) -> Tuple[List[int], List[int]]:
+    """解析随机读响应,返回 ``(字数据, 双字数据)``。
+
+    响应数据 = 字数据 ×m(逐字 2 字节小端) + 双字数据 ×n(每点 4 字节
+    小端,§8.3 通信例印刷页 100-101)。
+
+    :param word_points: 请求的字访问点数
+    :param double_word_points: 请求的双字访问点数
+    :raises omniplc.core.errors.DeviceError: 结束代码非 0
+    :raises omniplc.core.errors.ProtocolFrameError: 帧结构/序列号/长度不符
+    """
+    frame_name = _check_frame(frame_type)
+    data_offset = _locate_data(frame, frame_name, expected_serial)
+    word_bytes = word_points * 2
+    dword_bytes = double_word_points * 4
+    data = frame[data_offset:]
+    if len(data) != word_bytes + dword_bytes:
+        raise ProtocolFrameError(
+            "MC 随机读响应数据长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+                word_bytes + dword_bytes, len(data), format_hex(frame)
+            )
+        )
+    words = [int.from_bytes(data[i:i + 2], "little") for i in range(0, word_bytes, 2)]
+    dwords = [
+        int.from_bytes(data[word_bytes + i:word_bytes + i + 4], "little")
+        for i in range(0, dword_bytes, 4)
+    ]
+    return words, dwords
+
+
+def build_random_write_devices(
+    frame: str,
+    serial: int,
+    network_number: int,
+    pc_number: int,
+    monitoring_timer: int,
+    word_items: Sequence[Tuple[int, int, int]],
+    double_word_items: Sequence[Tuple[int, int, int]],
+) -> bytes:
+    """构造 3E/4E 随机写(测试)请求(命令 1402,SH-080008 §8.3 印刷页 104-106)。
+
+    单事务乱序写多个不连续软元件:字访问 ``(码, 编号, 值)`` ×m + 双字访问
+    ``(码, 编号, 值)`` ×n(值低 4 字节小端);**本命令无响应数据**(写后
+    仅应答头)。加权总点数(字 ×12 + 双字 ×14)上限
+    :data:`~omniplc.core.constants.MC_RANDOM_WRITE_MAX_POINTS`(1920;QnA 为
+    960)。命令名"test"为手册原文:双字写的值同样按无符号 32 位下发。
+
+    :raises ValueError: 帧型非法、总点数超限或软元件/数值非法
+    """
+    frame_name = _check_frame(frame)
+    weight = len(word_items) * 12 + len(double_word_items) * 14
+    if weight == 0:
+        raise ValueError("随机写至少需要一个字访问或双字访问软元件")
+    if weight > MC_RANDOM_WRITE_MAX_POINTS:
+        raise ValueError(
+            "随机写加权点数(字 {}×12 + 双字 {}×14 = {})超出上限 {}:{}".format(
+                len(word_items),
+                len(double_word_items),
+                weight,
+                MC_RANDOM_WRITE_MAX_POINTS,
+                weight,
+            )
+        )
+    core = bytearray(MC_COMMAND_RANDOM_WRITE.to_bytes(2, "big"))
+    core += MC_SUBCOMMAND_WORD_UNITS.to_bytes(2, "little")
+    core += len(word_items).to_bytes(2, "little")
+    core += len(double_word_items).to_bytes(2, "little")
+    for code, number, value in word_items:
+        core += _random_device(code, number)
+        core += _random_word_value(value)
+    for code, number, value in double_word_items:
+        core += _random_device(code, number)
+        core += _random_word_value(value, 4)
+    return _wrap_request(
+        frame_name, serial, network_number, pc_number, monitoring_timer, bytes(core)
+    )
+
+
+def build_read_cpu_model(frame: str) -> bytes:
+    """构造 3E/4E 读 CPU 型号请求(命令 0101,SH-080008 §11.2 印刷页 176)。
+
+    请求核心 = 命令(2) + 子命令 0000(2),无附加数据;响应核心 =
+    模型名(16 字节,不足补空格)+ 模型代码(2 字节)。
+    """
+    core = MC_COMMAND_READ_CPU_MODEL.to_bytes(2, "big")
+    core += MC_SUBCOMMAND_WORD_UNITS.to_bytes(2, "little")
+    return _wrap_request(frame, 0, 0, MC_DEFAULT_PC_NUMBER, MC_DEFAULT_MONITOR_TIMER, core)
+
+
+def parse_read_cpu_model_response(
+    frame: bytes, frame_type: str, expected_serial: Optional[int] = None
+) -> Tuple[str, int]:
+    """解析读 CPU 型号响应,返回 ``(模型名, 模型代码)``。
+
+    模型名 16 字节 ASCII(右补空格,去尾部空格);模型代码 2 字节**小端**
+    (手册通信例印刷页 178:Q02UCPU 的代码 ASCII 记法 "0263" ↔ 二进制
+    字节 `63H 02H`,即按低字节在前解析 = 0x6302,与其他 16 位数值域
+    同序;模型代码对照表见手册 §11.1 印刷页 166)。
+
+    :raises omniplc.core.errors.DeviceError: 结束代码非 0
+    :raises omniplc.core.errors.ProtocolFrameError: 长度不符/模型名含非 ASCII
+    """
+    frame_name = _check_frame(frame_type)
+    data_offset = _locate_data(frame, frame_name, expected_serial)
+    data = frame[data_offset:]
+    if len(data) != MC_CPU_MODEL_RESPONSE_SIZE:
+        raise ProtocolFrameError(
+            "MC CPU 型号响应数据长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+                MC_CPU_MODEL_RESPONSE_SIZE, len(data), format_hex(frame)
+            )
+        )
+    try:
+        name = data[:16].decode("ascii").rstrip(" ")
+    except UnicodeDecodeError as exc:
+        raise ProtocolFrameError(
+            "MC CPU 型号名含非 ASCII 字节:{}(收到的原始帧:{})".format(
+                exc, format_hex(frame)
+            )
+        ) from exc
+    code = int.from_bytes(data[16:18], "little")
+    return name, code
+
+
+def _random_device(code: int, number: int) -> bytes:
+    """随机读/写软元件条目:码 1 字节 + 编号 3 字节小端(内部函数)。"""
+    if not 0 <= number <= 0xFFFFFF:
+        raise ValueError(f"MC 软元件编号超出 3 字节范围:{number}")
+    return bytes((code,)) + number.to_bytes(3, "little")
+
+
+def _random_word_value(value: int, byte_count: int = 2) -> bytes:
+    """随机写数值:字 2 字节 / 双字 4 字节,小端,无符号(内部函数)。"""
+    if not 0 <= value <= (1 << (byte_count * 8)) - 1:
+        raise ValueError(
+            "随机写数值超出 {} 字节无符号范围:{}".format(byte_count, value)
+        )
+    return value.to_bytes(byte_count, "little")
 
 
 def _locate_data(

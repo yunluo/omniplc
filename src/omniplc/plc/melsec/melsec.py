@@ -56,6 +56,7 @@ from ...core.validation import (
     check_int16,
     check_uint16,
     require_bool,
+    require_int,
 )
 from ...transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport, UdpTransport
 from ...types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity
@@ -355,9 +356,213 @@ class _MelsecMcBase(BaseClient):
 
         return self._execute(operation)
 
-    # ------------------------------------------------------------------
-    # 位/字原语(核心命令 + 帧封装)
-    # ------------------------------------------------------------------
+    def random_read(
+        self,
+        word_items: Sequence[Tuple[str, Union[DataType, str]]],
+        double_word_items: Sequence[Tuple[str, Union[DataType, str]]] = (),
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """随机读:0403 单事务乱序读取不连续软元件(仅 3E/4E 帧)。
+
+        与 :meth:`read_batch`(0406 多块,**同软元件连续地址合并**)互补:
+        0403 支持任意不连续编号、逐点指定(如 ``D0``/``D500``/``M100``,
+        无需连续),响应按请求顺序返回(SH-080008 §8.3 印刷页 97-100)。
+        字访问点数 + 双字访问点数 ≤ 192(iQ-R/L/Q/L 子命令 0000;QnA 96)。
+        位软元件按 16 点/字、双字访问按 32 点/双字指定;长定时器/长计数器
+        不可访问。字符串请用 :meth:`read_string`。
+
+        :param word_items: 字访问 ``(地址, 数据类型)`` 序列;类型限
+            SHORT/USHORT/INT/UINT/FLOAT/BOOL(位软元件)
+        :param double_word_items: 双字访问 ``(地址, 数据类型)`` 序列;
+            类型限 INT/UINT/FLOAT(按 32 位读取,响应 4 字节/点;
+            0403 双字 = 32 位,LONG/ULONG/DOUBLE 64 位类型不支持)
+        :return: ``(是否成功, 与 word_items + double_word_items 顺序
+            对应的值列表)``
+        :raises ValueError: 列表为空/帧型不支持/地址或类型非法
+        """
+        if not word_items and not double_word_items:
+            raise ValueError("random_read 至少需要一个字访问或双字访问软元件")
+        if self._frame not in (McFrame.FRAME_3E, McFrame.FRAME_4E):
+            raise ValueError(
+                f"随机读仅支持 3E/4E 帧,当前帧型:{self._frame.value}"
+            )
+        word_devices, word_plan = self._random_plan(word_items, is_double=False)
+        dword_devices, dword_plan = self._random_plan(double_word_items, is_double=True)
+        # 解码计划为全局连续索引:字项索引 = words 下标;双字项索引 =
+        # len(word_devices) 起的 dwords 下标
+        word_count = len(word_devices)
+        plan = [(index, item_type) for index, item_type in word_plan] + [
+            (index + word_count, item_type) for index, item_type in dword_plan
+        ]
+
+        def operation() -> List[PrimitiveValue]:
+            request = codec_qna.build_random_read_devices(
+                self._frame.value,
+                self._next_serial(),
+                self._network_number,
+                self._pc_number,
+                MC_DEFAULT_MONITOR_TIMER,
+                word_devices,
+                dword_devices,
+            )
+            words, dwords = codec_qna.parse_random_read_devices_response(
+                self._transact(request),
+                self._frame.value,
+                len(word_devices),
+                len(dword_devices),
+                expected_serial=self._serial,
+            )
+            values: List[PrimitiveValue] = []
+            for index, item_type in plan:
+                if item_type in (DataType.BOOL, DataType.SHORT, DataType.USHORT):
+                    raw = words[index]
+                    if item_type is DataType.BOOL:
+                        values.append(bool(raw & 1))
+                    elif item_type is DataType.SHORT:
+                        values.append(convert.to_signed(raw, 16))
+                    else:
+                        values.append(raw)
+                else:
+                    # INT/UINT/FLOAT:字访问走两字解码;双字访问按 32 位原始值还原
+                    if index < word_count:
+                        values.append(_decode_32(list(words[index:index + 2]), item_type))
+                    else:
+                        values.append(_decode_dword(
+                            dwords[index - word_count], item_type
+                        ))
+            return values
+
+        return self._execute(operation)
+
+    def _random_plan(
+        self, items: Sequence[Tuple[str, Union[DataType, str]]], is_double: bool
+    ) -> Tuple[List[Tuple[int, int]], List[Tuple[int, DataType]]]:
+        """随机读/写入参规划:地址→(码, 编号) 并生成解码计划(内部方法)。
+
+        :raises ValueError: 地址/类型与访问宽度不符
+        """
+        devices: List[Tuple[int, int]] = []
+        plan: List[Tuple[int, DataType]] = []
+        allowed = (
+            (DataType.INT, DataType.UINT, DataType.FLOAT)
+            if is_double
+            else (DataType.BOOL, DataType.SHORT, DataType.USHORT, DataType.INT,
+                  DataType.UINT, DataType.FLOAT)
+        )
+        for index, (address, data_type) in enumerate(items):
+            data_type_enum = DataType.coerce(data_type)
+            if data_type_enum not in allowed:
+                raise ValueError(
+                    "MC 随机访问{}软元件类型不符:{}(允许:{})".format(
+                        "双字" if is_double else "字",
+                        data_type_enum,
+                        "/".join(t.value for t in allowed),
+                    )
+                )
+            parsed = self._translate_address(parse_mc_address(address))
+            code, is_bit_device, base = self._device_info(parsed.device)
+            if data_type_enum is DataType.BOOL and not is_bit_device:
+                raise ValueError(
+                    f"MC 随机读 BOOL 需要位软元件:{address!r}"
+                )
+            if data_type_enum is not DataType.BOOL and is_bit_device:
+                raise ValueError(
+                    "MC 随机读:位软元件 {}{} 只支持 BOOL".format(
+                        parsed.device, parsed.number
+                    )
+                )
+            number = codec_qna.device_number(parsed.device, parsed.number, base)
+            devices.append((code, number))
+            plan.append((index, data_type_enum))
+        return devices, plan
+
+    def random_write(
+        self,
+        word_items: Sequence[Tuple[str, PrimitiveValue]],
+        double_word_items: Sequence[Tuple[str, PrimitiveValue]] = (),
+    ) -> bool:
+        """随机写(测试):1402 单事务乱序写不连续软元件(仅 3E/4E 帧)。
+
+        命令名 "test" 为手册原文(SH-080008 §8.3 印刷页 104-106):双字
+        直接按 32 位写入。**本命令无响应数据**,PLC 只回应答头;加权点数
+        (字 ×12 + 双字 ×14) ≤ 1920(QnA 960)。位软元件按 16 点/字指定,
+        写值 0/1 写入该字单元的 bit0。
+
+        :param word_items: 字访问 ``(地址, 值)`` 序列(16 位:0~65535;
+            位软元件 0/1)
+        :param double_word_items: 双字访问 ``(地址, 值)`` 序列(32 位:
+            0~0xFFFFFFFF)
+        :return: 是否成功
+        :raises ValueError: 两列表均空/帧型不支持/地址或数值非法
+        """
+        if not word_items and not double_word_items:
+            raise ValueError("随机写至少需要一个字访问或双字访问软元件")
+        if self._frame not in (McFrame.FRAME_3E, McFrame.FRAME_4E):
+            raise ValueError(
+                f"随机写仅支持 3E/4E 帧,当前帧型:{self._frame.value}"
+            )
+
+        def plan_devices(
+            items: Sequence[Tuple[str, PrimitiveValue]], byte_count: int
+        ) -> List[Tuple[int, int, int]]:
+            out: List[Tuple[int, int, int]] = []
+            for address, value in items:
+                parsed = self._translate_address(parse_mc_address(address))
+                code, is_bit_device, base = self._device_info(parsed.device)
+                number = codec_qna.device_number(parsed.device, parsed.number, base)
+                if is_bit_device and not 0 <= number <= 0xFFFFFF - 15:
+                    # 位软元件按 16 点/字指定:编号 + 15 不得超过 3 字节域
+                    raise ValueError(
+                        f"MC 随机写位软元件编号越界:{parsed.device}{parsed.number}"
+                    )
+                number_value = require_int(value)
+                if not 0 <= number_value <= (1 << (byte_count * 8)) - 1:
+                    raise ValueError(
+                        "随机写值超出 {} 字节无符号范围:{}={}".format(
+                            byte_count, address, number_value
+                        )
+                    )
+                out.append((code, number, number_value))
+            return out
+
+        word_devices = plan_devices(word_items, 2)
+        dword_devices = plan_devices(double_word_items, 4)
+
+        def operation() -> None:
+            request = codec_qna.build_random_write_devices(
+                self._frame.value,
+                self._next_serial(),
+                self._network_number,
+                self._pc_number,
+                MC_DEFAULT_MONITOR_TIMER,
+                word_devices,
+                dword_devices,
+            )
+            self._transact(request)
+
+        ok, _ = self._execute(operation, is_write=True)
+        return ok
+
+    def get_cpu_type(self) -> Tuple[bool, Optional[Tuple[str, int]]]:
+        """读 CPU 型号(0101,SH-080008 §11.2 印刷页 176-178;仅 3E/4E 帧)。
+
+        返回 ``(是否成功, (模型名, 模型代码))``;模型名去尾部空格
+        (通信例:Q02UCPU → ``("Q02UCPU", 0x6302)``);模型代码对照
+        手册 §11.1 印刷页 166。
+
+        :raises ValueError: 帧型不支持
+        """
+        if self._frame not in (McFrame.FRAME_3E, McFrame.FRAME_4E):
+            raise ValueError(
+                f"CPU 型号读取仅支持 3E/4E 帧,当前帧型:{self._frame.value}"
+            )
+
+        def operation() -> Tuple[str, int]:
+            request = codec_qna.build_read_cpu_model(self._frame.value)
+            return codec_qna.parse_read_cpu_model_response(
+                self._transact(request), self._frame.value
+            )
+
+        return self._execute(operation)
 
     def _read_bool_impl(self, parsed: McAddress) -> bool:
         """位软元件按点位成批读;字软元件读 1 字后按位提取。"""
@@ -962,6 +1167,15 @@ def _decode_32(data: Sequence[int], data_type: DataType) -> PrimitiveValue:
 
 def _decode_64(data: Sequence[int], data_type: DataType) -> PrimitiveValue:
     """四字数据按类型解码(小端字序,内部函数)。"""
+    return convert.words_to_value(data, data_type, ByteOrder.LITTLE)
+
+
+def _decode_dword(raw: int, data_type: DataType) -> PrimitiveValue:
+    """随机读双字数据(32 位原始值)按类型解码(内部函数)。
+
+    0403 双字访问响应为 4 字节小端原始值;有符号/浮点按位型还原。
+    """
+    data = convert.bytes_to_words(raw.to_bytes(4, "little"))
     return convert.words_to_value(data, data_type, ByteOrder.LITTLE)
 
 

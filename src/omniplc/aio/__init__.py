@@ -828,6 +828,29 @@ class AMelsecMcTcpClient(ABaseClient):
         sync = self._typed(MelsecMcTcpClient)
         return await self._run(lambda: sync.read_batch(items))
 
+    async def random_read(
+        self,
+        word_items: Sequence[Tuple[str, Union[DataType, str]]],
+        double_word_items: Sequence[Tuple[str, Union[DataType, str]]] = (),
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """随机读(0403,单事务乱序;语义同同步版)。"""
+        sync = self._typed(MelsecMcTcpClient)
+        return await self._run(lambda: sync.random_read(word_items, double_word_items))
+
+    async def random_write(
+        self,
+        word_items: Sequence[Tuple[str, PrimitiveValue]],
+        double_word_items: Sequence[Tuple[str, PrimitiveValue]] = (),
+    ) -> bool:
+        """随机写(1402,单事务乱序;语义同同步版)。"""
+        sync = self._typed(MelsecMcTcpClient)
+        return await self._run(lambda: sync.random_write(word_items, double_word_items))
+
+    async def get_cpu_type(self) -> Tuple[bool, Optional[Tuple[str, int]]]:
+        """读 CPU 型号(0101;语义同同步版)。"""
+        sync = self._typed(MelsecMcTcpClient)
+        return await self._run(sync.get_cpu_type)
+
 
 class AMelsecMcUdpClient(ABaseClient):
     """三菱 MC 异步客户端(UDP)。"""
@@ -874,6 +897,29 @@ class AMelsecMcUdpClient(ABaseClient):
         """多块批量读取(0406,单事务;语义同同步版)。"""
         sync = self._typed(MelsecMcUdpClient)
         return await self._run(lambda: sync.read_batch(items))
+
+    async def random_read(
+        self,
+        word_items: Sequence[Tuple[str, Union[DataType, str]]],
+        double_word_items: Sequence[Tuple[str, Union[DataType, str]]] = (),
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """随机读(0403,单事务乱序;语义同同步版)。"""
+        sync = self._typed(MelsecMcUdpClient)
+        return await self._run(lambda: sync.random_read(word_items, double_word_items))
+
+    async def random_write(
+        self,
+        word_items: Sequence[Tuple[str, PrimitiveValue]],
+        double_word_items: Sequence[Tuple[str, PrimitiveValue]] = (),
+    ) -> bool:
+        """随机写(1402,单事务乱序;语义同同步版)。"""
+        sync = self._typed(MelsecMcUdpClient)
+        return await self._run(lambda: sync.random_write(word_items, double_word_items))
+
+    async def get_cpu_type(self) -> Tuple[bool, Optional[Tuple[str, int]]]:
+        """读 CPU 型号(0101;语义同同步版)。"""
+        sync = self._typed(MelsecMcUdpClient)
+        return await self._run(sync.get_cpu_type)
 
 
 class AInovanceMcTcpClient(AMelsecMcTcpClient):
@@ -1044,6 +1090,29 @@ class AMelsecMcSerialClient(ABaseClient):
         """多块批量读取(3C/4C 帧不支持,抛 ValueError;镜像契约一致性)。"""
         sync = self._typed(MelsecMcSerialClient)
         return await self._run(lambda: sync.read_batch(items))
+
+    async def random_read(
+        self,
+        word_items: Sequence[Tuple[str, Union[DataType, str]]],
+        double_word_items: Sequence[Tuple[str, Union[DataType, str]]] = (),
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """随机读(3C/4C 帧不支持,抛 ValueError;镜像契约一致性)。"""
+        sync = self._typed(MelsecMcSerialClient)
+        return await self._run(lambda: sync.random_read(word_items, double_word_items))
+
+    async def random_write(
+        self,
+        word_items: Sequence[Tuple[str, PrimitiveValue]],
+        double_word_items: Sequence[Tuple[str, PrimitiveValue]] = (),
+    ) -> bool:
+        """随机写(3C/4C 帧不支持,抛 ValueError;镜像契约一致性)。"""
+        sync = self._typed(MelsecMcSerialClient)
+        return await self._run(lambda: sync.random_write(word_items, double_word_items))
+
+    async def get_cpu_type(self) -> Tuple[bool, Optional[Tuple[str, int]]]:
+        """读 CPU 型号(3C/4C 帧不支持,抛 ValueError;镜像契约一致性)。"""
+        sync = self._typed(MelsecMcSerialClient)
+        return await self._run(sync.get_cpu_type)
 
 
 class AKeyenceMcTcpClient(AMelsecMcTcpClient):

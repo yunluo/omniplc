@@ -375,3 +375,132 @@ def test_parse_response_1e_trailing_bytes_rejected() -> None:
     frame = bytes([MC_1E_READ_WORD + 0x80, 0x00]) + (20).to_bytes(2, "little") + b"\x00"
     with pytest.raises(ProtocolFrameError):
         codec_a.parse_response(frame, 1, False, True)
+
+
+# ----------------------------------------------------------------------
+# 随机读/写(0403/1402)与 CPU 型号(0101)——SH-080008 §8.3/§11.2 黄金样本
+# ----------------------------------------------------------------------
+
+# 手册软元件码:D=0xA8 T(N)=0xC2 M=0x90 X=0x9C Y=0x9D
+_D, _TN, _M, _X, _Y = 0xA8, 0xC2, 0x90, 0x9C, 0x9D
+
+
+def test_build_random_read_devices_golden() -> None:
+    """随机读请求字面字节(SH-080008 §8.3 印刷页 101 二进制通信例:4 字 + 3 双字)。"""
+    request = codec_qna.build_random_read_devices(
+        "3E", 0, 0, 0xFF, 0,
+        [(_D, 0), (_TN, 0), (_M, 100), (_X, 20)],
+        [(_D, 1500), (_Y, 160), (_M, 1111)],
+    )
+    core = (
+        "03040000" "0400" "0300"
+        "a8000000" "c2000000" "90640000" "9c140000"
+        "a8dc0500" "9da00000" "90570400"
+    )
+    # 副头部 5000 + 网络 00 + PC ff + IO ff03 + 局 00 + 长度 2600 + 定时器 0000
+    assert request == bytes.fromhex("5000" "00" "ff" "ff03" "00" "2600" "0000" + core)
+
+
+def test_parse_random_read_devices_response_golden() -> None:
+    """随机读响应:字数据逐字小端 + 双字数据 4 字节小端(§8.3 印刷页 100-101)。"""
+    data = (
+        bytes.fromhex("9519") + bytes.fromhex("0212")
+        + bytes.fromhex("3412") + bytes.fromhex("7856")
+        + bytes.fromhex("4e4f544c") + bytes.fromhex("11110000") + bytes.fromhex("efcdab89")
+    )
+    frame = (
+        b"\xd0\x00"
+        + b"\x00\xff\xff\x03\x00"
+        + (2 + len(data)).to_bytes(2, "little")
+        + b"\x00\x00"
+        + data
+    )
+    words, dwords = codec_qna.parse_random_read_devices_response(frame, "3E", 4, 3)
+    assert words == [0x1995, 0x1202, 0x1234, 0x5678]
+    assert dwords[0] == 0x4C544F4E  # 手册 D1500/D1501 = 4F4EH/4C54H → 32 位小端
+    assert dwords[2] == 0x89ABCDEF
+
+
+def test_parse_random_read_devices_response_length_mismatch() -> None:
+    """随机读响应数据不足/冗余:按坏帧拒绝。"""
+    frame = (
+        b"\xd0\x00"
+        + b"\x00\xff\xff\x03\x00"
+        + (2 + 2).to_bytes(2, "little")
+        + b"\x00\x00"
+        + b"\x00\x00"
+    )
+    with pytest.raises(ProtocolFrameError):
+        codec_qna.parse_random_read_devices_response(frame, "3E", 4, 3)
+
+
+def test_build_random_read_devices_validation() -> None:
+    """随机读构造校验:空列表/总点数超限。"""
+    with pytest.raises(ValueError):
+        codec_qna.build_random_read_devices("3E", 0, 0, 0xFF, 0, [], [])
+    with pytest.raises(ValueError):
+        codec_qna.build_random_read_devices(
+            "3E", 0, 0, 0xFF, 0,
+            [(_D, index) for index in range(193)],
+            [],
+        )
+
+
+def test_build_random_write_devices_golden() -> None:
+    """随机写请求字面字节(§8.3 印刷页 106-107:1 字 + 1 双字,无响应数据)。"""
+    request = codec_qna.build_random_write_devices(
+        "3E", 0, 0, 0xFF, 0,
+        [(_D, 0, 0x1234)],
+        [(_D, 1500, 0x89ABCDEF)],
+    )
+    core = (
+        "02140000" "0100" "0100"
+        "a8000000" "3412"
+        "a8dc0500" "efcdab89"
+    )
+    assert request == bytes.fromhex("5000" "00" "ff" "ff03" "00" "1800" "0000" + core)
+
+
+def test_build_random_write_devices_validation() -> None:
+    """随机写构造校验:双列表均空/数值越界/加权点数超限。"""
+    with pytest.raises(ValueError):
+        codec_qna.build_random_write_devices("3E", 0, 0, 0xFF, 0, [], [])
+    with pytest.raises(ValueError):
+        codec_qna.build_random_write_devices(
+            "3E", 0, 0, 0xFF, 0, [(_D, 0, 0x10000)], []
+        )
+    with pytest.raises(ValueError):
+        codec_qna.build_random_write_devices(
+            "3E", 0, 0, 0xFF, 0,
+            [(_D, index, 1) for index in range(161)],
+            [],
+        )
+
+
+def test_read_cpu_model_golden() -> None:
+    """CPU 型号请求/响应(§11.2 印刷页 178:Q02UCPU → 名 + 码 0x6302 大端)。"""
+    request = codec_qna.build_read_cpu_model("3E")
+    assert request == bytes.fromhex("5000" "00" "ff" "ff03" "00" "0600" "0a00" "01010000")
+    data = b"Q02UCPU".ljust(16) + bytes.fromhex("6302")
+    frame = (
+        b"\xd0\x00"
+        + b"\x00\xff\xff\x03\x00"
+        + (2 + len(data)).to_bytes(2, "little")
+        + b"\x00\x00"
+        + data
+    )
+    assert codec_qna.parse_read_cpu_model_response(frame, "3E") == ("Q02UCPU", 0x0263)
+
+
+def test_read_cpu_model_bad_name() -> None:
+    """CPU 型号名含非 ASCII 字节(0x80+):按坏帧拒绝。"""
+    data = bytes([0xD0] * 16) + bytes.fromhex("0000")
+    frame = (
+        b"\xd0\x00"
+        + b"\x00\xff\xff\x03\x00"
+        + (2 + len(data)).to_bytes(2, "little")
+        + b"\x00\x00"
+        + data
+    )
+    with pytest.raises(ProtocolFrameError):
+        codec_qna.parse_read_cpu_model_response(frame, "3E")

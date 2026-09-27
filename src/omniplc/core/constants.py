@@ -229,6 +229,27 @@ MC_COMMAND_BATCH_WRITE: int = 0x0114
 MC_COMMAND_BATCH_READ_BLOCKS: int = 0x0604
 """多块批量读核心命令(手册记法 0406,SH-080008 §8.4;线上两字节 06 04,
 与 :data:`MC_COMMAND_BATCH_READ` 同为"线上字节序的 int",勿按文档记法写 0x0406)。"""
+MC_COMMAND_RANDOM_READ: int = 0x0304
+"""随机读核心命令(手册记法 0403,SH-080008 §8.3 印刷页 97;线上两字节
+`03 04`,与 :data:`MC_COMMAND_BATCH_READ` 同为"线上字节序的 int",
+勿按文档记法写 0x0403——那会发出大端 `04 03`)。"""
+MC_COMMAND_RANDOM_WRITE: int = 0x0214
+"""随机写(测试)核心命令(手册记法 1402,SH-080008 §8.3 印刷页 104;线上
+两字节 `02 14`,与 :data:`MC_COMMAND_BATCH_WRITE` 同为"线上字节序的 int")。"""
+MC_COMMAND_READ_CPU_MODEL: int = 0x0101
+"""读 CPU 型号核心命令(手册记法 0101,SH-080008 §11.2 印刷页 176;线上两字节 01 01)。"""
+MC_RANDOM_READ_MAX_POINTS: int = 192
+"""随机读字访问 + 双字访问总点数上限(SH-080008 Appendix 5 印刷页 466:
+iQ-R/iQ-L/Q/L 子命令 0000 为 192 点;QnA/0080 为 96 点,不分机型取保守值 96 的
+2 倍口径说明见 codec;本库默认子命令 0000 口径)。"""
+MC_RANDOM_WRITE_MAX_POINTS: int = 1920
+"""随机写加权总点数上限(字访问 ×12 + 双字访问 ×14,iQ-R/L/Q/L;
+QnA 为 960,取 0000 子命令口径)。"""
+MC_CPU_MODEL_RESPONSE_SIZE: int = 18
+"""读 CPU 型号响应数据长:模型名 16 字节(空格填充)+ 模型代码 2 字节
+(SH-080008 §11.2 通信例印刷页 178:Q02UCPU 的代码 ASCII 记法 "0263" ↔
+二进制字节 `63H 02H`,按低字节在前解析 = 0x6302,与其他 16 位数值域同序;
+模型代码对照表见手册 §11.1 印刷页 166)。"""
 MC_MAX_RANDOM_BLOCKS: int = 120
 """多块批量读总块数上限(字块+位块,子命令 0000 口径;iQ-R/L 扩展子命令为 60)。"""
 MC_SUBCOMMAND_WORD_UNITS: int = 0x0000
