@@ -215,6 +215,27 @@ v1 评审稿逐条对源码复核后形成本版:
 
 - 1E `X/Y` 进制(手册标 Hexadecimal,库用八进制)、TOYOPUC packed 段字索引、Inovance 0405/0406 支持面、FINS 字符串带位号的 PLC 端行为。
 
+### 逐协议深入复核(2026-09-27 起)
+
+自本轮起以**逐个协议深入核查**替代一次性全量扫描;每协议逐方法对照厂商手册(文本用
+PyMuPDF 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、门禁锁定。
+
+| 协议 / 驱动 | 状态 | 结论摘要 |
+|---|---|---|
+| 三菱 MX Component | ✅ 已完成 | P1 ProgID(`ActSupportMsg.ActSupportMsg`)、P2 控件创建兜底、P3 位软元件字访问口径统一——见下「MX 专项」 |
+| 三菱 MC 以太网(3E/4E/1E) | ⏳ 待查 | 三轮已修 P0(设备码 `TC/TN/CC/CN`、1E `S`) |
+| 三菱 MC 串口(1C/3C/4C) | ⏳ 待查 | — |
+| 欧姆龙 FINS | ⏳ 待查 | — |
+| 欧姆龙 NJ/NX CIP | ⏳ 待查 | — |
+| Modbus(TCP/RTU) | ⏳ 待查 | — |
+| AB EtherNet/IP(CIP) | ⏳ 待查 | 三轮 P2(ListIdentity 偏移、read_batch `.bit`)待处理 |
+| 倍福 TwinCAT ADS | ⏳ 待查 | — |
+| 西门子 S7 | ⏳ 待查 | 三轮 P3(`_write` 未支持类型 `KeyError`)待处理 |
+| OPC-UA | ⏳ 待查 | 三轮 P2(`active_subscriptions` 取事务锁、`_coerce_read` 越界类型)待处理 |
+| MTConnect | ⏳ 待查 | — |
+| 丰田 TOYOPUC / 松下 / 基恩士 KV·SR / 汇川 | ⏳ 待查 | 部分厂商手册在「待补」表 |
+| native / aio 层 | ⏳ 待查 | 上轮已修恒等缩放/退避/写语义镜像等 |
+
 ### MX 专项(2026-09-27,逐协议深入;PyMuPDF 抽取《MX Component Version 4 编程手册》全 564 页)
 
 核对通过:`Open`/`Close` 码值、逻辑站号 0~1023、`GetDevice/SetDevice` 出参口径、块读写自定义 I/F 4 参 `(设备/列表, 点数, 缓冲, lplRetCode)`、`GetCpuType(szCpuName, lCpuType)` 顺序、`GetClockData/SetClockData` 七字段顺序、`ReadDeviceBlock2/Random2` 为 16 位 SHORT 版、`GetErrorMessage` 在 Act(ML)SupportMsg 上。
