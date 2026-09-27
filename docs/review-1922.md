@@ -2,7 +2,8 @@
 
 > 日期:2026-09-27 · 触发:*重新整体再检查下项目*
 > 范围:全库 76 个源文件 / ~24k 行(HEAD 于 v0.44.0 之后)
-> 方法:分 6 域并行只读逐行审查(core/transport/opentcp · aio/native · Modbus ·
+> 方法:分 6 域并行只读逐行审查(core/transport/opentcp——opentcp 后于 2026-09-27
+> 按用户决策整体移除 · aio/native · Modbus ·
 > 三菱 MC·MX · Omron/AB/ADS/S7 · OPC-UA/CNC/扫码/厂商杂项),对关键项以脚本化
 > 传输在 3.7.9 门禁环境复现;有官方手册者按页码核对,无手册者标「待核」。
 > 分档:**P0** 错动作/数据损坏/死锁 · **P1** 静默错误/丢数据 · **P2** 资源浪费/性能/文档化限制 · **P3** 可控隐患/可维护性
@@ -134,7 +135,7 @@
 - **[P3] OPC-UA 惰性重连不清订阅索引** — `core/base_client.py::_mark_disconnected` 只关传输,不清 `_active_subscriptions`,故障后 `active_subscriptions` 仍报失效句柄。
 - **[P3] MTConnect `/asset/{id;id}` 的 id 未 URL 编码** — `cnc/mtconnect.py`:含 `?`/`#`/空格 的 id 破坏请求行。建议 `quote(id, safe="")`。
 - **[P3] 统计计数由两把锁混护 / 退避门控计入 `transactions` / `connect()` 覆盖根因 / `write_short` 静默截断 float** — `core/base_client.py`:一致性与语义偏差,低危但建议统一口径。
-- **[P3] OpenTcp 长度前缀发送未做范围校验** — `opentcp/client.py`:`len(payload).to_bytes(prefix)` 溢出抛 `OverflowError` 而非契约 `ValueError`。
+- **[P3] OpenTcp 长度前缀发送未做范围校验** — 原报 `opentcp/client.py`;**已失效(2026-09-27):OpenTcp 模块整体移除,不再存在**。
 - **[P3] `convert` 两处边界** — `float32_to_registers` 未把 `OverflowError` 归一 `ValueError`;`_reorder_bytes` 对奇数长静默补 0;`registers_to_canonical` 对越界寄存器 `&0xFFFF` 静默掩码。
 - **[P3] `validation.check_range` 未先 `require_int`;`types.from_name` 非 str 抛 `AttributeError`** — 与其它入口口径不一致。
 - **[P3] aio `word_order` 返回 str(同步/native 返回枚举)** — `aio/__init__.py`:跨层比较会分支错误。

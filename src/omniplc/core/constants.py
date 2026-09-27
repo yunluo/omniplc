@@ -1070,20 +1070,6 @@ AB_CIP_EXTENDED_STATUS_TEXT: dict = {
 """CIP 子状态码(16 位扩展码)→ 可读描述。:func:`omniplc.plc.ab.codec_cip._extended_status_text`
 在 ``DeviceError`` 抛出时把命中条目拼到消息末尾;未命中或扩展码 0 不参与拼接。"""
 
-# ---------------------------------------------------------------- 通用自定义 TCP
-OPEN_TCP_DEFAULT_PORT: int = 9000
-"""OpenTcpClient 默认端口(自定义设备无统一标准,仅占位,按现场配置)。"""
-OPEN_TCP_DEFAULT_DELIMITER: str = "\r\n"
-"""OpenTcpClient 默认帧分隔符(CR LF,行式协议最常见的应答结尾)。"""
-OPEN_TCP_DEFAULT_ENCODING: str = "utf-8"
-"""OpenTcpClient 文本收发默认字符编码(与 BaseClient 字符串 'ascii' 区分,通用 TCP 多为现代设备/上位机自定协议)。"""
-OPEN_TCP_MAX_FRAME: int = 4096
-"""OpenTcpClient 帧内容字节上限(不含分隔符;超限未见到分隔符按坏帧断线惰性重连)。"""
-OPEN_TCP_MAX_FRAME_LIMIT: int = 16 * 1024 * 1024
-"""OpenTcpClient ``max_frame`` 配置上界(16 MiB):防止缓冲硬上限无界增长。"""
-OPEN_TCP_RECV_CHUNK: int = 256
-"""OpenTcpClient 接收缓冲单次读取字节数(内部实现参数)。"""
-
 # ---------------------------------------------------------------- 倍福 TwinCAT(ADS)
 ADS_DEFAULT_ADS_PORT: int = 851
 """TwinCAT 3 PLC 运行时 1 的默认 AMS 端口(852 起为后续运行时;TC2 为 801)。"""

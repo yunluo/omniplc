@@ -134,7 +134,7 @@ class _RecordingClient(BaseClient):
 
 
 def _recording_client() -> _RecordingClient:
-    """挂上假传输并置为已连接(同 test_opentcp 的 _attach 惯例)。"""
+    """挂上假传输并置为已连接(故障注入用例同款 _attach 惯例)。"""
     client = _RecordingClient()
     transport = _NullTransport()
     transport.receive_timeout = 5.0

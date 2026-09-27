@@ -68,7 +68,6 @@ from .plc.keyence import (
 )
 from .plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
 from .plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
-from .opentcp import OpenTcpClient
 from .scanner import KeyenceSrClient
 from .tag import Tag, TagTable
 from .transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport, UdpTransport
@@ -76,7 +75,7 @@ from .types import ByteOrder, DataType, McFrame, SerialParity, WordOrder
 
 __version__ = "0.44.0"
 __author__ = "云落"
-__description__ = "多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC 3E/4E/1E 与串口 1C/3C/4C / MX Component / 欧姆龙 FINS / NJ/NX CIP / 基恩士 KV Host Link / KV MC 兼容 / 汇川 H3U/H5U / 松下 MC 兼容/MEWTOCOL / 丰田 TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / 西门子 S7 / OPC-UA / 通用自定义 TCP / CNC MTConnect)"
+__description__ = "多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC 3E/4E/1E 与串口 1C/3C/4C / MX Component / 欧姆龙 FINS / NJ/NX CIP / 基恩士 KV Host Link / KV MC 兼容 / 汇川 H3U/H5U / 松下 MC 兼容/MEWTOCOL / 丰田 TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / 西门子 S7 / OPC-UA / CNC MTConnect)"
 
 __all__ = [
     # ---- 客户端基类 ----
@@ -120,8 +119,6 @@ __all__ = [
     "BeckhoffAdsClient",
     # ---- 西门子 S7 客户端 ----
     "SiemensS7Client",
-    # ---- 通用自定义 TCP 客户端 ----
-    "OpenTcpClient",
     # ---- OPC-UA 客户端 ----
     "OpcUaClient",
     # ---- CNC 机床数采客户端 ----

@@ -19,7 +19,7 @@
 配置文件结构(tools/manual_test.json 为全协议示例):
 顶层 {"debug", "seed", "rounds", "connections"};每个连接:
 name / driver / ip / port / params(驱动特定参数)/ serial(串口驱动)/
-connect_only(只测联通)/ raw(opentcp)/ snapshot(mtconnect)/
+connect_only(只测联通)/ snapshot(mtconnect)/
 points:[{name, address, type, access, length, encoding}]。
 type:bool/short/ushort/int/uint/long/ulong/float/double/string;
 access 缺省 "rw","r" 为只读点(输入区/扫码内容/数采项)。
@@ -353,10 +353,6 @@ DEFAULT_CONNECTIONS = {
             {'tag_id': 'ns_2_s_demo_string_str', 'address': 'ns=2;s=Demo.String', 'type': 'string', 'remark': '字符串变量', 'length': 32},
         ],
     },
-    ("opentcp", None): {
-        "params": {"delimiter": "\r\n", "encoding": "utf-8"},
-        "raw": {"send_text": "PING", "expect_contains": "PONG"},
-    },
     ("mtconnect", None): {
         "snapshot": True,
         "points": [
@@ -388,7 +384,6 @@ from omniplc import (  # noqa: E402
     OmronCipClient,
     OmronFinsTcpClient,
     OmronFinsUdpClient,
-    OpenTcpClient,
     OpcUaClient,
     PanasonicMcTcpClient,
     PanasonicMewtocolTcpClient,
@@ -513,12 +508,6 @@ def build_client(conn):
     if d == "opcua":
         return OpcUaClient(ip, port or 4840, _p(conn, "path", ""),
                            _p(conn, "endpoint", ""))
-    if d == "opentcp":
-        return OpenTcpClient(ip, port or 9000, _p(conn, "delimiter", "\r\n"),
-                             _p(conn, "encoding", "utf-8"),
-                             _p(conn, "append_delimiter", True),
-                             _p(conn, "strip_delimiter", True),
-                             _p(conn, "max_frame", 4096))
     if d == "mtconnect":
         return MTConnectClient(ip, port or 5000)
     raise ValueError("未知 driver:{!r}".format(d))
@@ -645,27 +634,6 @@ def test_point_rounds(client, point, rounds, rng):
     return rounds, rounds
 
 
-def test_raw_rounds(client, conn, rounds):
-    """OpenTcp 原始收发 × rounds 轮,返回 (通过轮数, 总轮数)。"""
-    raw = conn.get("raw")
-    if not raw:
-        return 0, 0
-    send = raw.get("send_text", "")
-    expect = raw.get("expect_contains")
-    for r in range(1, rounds + 1):
-        tail = "第{}/{}轮 ".format(r, rounds) if rounds > 1 else ""
-        ok, reply = client.transact_text(send)
-        if not ok:
-            log("  [FAIL] 原始收发{}{!r} 失败:{}".format(tail, send, client.last_error))
-            return r - 1, rounds
-        if expect is not None and expect not in (reply or ""):
-            log("  [FAIL] 原始收发{}{!r} 应答 {!r} 不含 {!r}".format(
-                tail, send, reply, expect))
-            return r - 1, rounds
-    log("  [OK]   原始收发 {!r} → {!r}({}/{} 轮)".format(send, reply, rounds, rounds))
-    return rounds, rounds
-
-
 def run_connection(conn, rounds, rng):
     """连接 → 测点位/特例 × rounds 轮 → 关闭连接,返回 (通过, 总数, 是否连上)。"""
     name = conn.get("name", conn["driver"])
@@ -720,12 +688,8 @@ def run_connection(conn, rounds, rng):
             p, t = test_points_rounds(client, conn, rounds, rng)
             passed, total = passed + p, total + t
         else:
-            rp, rt = test_raw_rounds(client, conn, rounds)
-            if rp < rt:
-                log("  (原始收发失败,跳过点位)")
-            else:
-                p, t = test_points_rounds(client, conn, rounds, rng)
-                passed, total = rp + p, rt + t
+            p, t = test_points_rounds(client, conn, rounds, rng)
+            passed, total = passed + p, total + t
         log("  小计:{}/{} 通过".format(passed, total))
         return passed, total, True
     finally:

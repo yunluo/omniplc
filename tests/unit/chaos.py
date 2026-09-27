@@ -10,7 +10,7 @@
         recv_request(conn)
         conn.sendall(b"PAR")   # 半帧后关闭
     with chaos_server(behavior) as port:
-        client = OpenTcpClient("127.0.0.1", port, delimiter="\\r\\n")
+        client = ModbusTcpClient("127.0.0.1", port)
         ...
 """
 from __future__ import annotations

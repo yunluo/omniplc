@@ -1296,21 +1296,6 @@
       ]
     },
     {
-      "name": "通用自定义TCP",
-      "driver": "opentcp",
-      "ip": "127.0.0.1",
-      "port": 9000,
-      "params": {
-        "delimiter": "\r\n",
-        "encoding": "utf-8"
-      },
-      "raw": {
-        "send_text": "PING",
-        "expect_contains": "PONG"
-      },
-      "points": []
-    },
-    {
       "name": "CNC MTConnect",
       "driver": "mtconnect",
       "ip": "127.0.0.1",

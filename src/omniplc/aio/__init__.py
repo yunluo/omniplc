@@ -56,11 +56,6 @@ from ..core.constants import (
     MX_DEFAULT_LOGICAL_STATION,
     OPCUA_DEFAULT_PORT,
     OPCUA_DEFAULT_SAMPLING_INTERVAL_MS,
-    OPEN_TCP_DEFAULT_DELIMITER,
-    OPEN_TCP_DEFAULT_ENCODING,
-    OPEN_TCP_DEFAULT_PORT,
-    OPEN_TCP_MAX_FRAME,
-    OPEN_TCP_RECV_CHUNK,
     MTCONNECT_DEFAULT_PORT,
     S7_DEFAULT_PORT,
     S7_DEFAULT_RACK,
@@ -78,7 +73,6 @@ from ..core.constants import (
 )
 from ..modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from ..modbus.modbus import _coerce_word_order
-from ..opentcp import OpenTcpClient
 from ..plc.ab import AllenBradleyEthIpClient
 from ..plc.beckhoff import BeckhoffAdsClient
 from ..plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
@@ -154,8 +148,6 @@ __all__ = [
     "ABeckhoffAdsClient",
     # ---- 西门子 S7 客户端 ----
     "ASiemensS7Client",
-    # ---- 通用自定义 TCP 客户端 ----
-    "AOpenTcpClient",
     # ---- OPC-UA 客户端 ----
     "AOpcUaClient",
     # ---- CNC 机床数采客户端 ----
@@ -1632,136 +1624,6 @@ class AOmronCipClient(ABaseClient):
         """生效连接尺寸(connected 模式 Forward Open 后可用,转发同步实例)。"""
         sync = self._typed(OmronCipClient)
         return sync.connection_size
-
-
-class AOpenTcpClient(ABaseClient):
-    """通用自定义 TCP/IP 异步客户端(分隔符/定长成帧,收发行为可配)。"""
-
-    def __init__(
-        self,
-        ip_address: str = "192.168.0.10",
-        port: int = OPEN_TCP_DEFAULT_PORT,
-        delimiter: Optional[Union[str, bytes]] = OPEN_TCP_DEFAULT_DELIMITER,
-        encoding: str = OPEN_TCP_DEFAULT_ENCODING,
-        append_delimiter: bool = True,
-        strip_delimiter: bool = True,
-        max_frame: int = OPEN_TCP_MAX_FRAME,
-        frame_length: Optional[int] = None,
-        encoding_fallback: Optional[Sequence[str]] = None,
-        recv_chunk_size: int = OPEN_TCP_RECV_CHUNK,
-        start_marker: Optional[Union[str, bytes]] = None,
-        length_prefix: Optional[int] = None,
-        length_prefix_byteorder: str = "big",
-    ) -> None:
-        """初始化通用 TCP 异步客户端(参数与语义同同步版 :class:`OpenTcpClient`)。"""
-        super().__init__(
-            OpenTcpClient(
-                ip_address,
-                port,
-                delimiter,
-                encoding,
-                append_delimiter,
-                strip_delimiter,
-                max_frame,
-                frame_length,
-                encoding_fallback,
-                recv_chunk_size,
-                start_marker,
-                length_prefix,
-                length_prefix_byteorder,
-            )
-        )
-
-    def _client(self) -> OpenTcpClient:
-        """取通用 TCP 同步实例(内部属性)。"""
-        return self._typed(OpenTcpClient)
-
-    async def send(self, data: bytes) -> bool:
-        """原样发送字节(语义同同步版 :meth:`OpenTcpClient.send`)。"""
-        return await self._run(lambda: self._client().send(data))
-
-    async def send_text(self, text: str) -> bool:
-        """编码发送文本(可自动补分隔符)。"""
-        return await self._run(lambda: self._client().send_text(text))
-
-    async def receive(
-        self, timeout: Optional[float] = None
-    ) -> Tuple[bool, Optional[bytes]]:
-        """按分隔符收一帧(bytes)。"""
-        return await self._run(lambda: self._client().receive(timeout))
-
-    async def receive_text(
-        self, timeout: Optional[float] = None
-    ) -> Tuple[bool, Optional[str]]:
-        """收一帧并解码为文本。"""
-        return await self._run(lambda: self._client().receive_text(timeout))
-
-    async def transact(
-        self, data: bytes, timeout: Optional[float] = None
-    ) -> Tuple[bool, Optional[bytes]]:
-        """发送字节并收一帧应答。"""
-        return await self._run(lambda: self._client().transact(data, timeout))
-
-    async def transact_text(
-        self, text: str, timeout: Optional[float] = None
-    ) -> Tuple[bool, Optional[str]]:
-        """发送文本并收一帧应答解码为文本。"""
-        return await self._run(lambda: self._client().transact_text(text, timeout))
-
-    @property
-    def delimiter(self) -> Optional[bytes]:
-        """帧分隔符(bytes);定长成帧为 None(转发同步实例)。"""
-        return self._client().delimiter
-
-    @property
-    def frame_length(self) -> Optional[int]:
-        """定长成帧的每帧字节数;分隔符成帧为 None(转发同步实例)。"""
-        return self._client().frame_length
-
-    @property
-    def encoding(self) -> str:
-        """文本收发的字符编码(转发同步实例)。"""
-        return self._client().encoding
-
-    @property
-    def append_delimiter(self) -> bool:
-        """发送文本时是否自动补分隔符(转发同步实例)。"""
-        return self._client().append_delimiter
-
-    @property
-    def strip_delimiter(self) -> bool:
-        """收帧返回时是否去掉末尾分隔符(转发同步实例)。"""
-        return self._client().strip_delimiter
-
-    @property
-    def max_frame(self) -> int:
-        """帧内容字节上限(转发同步实例)。"""
-        return self._client().max_frame
-
-    @property
-    def encoding_fallback(self) -> Tuple[str, ...]:
-        """解码回退编码序列(转发同步实例)。"""
-        return self._client().encoding_fallback
-
-    @property
-    def recv_chunk_size(self) -> int:
-        """单次 recv 读取字节数(转发同步实例)。"""
-        return self._client().recv_chunk_size
-
-    @property
-    def start_marker(self) -> Optional[bytes]:
-        """帧起始标记(bytes;转发同步实例)。"""
-        return self._client().start_marker
-
-    @property
-    def length_prefix(self) -> Optional[int]:
-        """长度域字节数(转发同步实例)。"""
-        return self._client().length_prefix
-
-    @property
-    def last_partial_frame(self) -> Optional[bytes]:
-        """最近一次接收超时的部分帧(转发同步实例)。"""
-        return self._client().last_partial_frame
 
 
 class AMTConnectClient(ABaseClient):

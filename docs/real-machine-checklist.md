@@ -66,4 +66,3 @@
 | Modbus | Modbus RTU | | | FC22 掩码写 / FC23 读写多寄存器 / FC24 FIFO(按 byte count 增量收包) / FC43·14 设备标识(按对象头增量收包) / `inter_frame_delay` 帧间静默待真机核证 |
 | OPC-UA | opc.tcp | | | 订阅/Browse 为 v0.35 新增,待真机验证 |
 | CNC | MTConnect Agent HTTP/XML | | | |
-| 通用 | OpenTcp(分隔符 / 定长 / 长度前缀) | | | 新增 STX/ETX 起始标记、长度前缀成帧、`encoding_fallback` 解码回退、`last_partial_frame` 诊断,需按现场仪表实测 |

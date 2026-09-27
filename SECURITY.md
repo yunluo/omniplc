@@ -38,7 +38,7 @@
 本仓库已在 v0.30.2 收口一轮安全审计:
 
 - 网络长度域 `recv` 前上限快失败(FINS/MC/AB/TOYOPUC 等)
-- 整事务 deadline 防涓流拖死(MC 4C / KV / SR / OpenTcp)
+- 整事务 deadline 防涓流拖死(MC 4C / KV / SR)
 - MTConnect 响应体上限(16MB)与数值文本长度快拒
 - `OMNIPLC_INTERNAL_ERROR` 链全在控制流,公共 API 不抛(降低信息泄露)
 

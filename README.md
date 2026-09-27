@@ -1,7 +1,7 @@
 # Omniplc
 ![](docs/assets/omniplc_banner.png)
 #### 介绍
-omniplc:一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、汇川、松下、丰田、罗克韦尔(AB)、倍福(TwinCAT)、西门子(S7)等 PLC/扫码枪、OPC-UA 服务器与 CNC 机床(MTConnect),支持 Modbus、MC(3E/4E/1E 以太网帧、1C/3C/4C 串口帧)、FINS、NJ/NX CIP(EtherNet/IP)、KV Host Link、KV MC 协议兼容(SLMP)、汇川 H3U/H5U(Modbus TCP/RTU、MC 协议兼容 3E)、松下 FP(MC 协议兼容 3E、MEWTOCOL)、SR、TOYOPUC 计算机链接、EtherNet/IP(Logix 标签读写)、TwinCAT ADS(封装 pyads)、西门子 S7(封装 python-snap7,DB/I/Q/M)、通用自定义 TCP(分隔符成帧)、OPC-UA、MTConnect 数采等协议。
+omniplc:一个面向多品牌、多协议 PLC 的 Python 统一通信库。一次编写,即可通过一致的 API 对接三菱、欧姆龙、基恩士、汇川、松下、丰田、罗克韦尔(AB)、倍福(TwinCAT)、西门子(S7)等 PLC/扫码枪、OPC-UA 服务器与 CNC 机床(MTConnect),支持 Modbus、MC(3E/4E/1E 以太网帧、1C/3C/4C 串口帧)、FINS、NJ/NX CIP(EtherNet/IP)、KV Host Link、KV MC 协议兼容(SLMP)、汇川 H3U/H5U(Modbus TCP/RTU、MC 协议兼容 3E)、松下 FP(MC 协议兼容 3E、MEWTOCOL)、SR、TOYOPUC 计算机链接、EtherNet/IP(Logix 标签读写)、TwinCAT ADS(封装 pyads)、西门子 S7(封装 python-snap7,DB/I/Q/M)、OPC-UA、MTConnect 数采等协议。
 
 - **Python 3.7.9+**,uv 开发,核心零第三方依赖
 - 命名与使用习惯对齐,迁移成本极低
@@ -44,16 +44,15 @@ BaseClient(ABC,模板方法:连接状态机 / 事务锁 / 惰性重连 / 类型�
 ├── ToyopucUdpClient —— TOYOPUC 同帧 over UDP(1025)
 ├── OpcUaClient —— OPC-UA opc.tcp 会话(4840,封装 asyncua)
 ├── MTConnectClient —— CNC 机床数采(HTTP/XML 只读,Agent 默认 5000)
-├── SiemensS7Client —— 西门子 S7(102,rack/slot 路由,封装 python-snap7)
-└── OpenTcpClient —— 通用自定义 TCP/IP(端口按设备):分隔符/定长/长度前缀成帧 + 内部缓冲,send/receive/transact*
+└── SiemensS7Client —— 西门子 S7(102,rack/slot 路由,封装 python-snap7)
 
-异步镜像(omniplc.aio):类名 = 同步类名前加 A,签名同名同型,共 28 个
+异步镜像(omniplc.aio):类名 = 同步类名前加 A,签名同名同型,共 27 个
 AModbusTcpClient / AModbusRtuClient / AInovanceTcpClient / AInovanceRtuClient / AInovanceMcTcpClient
 AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient / AOmronFinsTcpClient
 AOmronFinsUdpClient / AOmronCipClient / ABeckhoffAdsClient / AAllenBradleyEthIpClient / AKeyenceHostLinkTcpClient
 AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient / APanasonicMcTcpClient / APanasonicMewtocolTcpClient
 APanasonicMewtocolUdpClient / AKeyenceSrClient / AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient
-AOpenTcpClient / AMTConnectClient / ASiemensS7Client
+AMTConnectClient / ASiemensS7Client
 
 原生异步(omniplc.native):独立层,类名 = 同步类名前加 Async,覆盖三协议 5 个
 AsyncBaseClient(异步基类,事务模板与同步层同口径)
@@ -266,19 +265,6 @@ from omniplc import OpcUaClient
 opc = OpcUaClient("192.168.0.10", 4840)
 ok, value = opc.read_float("ns=2;s=Device.Temperature")
 ok = opc.write_ushort("ns=2;s=Device.Speed", 1200)
-
-# 通用自定义 TCP:任意分隔符/定长/长度前缀成帧设备(称重仪表、传感器、自定义程序等)
-# 成帧三选一:delimiter(可配 start_marker 如 STX/ETX)、frame_length、length_prefix;编码回退/收块大小可配
-from omniplc import OpenTcpClient
-dev = OpenTcpClient(ip_address="192.168.0.10", port=9000, delimiter="\r\n")
-dev.receive_timeout = 2.0
-dev.connect()
-ok = dev.send_text("READ")             # 自动补分隔符(append_delimiter 可关)
-ok, raw = dev.receive()                # 按分隔符收一帧(bytes),跨分片自动拼接
-ok, text = dev.transact_text("VER")    # 发送并收一帧(str);坏帧/解码失败断线重连,超时不断线
-# STX/ETX 设备:OpenTcpClient(..., start_marker=b"\x02", delimiter=b"\x03")
-# 长度前缀设备:OpenTcpClient(..., delimiter=None, append_delimiter=False, length_prefix=2)
-# 中文编码设备:OpenTcpClient(..., encoding_fallback=["gbk"])
 
 # CNC 机床数采(MTConnect):数据项 id 即地址,Agent 默认端口 5000(标准库实现,零第三方依赖)
 # FANUC/三菱等控制器经适配器喂给 Agent 即可采;先 snapshot() 查看机器实际提供的数据项
@@ -559,7 +545,6 @@ dump(client.stats)   # 键名拼错、字段用错类型在 mypy/pyright 阶段�
 
 | 项                | 驱动               | 现状态                            |
 |------------------|------------------|--------------------------------|
-| OpenTcp 成帧扩展     | 通用 TCP           | STX/ETX、长度前缀成帧、编码回退已实现,待现场仪表核证 |
 | Modbus FC24/22    | Modbus TCP/RTU   | FC24 FIFO、FC22 掩码字节序可配,需设备支持,待真机核证 |
 | AB 0x0A 多服务包批量读  | AB Logix         | 已实现(超 32 条/480B 自动拆包),通用模拟器不支持,待真机核证 |
 | AB connected RPI  | AB Logix         | RPI 默认 100ms(`rpi_us` 可配)、CIP 0x01/0x07 重连,待真机核证 |

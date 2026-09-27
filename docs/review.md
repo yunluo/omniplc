@@ -215,7 +215,7 @@ v1 评审稿逐条对源码复核后形成本版:
 ### P3(合并)
 
 - Modbus:FC20 上界 `0x7D` 非规范(聚合响应无上界,`codec.py:877/896`;**专项复核维持自加宽容**——超限帧交 PLC 侧异常码 02 裁决,客户端不预拦);RTU FC43 增量无 ADU cap(`modbus.py:1409`;**已核 FC43 走对象头增量收包,无此问题**,见 Modbus 专项);~~FC05/06/15/16 写响应不回显~~(**已修复 2026-09-27**,Modbus 专项);~~批量写只读区在锁内才抛~~(**已修复 2026-09-27**);~~FC08 清计数器广播被误拒~~(**已修复 2026-09-27**);异常响应对尾字节宽容(`codec.py:186`);~~FC12 事件 0~64 未限~~(**已修复 2026-09-27**:byte count ≤0x46);掩码/批量值 `int()` 静默截断 float;设备标识翻页非法 `NextObjectId` 抛裸 `ValueError`。
-- OpenTcp:`max_frame` 不严格遵守(单分片自带分隔符可超)、`recv_chunk_size` 无上界、长度前缀 `to_bytes` 可溢出发送端。
+- OpenTcp:~~`max_frame` 不严格遵守(单分片自带分隔符可超)、`recv_chunk_size` 无上界、长度前缀 `to_bytes` 可溢出发送端~~(**已失效 2026-09-27**:OpenTcp 模块按用户决策整体移除,不再存在)。
 - native:~~`__aexit__` 用 `disconnect()`(aio 用 `close()`)~~(**已修复 2026-09-27**:改走 `close()` 关闸,块外再用抛 `RuntimeError`);~~UDP `close` 在无当前 loop 时可能漏关 FD~~(**已修复 2026-09-27**:摘注册与关句柄分开兜底;`_clear_stale_selector` 无循环时静默返回、`EBADF`/`EINVAL` 记 WARNING)。
 - 工程:`docs/architecture.md` §6.2/§10 与 `CONTRIBUTING.md:9` 仍称「CI 裸 mypy / 仅 3.12」与 3.7.9+3.12 矩阵不符(review 台账曾误标已订正;已订正 2026-09-27);`[tool.mypy] files=["src","tests"]` 因显式路径而失效(tests 实际未检查);MTConnect 单点读每次拉整份 `/current`;~~**S7 `_write` 未支持类型抛 `KeyError`、docstring 引用不存在的 `DataType.BYTE`**~~(**已修 2026-09-27**:_SIZES 校验 + STRING 路由预检 + docstring BYTE 引用修,S7 专项);TOYOPUC packed 地址校验与编码口径自相矛盾(`address.py:132` vs `139`,待手册)。
 - **文档/引用纪律(审计 + 补足,2026-09-27)**:协议实现 × `docs/protocol` 索引全面核对——①**MC 依据误标** `SH-080956`(SLMP)统一改为 **`SH-080008`**(MC 协议);②**FINS 依据误标** `W340` → **`W342`**(§5-1-3 结束码 / §5-2-1·§5-2-2 存储区):`omron/codec.py`、`core/constants.py` 及 `architecture.md` 5 处;③`keyence/mc.py` 的 `SH081257ENG` 未见于索引 → 改引 SLMP `SH-080956` 并标 **待核**;④`core/constants.py` MEWTOCOL 端口来源 Pro-face 标 **第三方非官方·待核**;⑤**补足缺失引用**:`melsec/address.py`(SH-080008 §8.1/8.2)、`modbus/address.py`(Modbus §4.4 + Modicon 记法存档)、`omron/address.py`(W342 §5-2)、`ab/address.py`(Rockwell Explicit Messaging)、`siemens/client.py`·`address.py`(S7-1500 §3.5/§6.4/§3;S7comm 编码待核)、`opcua/client.py`(Part1 §6.3.3/§7.11;Part 4 待核)、`cnc/mtconnect.py`(Part1 HTTP 端点)、`scanner/keyence_sr.py`(SR-2000 LON,b)、`plc/omron/cip.py`(W506 §7/W627)、`plc/ab/codec_cip.py`(ODVA EtherNet/IP/PUB00123/Rockwell)。`CONTRIBUTING.md` 铁律补两条硬约束(引用须指向正确文档编号、码表/错误码禁止按连续性推断须逐项对表),PR 流程加「列出依据手册编号+页码/章节」;CI 版本矩阵措辞(3.7.9+3.12)订正。**无文档依据者一律标「待核」**,不臆造。
@@ -518,8 +518,8 @@ R `0x3000`(R0~R32767));串口默认 9600-8N2(H5U 印刷页 418)。MC 兼容侧 1
   MC 层沿用三菱上限(更宽处放行),汇川设备侧超限以故障码 **C052/C053**(16.5 印刷页 662)
   拒绝,属明确报错;未做提前收口——手册该表的加权式在文本抽取中列边界有损,按铁律不臆造。
 - **待核/能力缺口(登记)**:①厂商私有功能码(配方传输等)不在 H3U/H5U 编程手册的 Modbus
-  章节(9.4 只列标准 FC 01~10),不臆造——自由协议帧可用 `OpenTcpClient`(STX/ETX、
-  长度前缀、编码回退)自组(§2.8.3 结案为文档化边界);②站号 >31 的第三方网关兼容
+  章节(9.4 只列标准 FC 01~10),不臆造——~~自由协议帧可用 `OpenTcpClient` 自组~~
+  (OpenTcp 已于 2026-09-27 整体移除,该绕行不再可用;§2.8.3 维持结案为文档化边界);②站号 >31 的第三方网关兼容
   (§2.8.6)无手册依据,维持标准 1~247;③H5U 的 R 与 B 基址同为 0x3000、SM/SD 同为
   0x2400 是**不同地址空间**(线圈 vs 保持寄存器),非笔误。
 
@@ -1051,7 +1051,8 @@ aio 层经镜像守卫测试与同步层同面,本身无需平展;本专项处�
 #### 2.8.3 缺汇川厂商 FC — **已结案(文档化边界,2026-09-27)**
 - 配方传输等厂商功能不可用:H3U/H5U 编程手册的 Modbus 章节(9.4)只列标准
   FC 01/02/03/04/05/06/0F/10,厂商私有帧无手册依据,按铁律不臆造。
-- **绕行**:自由协议帧用 `OpenTcpClient`(STX/ETX、长度前缀、编码回退链)自组。
+- ~~**绕行**:自由协议帧用 `OpenTcpClient`(STX/ETX、长度前缀、编码回退链)自组。~~
+  (**已失效 2026-09-27**:OpenTcpClient 模块整体移除,该绕行不再可用;厂商私有 FC 维持文档化边界,不做实现)
 
 #### 2.8.4 MC 帧与三菱的固件差异未文档化 — **已文档化(2026-09-27)**
 - `plc/inovance/mc.py`(docstring)
@@ -1180,6 +1181,9 @@ aio 层经镜像守卫测试与同步层同面,本身无需平展;本专项处�
 ---
 
 ### 2.13 OpenTcp(通用 TCP)
+
+> **模块已移除(2026-09-27)**:通用自定义 TCP 客户端 `OpenTcpClient`(`opentcp/`)
+> 按用户决策整体移除,含 aio 镜像、常量与联机脚本 raw 测项;以下历史记录保留。
 
 #### 2.13.1 无编码回退链 — **已修复(2026-09-26)**
 - `opentcp/client.py`(新增 `encoding_fallback`,`_decode_bytes` 逐候选编码尝试)
