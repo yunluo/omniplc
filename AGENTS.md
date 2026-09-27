@@ -46,26 +46,26 @@
 
 ## PDF 文本抽取
 
-- **统一用 PyMuPDF(不要用 pypdf)**:
+- **统一用 pdfplumber(不要用 pymupdf/fitz、pypdf)**:
 
   ```pwsh
-  uv run --directory "$env:TEMP" --no-project --python 3.12 --with pymupdf python <script> <pdf> <out.txt>
+  uv run --directory "$env:TEMP" --no-project --python 3.12 --with pdfplumber python <script> <pdf> <out.txt>
   ```
 
-  脚本内用 `import pymupdf`(模块名已是 `pymupdf`;`fitz` 已弃用),例如:
+  脚本内用 `import pdfplumber`,例如:
 
   ```python
-  import pymupdf, pathlib, sys
-  doc = pymupdf.open(sys.argv[1])
+  import pdfplumber, pathlib, sys
   out = []
-  for i, page in enumerate(doc):
-      out.append("===== PAGE {} =====".format(i + 1))
-      out.append(page.get_text())
+  with pdfplumber.open(sys.argv[1]) as pdf:
+      for i, page in enumerate(pdf.pages):
+          out.append("===== PAGE {} =====".format(i + 1))
+          out.append(page.extract_text() or "")
   pathlib.Path(sys.argv[2]).write_text("\n".join(out), encoding="utf-8")
   ```
 
-- 加密/扫描件:PyMuPDF 对 AES 加密 PDF 直接可用(无需 cryptography);扫描件无文本层时，
-  改用 `page.get_text()` 为空判断，并另找有文本层的手册或标记「待核」。
+- 加密/扫描件:加密 PDF pdfplumber 打不开时提示另行解密;扫描件无文本层时
+  `extract_text()` 返回 None,改找有文本层的手册或标「待核」。
 
 ## 门禁四件套(任一挂下即不通过)
 
