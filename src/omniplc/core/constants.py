@@ -692,8 +692,10 @@ T/C 完成标志只读。"""
 # ---------------------------------------------------------------- 三菱 MX Component
 MX_PROG_ID: str = "ActUtlType.ActUtlType"
 """ActUtlType 控件的 COM ProgID(实用程序设置型,按逻辑站号通信)。"""
-MX_SUPPORT_MSG_PROG_ID: str = "ActUtlType.ActSupportMsg"
-"""ActSupportMsg 控件的 COM ProgID(GetErrorMessage 出错文本查询用,真机待核证)。"""
+MX_SUPPORT_MSG_PROG_ID: str = "ActSupportMsg.ActSupportMsg"
+"""ActSupportMsg 控件的 COM ProgID(GetErrorMessage 出错文本查询用)。
+依据:MX Component 手册 §1.2.1 控件一览——`ActSupportMsg.dll` → 控件 `ActSupportMsg`
+(`ActMLSupportMsg` 为其 ML 变体),非 `ActUtlType` 上的成员。"""
 MX_DEFAULT_LOGICAL_STATION: int = 0
 """默认逻辑站号(与手册默认值一致;须与通信设置实用程序中的配置一致)。"""
 MX_LOGICAL_STATION_MAX: int = 1023

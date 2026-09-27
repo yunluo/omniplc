@@ -703,3 +703,35 @@ def test_get_set_clock(fake: FakeActUtlType) -> None:
     assert client.set_clock(2026, 9, 23, 12, 30, 15, day_of_week=3) is True
     set_calls = [call for call in fake.calls if call[0] == "SetClockData"]
     assert set_calls == [("SetClockData", 2026, 9, 23, 3, 12, 30, 15)]
+
+
+def test_support_msg_progid_matches_manual() -> None:
+    """ActSupportMsg 控件 ProgID 依手册 §1.2.1(ActSupportMsg.dll → ActSupportMsg.ActSupportMsg)。"""
+    from omniplc.core.constants import MX_SUPPORT_MSG_PROG_ID
+
+    assert MX_SUPPORT_MSG_PROG_ID == "ActSupportMsg.ActSupportMsg"
+
+
+def test_support_msg_create_failure_translated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ActSupportMsg 控件创建失败 → 翻译为 OmniPLCInternalError(不逃出公开 API)。"""
+    import comtypes.client
+
+    def boom(*args: Any, **kwargs: Any) -> Any:
+        raise OSError("控件未注册")
+
+    monkeypatch.setattr(comtypes.client, "CreateObject", boom)
+    with pytest.raises(OmniPLCInternalError):
+        mx_module._new_support_msg_com(1)
+
+
+def test_get_error_message_creation_failure_returns_false(
+    fake: FakeActUtlType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """控件创建失败时 get_error_message 返回 (False, None)(公共 API 契约)。"""
+    client = _client()
+
+    def boom(station: int) -> Any:
+        raise OmniPLCInternalError("ActSupportMsg 控件创建失败")
+
+    monkeypatch.setattr(mx_module, "_new_support_msg_com", boom)
+    assert client.get_error_message(0xC0500100) == (False, None)

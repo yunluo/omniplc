@@ -369,10 +369,21 @@ def _com_set_clock_data(
 
 
 def _new_support_msg_com(logical_station_number: int) -> Any:
-    """创建 ActSupportMsg 控件(GetErrorMessage 专用,与 ActUtlType 独立)。"""
+    """创建 ActSupportMsg 控件(GetErrorMessage 专用,与 ActUtlType 独立)。
+
+    ProgID 依手册 §1.2.1(`ActSupportMsg.dll` → `ActSupportMsg.ActSupportMsg`)。
+    创建失败(未安装 MX Component 运行时 / 控件未注册)翻译为
+    :class:`OmniPLCInternalError`,由公共 API 收口为 ``(False, None)``。
+    """
     import comtypes.client
 
-    com = comtypes.client.CreateObject(MX_SUPPORT_MSG_PROG_ID)
+    try:
+        com = comtypes.client.CreateObject(MX_SUPPORT_MSG_PROG_ID)
+    except Exception as exc:
+        raise OmniPLCInternalError(
+            "MX Component ActSupportMsg 控件创建失败:{}(请确认已安装 MX Component "
+            "运行时并执行 pip install omniplc[mx])".format(exc)
+        ) from exc
     try:
         com.ActLogicalStationNumber = logical_station_number
     except Exception:
@@ -900,7 +911,7 @@ class MelsecMxClient(BaseClient):
         都在 ``finally`` 置空引用,COM 代理随引用计数立即回收——每次
         调用新建是刻意的:STA 控件绑定创建线程,缓存跨线程复用反而
         不可用),ProgID 见
-        :data:`omniplc.core.constants.MX_SUPPORT_MSG_PROG_ID`(真机待核证)。
+        :data:`omniplc.core.constants.MX_SUPPORT_MSG_PROG_ID`(依据手册 §1.2.1)。
 
         :param code: 出错代码(手册第 7 章,如 ``0xC0500100``)
         :return: ``(是否成功, 出错文本)``(文本含出错内容及处理方法);
