@@ -252,6 +252,24 @@ def test_tcp_write_float_consecutive(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bytes(scripted.sent) == b"\x00\x00\x07\x00\x1d\x00\x11\x00\x00\x80\x3f"
 
 
+def test_tcp_write_negative_int_and_long(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TCP:负 32/64 位写按二补数编码(回归:曾 to_bytes 拒负抛 OverflowError)。"""
+    client = ToyopucTcpClient("127.0.0.1", 1025)
+    scripted = ScriptedTransport(
+        _chunks(_response(0x1D)) + _chunks(_response(0x1D))
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.write_int("D0100", -5) is True
+    # -5 → 0xFFFFFFFB → 小端字节 fb ff ff ff → 字 fffb / ffff
+    assert bytes(scripted.sent) == b"\x00\x00\x07\x00\x1d\x00\x11\xfb\xff\xff\xff"
+    assert client.write_long("D0100", -5) is True
+    # -5 → 64 位二补数,低字 fffb、其余 ffff(sent 为两帧累计,取第二帧:首帧 11 字节)
+    assert bytes(scripted.sent)[11:] == b"\x00\x00\x0b\x00\x1d\x00\x11" \
+                                       b"\xfb\xff\xff\xff\xff\xff\xff\xff"
+    assert client.connected is True
+
+
 def test_tcp_write_range_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     """写:有符号整数越界/浮点溢出 → ValueError(参数校验约定),不触碰连接。"""
     client = ToyopucTcpClient("127.0.0.1", 1025)

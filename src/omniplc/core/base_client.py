@@ -654,7 +654,12 @@ class BaseClient(ABC):
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             if resolved.scale == 0:
                 raise ValueError(f"点位 {resolved.tag_id!r} 的 scale 不能为 0,无法逆缩放")
-            if not (resolved.scale == 1.0 and resolved.offset == 0.0):
+            if resolved.scale == 1.0 and resolved.offset == 0.0:
+                # 恒等缩放不过 float64 往返(保 64 位整数精度);但整数值 float
+                # 仍要还原为 int——现场"算得 float 再写整数点位"依赖该行为
+                if isinstance(value, float) and value.is_integer():
+                    value = int(value)
+            else:
                 value = (value - resolved.offset) / resolved.scale
                 if isinstance(value, float) and value.is_integer():
                     # 真除法恒为 float,还原整数,否则底层整数类型校验拒收

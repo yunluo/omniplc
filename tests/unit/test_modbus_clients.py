@@ -1688,6 +1688,33 @@ def test_read_batch_rejects_bit_suffix_for_non_bool() -> None:
         client.read_batch([("hr0.3", "short")])
 
 
+def test_word_type_rejects_bit_area_before_any_frame() -> None:
+    """字类型落到位区域(c/di)入参期拒绝,零字节发送(回归:曾按 FC01/02 下发)。
+
+    复核实测 ``read_short("c0")`` 曾发 FC01 读线圈、把单 bit 当 SHORT 解出
+    65537;``read_int("di0")`` 同病。BOOL 不受影响(c 原生读写、hr.3 读词提位
+    与读-改-写为既有语义)。
+    """
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    scripted = _ScriptedTransport([])  # 空分片:任何帧落线都会失败,断言零发送
+    client._transport = scripted  # type: ignore[assignment]
+    client._connected = True
+    with pytest.raises(ValueError):
+        client.read_short("c0")
+    with pytest.raises(ValueError):
+        client.read_int("di0")
+    with pytest.raises(ValueError):
+        client.write_int("c0", 5)
+    with pytest.raises(ValueError):
+        client.read_many(["c0"], "short")
+    with pytest.raises(ValueError):
+        client.read_batch([("di0", "int")])
+    with pytest.raises(ValueError):
+        client.write_many([("c0", "int", 5)])
+    # 零字节发送:全部在校验期拦截,未触碰传输
+    assert bytes(scripted.sent) == b""
+
+
 class _FailingSendTransport(BaseTransport):
     """connect 成功、send 必抛 OSError 的假传输:(重)连接各建一份以计数。"""
 

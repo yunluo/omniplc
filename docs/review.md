@@ -60,6 +60,7 @@ v1 评审稿逐条对源码复核后形成本版:
 - **三轮复审 三菱 MC 专项(2026-09-27)**:①`MC_DEVICE_CODES["ZR"]` base 10→**16**、`MC_1E_DEVICE_CODES["X"/"Y"]` base 8→**16**(依 SH-080008 §8.1/§18.4);②MC `_read_string`/`_write_string` 拒绝 `.bit`;③常量注释订正(4E 响应 `D400`、1E 点数上限);④**补漏**——0406 响应总量入参期校验(超 8192 拒绝并提示拆分)、1E 字访问位软元件须首编号 16 倍数、1E 设备编号域注释订正。新增门禁 4 条。当前全量门禁 **1216 passed**。
 - **二轮复审 MX 控件释放(2026-09-27)**:`MxComponent.get_error_message` 的 ActSupportMsg 控件改**配对释放**——创建点与 `_com_get_error_message` 双 `finally` 置空引用,成功/失败路径都即时回收 STA 代理(异常路径此前由 traceback 帧把引用扣到 GC);byref 回退路径移出探测异常处理块,探测期 TypeError 不再作为 `__context__` 挂链;控件维持**每次新建**(刻意的:STA 控件绑定创建线程,缓存跨线程复用不可用)。回归 `test_mx_clients.py::test_com_get_error_message_releases_reference_on_error`(旧实现实测 FAILED)+ `test_get_error_message_releases_support_msg_control`。门禁 1198 → **1200**。
 - **二轮复审 Modbus FC17(2026-09-27)**:新增 **FC17 `report_server_id`**(报告从站 ID,规范 §6.13、印刷页 31,依 PyMuPDF 抽取手册文本核对)——codec 构造/解析(长度域与实收严格一致、下限 2 = 从站 ID + 运行指示)、客户端 + aio 镜像、**RTU 按 byte count 增量收包**并随 FC12/FC24 同口径按 `MODBUS_RTU_MAX_ADU_SIZE=256` 封顶;`expected_response_length` 对 FC17 显式抛错(长度随附加数据变化);原生层维持 pending(与 FC07 同)。回归 5 例(codec 1 + 客户端/RTU/aio 4);README 示例与待真机表、全协议矩阵同步。同批订正 README ADS 行残留的旧错误码集描述(0x705/0x706/0x725 → TE1000 §8 码集)。门禁 1200 → **1205**。
+- **三轮复审 P1 批(2026-09-27)**:①**`write_tag` 恒等缩放回归**——恒等分支保留「整数值 float → int 还原」,`write_tag(整数点位, 5.0)` 恢复写 5(回归 `test_write_tag_identity_scale_restores_float_to_int`,旧实现实测 FAILED);②**native 镜像恒等缩放**——`native/base.py` `read_tag`/`write_tag` 各补恒等分支(64 位直通不过 float64),并入同步/异步对拍用例 `read_tag_identity_long`/`write_tag_identity_long`(Selector/Proactor 双循环,旧实现 4 例 FAILED);③**Modbus 区域×类型匹配**——`_check_address`(同步/native 共用收口点)对字类型仅放行 hr/ir,`read_short("c0")` 类错区请求入参期拒绝、零字节发送(回归 `test_word_type_rejects_bit_area_before_any_frame`,旧实现 DID NOT RAISE);BOOL 不限区域(hr.3 读词提位/读-改-写为既有语义);④**TOYOPUC 负 32/64 位写**——`_write_raw` 负值按二补数转无符号再编码(回归 `test_tcp_write_negative_int_and_long`,旧实现 OverflowError)。门禁 1216 → **1219**。
 
 ---
 
@@ -172,7 +173,7 @@ v1 评审稿逐条对源码复核后形成本版:
 
 > 范围:76 个源文件 / ~22.5k 行(v0.43.0),6 域(核心·异步·native / Modbus+OpenTcp / MC 家族 / Omron·AB·ADS·S7 / OPC-UA·MTConnect·TOYOPUC·工程)。
 > 方法:逐行读源 + 只读探针(Python 3.7.9)+ 与 `docs/protocol` 官方手册文本比对;标「已核验」者为三轮亲自复现。
-> 结论:新增 **P0 ×1、P1 ×6(含 1 条 v0.43.0 自引入回归)**,及若干 P2/P3。**P0(MC 设备码)已于 2026-09-27 修复**(见「修复记录」)。
+> 结论:新增 **P0 ×1、P1 ×6(含 1 条 v0.43.0 自引入回归)**,及若干 P2/P3。**P0(MC 设备码)已于 2026-09-27 修复**(见「修复记录」);**P1 批 4 条(write_tag 恒等缩放回归 / native 镜像 / Modbus 区域×类型 / TOYOPUC 负写)亦已修复(2026-09-27)**。
 
 ### P0
 
@@ -185,12 +186,12 @@ v1 评审稿逐条对源码复核后形成本版:
 
 ### P1
 
-- **`write_tag` 恒等缩放回归(v0.43.0 自引入,已核验复现)**:`core/base_client.py:657-662` 为修 64 位精度在 `scale=1/offset=0` 时整段跳过逆缩放,连带跳过「整数值 float → int」还原;`write_tag(整数点位, 5.0)` 现抛 `ValueError`(旧版写 5)。现场「算得 float 再写整数点位」大范围受影响。
-- **native 未镜像恒等缩放(已核验)**:`native/base.py:557/570` 的 `read_tag`/`write_tag` 仍强制 float64 往返,64 位丢低位(v0.43.0 同步侧已修,native 漏)。
+- ~~**`write_tag` 恒等缩放回归(v0.43.0 自引入,已核验复现)**~~:**已修复(2026-09-27)**——恒等分支保留「整数值 float → int 还原」;回归 `test_write_tag_identity_scale_restores_float_to_int`(旧实现 FAILED)。原描述:`core/base_client.py:657-662` 为修 64 位精度在 `scale=1/offset=0` 时整段跳过逆缩放,连带跳过「整数值 float → int」还原;`write_tag(整数点位, 5.0)` 现抛 `ValueError`(旧版写 5)。现场「算得 float 再写整数点位」大范围受影响。
+- ~~**native 未镜像恒等缩放(已核验)**~~:**已修复(2026-09-27)**——`native/base.py` `read_tag`/`write_tag` 各补恒等分支并入对拍用例(双循环,旧实现 4 例 FAILED)。原描述:`native/base.py:557/570` 的 `read_tag`/`write_tag` 仍强制 float64 往返,64 位丢低位(v0.43.0 同步侧已修,native 漏)。
 - **MC `ZR` 进制错(已核验,手册)**:`constants.py:279` `ZR` base 10;手册为 **Hexadecimal**。`ZR100` 实际访问 ZR64,`ZR1F` 抛 `ValueError`。
 - **MC 字符串读写忽略 `.bit`(已核验)**:`plc/melsec/melsec.py:202-215` `_read_string`/`_write_string` 不校验 `parsed.bit`,`read_string("D100.3")` 静默读 D100(Modbus/Keyence/MX/MEWTOCOL 均拒)。
-- **Modbus 区域×类型不匹配静默错功能码(已核验复现)**:`modbus/modbus.py:115/134` 不校验「字类型仅寄存器区/位类型仅位区」;`read_short("c0")` 发 FC01、`read_int("c0")` 返回 65537;写落到 FC05/15。
-- **TOYOPUC 负 32/64 位写抛 `OverflowError`(已核验复现)**:`plc/toyopuc/toyopuc.py:246` `raw.to_bytes(..., signed=False)`;`write_int("D0100", -5)` 逃出公开 API 契约。
+- ~~**Modbus 区域×类型不匹配静默错功能码(已核验复现)**~~:**已修复(2026-09-27)**——`_check_address` 收口校验(同步/native 共用),字类型仅 hr/ir,入参期拒绝零字节发送;回归 `test_word_type_rejects_bit_area_before_any_frame`(旧实现 DID NOT RAISE)。原描述:`modbus/modbus.py:115/134` 不校验「字类型仅寄存器区/位类型仅位区」;`read_short("c0")` 发 FC01、`read_int("c0")` 返回 65537;写落到 FC05/15。
+- ~~**TOYOPUC 负 32/64 位写抛 `OverflowError`(已核验复现)**~~:**已修复(2026-09-27)**——`_write_raw` 负值按二补数转无符号再编码;回归 `test_tcp_write_negative_int_and_long`(旧实现 FAILED)。原描述:`plc/toyopuc/toyopuc.py:246` `raw.to_bytes(..., signed=False)`;`write_int("D0100", -5)` 逃出公开 API 契约。
 
 ### P2
 
@@ -214,7 +215,7 @@ v1 评审稿逐条对源码复核后形成本版:
 
 ### 待核(需手册/真机)
 
-- 1E `X/Y` 进制(手册标 Hexadecimal,库用八进制)、TOYOPUC packed 段字索引、Inovance 0405/0406 支持面、FINS 字符串带位号的 PLC 端行为。
+- 1E PC 号合法直连值(默认 0xFF 对 1E 非法)、TOYOPUC packed 段字索引、Inovance 0405/0406 支持面、FINS 字符串带位号的 PLC 端行为。(1E `X/Y` 进制已据手册修为十六进制,见 MC 专项,2026-09-27)
 
 ### 逐协议深入复核(2026-09-27 起)
 
@@ -235,7 +236,7 @@ PyMuPDF 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、门�
 | OPC-UA | ⏳ 待查 | 三轮 P2(`active_subscriptions` 取事务锁、`_coerce_read` 越界类型)待处理 |
 | MTConnect | ⏳ 待查 | — |
 | 丰田 TOYOPUC / 松下 / 基恩士 KV·SR / 汇川 | ⏳ 待查 | 部分厂商手册在「待补」表 |
-| native / aio 层 | ⏳ 待查 | 上轮已修恒等缩放/退避/写语义镜像等 |
+| native / aio 层 | ⏳ 待查 | 三轮 P1 恒等缩放(同步回归 + native 镜像)、Modbus 区域×类型、TOYOPUC 负写已修(2026-09-27);退避封顶等 P2 待处理 |
 
 ### MX 专项(2026-09-27,逐协议深入;PyMuPDF 抽取《MX Component Version 4 编程手册》全 564 页)
 

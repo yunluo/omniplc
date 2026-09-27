@@ -242,8 +242,13 @@ class _ToyopucBase(BaseClient):
         return int.from_bytes(convert.words_to_bytes(words), "little")
 
     def _write_raw(self, parsed: ToyopucAddress, raw: int, byte_count: int) -> None:
-        """原始整数按小端拆字后连续字写(32/64 位,内部方法)。"""
-        self._write_words(parsed, convert.bytes_to_words(raw.to_bytes(byte_count, "little")))
+        """原始整数按小端拆字后连续字写(32/64 位,内部方法)。
+
+        负值按二补数转为无符号后再编码(``to_bytes`` 拒绝负数)——调用点
+        (:meth:`_write`)已按有符号类型界校验过范围,此处仅做等值编码。
+        """
+        unsigned = raw & ((1 << (byte_count * 8)) - 1)
+        self._write_words(parsed, convert.bytes_to_words(unsigned.to_bytes(byte_count, "little")))
 
     @staticmethod
     def _require_byte_range(address: str, length: int) -> ToyopucAddress:

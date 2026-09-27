@@ -339,6 +339,21 @@ class TestTagScaling:
         assert client.last_written == 2 ** 63 - 1
         assert isinstance(client.last_written, int)
 
+    def test_write_tag_identity_scale_restores_float_to_int(self) -> None:
+        """恒等缩放下整数值 float 仍还原为 int(回归:v0.43.0 曾抛 ValueError)。
+
+        现场"算得 float 再写整数点位"依赖该行为——真实整数驱动的
+        ``require_int`` 校验拒收 float。非整数值 float(5.5)原样透传,
+        由驱动侧校验裁决。
+        """
+        client = _ScriptedClient()
+        client.bind_tags(TagTable([Tag("设定", "hr0", "short")]))
+        assert client.write_tag("设定", 5.0) is True
+        assert client.last_written == 5
+        assert isinstance(client.last_written, int)
+        assert client.write_tag("设定", 5.5) is True
+        assert client.last_written == 5.5
+
 
 class TestCategorizeOrder:
     """_categorize 判断顺序覆盖测试。

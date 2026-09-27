@@ -1347,13 +1347,19 @@ def _read_and_fill(
 
 
 def _check_address(address: str, data_type: DataType) -> ModbusAddress:
-    """地址校验:解析 + 类型与位访问的匹配检查 + 地址跨度不越界。
+    """地址校验:解析 + 类型与位访问的匹配检查 + 地址跨度不越界 + 区域×类型匹配。
 
     跨度校验在**组帧前**同步完成:32/64 位类型占 2/4 个寄存器,``hr65535``
     这类"地址本身合法但整条越界"的请求若留到组帧期才拒,批量写路径会先写掉
     前面的合法项再抛异常(部分写已落线,调用方无从知晓)。
 
-    :raises ValueError: 地址非法 / 位访问与类型不匹配 / 地址跨度越界
+    区域×类型匹配同样入参期完成:**字类型仅寄存器区(hr/ir)**——线圈/离散
+    输入读回来恒是单 bit,按 SHORT/INT 组帧只会静默错值(复核实测
+    ``read_short("c0")`` 曾按 FC01 下发并返回 65537)。BOOL 不限区域:位区
+    原生读写;寄存器区走位号后缀读词提位 / 读-改-写(既有语义)。同步与
+    native 共用本函数,单点收口。
+
+    :raises ValueError: 地址非法 / 位访问与类型不匹配 / 地址跨度越界 / 区域与类型不匹配
     """
     parsed = parse_address(address)
     if data_type is not DataType.BOOL and parsed.bit is not None:
@@ -1361,6 +1367,12 @@ def _check_address(address: str, data_type: DataType) -> ModbusAddress:
     if data_type is DataType.BOOL or parsed.bit is not None:
         units = 1  # 位访问 / 布尔量恒占 1 个单位(线圈位或寄存器位所在字)
     else:
+        if parsed.area not in (ModbusArea.HOLDING_REGISTER, ModbusArea.INPUT_REGISTER):
+            raise ValueError(
+                "字类型仅支持寄存器区域(hr/ir),收到:{!r}({})".format(
+                    parsed.area.value, address
+                )
+            )
         units = data_type.register_size
     if parsed.offset + units > MODBUS_ADDRESS_MAX + 1:
         raise ValueError(

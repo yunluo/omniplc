@@ -40,6 +40,8 @@ def _resp_registers(data: bytes) -> bytes:
 
 # 点位表用例:scale/offset 取整数倍,保证逆缩放无浮点误差(读写两侧都可精确还原)
 _TAG = Tag(tag_id="flow", address="hr0", data_type="ushort", scale=2.0, offset=10.0)
+# 恒等缩放点位(scale=1/offset=0 默认):64 位精度直通,不过 float64 往返
+_TAG_IDENTITY_LONG = Tag(tag_id="累计", address="hr0", data_type="long")
 
 
 class Case(NamedTuple):
@@ -79,6 +81,9 @@ _READ_CASES = [
     Case("string", "read_string", "hr0", DataType.STRING, None, ((1, _RESP_STRING),), True, "OMNI", True, None, None),
     # 点位表:scale/offset 正向与逆缩放(同一次读写的两条路径)
     Case("read_tag", "read_tag", "hr0", DataType.USHORT, None, ((1, _RESP_ONE_REGISTER),), True, 50.0, True, None, None, tag=_TAG),
+    # 恒等缩放:64 位整数原值直通(回归:native 曾强制 float64 往返丢低位)
+    Case("read_tag_identity_long", "read_tag", "hr0", DataType.LONG, None,
+         ((1, _resp_registers(struct.pack(">q", 2 ** 62 + 1))),), True, 2 ** 62 + 1, True, None, None, tag=_TAG_IDENTITY_LONG),
     # PLC 明确报错:不断线、分类 DEVICE、错误码原样落
     Case("device_error", "read", "hr0", DataType.USHORT, None, ((1, _RESP_DEVICE_ERROR),), False, None, True, ErrorCategory.DEVICE, 2),
     # 事务号不匹配(迟到帧/网关错配):坏帧 → 拆连,分类 PROTOCOL
@@ -92,6 +97,9 @@ _WRITE_CASES = [
     Case("write_double", "write", "hr0", DataType.DOUBLE, 1.5, ((1, bytes([0x10, 0x00, 0x00, 0x00, 0x04])),), True, None, True, None, None),
     Case("write_string", "write_string", "hr0", DataType.STRING, "OMNI", ((1, bytes([0x10, 0x00, 0x00, 0x00, 0x02])),), True, None, True, None, None),
     Case("write_tag", "write_tag", "hr0", DataType.USHORT, 50.0, ((1, _RESP_WRITE_OK),), True, None, True, None, None, tag=_TAG),
+    # 恒等缩放:64 位 int 原样下发,不过 float64 往返(回归:native 曾丢低位)
+    Case("write_tag_identity_long", "write_tag", "hr0", DataType.LONG, 2 ** 62 + 1,
+         ((1, bytes([0x10, 0x00, 0x00, 0x00, 0x04])),), True, None, True, None, None, tag=_TAG_IDENTITY_LONG),
     Case("write_bool_coil", "write", "c0", DataType.BOOL, True, ((1, _RESP_COIL_OK),), True, None, True, None, None),
     # 寄存器位写 = 读-改-写两段事务(读响应 + 写回显)
     Case(

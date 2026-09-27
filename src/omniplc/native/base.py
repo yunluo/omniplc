@@ -545,6 +545,9 @@ class AsyncBaseClient(ABC):
     ) -> Tuple[bool, Optional[PrimitiveValue]]:
         """按点位(或标识)读取,数值自动应用 ``scale``/``offset``。
 
+        ``scale=1.0`` 且 ``offset=0.0``(默认)时原值直通,不做 float64
+        往返,保留 64 位整数(``LONG``/``ULONG``)精度。
+
         :param tag: :class:`omniplc.tag.Tag` 实例,或已绑定表中的点位标识
         :raises ValueError: 传入标识但未绑定 TagTable,或标识不存在
         """
@@ -554,10 +557,15 @@ class AsyncBaseClient(ABC):
             return False, None
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return True, value
+        if resolved.scale == 1.0 and resolved.offset == 0.0:
+            return True, value
         return True, value * resolved.scale + resolved.offset
 
     async def write_tag(self, tag: Union[str, Tag], value: PrimitiveValue) -> bool:
         """按点位(或标识)写入,数值自动做逆缩放 ``值 = (目标 - offset) / scale``。
+
+        ``scale=1.0`` 且 ``offset=0.0``(默认)时不做逆缩放 float64 往返,
+        保留 64 位整数精度;整数值 float 仍还原为 int(与同步版一致)。
 
         :param tag: Tag 实例或已绑定表中的点位标识
         :param value: 目标工程量
@@ -567,9 +575,16 @@ class AsyncBaseClient(ABC):
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             if resolved.scale == 0:
                 raise ValueError(f"点位 {resolved.tag_id!r} 的 scale 不能为 0,无法逆缩放")
-            value = (value - resolved.offset) / resolved.scale
-            if isinstance(value, float) and value.is_integer():
-                value = int(value)
+            if resolved.scale == 1.0 and resolved.offset == 0.0:
+                # 恒等缩放不过 float64 往返(保 64 位整数精度);但整数值 float
+                # 仍要还原为 int——现场"算得 float 再写整数点位"依赖该行为
+                if isinstance(value, float) and value.is_integer():
+                    value = int(value)
+            else:
+                value = (value - resolved.offset) / resolved.scale
+                if isinstance(value, float) and value.is_integer():
+                    # 真除法恒为 float,还原整数,否则底层整数类型校验拒收
+                    value = int(value)
         return await self.write(resolved.address, resolved.data_type, value)
 
     def _resolve_tag(self, tag: Union[str, Tag]) -> Tag:
