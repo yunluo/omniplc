@@ -1,8 +1,10 @@
 """西门子 S7 客户端(封装 python-snap7,ISO-on-TCP 102)。
 
-依据:Siemens S7-1500 Communication Function Manual §3.5(端口 102,ISO-on-TCP)、
-§6.4(TCP/ISO-on-TCP/UDP 开放通信)、§3(PUT/GET 访问授权);S7comm 数据项编码
-(TPKT/COTP/S7 PDU、数据长度/DB 寻址)公开手册未逐条收录,依赖 python-snap7,**待核**。
+依据:Siemens S7-1500 Communication Function Manual §3.5 p.22(ISO-on-TCP
+端口 102,RFC 1006,ES/HMI/OPC 等 S7 通信)、§7 p.50(PUT/GET 指令,仅绝对
+寻址数据块、需在 CPU 保护组态开启该服务)、§6.4(开放通信);S7comm 数据项
+编码(TPKT/COTP/S7 PDU、数据长度/DB 寻址、多变量 ReadMultiVars 每请求 20
+项)公开手册未逐条收录,依赖 python-snap7(含其 MAX_VARS),**待核**。
 
 S7comm 是完整私有协议栈(TPKT/COTP/S7 PDU、机架/槽位路由、
 S7-1200/1500 的 PUT-GET 授权与优化块限制),**不自研**,封装成熟库
@@ -16,7 +18,9 @@ S7-1200/1500 的 PUT-GET 授权与优化块限制),**不自研**,封装成熟库
 两线 API 有差异,均在边界处适配:错误类 1.x/2.x 抛 RuntimeError、
 3.x 抛 ``S7Error`` 谱系(见 ``_SNAP7_ERRORS``);area 参数 1.x/2.x 要求
 ``Areas`` 枚举成员、3.x 收裸 int(统一经 :func:`_snap7_area` 转换);
-构造参数 1.x/2.x 真实加载原生库、3.x 忽略 ``lib_location``。
+``read_multi_vars`` 1.x/2.x 收 ctypes ``S7DataItem`` 数组、3.x 收 dict
+列表(内部优化器,``MAX_VARS=20`` 上限);构造参数 1.x/2.x 真实加载原生库、
+3.x 忽略 ``lib_location``。
 
 类继承::
 
@@ -31,27 +35,29 @@ PUT/GET 通信访问",且 DB 须为**非优化块**(绝对寻址)。
 连接态判别——在线 → DeviceError(PLC 拒绝/地址错,不断线),断连 →
 OSError(惰性重连);连接建立失败 → OSError。
 
-v1 范围:单点读写(位读改写)+ S7 String/WString;多变量组包(read_multi)、
+v1 范围:单点读写(位读改写)+ S7 String/WString + 多变量批量读
+(``read_batch``/``read_many``,snap7 ``read_multi_vars`` 双线适配);
 块操作、SZL 系统状态留后续版本。
 """
 from __future__ import annotations
 
 import os
 import struct
-from typing import Any, NoReturn, Optional, Tuple
+from typing import Any, List, NoReturn, Optional, Sequence, Tuple, Union
 
 from ... import convert
-from ...core.base_client import BaseClient, validate_endpoint
+from ...core.base_client import BaseClient, DEFAULT_STRING_ENCODING, validate_endpoint
 from ...core.constants import (
     S7_DEFAULT_PORT,
     S7_DEFAULT_RACK,
     S7_DEFAULT_SLOT,
+    S7_MAX_MULTI_VARS,
     S7_RACK_MAX,
     S7_SLOT_MAX,
     S7_WSTRING_DEFAULT_LENGTH,
 )
 from ...core.debug import log_op
-from ...core.errors import DeviceError, TransportClosedError
+from ...core.errors import DeviceError, OmniPLCInternalError, TransportClosedError
 from ...core.validation import require_bool, require_float, require_int
 from ...types import DataType, PrimitiveValue
 from ...transport.base import BaseTransport
@@ -241,6 +247,68 @@ class _S7Session(BaseTransport):
         )
         return bytes(data)
 
+    def read_multi_vars(
+        self, specs: "Sequence[Tuple[int, int, int, int]]"
+    ) -> "List[bytes]":
+        """多变量一次读(会话调用,异常在此翻译)。
+
+        :param specs: ``(区码, DB 号, 字节起点, 字节数)`` 列表,最多 20 条
+            (snap7 MAX_VARS 上限)
+        :return: 与 specs 顺序一致的逐条字节
+        :raises DeviceError: 在线但单条目读取失败(条目级 Result 非 0)
+        :raises OSError: 断连/整调用失败(惰性重连)
+
+        双线适配:1.x/2.x(C 封装线)``Cli_ReadMultiVars`` 收 **ctypes
+        ``S7DataItem`` 数组**(WordLen=BYTE,单 PDU 组包);3.x(纯 Python 线)
+        收 **dict 列表**(内部优化器合并相邻读,``MAX_VARS=20`` 上限)。
+        """
+        client = self._require_client()
+        if getattr(type(client), "MAX_VARS", None) is not None:
+            items = [
+                {
+                    "area": getattr(_snap7_area(area), "value", _snap7_area(area)),
+                    "db_number": db,
+                    "start": start,
+                    "size": size,
+                }
+                for area, db, start, size in specs
+            ]
+            try:
+                _rc, results = client.read_multi_vars(items)
+            except _SNAP7_ERRORS as exc:
+                self._raise_link_aware(exc)
+            return [bytes(item) for item in results]
+        import ctypes
+
+        try:
+            from snap7.types import S7DataItem, S7WLByte
+        except Exception as exc:
+            raise OmniPLCInternalError(f"snap7 类型导入失败:{exc}")
+        array = (S7DataItem * len(specs))()
+        buffers = []
+        for index, (area, db, start, size) in enumerate(specs):
+            buffer = (ctypes.c_uint8 * size)()
+            array[index].Area = getattr(_snap7_area(area), "value", _snap7_area(area))
+            array[index].WordLen = int(S7WLByte)
+            array[index].DBNumber = db
+            array[index].Start = start
+            array[index].Amount = size
+            array[index].pData = ctypes.cast(buffer, ctypes.POINTER(ctypes.c_uint8))
+            buffers.append(buffer)
+        try:
+            _rc, array = client.read_multi_vars(array)
+        except _SNAP7_ERRORS as exc:
+            self._raise_link_aware(exc)
+        for index, item in enumerate(array):
+            if item.Result != 0:
+                raise DeviceError(
+                    "S7 多变量读条目 {} 失败,错误码 0x{:08X}".format(
+                        index, int(item.Result)
+                    ),
+                    0,
+                )
+        return [bytes(buffer) for buffer in buffers]
+
     def write_area(self, area: int, db_number: int, start: int, data: bytes) -> None:
         """写一块区域字节(会话调用,异常在此翻译)。"""
         try:
@@ -391,12 +459,22 @@ class SiemensS7Client(BaseClient):
         return int.from_bytes(data, "big", signed=data_type in (DataType.SHORT, DataType.INT, DataType.LONG))
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
-        """写数据项;位为锁内读-改-写,数值按大端编码。
+        """写数据项;位为锁内读-改-写,数值按大端编码;STRING 路由
+        :meth:`_write_string`(含 PLC 侧声明长预检)。
 
         .. warning:: BOOL 写是**非原子读-改-写**(S7 协议按字节写):若 HMI
-           或 PLC 程序同时修改同一字节的其它位,存在互踩风险。多写者场景
-           请用 ``write(address, DataType.BYTE, v)`` 一次性写整字节。
+            或 PLC 程序同时修改同一字节的其它位,存在互踩风险。多写者场景
+            请让同一字节只由一个写者负责(协议无单字节置位/复位原语)。
         """
+        if data_type not in _SIZES:
+            if data_type is DataType.STRING:
+                if not isinstance(value, str):
+                    raise ValueError(
+                        "字符串必须是 str,收到:{}".format(type(value).__name__)
+                    )
+                self._write_string(address, value, DEFAULT_STRING_ENCODING)
+                return
+            raise ValueError(f"S7 不支持的数据类型:{data_type}")
         parsed = parse_s7_address(address)
         session = self._session()
         if data_type is DataType.BOOL:
@@ -559,6 +637,96 @@ class SiemensS7Client(BaseClient):
             area_code(parsed.area), parsed.db_number, parsed.byte_index, header + encoded
         )
         return value
+
+    def read_many(
+        self, addresses: Sequence[str], data_type: Union[DataType, str]
+    ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
+        """批量读取:覆写为 snap7 ``read_multi_vars`` 单事务(多变量一次 PDU 组包)。
+
+        与基类逐点独立容错不同:任一地址非法或 PLC 拒绝则**整批失败**
+        (原因见 :attr:`last_error`);需要逐点容错请逐点调用 :meth:`read`。
+        条目上限 20(snap7 MAX_VARS;超限入参期 ``ValueError``)。
+        """
+        data_type_enum = DataType.coerce(data_type)
+        ok, values = self.read_batch(
+            [(address, data_type_enum) for address in addresses]
+        )
+        if not ok or values is None:
+            return [(False, None) for _ in addresses]
+        return [(True, value) for value in values]
+
+    def read_batch(
+        self, items: Sequence[Tuple[str, Union[DataType, str]]]
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """多变量批量读取:snap7 ``read_multi_vars`` 单事务混读(DB/I/Q/M)。
+
+        每个条目独立寻址(区域/DB/字节起点可不同);BOOL 读 1 字节后本地
+        提位;STRING 为变长不支持批量(请用 :meth:`read_string`)。条目上限
+        **20**(snap7 ``MAX_VARS``;S7 ReadMultiVars 每请求 20 项)。
+
+        :param items: ``(地址, 数据类型)`` 序列
+        :return: ``(是否成功, 与 items 顺序对应的值列表)``
+        :raises ValueError: 列表为空/地址或类型非法/条目数超限
+        """
+        if not items:
+            raise ValueError("read_batch 至少需要一个 (地址, 数据类型) 项")
+        if len(items) > S7_MAX_MULTI_VARS:
+            raise ValueError(
+                "S7 多变量读条目数超出上限 {}:{}(snap7 MAX_VARS)".format(
+                    S7_MAX_MULTI_VARS, len(items)
+                )
+            )
+        specs: List[Tuple[int, int, int, int]] = []
+        plan: List[Tuple[str, int, Optional[int], DataType]] = []
+        for address, data_type in items:
+            data_type_enum = DataType.coerce(data_type)
+            if data_type_enum not in _SIZES:
+                raise ValueError(f"S7 批量读取不支持的数据类型:{data_type_enum}")
+            parsed = parse_s7_address(address)
+            if data_type_enum is DataType.BOOL:
+                if parsed.bit is None:
+                    raise ValueError(
+                        f"S7 按位读取需要位地址:{address!r}(示例:M10.2 / DB1.DBX0.3)"
+                    )
+                plan.append(("bit", len(specs), parsed.bit, data_type_enum))
+            else:
+                if parsed.bit is not None:
+                    raise ValueError(
+                        f"S7 位地址只能按 BOOL 读写:{address!r}(数值请用字节起点地址)"
+                    )
+                plan.append(("word", len(specs), None, data_type_enum))
+            specs.append(
+                (
+                    area_code(parsed.area),
+                    parsed.db_number,
+                    parsed.byte_index,
+                    _SIZES[data_type_enum],
+                )
+            )
+
+        def operation() -> List[PrimitiveValue]:
+            blobs = self._session().read_multi_vars(specs)
+            values: List[PrimitiveValue] = []
+            for kind, index, bit, data_type_enum in plan:
+                blob = blobs[index]
+                if kind == "bit":
+                    values.append(bool((blob[0] >> (bit or 0)) & 1))
+                elif data_type_enum is DataType.FLOAT:
+                    values.append(struct.unpack(">f", blob)[0])
+                elif data_type_enum is DataType.DOUBLE:
+                    values.append(struct.unpack(">d", blob)[0])
+                else:
+                    values.append(
+                        int.from_bytes(
+                            blob,
+                            "big",
+                            signed=data_type_enum
+                            in (DataType.SHORT, DataType.INT, DataType.LONG),
+                        )
+                    )
+            return values
+
+        return self._execute(operation)
 
     @staticmethod
     def _pack(fmt: str, value: PrimitiveValue) -> bytes:

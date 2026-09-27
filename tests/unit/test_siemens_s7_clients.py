@@ -16,6 +16,7 @@ from omniplc import SiemensS7Client
 from omniplc.aio import ASiemensS7Client
 from omniplc.plc.siemens import parse_s7_address
 from omniplc.plc.siemens import client as s7_module
+from omniplc.types import DataType
 
 _AREA_I, _AREA_Q, _AREA_M, _AREA_DB = 0x81, 0x82, 0x83, 0x84
 
@@ -31,6 +32,8 @@ class FakeS7Client:
         self.read_error: Optional[BaseException] = None
         self.mem: dict = {}
         self.destroyed = False
+        self.multi_calls = 0
+        self.fail_item_index = -1
 
     def connect(self, address: str, rack: int, slot: int, tcpport: int = 102) -> None:
         if self.connect_error is not None:
@@ -64,6 +67,45 @@ class FakeS7Client:
         buf = self.mem.setdefault((area, db), bytearray(4096))
         return bytes(buf[offset:offset + size])
 
+    def read_multi_vars(self, items: Any) -> Any:
+        """双线模拟:dict 列表(3.x)→ (0, [bytearray…]);ctypes S7DataItem
+        数组(1.x)→ 填充 pData 并置 Result(fail_item_index 条目置非 0)。"""
+        self.multi_calls += 1
+        if items and isinstance(items[0], dict):
+            results = []
+            for index, item in enumerate(items):
+                area = getattr(item["area"], "value", item["area"])
+                db = item.get("db_number", 0)
+                buf = self.mem.setdefault((area, db), bytearray(4096))
+                start, size = item["start"], item["size"]
+                if index == self.fail_item_index:
+                    raise RuntimeError("S7 多变量读失败(条目 {})".format(index))
+                results.append(bytearray(buf[start:start + size]))
+            return (0, results)
+        for index in range(len(items)):
+            item = items[index]
+            area = getattr(item.Area, "value", item.Area)
+            buf = self.mem.setdefault((area, item.DBNumber), bytearray(4096))
+            if index == self.fail_item_index:
+                item.Result = 0x8000
+                continue
+            for j in range(item.Amount):
+                item.pData[j] = buf[item.Start + j]
+            item.Result = 0
+        return (0, items)
+
+
+class FakeS7Client3x(FakeS7Client):
+    """3.x 纯 Python 线:带 MAX_VARS 类属性(read_multi_vars 走 dict 模式)。"""
+
+    MAX_VARS = 20
+
+
+class FakeS7Client1x(FakeS7Client):
+    """1.x C 封装线:无 MAX_VARS(read_multi_vars 走 ctypes S7DataItem 数组)。"""
+
+    MAX_VARS = None
+
 
 @pytest.fixture(autouse=True)
 def _restore_s7_module_globals() -> Iterator[None]:
@@ -80,6 +122,14 @@ def _client(monkeypatch: pytest.MonkeyPatch) -> tuple:
     client = SiemensS7Client("127.0.0.1", rack=0, slot=1)
     assert client.connect() is True
     assert fake.connect_args == ("127.0.0.1", 0, 1, 102)
+    return client, fake
+
+
+def _client_with(monkeypatch: pytest.MonkeyPatch, fake: FakeS7Client) -> tuple:
+    """以指定假实例挂工厂并连接(测试脚手架)。"""
+    monkeypatch.setattr(s7_module, "_new_client", lambda dll_path: fake)
+    client = SiemensS7Client("127.0.0.1", rack=0, slot=1)
+    assert client.connect() is True
     return client, fake
 
 
@@ -570,3 +620,134 @@ def test_connect_failure_message_lists_causes(monkeypatch: pytest.MonkeyPatch) -
     client = SiemensS7Client("127.0.0.1")
     assert client.connect() is False
     assert client.last_error is not None and "PUT/GET" in client.last_error
+
+
+# ----------------------------------------------------------------------
+# S7 专项:read_batch/read_many(多变量一次读,snap7 read_multi_vars 双线)
+# ----------------------------------------------------------------------
+
+def test_read_batch_dict_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """3.x 纯 Python 线:read_batch 走 read_multi_vars(dict 列表)单事务混读。"""
+    fake = FakeS7Client3x()
+    fake.seed(_AREA_DB, 1, 0, struct.pack(">h", -2))   # DB1.DBW0 SHORT = -2
+    fake.seed(_AREA_DB, 1, 4, struct.pack(">f", 1.5))  # DB1.DBD4 FLOAT = 1.5
+    fake.seed(_AREA_M, 0, 10, b"\x08")                 # M10.3 ON,其余 OFF
+    client, _ = _client_with(monkeypatch, fake)
+    ok, values = client.read_batch(
+        [
+            ("DB1.DBW0", DataType.SHORT),
+            ("DB1.DBD4", DataType.FLOAT),
+            ("M10.0", DataType.BOOL),
+            ("M10.3", DataType.BOOL),
+        ]
+    )
+    assert ok is True
+    assert values == [-2, 1.5, False, True]
+    assert fake.multi_calls == 1  # 单事务
+
+
+def test_read_batch_ctypes_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1.x C 封装线:read_batch 走 read_multi_vars(S7DataItem 数组)单事务混读。"""
+    fake = FakeS7Client1x()
+    fake.seed(_AREA_DB, 1, 0, struct.pack(">H", 0x1234))  # DB1.DBW0 USHORT
+    fake.seed(_AREA_DB, 1, 2, b"\x04")                    # DB1.DBB2.2 ON
+    fake.seed(_AREA_I, 0, 4, struct.pack(">i", -7))       # IW4 INT = -7
+    client, _ = _client_with(monkeypatch, fake)
+    ok, values = client.read_batch(
+        [
+            ("DB1.DBW0", DataType.USHORT),
+            ("DB1.DBX2.2", DataType.BOOL),
+            ("IW4", DataType.INT),
+        ]
+    )
+    assert ok is True
+    assert values == [0x1234, True, -7]
+    assert fake.multi_calls == 1
+
+
+def test_read_batch_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_batch 入参校验:空/STRING/位号非 BOOL/BOOL 缺位号/超 20 条 →
+    ValueError,零调用 read_multi_vars。"""
+    client, fake = _client(monkeypatch)
+    with pytest.raises(ValueError):
+        client.read_batch([])
+    with pytest.raises(ValueError):
+        client.read_batch([("DB1.DBS0", DataType.STRING)])
+    with pytest.raises(ValueError):
+        client.read_batch([("DB1.DBX0.0", DataType.SHORT)])
+    with pytest.raises(ValueError):
+        client.read_batch([("M10", DataType.BOOL)])
+    items = [("DB1.DBW{}".format(i * 2), DataType.SHORT) for i in range(21)]
+    with pytest.raises(ValueError):
+        client.read_batch(items)
+    assert fake.multi_calls == 0
+
+
+def test_read_batch_item_failure_reports_device_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """1.x 线:单条目 Result 非 0 → 整批失败(False, None)+ 条目提示,不断线。"""
+    fake = FakeS7Client1x()
+    fake.fail_item_index = 1
+    client, _ = _client_with(monkeypatch, fake)
+    ok, values = client.read_batch(
+        [("DB1.DBW0", DataType.SHORT), ("DB1.DBW2", DataType.SHORT)]
+    )
+    assert (ok, values) == (False, None)
+    assert "条目" in (client.last_error or "")
+    assert client.connected is True
+
+
+def test_read_batch_item_failure_dict_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """3.x 线:条目读取异常(在线)→ 整批失败(False, None)+ 不断线(与单读同口径)。"""
+    fake = FakeS7Client3x()
+    fake.fail_item_index = 0
+    client, _ = _client_with(monkeypatch, fake)
+    ok, values = client.read_batch([("DB1.DBW0", DataType.SHORT)])
+    assert (ok, values) == (False, None)
+    assert "条目" in (client.last_error or "")
+    assert client.connected is True
+
+
+def test_read_many_single_transaction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_many 覆写为单事务批量读:逐点结果按序返回。"""
+    fake = FakeS7Client3x()
+    fake.seed(_AREA_DB, 1, 0, struct.pack(">h", 7))
+    fake.seed(_AREA_DB, 1, 2, struct.pack(">h", 9))
+    client, _ = _client_with(monkeypatch, fake)
+    result = client.read_many(["DB1.DBW0", "DB1.DBW2"], DataType.SHORT)
+    assert result == [(True, 7), (True, 9)]
+    assert fake.multi_calls == 1
+
+
+def test_typed_write_string_prechecked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """write(addr, DataType.STRING) 路由 _write_string:声明长预检(三轮 P3,
+    原直写 _INT_FORMATS 抛 KeyError);超长拒绝且零写入。"""
+    client, fake = _client(monkeypatch)
+    fake.seed(_AREA_DB, 1, 20, b"\x03")
+    assert client.write("DB1.DBS20", DataType.STRING, "ABC") is True
+    with pytest.raises(ValueError):
+        client.write("DB1.DBS20", DataType.STRING, "ABCD")
+    assert fake.dump(_AREA_DB, 1, 20, 5) == b"\x03\x03ABC"
+
+
+def test_async_mirror_read_batch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """aio 镜像:ASiemensS7Client.read_batch 单事务转发同步实现。"""
+    import asyncio
+
+    fake = FakeS7Client3x()
+    fake.seed(_AREA_DB, 1, 0, struct.pack(">h", 42))
+    fake.seed(_AREA_DB, 1, 2, struct.pack(">h", 42))
+    monkeypatch.setattr(s7_module, "_new_client", lambda dll_path: fake)
+
+    async def scenario() -> None:
+        client = ASiemensS7Client("127.0.0.1", rack=0, slot=1)
+        assert await client.connect() is True
+        ok, values = await client.read_batch(
+            [("DB1.DBW0", DataType.SHORT), ("DB1.DBW2", DataType.SHORT)]
+        )
+        assert (ok, values) == (True, [42, 42])
+        await client.disconnect()
+
+    asyncio.run(scenario())
+    assert fake.multi_calls == 1

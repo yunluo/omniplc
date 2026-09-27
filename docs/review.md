@@ -214,7 +214,7 @@ v1 评审稿逐条对源码复核后形成本版:
 - Modbus:FC20 上界 `0x7D` 非规范(聚合响应无上界,`codec.py:877/896`;**专项复核维持自加宽容**——超限帧交 PLC 侧异常码 02 裁决,客户端不预拦);RTU FC43 增量无 ADU cap(`modbus.py:1409`;**已核 FC43 走对象头增量收包,无此问题**,见 Modbus 专项);~~FC05/06/15/16 写响应不回显~~(**已修复 2026-09-27**,Modbus 专项);~~批量写只读区在锁内才抛~~(**已修复 2026-09-27**);~~FC08 清计数器广播被误拒~~(**已修复 2026-09-27**);异常响应对尾字节宽容(`codec.py:186`);~~FC12 事件 0~64 未限~~(**已修复 2026-09-27**:byte count ≤0x46);掩码/批量值 `int()` 静默截断 float;设备标识翻页非法 `NextObjectId` 抛裸 `ValueError`。
 - OpenTcp:`max_frame` 不严格遵守(单分片自带分隔符可超)、`recv_chunk_size` 无上界、长度前缀 `to_bytes` 可溢出发送端。
 - native:`__aexit__` 用 `disconnect()`(aio 用 `close()`);UDP `close` 在无当前 loop 时可能漏关 FD。
-- 工程:`docs/architecture.md` §6.2/§10 与 `CONTRIBUTING.md:9` 仍称「CI 裸 mypy / 仅 3.12」与 3.7.9+3.12 矩阵不符(review 台账曾误标已订正;已订正 2026-09-27);`[tool.mypy] files=["src","tests"]` 因显式路径而失效(tests 实际未检查);MTConnect 单点读每次拉整份 `/current`;S7 `_write` 未支持类型抛 `KeyError`、docstring 引用不存在的 `DataType.BYTE`;TOYOPUC packed 地址校验与编码口径自相矛盾(`address.py:132` vs `139`,待手册)。
+- 工程:`docs/architecture.md` §6.2/§10 与 `CONTRIBUTING.md:9` 仍称「CI 裸 mypy / 仅 3.12」与 3.7.9+3.12 矩阵不符(review 台账曾误标已订正;已订正 2026-09-27);`[tool.mypy] files=["src","tests"]` 因显式路径而失效(tests 实际未检查);MTConnect 单点读每次拉整份 `/current`;~~**S7 `_write` 未支持类型抛 `KeyError`、docstring 引用不存在的 `DataType.BYTE`**~~(**已修 2026-09-27**:_SIZES 校验 + STRING 路由预检 + docstring BYTE 引用修,S7 专项);TOYOPUC packed 地址校验与编码口径自相矛盾(`address.py:132` vs `139`,待手册)。
 - **文档/引用纪律(审计 + 补足,2026-09-27)**:协议实现 × `docs/protocol` 索引全面核对——①**MC 依据误标** `SH-080956`(SLMP)统一改为 **`SH-080008`**(MC 协议);②**FINS 依据误标** `W340` → **`W342`**(§5-1-3 结束码 / §5-2-1·§5-2-2 存储区):`omron/codec.py`、`core/constants.py` 及 `architecture.md` 5 处;③`keyence/mc.py` 的 `SH081257ENG` 未见于索引 → 改引 SLMP `SH-080956` 并标 **待核**;④`core/constants.py` MEWTOCOL 端口来源 Pro-face 标 **第三方非官方·待核**;⑤**补足缺失引用**:`melsec/address.py`(SH-080008 §8.1/8.2)、`modbus/address.py`(Modbus §4.4 + Modicon 记法存档)、`omron/address.py`(W342 §5-2)、`ab/address.py`(Rockwell Explicit Messaging)、`siemens/client.py`·`address.py`(S7-1500 §3.5/§6.4/§3;S7comm 编码待核)、`opcua/client.py`(Part1 §6.3.3/§7.11;Part 4 待核)、`cnc/mtconnect.py`(Part1 HTTP 端点)、`scanner/keyence_sr.py`(SR-2000 LON,b)、`plc/omron/cip.py`(W506 §7/W627)、`plc/ab/codec_cip.py`(ODVA EtherNet/IP/PUB00123/Rockwell)。`CONTRIBUTING.md` 铁律补两条硬约束(引用须指向正确文档编号、码表/错误码禁止按连续性推断须逐项对表),PR 流程加「列出依据手册编号+页码/章节」;CI 版本矩阵措辞(3.7.9+3.12)订正。**无文档依据者一律标「待核」**,不臆造。
 
 ### 待核(需手册/真机)
@@ -236,7 +236,7 @@ PyMuPDF 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、门�
 | Modbus(TCP/RTU) | ✅ 已完成 | 写响应回显校验、FC21/FC08 广播合法化、FC12 上界 0x46、写区域收口、FC24 变量名——见下「Modbus 专项」;另 FC20 上界 0x7D 维持自加宽容(见 P3 残留) |
 | AB EtherNet/IP(CIP) | ⏳ 待查 | 三轮 P2(ListIdentity 偏移、read_batch `.bit`)已修(2026-09-27,详见 P2 批);其余待查 |
 | 倍福 TwinCAT ADS | ✅ 已完成 | P2 补 0x1A ERR_TCPSEND / transport 分类改 TRANSPORT / `write(STRING)` 补声明长预检;P3 自动 NetId 要求 IP 字面量——见下「倍福 TwinCAT ADS 专项」 |
-| 西门子 S7 | ⏳ 待查 | 三轮 P3(`_write` 未支持类型 `KeyError`)待处理 |
+| 西门子 S7 | ✅ 已完成 | P2 多变量批量读(snap7 read_multi_vars 双线 1.x ctypes / 3.x dict);P3 `_write` KeyError 修 + `DataType.STRING` 路由预检 + docstring `DataType.BYTE` 修——见下「西门子 S7 专项」 |
 | OPC-UA | ⏳ 待查 | 三轮 P2(`active_subscriptions` 取事务锁、`_coerce_read` 越界类型)已修(2026-09-27,详见 P2 批);其余待查 |
 | MTConnect | ⏳ 待查 | — |
 | 丰田 TOYOPUC / 松下 / 基恩士 KV·SR / 汇川 | ⏳ 待查 | 部分厂商手册在「待补」表 |
@@ -342,6 +342,21 @@ byte count、FC43 按对象头)与 CRC 低字节在前。
 - **待核 / 能力缺口(未实现)**:节点 `FF`(广播,§3-3-3)不支持(节点范围 0~254);EM bank 10-18(位 `E0~E8`/字 `60~68`,CJ2/CS1D-CPU68HA 专属)与 EM 当前 bank(位 `0A`/字 `98`/`BC`)未实现(§5-2-2 注 1/2);位访问单次 1 点(位批量走 0104 字码提位)——设计边界。
 
 门禁:全量 **1256 passed**(+11)/ ruff / mypy(76) / ty 全零。
+
+### 西门子 S7 专项(2026-09-27;S7-1500 pdfplumber 全 98 页,§3.5/§7 核对)
+
+核对通过(Siemens_S7-1500_Communication_Function_Manual.pdf):
+- **§3.5 p.22**:「ISO on TCP 102 (4) TCP ISO-on-TCP (according to RFC 1006) ... S7 communication with ES, HMI, OPC server, etc.」(端口 102、ISO-on-TCP ✓)
+- **§7 p.50**:PUT/GET 指令——「Data blocks for PUT/GET instructions: only data blocks with absolute addressing. Symbolic addressing not possible. You must also enable this service for protection in the CPU configuration」(PUT/GET 授权 + 优化块限制 → `_raise_link_aware` 提示依据)
+- **rack/slot 约定**(硬件差异):1200/1500 slot 1;300/400 CPU slot 2——`S7_DEFAULT_SLOT=1`(用户真机硬件决定,按需调)
+- driver 封装 pyS7snap7(1.3 C-ext / 3.x 纯 Python 双线);`S7comm` 编码(TPKT/COTP/S7 PDU)公开手册无逐条收录,标**待核**(依赖 pyS7snap7 含其 `MAX_VARS`)。
+
+- **P2 多变量批量读(§2.6.7)——已修复**:`read_batch`/`read_many` 基于 snap7 `read_multi_vars` 单事务混读多区域多类型(BOOL 按 1 字节提位,STRING 拒变长;上限 **20 条**= `S7_MAX_MULTI_VARS` = snap7 `MAX_VARS`)。**双线适配**(依 `type(client).MAX_VARS` 判定):1.x/2.x C 封装线 → ctypes `S7DataItem` 数组(`WordLen=S7WLByte`、逐条 `pData` 缓冲、per-item `Result` 校验,失败条目索引附在 DeviceError);3.x 纯 Python 线 → dict 列表(内部优化器合并相邻读)。area 取 `.value`(1.x `Areas` 是普通 `Enum` 非 IntEnum)。aio 镜像;门禁 3.x dict / 1.x ctypes 各一例 + 校验拒绝 + 单事务断言 + aio 对拍 + 失败语义(在线=DeviceError 不断线)+ docstring `v1 范围` 收口。
+- **P3 `_write` 未支持类型抛 `KeyError`(三轮)——已修复**:`_INT_FORMATS[data_type]` 对 STRING 抛 KeyError 逃出公开 API 契约。现 `_write` 顶部加 `_SIZES` 校验;**`DataType.STRING` 路由 `_write_string`**(含 PLC 侧声明长预检,与 ADS 专项一致);门禁 `test_typed_write_string_prechecked`。
+- **P3 docstring 引用不存在的 `DataType.BYTE`(三轮)——已修复**:warn 文档原建议 `write(addr, DataType.BYTE, v)`——`DataType` 无 BYTE 成员(为 9 项数值 + STRING),不可达。改为「协议无单字节置位/复位原语,多写者请让同一字节只由一个写者负责」;门禁同 P3-2 用例覆盖。
+- **待核/能力缺口(登记)**:`S7comm` 帧格式(依赖 pyS7snap7);SZL 系统状态列表;块操作;DB 寻址全部经绝对寻址,优化块访问(`_raise_link_aware` 提示)。
+
+门禁:全量 **1267 passed**(+8)/ ruff / mypy(76) / ty 全零。
 
 ### 倍福 TwinCAT ADS 专项(2026-09-27;TE1000 pdfplumber 全 133 页核对,§8 p.128-129)
 

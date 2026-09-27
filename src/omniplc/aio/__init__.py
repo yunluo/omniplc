@@ -1962,3 +1962,17 @@ class ASiemensS7Client(ABaseClient):
     async def write_wstring(self, address: str, value: str) -> bool:
         """写 S7 WString(UTF-16BE,语义同同步版)。"""
         return await self._run(lambda: self._client().write_wstring(address, value))
+
+    async def read_many(
+        self, addresses: Sequence[str], data_type: Union[DataType, str]
+    ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
+        """批量读取(单事务 ``read_multi_vars``,语义同同步版)。"""
+        return await self._run(
+            lambda: self._client().read_many(addresses, data_type)
+        )
+
+    async def read_batch(
+        self, items: Sequence[Tuple[str, Union[DataType, str]]]
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """多变量批量读取(单事务,语义同同步版;上限 20 条)。"""
+        return await self._run(lambda: self._client().read_batch(items))

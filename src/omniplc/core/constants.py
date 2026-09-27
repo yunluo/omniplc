@@ -1099,6 +1099,9 @@ S7_BYTE_INDEX_MAX: int = 0xFFFFFF
 """S7 字节起点上限(协议地址字段 24 位,0~16777215)。"""
 S7_WSTRING_DEFAULT_LENGTH: int = 64
 """S7 WSTRING 默认读取字符数(UTF-16,单字符 2 字节)。"""
+S7_MAX_MULTI_VARS: int = 20
+"""snap7 多变量一次读(``read_multi_vars``)条目上限(S7 ReadMultiVars
+每请求 20 项;snap7 库常量 ``MAX_VARS``)。"""
 
 # ---------------------------------------------------------------- 通用
 BIT_INDEX_MAX: int = 63
