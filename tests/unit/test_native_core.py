@@ -281,6 +281,69 @@ def test_close_waits_for_in_flight_transaction() -> None:
     asyncio.run(scenario())
 
 
+def test_close_wins_gate_race_and_queued_transaction_cannot_revive() -> None:
+    """回归:close() 先拿锁的时序下,排队中的事务拿到锁后不得复活建连。
+
+    事务在锁外过完 ``_ensure_open`` 后挂起等锁,``close()`` 插队先拿锁置
+    ``_closed`` 并断开;事务随后进锁,若循环体内复查关闸缺失,会看到
+    ``_connected=False`` 而重新 ``_connect_locked`` ——已关闸客户端向
+    PLC 发出新请求且新传输无人回收。修复后事务应在锁内复查处抛
+    ``RuntimeError``。
+    """
+
+    async def scenario() -> None:
+        transport = FakeTransport([_RESP_TID1])
+        client = _client(transport)
+        gate = asyncio.Event()
+        armed = [False]
+        real_lock_holder = [None]
+
+        original_guard = client._guard
+
+        class _InterposedLock:
+            """代理锁:__aenter__ 时先跑完 close(),再放行事务拿真锁。"""
+
+            async def __aenter__(self):
+                armed[0] = False
+                gate.set()
+                await client.close()
+                real_lock = original_guard()
+                real_lock_holder[0] = real_lock
+                return await real_lock.__aenter__()
+
+            async def __aexit__(self, *exc):
+                if real_lock_holder[0] is None:
+                    # close() 已把锁标为换循环重建:拿当前真锁做退出
+                    real_lock_holder[0] = original_guard()
+                return await real_lock_holder[0].__aexit__(*exc)
+
+        class _InterposedGuard:
+            """模拟 _guard 返回锁:等锁那次(事务插队点)返回插队代理。"""
+
+            def __call__(self):
+                if armed[0]:
+                    armed[0] = False
+                    return _InterposedLock()
+                return original_guard()
+
+        client._guard = _InterposedGuard()  # type: ignore[method-assign]
+
+        # 先武装再启动事务:事务先在未连接下走 connect()(真锁),随后
+        # 事务本体进锁——armed 标志恰好落在那次 _guard() 调用上触发插队
+        armed[0] = True
+        read_task = asyncio.ensure_future(client.read_ushort("hr0"))
+        # connect 的锁 acquisition 与事务等锁之间隔若干事件循环拍
+        for _ in range(8):
+            await asyncio.sleep(0)
+        assert gate.is_set(), "close 未插队到事务拿锁之前"
+        with pytest.raises(RuntimeError):
+            await read_task
+        assert client.connected is False
+        assert client._transport is None, "close 已断开,事务不得重建连接"
+
+    asyncio.run(scenario())
+
+
 def test_typed_calls_share_one_transaction_template() -> None:
     """类型化调用与 ``read`` 共用同一事务模板:同地址/类型请求帧逐字节相同。"""
     typed_transport = FakeTransport(_chunks(_RESP_TID1))

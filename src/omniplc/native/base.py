@@ -696,10 +696,16 @@ class AsyncBaseClient(ABC):
         self._check_loop_affinity()
         retries = self._write_retries if is_write else self._retries
         async with self._guard():
+            # 关闸复查:close() 在等锁期间已置 _closed,排队进锁的事务
+            # 不得复活建连(锁外检查与拿锁之间的窗口)
+            self._ensure_open()
             self._counters["transactions"] += 1
             started = time.perf_counter()
             for attempt in range(retries + 1):
                 if not self._connected:
+                    # 每次重连前再查关闸:close() 在事务执行中被调用时,
+                    # 循环体内不再重建连接
+                    self._ensure_open()
                     if self.next_connect_in is not None:
                         # 退避门控激活:窗口内重试只会空转,直接结束——
                         # last_error 保留武装门控的那次真实失败根因

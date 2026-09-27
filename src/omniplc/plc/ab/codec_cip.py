@@ -388,12 +388,16 @@ def build_symbol_path(
         if len(encoded) % 2:
             path += b"\x00"
         for number in member_indices:
+            # padded EPATH:逻辑段段内补齐——段头 1 字节后补 1 个 0x00
+            # 再接值,保证每段偶数字节(pylogix ``pack('<HH', 0x29, v)`` /
+            # pycomm3 ``LogicalSegment(padded=True)`` 同型;不补齐则路径
+            # 奇长,下标 ≥256 的合法标签会被偶数校验误拒)
             if number < 0x100:
                 path += struct.pack("<BB", 0x28, number)
             elif number < 0x10000:
-                path += struct.pack("<BH", 0x29, number)
+                path += struct.pack("<BBH", 0x29, 0x00, number)
             else:
-                path += struct.pack("<BI", 0x2A, number)
+                path += struct.pack("<BBI", 0x2A, 0x00, number)
     return bytes(path)
 
 

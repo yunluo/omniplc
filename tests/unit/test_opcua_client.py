@@ -752,6 +752,39 @@ def test_subscribe_data_change_callback_exception_logged(_opcua_server_module) -
         client.disconnect()
 
 
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_subscribe_event_receives_notification(_opcua_server_module) -> None:
+    """事件订阅回调真触发(回归:event 回调方法名须为 event_notification,
+    asyncua 按 `hasattr(handler, "event_notification")` 派发,方法名错
+    则 AttributeError 被其内部吞掉,订阅 100% 静默失效)。"""
+    server, idx = _opcua_server_module
+    # sync Server 未转发 create_custom_event_type(仅 aio Server 有),
+    # 直接用 BaseEvent 实例(aio EventGenerator 接受,触发 BaseEventType)
+    from asyncua.common.event_objects import BaseEvent as _BaseEvent
+    evgen = server.get_event_generator(_BaseEvent())
+
+    received: list = []
+    done = _threading.Event()
+
+    def on_event(fields, node_id, ts):
+        received.append((fields, node_id, ts))
+        done.set()
+
+    client = OpcUaClient("127.0.0.1", _OPCUA_TEST_PORT, endpoint=_TEST_ENDPOINT)
+    client.connect()
+    try:
+        # 订阅 Server 对象(BaseEventType 事件默认由 Server 发出)
+        ok, sub = client.subscribe_event("i=2253", on_event)
+        assert ok is True
+        assert isinstance(sub, OpcUaSubscription)
+        _time.sleep(0.2)
+        evgen.trigger()
+        assert done.wait(timeout=3.0), "Event 回调未触发, received={}".format(received)
+        assert received, "Event 回调数据为空"
+    finally:
+        client.disconnect()
+
+
 # ----------------------------------------------------------------------
 # v0.35 Lifecycle
 # ----------------------------------------------------------------------

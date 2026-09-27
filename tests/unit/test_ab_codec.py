@@ -97,11 +97,27 @@ def test_uc_send_padding_and_route() -> None:
 
 
 def test_symbol_path_segments() -> None:
-    """路径构造:符号段偶对齐 + 元素段按大小选码 + 末级下标置零。"""
+    """路径构造:符号段偶对齐 + 元素段按大小选码(段内补齐)+ 末级下标置零。"""
     path = codec_cip.build_symbol_path(("M",), ((5, 70000),))
-    assert path == bytes.fromhex("91014d00" "2805" "2a70110100")
+    # 70000 = 0x00011170(小端 70 11 01 00)
+    assert path == bytes.fromhex("91014d00" "2805" "2a0070110100")
     path = codec_cip.build_symbol_path(("Bits",), ((12,),), zero_last_index=True)
     assert path == bytes.fromhex("910442697473" "2800")
+
+
+def test_symbol_path_odd_index_segment_padded() -> None:
+    """回归:0x29/0x2A 段段内补齐(段头+0x00+值)。
+
+    原 ``<BH``/``<BI`` 打包产生奇数段,与 0x91 段拼出奇长路径,
+    ``_service_request`` 偶数校验误拒 ``MyDint[300]`` 等合法地址。
+    现按 padded EPATH 段内补齐(pylogix/pycomm3 同型),路径恒偶长。
+    """
+    path = codec_cip.build_symbol_path(("MyDint",), ((300,),))
+    assert path == bytes.fromhex("91064d7944696e74" "29002c01")
+    assert len(path) % 2 == 0
+    # 下标 ≥65536 同样偶长(0x2A 段 = 1+1+4 = 6 字节)
+    path = codec_cip.build_symbol_path(("Big",), ((70000,),))
+    assert len(path) % 2 == 0
 
 
 def test_tag_write_frames() -> None:

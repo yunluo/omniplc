@@ -322,7 +322,10 @@ class _EventHandler:
         self._client = client
         self._on_event = on_event
 
-    def event(self, event: Any) -> None:
+    def event_notification(self, event: Any) -> None:
+        # asyncua 1.1.5 分发链:sync._SubHandler.event_notification →
+        # aio Subscription._call_event 按此方法名派发(方法名必须一致,
+        # 拼错会被 asyncua 内部 except 吞掉,事件订阅静默失效)
         try:
             # asyncua event 对象:dict-like via _fields;安全兜底 dict()
             try:
@@ -751,9 +754,12 @@ class OpcUaClient(BaseClient):
             handler = _DataChangeHandler(self, on_change)
             try:
                 # asyncua 1.1.5:sync.Client 直接暴露 create_subscription(非 uaclient);
-                # handler 在订阅级传入,subscribe_data_change 只收节点 + 采样间隔
+                # handler 在订阅级传入,subscribe_data_change 只收节点 + 采样间隔。
+                # asyncua 全线间隔单位为毫秒(CreateSubscriptionParameters.
+                # RequestedPublishingInterval / MonitoringParameters.
+                # SamplingInterval 均直通毫秒),本参数名即毫秒,原样传入
                 ua_sub = ua_client.create_subscription(
-                    sampling_interval_ms / 1000.0, handler
+                    float(sampling_interval_ms), handler
                 )
             except Exception as exc:
                 raise _translate_ua_error(exc) from exc
@@ -772,14 +778,14 @@ class OpcUaClient(BaseClient):
                             filter_obj,
                             0,
                             asyncua.ua.MonitoringMode.Reporting,
-                            sampling_interval_ms / 1000.0,
+                            float(sampling_interval_ms),
                         )
                     )
                     mids = fut.result()
                 else:
                     handles = ua_sub.subscribe_data_change(
                         [ua_client.get_node(parse_opcua_nodeid(node_text).text)],
-                        sampling_interval=sampling_interval_ms / 1000.0,
+                        sampling_interval=float(sampling_interval_ms),
                     )
                     mids = handles
                 monitored = list(mids) if isinstance(mids, (list, tuple)) else [mids]

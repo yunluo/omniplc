@@ -493,6 +493,16 @@ _EXT_CASES = [
     # 帧型不支持:1E 下扩展命令入参期拒绝(零字节发送)
     ExtCase("random_read_1e_rejected", "1E", False, "random_read",
             ((("D0", "ushort"),), ()), (), ()),
+    # 守卫回归(与同步层同口径,四轮复审 P0/P1 三处 native 漏守卫):
+    # ① 0403 字访问列表不允许 32 位类型(每点 1 字,32 位须落双字列表)
+    ExtCase("random_read_3e_word32_rejected", "3E", False, "random_read",
+            ((("D0", "ushort"), ("D100", "int")),), (), ()),
+    # ② BOOL 位软元件带位号后缀拒绝(静默丢位号会读成 bit0)
+    ExtCase("random_read_3e_bool_bit_suffix_rejected", "3E", False, "random_read",
+            ((("M100.3", "bool"),),), (), ()),
+    # ③ 1402 随机写拒绝位号后缀(静默按 16 点/字写会清零相邻 15 位)
+    ExtCase("random_write_3e_bit_suffix_rejected", "3E", False, "random_write",
+            ((("M10.5", 1),),), (), ()),
 ]
 
 
