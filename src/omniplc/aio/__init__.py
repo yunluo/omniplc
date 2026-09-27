@@ -576,6 +576,11 @@ class AModbusBaseClient(ABaseClient):
         sync = self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
         return await self._run(sync.read_exception_status)
 
+    async def report_server_id(self) -> Tuple[bool, Optional[Tuple[int, int, bytes]]]:
+        """报告从站 ID(FC17,语义同同步版)。"""
+        sync = self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
+        return await self._run(sync.report_server_id)
+
     async def diagnostics(
         self, sub_function: int, data: int = 0x0000
     ) -> Tuple[bool, Optional[int]]:

@@ -113,11 +113,12 @@ ok, info = client.read_device_id()
 print(info["vendor_name"], info["product_code"], info["major_minor_revision"])
 ok, raw = client.read_device_object(0x02)   # 单个对象(个体访问),返回原始字节
 
-# 诊断/事件(FC07/08/11/12):0x000C 读总线通信错误计数;事件计数/日志
+# 诊断/事件(FC07/08/11/12/17):0x000C 读总线通信错误计数;事件计数/日志
 ok, status = client.read_exception_status()          # FC07:1 字节异常状态
 ok, errors = client.diagnostics(0x000C)             # 返回 2 字节数据域
 ok, count = client.get_comm_event_counter()         # FC11
 ok, log = client.get_comm_event_log()               # FC12:状态/事件/报文计数 + events
+ok, sid = client.report_server_id()                 # FC17:(从站 ID, 运行指示, 附加数据)
 
 # 文件记录(FC20/21):驱动器参数库等;子请求 (文件号, 起始记录号, 记录长/值)
 ok, records = client.read_file_record([(4, 1, 2), (3, 9, 2)])
@@ -556,7 +557,7 @@ dump(client.stats)   # 键名拼错、字段用错类型在 mypy/pyright 阶段�
 | AB 0x0A 多服务包批量读  | AB Logix         | 已实现(超 32 条/480B 自动拆包),通用模拟器不支持,待真机核证 |
 | AB connected RPI  | AB Logix         | RPI 默认 100ms(`rpi_us` 可配)、CIP 0x01/0x07 重连,待真机核证 |
 | NJ CIP 0x0A 多服务包 | 欧姆龙 NJ/NX CIP    | 继承 AB,理论同,待真机核证                |
-| 倍福 ADS           | TwinCAT          | 封装 pyads,需 TwinCAT 运行时;transport 错误码 0x705/0x706/0x725 分流、`set_timeout` 告警待真机核证 |
+| 倍福 ADS           | TwinCAT          | 封装 pyads,需 TwinCAT 运行时;transport 通断码依 TE1000 §8 修正(0x06/0x07/0x0D/0x12/0x1B/0x1D + Router 0x0500~0x050D)、`set_timeout` 告警待真机核证 |
 | 西门子 S7           | S7-300/1200/1500 | 封装 python-snap7,需 PLC 或 PLCSIM;STRING/WSTRING 读截断·写保留声明长、优化块访问错误提示待真机核证 |
 | NJ STRING / BOOL 数组 | 欧姆龙 NJ/NX CIP    | 已实现(STRING 按 `len(u32)+字符`、BOOL 按元素自描述,回 DWORD 时 `//32` 回退),待真机核证 |
 | MC 新设备码          | 三菱 Q/L/R         | L/F/SB/V/DX/DY/TS/TC/TN/CS/CC/CN/SM/SD/SW 已实现,待真机核证(TN=0xC3/CN=0xC6 为推定) |
@@ -566,7 +567,7 @@ dump(client.stats)   # 键名拼错、字段用错类型在 mypy/pyright 阶段�
 | MTConnect        | MTConnect Agent  | 标准库 HTTP/XML,需 CNC 端 Agent     |
 | MX Component     | 三菱 MX            | 读写/批量/CPU 型号/时钟已真机核证;get_error_message(ActSupportMsg)待核证 |
 | Modbus FC22/23/24/43·14 | Modbus TCP/RTU | FC22 掩码写(可配字节序)、FC23 读写多寄存器、FC24 FIFO、FC43·14 设备标识均需设备支持,待真机核证 |
-| Modbus FC07/08/11/12/20/21 | Modbus TCP/RTU | 异常状态(FC07)/诊断/事件计数·日志/文件记录(FC20/21)按规范实现,设备支持情况待真机核证 |
+| Modbus FC07/08/11/12/17/20/21 | Modbus TCP/RTU | 异常状态(FC07)/诊断/事件计数·日志/报告从站 ID(FC17)/文件记录(FC20/21)按规范实现,设备支持情况待真机核证 |
 
 实际真机联测通过项的核验记录见 [`docs/real-machine-checklist.md`](docs/real-machine-checklist.md)(按厂商/协议/读写独立勾选)。
 
@@ -576,7 +577,7 @@ dump(client.stats)   # 键名拼错、字段用错类型在 mypy/pyright 阶段�
 
 | 协议                                     | TCP                                                   | UDP     | RTU(串口)            | MX Component     |
 |----------------------------------------|-------------------------------------------------------|---------|--------------------|------------------|
-| Modbus(含 FC07 异常状态 / FC08 诊断 / FC11·12 事件 / FC22 掩码写 / FC23 读写多寄存器 / FC24 FIFO / FC20·21 文件记录 / FC43·14 设备标识) | ✅                                                     | —       | ✅(广播写)             | —                |
+| Modbus(含 FC07 异常状态 / FC08 诊断 / FC11·12 事件 / FC17 报告从站 ID / FC22 掩码写 / FC23 读写多寄存器 / FC24 FIFO / FC20·21 文件记录 / FC43·14 设备标识) | ✅                                                     | —       | ✅(广播写)             | —                |
 | 三菱 MC 3E/4E/1E                         | ✅                                                     | ✅       | ✅(1C/3C/4C 串口帧)     | ✅(Windows + COM) |
 | 欧姆龙 FINS                               | ✅                                                     | ✅       | v1.x(Host Link)    | —                |
 | 欧姆龙 CIP / 连接型 CIP(NJ/NX)               | ✅(44818,unconnected/connected)                        | —       | —                  | —                |

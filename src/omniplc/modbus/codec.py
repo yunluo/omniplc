@@ -31,6 +31,7 @@ from ..core.constants import (
     MODBUS_COMMAND_READ_FIFO,
     MODBUS_COMMAND_READ_FILE_RECORD,
     MODBUS_COMMAND_READ_WRITE_MULTIPLE,
+    MODBUS_COMMAND_REPORT_SERVER_ID,
     MODBUS_COMMAND_WRITE_FILE_RECORD,
     MODBUS_COIL_OFF,
     MODBUS_COIL_ON,
@@ -60,6 +61,7 @@ from ..core.constants import (
     MODBUS_MBAP_LENGTH_MAX,
     MODBUS_MEI_TYPE_DEVICE_ID,
     MODBUS_PROTOCOL_ID,
+    MODBUS_SERVER_ID_MIN_BYTE_COUNT,
 )
 from ..core.debug import format_hex
 from ..core.errors import DeviceError, ProtocolFrameError
@@ -86,6 +88,7 @@ class ModbusFunction(IntEnum):
     READ_FIFO_QUEUE = MODBUS_COMMAND_READ_FIFO
     DIAGNOSTICS = MODBUS_COMMAND_DIAGNOSTICS
     READ_EXCEPTION_STATUS = MODBUS_COMMAND_READ_EXCEPTION_STATUS
+    REPORT_SERVER_ID = MODBUS_COMMAND_REPORT_SERVER_ID
     GET_COMM_EVENT_COUNTER = MODBUS_COMMAND_GET_COMM_EVENT_COUNTER
     GET_COMM_EVENT_LOG = MODBUS_COMMAND_GET_COMM_EVENT_LOG
     READ_DEVICE_IDENTIFICATION = MODBUS_COMMAND_READ_DEVICE_ID
@@ -759,6 +762,11 @@ def expected_response_length(request_pdu: bytes) -> int:
             "FC12 响应长度随事件字节数变化,无法按请求推算:"
             "由走线层按 byte count 增量收包"
         )
+    if function_code == ModbusFunction.REPORT_SERVER_ID:
+        raise ProtocolFrameError(
+            "FC17 响应长度随附加数据变化,无法按请求推算:"
+            "由走线层按 byte count 增量收包"
+        )
     if function_code == ModbusFunction.READ_FIFO_QUEUE:
         raise ProtocolFrameError(
             "FC24 响应长度随 FIFO 计数变化,无法按请求推算:"
@@ -820,6 +828,34 @@ def parse_read_exception_status_response(pdu: bytes) -> int:
             "FC07 响应非法:{}(收到的原始 PDU:{})".format(len(pdu), format_hex(pdu))
         )
     return pdu[1]
+
+
+def build_report_server_id_pdu() -> bytes:
+    """构造报告从站 ID 请求 PDU(FC17:仅功能码)。"""
+    return bytes([ModbusFunction.REPORT_SERVER_ID])
+
+
+def parse_report_server_id_response(pdu: bytes) -> Tuple[int, int, bytes]:
+    """解析报告从站 ID 响应(FC17),返回 ``(从站 ID, 运行指示状态, 附加数据)``。
+
+    布局依规范 §6.13(印刷页 31,Report Server ID):功能码(1) + 长度域(1)
+    + 从站 ID(设备专有) + 运行指示状态(1,``0x00`` = OFF / ``0xFF`` = ON)
+    + 附加数据(设备专有,可为空);长度域须与实收字节严格一致,下限 2。
+
+    :raises ProtocolFrameError: 功能码不符 / 长度域与实收不符 / 长度域低于下限
+    """
+    if len(pdu) < 2 or pdu[0] != ModbusFunction.REPORT_SERVER_ID:
+        raise ProtocolFrameError(
+            "FC17 响应非法:{}(收到的原始 PDU:{})".format(len(pdu), format_hex(pdu))
+        )
+    byte_count = pdu[1]
+    if byte_count < MODBUS_SERVER_ID_MIN_BYTE_COUNT or len(pdu) != 2 + byte_count:
+        raise ProtocolFrameError(
+            "FC17 响应长度域不符:声明 {}、实收 {}(收到的原始 PDU:{})".format(
+                byte_count, len(pdu) - 2, format_hex(pdu)
+            )
+        )
+    return pdu[2], pdu[3], pdu[4:]
 
 
 def build_get_comm_event_counter_pdu() -> bytes:

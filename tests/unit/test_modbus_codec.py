@@ -268,6 +268,29 @@ def test_fc24_parse_byte_count_and_limits() -> None:
         codec.expected_response_length(codec.build_read_fifo_pdu(0))
 
 
+def test_fc17_report_server_id() -> None:
+    """FC17:请求仅功能码;响应 = 功能码 + 长度域 + 从站 ID + 运行指示 + 附加数据。"""
+    assert codec.build_report_server_id_pdu() == bytes([0x11])
+    assert codec.parse_report_server_id_response(bytes([0x11, 0x02, 0x2A, 0xFF])) == (
+        0x2A,
+        0xFF,
+        b"",
+    )
+    assert codec.parse_report_server_id_response(
+        bytes([0x11, 0x05, 0x2A, 0xFF, 0x00, 0x01, 0x02])
+    ) == (0x2A, 0xFF, b"\x00\x01\x02")
+    with pytest.raises(ProtocolFrameError):
+        codec.parse_report_server_id_response(bytes([0x11]))  # 过短
+    with pytest.raises(ProtocolFrameError):
+        codec.parse_report_server_id_response(bytes([0x12, 0x02, 0x2A, 0xFF]))  # 功能码不符
+    with pytest.raises(ProtocolFrameError):
+        codec.parse_report_server_id_response(bytes([0x11, 0x03, 0x2A, 0xFF]))  # 长度域与实收不符
+    with pytest.raises(ProtocolFrameError):
+        codec.parse_report_server_id_response(bytes([0x11, 0x01, 0x2A]))  # 长度域低于下限
+    with pytest.raises(ProtocolFrameError):
+        codec.expected_response_length(bytes([0x11]))  # 长度随附加数据变化,走线层增量收包
+
+
 def test_fc07_read_exception_status() -> None:
     """FC07:请求仅功能码,响应 = 功能码 + 1 字节状态。"""
     assert codec.build_read_exception_status_pdu() == bytes([0x07])

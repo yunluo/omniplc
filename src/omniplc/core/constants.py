@@ -123,6 +123,10 @@ MODBUS_COMMAND_GET_COMM_EVENT_COUNTER: int = 0x0B
 """取通信事件计数器命令(FC11)。"""
 MODBUS_EVENT_COUNTER_PDU_SIZE: int = 5
 """FC11 响应 PDU 长度:功能码(1) + 状态(2) + 事件计数(2)。"""
+MODBUS_COMMAND_REPORT_SERVER_ID: int = 0x11
+"""报告从站 ID 命令(FC17;请求仅功能码,响应 = 功能码 + 长度域 + 从站 ID + 运行指示 + 附加数据)。"""
+MODBUS_SERVER_ID_MIN_BYTE_COUNT: int = 2
+"""FC17 长度域下限:从站 ID(1) + 运行指示状态(1);附加数据可为空。"""
 MODBUS_COMMAND_GET_COMM_EVENT_LOG: int = 0x0C
 """取通信事件日志命令(FC12;响应长度随事件字节数变化,RTU 走增量收包)。"""
 MODBUS_COMMAND_READ_FILE_RECORD: int = 0x14

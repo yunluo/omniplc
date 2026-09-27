@@ -753,6 +753,24 @@ class ModbusBaseClient(BaseClient):
             )
         )
 
+    def report_server_id(self) -> Tuple[bool, Optional[Tuple[int, int, bytes]]]:
+        """报告从站 ID(FC17,规范 §6.13,印刷页 31):设备类型/状态自述。
+
+        规范标注本命令为**串行线专用**(与 FC07/FC08/FC11/FC12 同族,
+        串行子站与部分以太网网关支持)。响应三段:从站 ID(设备厂商定义的
+        标识字节)、运行指示状态(``0x00`` = OFF、``0xFF`` = ON)与附加数据
+        (设备专有,可为空)。
+
+        :return: ``(是否成功, (从站 ID, 运行指示状态, 附加数据))``;
+            失败为 ``(False, None)``
+        """
+        self._reject_broadcast_read()
+        return self._execute(
+            lambda: codec.parse_report_server_id_response(
+                self._transact(codec.build_report_server_id_pdu())
+            )
+        )
+
     def diagnostics(self, sub_function: int, data: int = 0x0000) -> Tuple[bool, Optional[int]]:
         """诊断(FC08,规范 §6.8):返回设备回显的 2 字节数据域。
 
@@ -1078,8 +1096,9 @@ class ModbusRtuClient(ModbusBaseClient):
         站号不匹配属坏帧(多为总线上其他从站的迟到响应),异常文本带
         收到的原始帧。
 
-        收包长度分三种:异常响应固定 3 字节;FC 43(读设备标识)响应长度
-        随对象数变化,按对象头**增量收包**(见 :func:`_recv_device_id_tail`);
+        收包长度分三类:异常响应固定 3 字节;FC 12/17/24(长度域随内容
+        变化)按 byte count **增量收包**(长度域先按 ADU 上限封顶校验),
+        FC 43(读设备标识)按对象头增量收包(见 :func:`_recv_device_id_tail`);
         其余按请求 PDU 推算(见 :func:`codec.expected_response_length`)。
         """
         transport = self._require_transport()
@@ -1115,6 +1134,16 @@ class ModbusRtuClient(ModbusBaseClient):
                     )
                 )
             frame = head + byte_count + transport.recv(fifo_count + 2)
+        elif pdu[0] == codec.ModbusFunction.REPORT_SERVER_ID:
+            # FC17 响应长度随附加数据变化:先读 byte count 再收其余(含 CRC)
+            byte_count = transport.recv(1)
+            if 3 + byte_count[0] + 2 > MODBUS_RTU_MAX_ADU_SIZE:
+                raise ProtocolFrameError(
+                    "FC17 响应长度 {} 超出 Modbus RTU ADU 上限 {}".format(
+                        byte_count[0] + 5, MODBUS_RTU_MAX_ADU_SIZE
+                    )
+                )
+            frame = head + byte_count + transport.recv(byte_count[0] + 2)
         else:
             frame = head + transport.recv(codec.expected_response_length(pdu) + 1)
         received_station, response_pdu = codec.parse_rtu_frame(frame)

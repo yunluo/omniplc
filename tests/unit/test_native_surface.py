@@ -33,6 +33,7 @@ _MODBUS_PENDING = {
     "read_file_record",
     "read_many",
     "read_write_registers",
+    "report_server_id",
     "write_batch",
     "write_file_record",
     "write_many",

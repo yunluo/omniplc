@@ -1765,6 +1765,58 @@ def test_fc07_read_exception_status(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def test_fc17_report_server_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC17 报告从站 ID:请求仅功能码,解析从站 ID + 运行指示 + 附加数据。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    pdu = bytes([0x11, 0x05, 0x2A, 0xFF, 0x00, 0x01, 0x02])
+    scripted = _mount(client, monkeypatch, [_mbap_response(1, 1, pdu)])
+    client.connect()
+    assert client.report_server_id() == (True, (0x2A, 0xFF, b"\x00\x01\x02"))
+    assert bytes(scripted.sent) == codec.build_mbap(
+        1, 1, codec.build_report_server_id_pdu()
+    )
+
+
+def test_async_report_server_id_aio_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
+    """异步镜像:report_server_id 经单工作线程驱动同步版。"""
+    import asyncio
+
+    from omniplc.aio import AModbusTcpClient
+
+    async def scenario() -> None:
+        client = AModbusTcpClient("127.0.0.1", 502, 1)
+        response = _mbap_response(1, 1, bytes([0x11, 0x03, 0x2A, 0xFF, 0x07]))
+        scripted = _ScriptedTransport([response[:7], response[7:]])
+        monkeypatch.setattr(client._sync, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        assert await client.report_server_id() == (True, (0x2A, 0xFF, b"\x07"))
+        await client.close()
+
+    asyncio.run(scenario())
+
+
+def test_report_server_id_rtu_incremental_recv(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC17(RTU):响应长度随附加数据变化,按 byte count 增量收包后 CRC 校验。"""
+    client = ModbusRtuClient(1)
+    client.configure_serial("COM3")
+    response_pdu = bytes([0x11, 0x04, 0x2A, 0xFF, 0x01, 0x02])
+    frame = codec.build_rtu_frame(1, response_pdu)
+    # 分片与读序对齐(假传输整块弹出):头 2 字节 → 长度域 1 字节 → 余下
+    scripted = _ScriptedTransport([frame[0:2], frame[2:3], frame[3:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.report_server_id() == (True, (0x2A, 0xFF, b"\x01\x02"))
+
+
+def test_report_server_id_rtu_length_capped() -> None:
+    """FC17(RTU):长度域声明超 ADU 上限时按坏帧拒绝,不发起超大 recv。"""
+    client = ModbusRtuClient(1)
+    client._transport = _ScriptedTransport([bytes([0x01, 0x11]), bytes([0xFF])])  # type: ignore[assignment]
+    client._connected = True
+    with pytest.raises(ProtocolFrameError):
+        client._transact(codec.build_report_server_id_pdu())
+
+
 def test_rtu_incremental_length_capped() -> None:
     """RTU 增量长度字段声明超 ADU 上限时按坏帧拒绝,不发起超大 recv。"""
     client = ModbusRtuClient(1)
