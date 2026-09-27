@@ -867,22 +867,23 @@ def test_get_attribute_list_decodes_identity_attributes(
 ) -> None:
     """get_attribute_list(class, instance, attrs) 对 Identity Object 7 字段解码。
 
-    payload = 属性计数(2 字节)+ 属性长度(2 字节)+ 属性值;每属性 2 字节前缀。
+    应答逐项 = 属性号(2 字节)+ 状态(2 字节)+ 属性值;值长度按属性类型
+    (UINT/Revision 2 字节、UDINT 4 字节、SHORT_STRING 1+N 字节)。
     """
     rev = bytes((24, 6))
     name = b"PLC-A"
-    attrs_bytes = [
-        struct.pack("<H", 0x0001),
-        struct.pack("<H", 0x000E),
-        struct.pack("<H", 0x1234),
-        rev,
-        struct.pack("<H", 0x0001),
-        struct.pack("<I", 0x00C0FFEE),
-        bytes((len(name),)) + name,
+    items = [
+        (1, struct.pack("<H", 0x0001)),
+        (2, struct.pack("<H", 0x000E)),
+        (3, struct.pack("<H", 0x1234)),
+        (4, rev),
+        (5, struct.pack("<H", 0x0001)),
+        (6, struct.pack("<I", 0x00C0FFEE)),
+        (7, bytes((len(name),)) + name),
     ]
-    body = struct.pack("<H", 7)
-    for ab in attrs_bytes:
-        body += struct.pack("<H", len(ab)) + ab
+    body = struct.pack("<H", len(items))
+    for attr_id, value in items:
+        body += struct.pack("<HH", attr_id, 0) + value
     client = AllenBradleyEthIpClient("127.0.0.1", 44818)
     scripted = ScriptedTransport(
         _session_chunks()
@@ -899,6 +900,26 @@ def test_get_attribute_list_decodes_identity_attributes(
         (4, (24, 6)), (5, 0x0001), (6, 0x00C0FFEE),
         (7, "PLC-A"),
     ]
+
+
+def test_get_attribute_list_subset_and_failed_item(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """子集请求(vendor/serial/name)按属性号取解器;逐项状态非 0 → 值为 None。"""
+    body = struct.pack("<H", 3)
+    body += struct.pack("<HH", 1, 0) + struct.pack("<H", 0x0001)
+    body += struct.pack("<HH", 6, 0x14)  # 该属性取不到:无值域
+    name = b"X"
+    body += struct.pack("<HH", 7, 0) + bytes((len(name),)) + name
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818)
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _reply_chunks(body, service=codec_cip.CIP_SERVICE_GET_ATTRIBUTE_LIST)
+    )
+    _mount(monkeypatch, client, scripted)
+    ok, decoded = client.get_attribute_list(0x01, 0x01, (1, 6, 7))
+    assert ok is True
+    assert decoded == [(1, 0x0001), (6, None), (7, "X")]
 
 
 def test_generic_message_low_level_entry(

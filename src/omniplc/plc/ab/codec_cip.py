@@ -168,7 +168,7 @@ _CIP_TYPE_LAYOUTS: Dict[int, Tuple[int, str, str]] = {
     0xC6: (1, "<B", "USINT"),
     0xC7: (2, "<H", "UINT"),
     0xC8: (4, "<I", "UDINT"),
-    0xC9: (8, "<Q", "LWORD"),
+    0xC9: (8, "<Q", "ULINT"),
     0xCA: (4, "<f", "REAL"),
     0xCB: (8, "<d", "LREAL"),
     0xD3: (4, "<I", "DWORD"),
@@ -571,7 +571,20 @@ def bit_masks(cip_type: int, bit: int, value: bool) -> Tuple[int, int]:
 # ----------------------------------------------------------------------
 
 def _forward_open_params(is_large: bool, connection_size: int) -> int:
-    """网络连接参数域:P2P + 固定尺寸 + 连接尺寸(内部函数)。"""
+    """网络连接参数域:P2P + 固定尺寸 + 连接尺寸(内部函数)。
+
+    普通 Forward Open 尺寸域 9 位(上限 0x1FF),Large 为 16 位(上限
+    0xFFFF);超限会在参数域里溢出到属性位,构造期直接拒绝。
+
+    :raises ValueError: 连接尺寸超出该形式的上限
+    """
+    max_size = 0xFFFF if is_large else 0x01FF
+    if not 0 < connection_size <= max_size:
+        raise ValueError(
+            "{} Forward Open 连接尺寸须在 1~{}:{}(尺寸域溢出会污染参数位)".format(
+                "Large" if is_large else "普通", max_size, connection_size
+            )
+        )
     base = FO_PARAM_BASE << 16 if is_large else FO_PARAM_BASE
     return base + connection_size
 
@@ -654,7 +667,7 @@ def parse_forward_open_reply(reply: bytes, request_service: int) -> Tuple[int, i
     status = cip[2]
     if status != 0:
         return status, 0
-    data_offset = 4 + cip[3]
+    data_offset = _service_data_offset(cip)
     if len(cip) < data_offset + 4:
         raise ProtocolFrameError("Forward Open 应答数据域不完整")
     return 0, struct.unpack_from("<I", cip, data_offset)[0]
@@ -891,7 +904,7 @@ def parse_service_reply(reply: bytes, request_service: int) -> bytes:
     if route_status != 0:
         raise DeviceError(_status_text(route_status), route_status)
 
-    return _parse_service_payload(cip[4 + cip[3]:], request_service)
+    return _parse_service_payload(cip[_service_data_offset(cip):], request_service)
 
 
 def parse_direct_service_reply(reply: bytes, request_service: int) -> bytes:
@@ -933,12 +946,23 @@ def _parse_service_payload(cip: bytes, request_service: int) -> bytes:
             _status_text(status), ext
         )
         raise DeviceError(msg, status)
-    return cip[4 + cip[3]:]
+    return cip[_service_data_offset(cip):]
 
 
 def status_text(status: int) -> str:
     """CIP 通用状态码 → 可读描述(未知码返回"未知错误")。"""
     return AB_CIP_STATUS_TEXT.get(status, "未知错误")
+
+
+def _service_data_offset(cip: bytes) -> int:
+    """服务应答数据域起点:``4 + 2 × 附加状态字数``(内部函数)。
+
+    CIP 服务应答头 = 服务回显(1)+ 保留(1)+ 通用状态(1)+ 附加状态长(1,
+    单位 **16 位字**)+ 附加状态(2×N 字节)。附加状态长按**字**计,
+    数据域自 ``4 + 2×N`` 起(与 :func:`_extended_status_text` 同口径;
+    pycomm3 ``get_extended_status`` 亦按 ``size × 2`` 计字节)。
+    """
+    return 4 + 2 * cip[3]
 
 
 def _status_text(status: int) -> str:
@@ -1122,16 +1146,26 @@ def parse_module_identity_payload(payload: bytes) -> Dict[str, object]:
 
 
 def parse_get_attribute_list_payload(
-    payload: bytes, attribute_decoders: Tuple[Tuple[int, Callable[[bytes], object]], ...]
+    payload: bytes,
+    attribute_decoders: Sequence[Tuple[int, Callable[[bytes], Tuple[object, int]]]],
 ) -> List[Tuple[int, object]]:
-    """解析 GetAttributeList 应答数据域,按 ``attribute_decoders`` 顺序消费。
+    """解析 Get_Attribute_List(0x03)应答数据域,返回 ``[(属性号, 值), ...]``。
 
-    payload 起点 = 属性数据(已被 :func:`_parse_service_payload` 剥掉 4 字节
-    服务回显头);首 2 字节为属性返回个数,随后按 ``attribute_decoders`` 顺序
-    每个解一段。解器失败抛 :class:`ValueError`,由调用方收口。
+    布局(ODVA CIP Vol 1 §5-4 Get_Attribute_List 应答;经 pycomm3 1.2.16
+    ``get_plc_time`` 应答解码与 OpENer ``cipcommon.c: GetAttributeList``
+    服务端写回顺序对照核证,2026-09-27)= 属性数(u16)+ 每项
+    ``[属性号 u16][状态 u16][属性值]``——**值仅在逐项状态为 0 时存在**,
+    其字节长度由属性类型决定(本服务应答**不带类型码与长度域**),
+    故解码器须自报消费了多少字节。
 
-    :param attribute_decoders: ``(属性号, 解码函数)`` 元组列表,顺序需与请求一致
-    :raises ProtocolFrameError: 长度不足 / 属性个数与解器不匹配
+    设备侧若某项取不到,逐项状态非 0 且**不附值**(通常同时把通用状态置
+    0x0A,由事务层按 :class:`DeviceError` 报出);本函数对这类项返回
+    ``(属性号, None)``。
+
+    :param attribute_decoders: ``(属性号, 解码函数)`` 序列;解码函数收
+        "该属性起始处的剩余字节",返回 ``(值, 已消费字节数)``
+    :raises ProtocolFrameError: 结构不符 / 应答含未请求的属性号 /
+        属性值截断或消费长度非法
     """
     if len(payload) < 2:
         raise ProtocolFrameError("GetAttributeList 应答数据域不完整")
@@ -1142,19 +1176,30 @@ def parse_get_attribute_list_payload(
                 count, len(attribute_decoders)
             )
         )
+    decoder_map = dict(attribute_decoders)
     offset = 2
     out: List[Tuple[int, object]] = []
-    for attr_id, decoder in attribute_decoders:
-        # 长度前缀:每个属性前置 2 字节 UINT 长度(ODVA CIP Vol 1 §5-4.4)
-        if len(payload) < offset + 2:
-            raise ProtocolFrameError("GetAttributeList 属性长度域截断")
-        attr_len = struct.unpack_from("<H", payload, offset)[0]
-        offset += 2
-        if len(payload) < offset + attr_len:
-            raise ProtocolFrameError("GetAttributeList 属性数据截断")
-        value = decoder(payload[offset:offset + attr_len])
-        out.append((attr_id, value))
-        offset += attr_len
+    for _ in range(count):
+        # 逐项头:属性号(u16)+ 状态(u16)
+        if len(payload) < offset + 4:
+            raise ProtocolFrameError("GetAttributeList 属性项头截断")
+        item_attr_id, item_status = struct.unpack_from("<HH", payload, offset)
+        offset += 4
+        decoder = decoder_map.get(item_attr_id)
+        if decoder is None:
+            raise ProtocolFrameError(
+                "GetAttributeList 应答含未请求的属性号:{}".format(item_attr_id)
+            )
+        if item_status != 0:
+            out.append((item_attr_id, None))
+            continue
+        value, consumed = decoder(payload[offset:])
+        if consumed <= 0 or len(payload) < offset + consumed:
+            raise ProtocolFrameError(
+                "GetAttributeList 属性值消费长度非法:{}".format(consumed)
+            )
+        offset += consumed
+        out.append((item_attr_id, value))
     return out
 
 
@@ -1164,6 +1209,26 @@ def decode_identity_string(data: bytes) -> str:
         return ""
     n = min(data[0], len(data) - 1)
     return bytes(data[1:1 + n]).decode("ascii", errors="replace")
+
+
+def decode_identity_string_consumed(data: bytes) -> Tuple[str, int]:
+    """SHORT_STRING 变长解码器:返回 ``(文本, 已消费字节数)``。
+
+    供 :func:`parse_get_attribute_list_payload` 逐项解码器使用(SHORT_STRING
+    长度自描述:1 字节长度 + N 字节 ASCII,无固定尺寸可用)。
+
+    :raises ProtocolFrameError: 长度域截断或字符区不足
+    """
+    if not data:
+        raise ProtocolFrameError("SHORT_STRING 属性值截断")
+    n = data[0]
+    if len(data) < 1 + n:
+        raise ProtocolFrameError(
+            "SHORT_STRING 属性值截断:声明 {} 字符,可用 {} 字节".format(
+                n, len(data) - 1
+            )
+        )
+    return bytes(data[1:1 + n]).decode("ascii", errors="replace"), 1 + n
 
 
 def decode_values(

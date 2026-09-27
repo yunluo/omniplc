@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import random
 import struct
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from . import codec_cip
 from .codec_cip import CIP_CLASS_IDENTITY, CIP_INSTANCE_IDENTITY
@@ -399,10 +399,14 @@ class AllenBradleyEthIpClient(BaseClient):
     ) -> Tuple[bool, Optional[List[Tuple[int, object]]]]:
         """通用 GetAttributeList:按 ``attributes`` 顺序解对应属性值。
 
-        默认按 Identity Object 7 字段布局解(长度前缀 UINT + UINT/UINT/... +
-        SHORT_STRING);其它对象的属性解器需调用方自行展开(用
-        :meth:`generic_message` + 自定义 :func:`parse_get_attribute_list_payload`
-        解码)。
+        Identity Object(class 0x01 instance 0x01)的属性 1~7 走内置解器
+        (vendor/product_type/product_code/revision/status/serial/
+        product_name,任意子集均可);其它对象属主需自备解器——用
+        :meth:`generic_message` 取裸应答后交
+        :func:`parse_get_attribute_list_payload` 解码。
+
+        应答逐项为 ``[属性号 u16][状态 u16][值]``,逐项状态非 0 的属性值返回
+        ``None``(设备侧通常同时置通用状态 0x0A,此时整批以 DeviceError 失败)。
 
         :returns: ``(True, [(属性号, 值), ...])`` 或 ``(False, None)``
         """
@@ -417,21 +421,12 @@ class AllenBradleyEthIpClient(BaseClient):
         )
         if not ok or payload is None:
             return False, None
-        # Identity Object 7 字段默认布局(vendor..product_name);长度前缀 UINT
-        identity_decoders = (
-            (1, lambda d: struct.unpack_from("<H", d, 0)[0]),
-            (2, lambda d: struct.unpack_from("<H", d, 0)[0]),
-            (3, lambda d: struct.unpack_from("<H", d, 0)[0]),
-            (4, lambda d: (d[0], d[1])),
-            (5, lambda d: struct.unpack_from("<H", d, 0)[0]),
-            (6, lambda d: struct.unpack_from("<I", d, 0)[0]),
-            (7, codec_cip.decode_identity_string),
-        )
         if class_id == CIP_CLASS_IDENTITY and instance == CIP_INSTANCE_IDENTITY \
-                and len(attrs) == 7:
-            decoder_map = dict(identity_decoders)
+                and attrs and all(a in _IDENTITY_ATTRIBUTE_DECODERS for a in attrs):
             try:
-                decoders = tuple((a, decoder_map[a]) for a in attrs)
+                decoders = tuple(
+                    (a, _IDENTITY_ATTRIBUTE_DECODERS[a]) for a in attrs
+                )
                 return True, codec_cip.parse_get_attribute_list_payload(
                     payload, decoders
                 )
@@ -439,7 +434,7 @@ class AllenBradleyEthIpClient(BaseClient):
                 with self._lock:
                     self._set_error(f"GetAttributeList 解码失败:{exc}", _categorize(exc), _extract_code(exc))
                 return False, None
-        # 非 Identity 对象:返回原始 payload,调用方自行解
+        # 非 Identity 对象:返回原始项区(属性号+状态+值 逐项),调用方自解
         return True, [(a, payload) for a in attrs]
 
     def _send_recv_raw_enip(self, frame: bytes) -> bytes:
@@ -803,6 +798,42 @@ class AllenBradleyEthIpClient(BaseClient):
 
 # 0x0A 请求在 UC-Send 信封(路由段+超时+服务头)之外的估算余量(字节)
 _BATCH_ENVELOPE_MARGIN: int = 24
+
+
+# Identity Object 属性 1~7 的逐项解码器(Get_Attribute_List 应答用)。
+# 解码器契约:收该属性起始处的剩余字节,返回 (值, 已消费字节数)——
+# Get_Attribute_List 应答不带类型码/长度域,值长度只能由属性类型给出。
+def _identity_uint16(data: bytes) -> Tuple[int, int]:
+    """Identity UINT 属性值(2 字节)(内部函数)。"""
+    if len(data) < 2:
+        raise ProtocolFrameError("Identity 属性值截断(UINT)")
+    return struct.unpack_from("<H", data, 0)[0], 2
+
+
+def _identity_uint32(data: bytes) -> Tuple[int, int]:
+    """Identity UDINT 属性值(4 字节)(内部函数)。"""
+    if len(data) < 4:
+        raise ProtocolFrameError("Identity 属性值截断(UDINT)")
+    return struct.unpack_from("<I", data, 0)[0], 4
+
+
+def _identity_revision(data: bytes) -> Tuple[Tuple[int, int], int]:
+    """Identity Revision 属性值(2 字节:主/次)(内部函数)。"""
+    if len(data) < 2:
+        raise ProtocolFrameError("Identity 属性值截断(Revision)")
+    return (data[0], data[1]), 2
+
+
+_IDENTITY_ATTRIBUTE_DECODERS: Dict[int, Callable[[bytes], Tuple[object, int]]] = {
+    1: _identity_uint16,  # vendor
+    2: _identity_uint16,  # product_type
+    3: _identity_uint16,  # product_code
+    4: _identity_revision,
+    5: _identity_uint16,  # status
+    6: _identity_uint32,  # serial
+    7: codec_cip.decode_identity_string_consumed,  # product_name
+}
+"""Identity Object 属性 1~7 默认逐项解码器(vendor..product_name)。"""
 
 
 def _chunk_batch_requests(requests: Sequence[bytes]) -> List[List[bytes]]:

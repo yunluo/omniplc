@@ -653,6 +653,13 @@ unconnected。连接路径为背板端口 + 槽号 + 消息路由对象(20 02 24
 O->T 连接 ID 由目标分配(请求传 0),T->O 连接 ID 由发起方指定。
 应答布局(O->T ID 紧跟状态域)按 ODVA CIP 规范核证。
 
+通用 CIP 服务(GetAttributesAll / GetAttributeList / ListIdentity / generic_message,
+2026-09):**Get_Attribute_List 应答逐项 = 属性号(u16)+ 状态(u16)+ 值**——值不带类型码与
+长度域,长度由属性类型决定,故逐项解码器契约 = 「收剩余字节 → (值, 已消费字节数)」
+(Identity 属性 1~7 内置解器;逐项状态非 0 时值为 None);服务应答头的**附加状态长字段
+单位为 16 位字**(数据域自 `4 + 2×N` 起)。两处按 CIP Vol 1 §5-4 章节号 + OpENer 一致性栈
+/ pycomm3 参考实现对照裁决,详见 review.md「AB EtherNet/IP(CIP)专项」。
+
 欧姆龙 NJ/NX CIP 说明(2026-09):NJ/NX(Sysmac)系列没有 FINS/TCP-UDP,
 变量经标准 CIP 显式报文访问——与 AB 同属 ODVA EtherNet/IP,故
 ``OmronCipClient`` **继承 ``AllenBradleyEthIpClient``**,仅覆写三个钩子:

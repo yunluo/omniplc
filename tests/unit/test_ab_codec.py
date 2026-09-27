@@ -343,6 +343,22 @@ def test_forward_open_empty_route() -> None:
         codec_cip.build_forward_open(False, 504, 0, 0, 0, 0, b"\x01")
 
 
+def test_forward_open_connection_size_bounds() -> None:
+    """连接尺寸构造期校验:普通 ≤0x1FF、Large ≤0xFFFF,超限拒绝。"""
+    assert codec_cip.build_forward_open(
+        False, 0x1FF, 0x1234, 0x5678, 0x1337, 42, b"\x01\x00"
+    )
+    assert codec_cip.build_forward_open(
+        True, 0xFFFF, 0x1234, 0x5678, 0x1337, 42, b"\x01\x00"
+    )
+    with pytest.raises(ValueError):
+        codec_cip.build_forward_open(False, 0x200, 0, 0, 0, 0, b"\x01\x00")
+    with pytest.raises(ValueError):
+        codec_cip.build_forward_open(True, 0x10000, 0, 0, 0, 0, b"\x01\x00")
+    with pytest.raises(ValueError):
+        codec_cip.build_forward_open(False, 0, 0, 0, 0, 0, b"\x01\x00")
+
+
 def test_forward_open_large_format() -> None:
     """Large Forward Open:服务 0x5B、参数域 32 位(0x4200<<16 + 尺寸)。"""
     request = codec_cip.build_forward_open(
@@ -468,6 +484,112 @@ def test_build_get_attribute_list_two_attributes() -> None:
     """
     frame = codec_cip.build_get_attribute_list(0x01, 0x01, (1, 6))
     assert frame == bytes.fromhex("030220012401020001000600")
+
+
+def test_parse_get_attribute_list_payload_golden() -> None:
+    """Get_Attribute_List 应答逐项布局:属性号(2)+ 状态(2)+ 值。
+
+    向量:属性数 2;属性 1(vendor UINT 0x0001)、属性 7(product_name
+    SHORT_STRING "PLC-A")。值长度由解码器自报,后项起点随之前移。
+    """
+    payload = (
+        struct.pack("<H", 2)
+        + struct.pack("<HH", 1, 0) + struct.pack("<H", 0x0001)
+        + struct.pack("<HH", 7, 0) + bytes((5,)) + b"PLC-A"
+    )
+    decoders = (
+        (1, lambda d: (struct.unpack_from("<H", d, 0)[0], 2)),
+        (7, codec_cip.decode_identity_string_consumed),
+    )
+    assert codec_cip.parse_get_attribute_list_payload(payload, decoders) == [
+        (1, 0x0001), (7, "PLC-A"),
+    ]
+
+
+def test_parse_get_attribute_list_payload_item_status() -> None:
+    """逐项状态非 0:该项无值域,返回 (属性号, None),后续项仍按序解。"""
+    payload = (
+        struct.pack("<H", 3)
+        + struct.pack("<HH", 1, 0) + struct.pack("<H", 0x0001)
+        + struct.pack("<HH", 6, 0x14)  # 状态非 0:无值
+        + struct.pack("<HH", 7, 0) + bytes((1,)) + b"X"
+    )
+    decoders = (
+        (1, lambda d: (struct.unpack_from("<H", d, 0)[0], 2)),
+        (6, lambda d: (struct.unpack_from("<I", d, 0)[0], 4)),
+        (7, codec_cip.decode_identity_string_consumed),
+    )
+    assert codec_cip.parse_get_attribute_list_payload(payload, decoders) == [
+        (1, 0x0001), (6, None), (7, "X"),
+    ]
+
+
+def test_parse_get_attribute_list_payload_errors() -> None:
+    """坏帧路径:条数不符 / 项头截断 / 未请求属性号 / 消费长度越界。
+
+    值区截断由解码器自报(库内解器抛 ProtocolFrameError;严不严由调用方决定)。
+    """
+    def _strict_uint16(d: bytes) -> tuple:
+        if len(d) < 2:
+            raise ProtocolFrameError("属性值截断")
+        return struct.unpack_from("<H", d, 0)[0], 2
+
+    decoders = ((1, _strict_uint16),)
+    with pytest.raises(ProtocolFrameError):
+        codec_cip.parse_get_attribute_list_payload(struct.pack("<H", 2), decoders)
+    with pytest.raises(ProtocolFrameError):
+        codec_cip.parse_get_attribute_list_payload(
+            struct.pack("<H", 1) + b"\x01\x00", decoders
+        )
+    with pytest.raises(ProtocolFrameError):
+        codec_cip.parse_get_attribute_list_payload(
+            struct.pack("<H", 1) + struct.pack("<HH", 9, 0) + b"\x01\x00", decoders
+        )
+    with pytest.raises(ProtocolFrameError):
+        codec_cip.parse_get_attribute_list_payload(
+            struct.pack("<H", 1) + struct.pack("<HH", 1, 0) + b"\x01", decoders
+        )
+    with pytest.raises(ProtocolFrameError):
+        codec_cip.parse_get_attribute_list_payload(
+            struct.pack("<H", 1) + struct.pack("<HH", 1, 0) + b"\x01\x00",
+            ((1, lambda d: (0, 99)),),
+        )
+    with pytest.raises(ProtocolFrameError):
+        codec_cip.decode_identity_string_consumed(b"\x05AB")
+
+
+def test_service_reply_additional_status_word_step() -> None:
+    """内嵌服务应答带附加状态:数据域自 4 + 2×字数 起(单位为 16 位字)。
+
+    帧:0xD2 外层信封(无附加状态)+ 内嵌读应答(状态 0,附加状态 1 字 =
+    2 字节 0x0000),其后是类型域 + 数据。
+    """
+    embedded = (
+        bytes((codec_cip.CIP_SERVICE_READ_TAG | 0x80, 0, 0, 1))
+        + struct.pack("<H", 0)
+        + bytes.fromhex("c400" "39050000")
+    )
+    reply = _rr_data_reply(bytes((0xD2, 0, 0, 0)) + embedded)
+    assert codec_cip.parse_service_reply(
+        reply, codec_cip.CIP_SERVICE_READ_TAG
+    ) == bytes.fromhex("c400" "39050000")
+
+
+def test_forward_open_reply_additional_status_step() -> None:
+    """Forward Open 应答带附加状态:O->T 连接 ID 自 4 + 2×字数 起。"""
+    reply = _rr_data_reply(
+        bytes((0xD4, 0, 0, 1))
+        + struct.pack("<H", 0x0108)  # 附加状态 1 字(连接尺寸超限扩展码)
+        + struct.pack("<II", 0xAABBCCDD, 0x5678)
+    )
+    assert codec_cip.parse_forward_open_reply(reply, 0x54) == (0, 0xAABBCCDD)
+
+
+def test_type_name_matches_cip_elementary_codes() -> None:
+    """类型码名与 CIP 基本类型表一致(0xC9 = ULINT;LWORD 是 0xD4)。"""
+    assert codec_cip.type_name(0xC9) == "ULINT"
+    assert codec_cip.type_name(0xC5) == "LINT"
+    assert codec_cip.type_name(0xD3) == "DWORD"
 
 
 def test_parse_list_identity_reply_full_fields() -> None:

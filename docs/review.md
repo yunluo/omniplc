@@ -65,6 +65,7 @@ v1 评审稿逐条对源码复核后形成本版:
 - **逐协议专项 Modbus(2026-09-27)**:依 Modbus 应用协议 V1.1b3 手册逐功能码核对(§6.5-§6.21 印刷页 17-44),核对通过项与 6 项修复见「Modbus 专项」小节——写响应回显校验(FC05/06/15/16,§6.5/6.6/6.11/6.12)、FC21/FC08-0x000A 广播合法化、FC12 byte count ≤0x46(§6.10 印刷页 27)、批量写只读区入参期拒绝(`_check_address` 增 `is_write`)、RTU FC24 变量名订正;汇川夹具非规范 FC16 回显一并订正。回归 7 例(4 例旧实现 FAILED)+ 汇川 1 例订正。门禁 1225 → **1231**。
 - **逐协议专项 三菱 MC 串口(2026-09-27)**:依 SH-080008 §4/§17/Appendix 5/Appendix 7 逐字节核对 1C/3C/4C 三层实现(帧格式/控制码/识别码/和校验范围含 ETX/ACK·NAK 长度/1C 六上限/256 点传 00/附加码),**全部一致,无行为缺陷**;Appendix 7 黄金向量 7 例已逐字节在库。文档订正 2 处(`MC_MAX_TRANSFER_POINTS` 注释改述 3E/4E 与 3C/4C 共用口径并引 Appendix 5 印刷页 466 上限 960/480、codec_serial docstring 补黄金算例页码引用)。无新增用例,门禁仍 **1231**。
 - **MC 能力补齐批(2026-09-27)**:新增三项 QnA 兼容帧能力(依 SH-080008,黄金样本探针逐字节核证后固化)——①**随机读 0403**(`random_read`:乱序不连续软元件单事务,字访问 + 双字访问分节,响应字/双字分节解析;上限 192 点,双字 = 32 位,限 INT/UINT/FLOAT);②**随机写 1402**(`random_write`:乱序写,加权点数 字×12+双字×14 ≤1920,无响应数据);③**CPU 型号 0101**(`get_cpu_type`:模型名 16 字节 + 代码 2 字节小端,Q02UCPU → 0x6302,§11.2 印刷页 176-178)。codec 层新增 6 函数(`codec_qna.build_random_read_devices/parse_random_read_devices_response/build_random_write_devices/build_read_cpu_model/parse_read_cpu_model_response/_random_device·_random_word_value/_decode_dword`)+ 常量 4 项;3E/4E 客户端 + aio 三类镜像(TCP/UDP/串口)对齐;**0701/0702 时钟命令经 SH-080008 与 SLMP 手册全文检索均无收录,按铁律不臆造,登记 `docs/protocol/README.md` 待补表**(缺 QCPU 用户手册基础系统篇)。回归 14 例(codec 7 + 客户端 7)。门禁 1231 → **1245**。
+- **逐协议专项 AB EtherNet/IP(CIP)(2026-09-27)**:依 Rockwell EM Guide p.22 + CIP Vol 1 章节号,并以 pycomm3 1.2.16 / pylogix / OpENer 参考实现对照裁决——①**P1 Get_Attribute_List(0x03)应答逐项布局错**(原按 `属性数 + 每项[长度 u16][值]` 解,实为 `属性数 u16 + 每项[属性号 u16][状态 u16][值]`,值不带类型码与长度域;真机上 `get_attribute_list()` 必解码失败):解码器契约改「收剩余字节 → `(值, 已消费字节数)`」、逐项状态非 0 返 `None`、Identity 属性 1~7 **任意子集**走内置解器、非 Identity 原样返项区字节;②**P2 附加状态 16 位字步进**(`_parse_service_payload`/`parse_service_reply`/`parse_forward_open_reply` 三处 `4+N` → `4+2N`,统一 `_service_data_offset()` 收口,三轮 §2.4.7 结案);③**P3** 类型码 0xC9 `LWORD`→`ULINT`、Forward Open 连接尺寸构造期校验(普通 9 位/Large 16 位)。UC-Send 信封、Forward Open/Close、SendUnitData 逐字段与参考实现一致(无改动,核证结论记 architecture.md §8.1)。回归 8 例(codec 6 + 客户端 2,旧实现全 FAILED)+ 尺寸校验 1 例。门禁 **1270 passed**(本批 +8;同机另有 7 个 `test_opcua_client.py` 失败属另一代理在途 WIP)。
 
 ---
 
@@ -224,7 +225,7 @@ v1 评审稿逐条对源码复核后形成本版:
 ### 逐协议深入复核(2026-09-27 起)
 
 自本轮起以**逐个协议深入核查**替代一次性全量扫描;每协议逐方法对照厂商手册(文本用
-PyMuPDF 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、门禁锁定。
+pdfplumber 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、门禁锁定。
 
 | 协议 / 驱动 | 状态 | 结论摘要 |
 |---|---|---|
@@ -232,9 +233,9 @@ PyMuPDF 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、门�
 | 三菱 MC 以太网(3E/4E/1E) | ✅ 已完成 | P0 设备码(三轮)+ ZR/1E X·Y 进制、字符串位号(本批)全修;见下「三菱 MC 专项」 |
 | 三菱 MC 串口(1C/3C/4C) | ✅ 已完成 | 三层实现与手册逐字节一致(黄金向量在库),点数上限口径注释订正——见下「三菱 MC 串口专项」 |
 | 欧姆龙 FINS | ✅ 已完成 | P1 结束码 0040 正常完成 + 字符串 `.bit`、P2 D/EM 位写直写、P3 元素上限/区界/尾字节/文案——见下「欧姆龙 FINS 专项」 |
-| 欧姆龙 NJ/NX CIP | ⏳ 待查 | — |
+| 欧姆龙 NJ/NX CIP | ✅ 已完成 | 与 AB 同栈(继承):F1 Get_Attribute_List 逐项布局、附加状态字步进两项修复同时作用于 NJ 直发路径;走线(无 UC-Send、空路由段)与 W506 口径一致——见下「AB EtherNet/IP(CIP)专项」 |
 | Modbus(TCP/RTU) | ✅ 已完成 | 写响应回显校验、FC21/FC08 广播合法化、FC12 上界 0x46、写区域收口、FC24 变量名——见下「Modbus 专项」;另 FC20 上界 0x7D 维持自加宽容(见 P3 残留) |
-| AB EtherNet/IP(CIP) | ⏳ 待查 | 三轮 P2(ListIdentity 偏移、read_batch `.bit`)已修(2026-09-27,详见 P2 批);其余待查 |
+| AB EtherNet/IP(CIP) | ✅ 已完成 | P1 Get_Attribute_List 逐项布局(属性号+状态+值)、P2 附加状态 16 位字步进、P3 类型名 ULINT / 连接尺寸构造期校验;UC-Send 与 Forward Open/Close 逐字段对照通过——见下「AB EtherNet/IP(CIP)专项」 |
 | 倍福 TwinCAT ADS | ✅ 已完成 | P2 补 0x1A ERR_TCPSEND / transport 分类改 TRANSPORT / `write(STRING)` 补声明长预检;P3 自动 NetId 要求 IP 字面量——见下「倍福 TwinCAT ADS 专项」 |
 | 西门子 S7 | ✅ 已完成 | P2 多变量批量读(snap7 read_multi_vars 双线 1.x ctypes / 3.x dict);P3 `_write` KeyError 修 + `DataType.STRING` 路由预检 + docstring `DataType.BYTE` 修——见下「西门子 S7 专项」 |
 | OPC-UA | ⏳ 待查 | 三轮 P2(`active_subscriptions` 取事务锁、`_coerce_read` 越界类型)已修(2026-09-27,详见 P2 批);其余待查 |
@@ -369,6 +370,57 @@ byte count、FC43 按对象头)与 CRC 低字节在前。
 - **待核/能力缺口(登记)**:结构体成员路径(需 TwinCAT 侧导出独立符号,pyads 边界);>32KB 大块符号不切块(当前仅标量/STRING,单值不触及);Online Change 句柄失效无显式处理(无客户端句柄缓存,实际影响有限,待真机)。
 
 门禁:全量 **1259 passed**(+3)/ ruff / mypy(76) / ty 全零。
+
+### AB EtherNet/IP(CIP)专项(2026-09-27,逐协议深入;Rockwell EM Guide / CIP Vol 1 章节号 + pycomm3 1.2.16 / pylogix / OpENer 参考实现对照)
+
+核对通过(逐字段对照):ENIP 封装头 24 字节与命令集(0x65/0x66/0x6F/0x70/0x63)、
+CPF 项(0x0000 空地址 / 0xA1+0xB1 连接式 / 0xB2 未连接 / ListIdentity 0x000C);**UC-Send 信封**
+(服务 0x52 + CM 路径 `20 06 24 01` + 优先级/超时 + 消息长 + 奇偶补齐 + 路由段
+`[字数][保留][端口][槽号]`)与 Rockwell《EtherNet/IP Explicit Messaging Guide》p.22 Table 5
+示例 `01 00 port 1 slot 0` 逐字节一致(pycomm3 `PADDED_EPATH(length=True, pad_length=True)`
+同构);Forward Open(0x54/0x5B)与 Forward Close(0x4E)逐字段与 pycomm3
+`cip_driver._forward_open/_forward_close` 一致(含 Large 参数域 `0x4200<<16 | 尺寸`、超时乘数
++3 保留字节、连接路径字数、RPI 100ms);SendUnitData 的 0xA1/0xB1 项布局、序列号回显与 T->O
+ID 校验;标签读 0x4C / 写 0x4D / 读-改-写 0x4E / 多服务包 0x0A(条数 + 偏移自条数域起算 +
+逐条偶对齐);88 字节 STRING 结构(4B LEN + 82 字符 + 补齐)、DWORD 打包 BOOL 数组与位访问口径;
+NJ/NX 直发(不包 UC-Send、连接路径仅消息路由对象)与 W506 口径。
+
+- **P1 Get_Attribute_List(0x03)应答逐项布局错——已修复**:原实现按
+  `属性数(u16) + 每项[长度 u16][值]` 解;规范应答为 `属性数(u16) + 每项[属性号 u16][状态 u16]
+  [值(仅状态 0 时存在)]`,值**不带类型码与长度域**(长度由属性类型决定)。证据三链:①ODVA
+  CIP Vol 1 §5-4(Get_Attribute_List 应答);②Rockwell 1756-PM020(Logix 5000 手册,外部检索)
+  Get_Attributes_List 应答示例——计数后每项为「属性号(16 位)+ 状态(16 位)+ 属性数据」;
+  ③OpENer `cipcommon.c: GetAttributeList` 服务端写回顺序(属性号 → 状态 → 保留 0 → 值)与
+  pycomm3 1.2.16 `get_plc_time` 解码 `Struct(n_bytes(6), ULINT)`(= 计数 2 + 每项前导 4)吻合。
+  真机上原实现 `get_attribute_list()` 必解码失败。现解码器契约为「收该属性起始处剩余字节 →
+  `(值, 已消费字节数)`,逐项状态非 0 返回 `None`;Identity 属性 1~7 内置解器(vendor /
+  product_type / product_code / revision / status / serial / product_name),**任意子集**请求
+  均走内置解器(原先仅恰好 7 项才解);非 Identity 对象原样返回项区字节。门禁
+  `test_parse_get_attribute_list_payload_golden` / `_item_status` / `_errors`、
+  `test_get_attribute_list_decodes_identity_attributes`、`test_get_attribute_list_subset_and_failed_item`
+  (旧实现 FAILED)。
+- **P2 附加状态步进按字节而非 16 位字(三轮 §2.4.7)——已修复**:`_parse_service_payload` /
+  `parse_service_reply` / `parse_forward_open_reply` 三处曾按 `4 + 附加状态长` 定位数据域,
+  而该长度字段单位为 **16 位字**(数据域自 `4 + 2×N` 起;本库 `_extended_status_text` 与
+  pycomm3 `get_extended_status` 的 `size × 2` 均按字计)。正常帧(长 0)不受影响,带附加状态的
+  成功帧会错位。现统一经 `_service_data_offset()` 收口;门禁
+  `test_service_reply_additional_status_word_step`、`test_forward_open_reply_additional_status_step`
+  (旧实现 FAILED)。
+- **P3 类型码 0xC9 误标 `LWORD`——已修复**:CIP 基本类型表 0xC9 = **ULINT**(LWORD 是 0xD4,
+  pycomm3 码表同此);仅影响 `type_name()` 错误文案;门禁
+  `test_type_name_matches_cip_elementary_codes`(旧实现 FAILED)。
+- **P3 Forward Open 连接尺寸无构造期校验——已修复**:普通形式尺寸域 9 位(≤0x1FF)、Large 16 位
+  (≤0xFFFF),超限会溢出污染参数属性位(P2P/固定尺寸位);现 `_forward_open_params` 入参期拒绝;
+  门禁 `test_forward_open_connection_size_bounds`。
+- **待核/能力缺口(登记,未实现)**:0x0A 部分响应(CIP 0x06 INSUFFICIENT_PACKETS / 0x12)不续读
+  (§2.4.2 P2);类型缓存命中后不失效(在线改 UDT 后 stale,§2.4.4 P2);UDT 16 位成员 ID(0x8B 段)
+  与 >255 字符符号段名不支持(§2.4.5 P2);标签枚举(0x6B / Get_Instance_Attribute_List 0x55)未实现
+  (§2.4.12 P3)。**文档**:ODVA CIP Vol 1/Vol 2 全本与 Logix 1756-PM020 未收录(本地仅概览级 PDF),
+  本批按**章节号 + 参考实现(OpENer 一致性栈 / pycomm3 / pylogix)对照**裁决,已登记
+  `docs/protocol/README.md` 待补表。
+
+门禁:全量 **1270 passed**(本批 +8)/ ruff / mypy(76) / ty 全零。(同机同时段另有 7 个
+`test_opcua_client.py` 失败,属另一代理 OPC-UA 订阅重构在途 WIP,非本批引入。)
 
 ### 发布记录(2026-09-27)
 
