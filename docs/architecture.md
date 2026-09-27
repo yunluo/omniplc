@@ -455,10 +455,10 @@ ULONG/FLOAT/DOUBLE)要求字数与尺寸严格匹配;`BOOL` 取 1 个字、按"�
 - 发布 **py.typed**(PEP 561),下游项目可直接获得类型检查;
 - CI 跑 `mypy` 与 `ruff` 双静态检查,语法越界在 CI 就被拦下:mypy 目标
   版本 3.10(`pyproject.toml` 的 `[tool.mypy] python_version`;<3.10 目标
-  已弃用),CI 在 Python 3.12(windows-latest)执行裸 `uvx mypy src/omniplc`,
-  不带 `--python-version` 覆盖;ruff 的 `target-version` 由
-  `requires-python = ">=3.7.9"` 推导为 **py37**(3.8+ 语法越界在此拦下),
-  规则集显式圈定 `select = ["E4", "E7", "E9", "F"]`;
+  已弃用),CI 在 **3.7.9 + 3.12 版本矩阵**上执行 `uvx --python 3.12 mypy src/omniplc`
+  (mypy 固定在 3.12 工具环境,避免 3.7 旧 mypy 误报编码);ruff 的
+  `target-version` 由 `requires-python = ">=3.7.9"` 推导为 **py37**(3.8+
+  语法越界在此拦下),规则集显式圈定 `select = ["E4", "E7", "E9", "F"]`;
 - 追加 **ty**(Astral)作为第二类型检查器(`uvx ty check`,配置见
   `pyproject.toml` 的 `[tool.ty.src]`),双检查器交叉验证;
   不使用 `# type: ignore[...]` 工具特定抑制码,可空传输引用一律用
@@ -536,7 +536,7 @@ class BaseClient(ABC):
 | 协议 | 语法示例 | 说明 |
 |---|---|---|
 | Modbus | `hr0` / `c7` / `di10` / `ir3` / `hr0.15` / `40001` | 前缀语法为主;兼容 Modicon 1 基风格(自动转 0 基);位号 0~15;已实现(`modbus/address.py`) |
-| 三菱 MC | `D100` / `M10` / `X1F` / `Y40` / `W100` / `R100` / `Z0` / `ZR100` / `L10` / `F10` / `SM10` / `SD10` / `TS0`·`TC0`·`TN0` / `CS0`·`CC0`·`CN0` / `D100.3` | 已实现(`plc/melsec/`);编号进制按码表:X/Y/W/B/SB/SW/DX/DY 十六进制、其余十进制(Q/L/R 口径,SH-080956;FX5U 可 `xy_octal=True` 使 X/Y 按八进制),地址解析保留数字原文;位软元件带位号后缀(`M10.5`)拒 `ValueError`,字软元件位访问(`D100.3`)走读-改-写;批量读取:3E/4E 覆写 `read_many` 为 0406 多块批量读单事务 + `read_batch` 混类型混软元件(SH-080008 §8.4,总块数 ≤120,整批容错) |
+| 三菱 MC | `D100` / `M10` / `X1F` / `Y40` / `W100` / `R100` / `Z0` / `ZR100` / `L10` / `F10` / `SM10` / `SD10` / `TS0`·`TC0`·`TN0` / `CS0`·`CC0`·`CN0` / `D100.3` | 已实现(`plc/melsec/`);编号进制按码表:X/Y/W/B/SB/SW/DX/DY 十六进制、其余十进制(Q/L/R 口径,SH-080008;FX5U 可 `xy_octal=True` 使 X/Y 按八进制),地址解析保留数字原文;位软元件带位号后缀(`M10.5`)拒 `ValueError`,字软元件位访问(`D100.3`)走读-改-写;批量读取:3E/4E 覆写 `read_many` 为 0406 多块批量读单事务 + `read_batch` 混类型混软元件(SH-080008 §8.4,总块数 ≤120,整批容错) |
 | 欧姆龙 FINS | `D100` / `CIO0` / `CIO0.5` / `W10` / `H20` / `A0` / `E0_100` / `T0` / `C10` | 已实现(`plc/omron/`);存储区码随帧 codec 实现,EM 区 bank 用下划线;T/C 为定时器/计数器(位=完成标志只读,字=当前值 PV);批量读取:覆写 `read_many` 为 0104 多存储区读单事务 + `read_batch` 混类型混软元件(W342 §5-3-5,仅字码,每条读 1 字、响应逐条区码回显校验,以太网上限 167 条;BOOL 走包含字提位) |
 | 丰田 TOYOPUC | `D0100` / `D0100L` / `D0100H` / `M0201` / `M0201W` / `X0010H` | 已实现(`plc/toyopuc/`);编号一律十六进制(手册口径);字区 S/N/R/D/B,位区 P/K/V/T/C/L/X/Y/M;L/H=低/高字节(字节访问),W=位软元件打包字 |
 | 基恩士 KV MC 兼容 | `R5` / `B1F` / `W10` / `DM100` / `ZR100` / `DM100.3` | 已实现(`plc/keyence/mc.py`,继承 MC);编号进制:R/DM/ZR 十进制、B/W 十六进制;仅基恩士记号(无三菱 D/M/X/Y) |
@@ -928,7 +928,7 @@ MBAP 事务号/协议号/站号校验、RTU CRC16(0xA001 反射,低字节在前)
 |---|---|
 | Modbus 编解码 | [Modbus 应用协议 V1.1b3](https://www.modbus.cn/modbus-specifications)(功能码/异常码/MBAP 组帧、事务号/协议号校验、按长收包;中文资源见 [`modbus.cn`](https://www.modbus.cn/modbus-specifications);2026-09 复审见 §8 差异决策) |
 | Modbus TCP/RTU 客户端 | 《Modbus 串行线协议与实现指南 V1.02》+ [Modbus TCP/IP 消息实现指南 V1.0b](https://www.modbus.cn/modbus-specifications)(MBAP / 事务号 / 502 端口;CRC16 校验) |
-| 三菱 MC(3E/4E/1E,已实现) | MELSEC MC 协议手册 SH-080956(3E/4E 二进制与 ASCII 帧、软元件码表、核心命令);1E 帧按 A 兼容格式 |
+| 三菱 MC(3E/4E/1E,已实现) | MELSEC MC 协议手册 SH-080008(3E/4E 二进制与 ASCII 帧、软元件码表、核心命令);1E 帧按 A 兼容格式 |
 | 三菱 MC 串口帧 3C/4C(已实现) | 官方手册 SH-080008-AB《MELSEC Communication Protocol Reference Manual》(2022/05):4.2 节五种通信格式、4.3 节帧识别码(4C=F8H/3C=F9H)/和校验/控制码、6.1~6.2 节各帧路由字段、8.2 节成批读/写命令、**Appendix 7 完整报文设置示例**(3C/4C 读/写四例,黄金向量来源);协议核心命令复用本库 MC 模块 |
 | 三菱 MC 1C 帧(A 兼容串口,已实现) | 官方手册 SH-080008-AB《MELSEC Communication Protocol Reference Manual》第 17 章(A 兼容 1C 帧通信格式、BR/WR/BW/WW 成批读写命令、和校验范围算例、错误代码 2 位规格、帧识别码表"1C 不需要") |
 | 三菱 MX Component(已实现) | 三菱《MX Component Version 4 编程手册》(ActUtlType 逻辑站号、Open/Close/GetDevice/SetDevice/ReadDeviceBlock/WriteDeviceBlock 数据布局、第 7 章出错代码) |
@@ -945,15 +945,15 @@ MBAP 事务号/协议号/站号校验、RTU CRC16(0xA001 反射,低字节在前)
 | 西门子 S7(已实现) | 依赖库 `python-snap7`(封装;3.7~3.9 → 1.3,3.10+ → 3.x 纯 Python):Client 会话、`check_error` 约定、`Areas` 枚举码表(裸 int 区码被拒) |
 | 通用自定义 TCP(已实现) | 无外部协议规范——面向现场自定义报文的收发壳;成帧(分隔符/定长)、内部缓冲、per-call 超时与错误契约为本库原生设计(见 §8 OpenTcpClient 说明),不参照任何第三方实现 |
 | 倍福 TwinCAT ADS(已实现) | 依赖库 `pyads==3.5.1`(封装而非移植):封装层只做 DataType→PLCTYPE 映射、范围校验、异常翻译与 NetId 组装(PLCTYPE 表、STRING_BUFFER=1024、AMS 端口 851、AmsAddr/NetId 6 字节);帧层零自研 |
-| 欧姆龙 FINS(TCP/UDP,已实现) | 欧姆龙 FINS 手册 W340(帧组装/解析、存储区码、TCP 握手/帧长;2026-09 复审见 §8 对照结论) |
+| 欧姆龙 FINS(TCP/UDP,已实现) | 欧姆龙 FINS 手册 W342(帧组装/解析、存储区码、TCP 握手/帧长;2026-09 复审见 §8 对照结论) |
 | 罗克韦尔 AB EtherNet/IP(已实现) | ODVA CIP/EtherNet/IP 规范(RegisterSession、0x4C·0x4D·0x4E 服务、IOI 路径段 0x91·0x28·0x29·0x2A、位字与 BOOL 数组词操作、STRING 0xA0 布局、Unconnected Send 恒包 UC Send;协议帧层为本库原生纯函数实现 `plc/ab/codec_cip.py`) |
 | 欧姆龙 NJ/NX CIP(已实现) | 协议要点:Forward Open 连接路径 = cip_path + MSG_ROUTER_PATH(空路由时只剩消息路由对象 20 02 24 01)、unconnected 直发不包 UC Send(目标即消息路由器本体);协议帧层零新增,复用 `plc/ab/codec_cip.py` + 三钩子覆写;NJ STRING 布局与真机行为待真机联测 |
 
-三菱 4E 帧按 SH-080956 口径实现(pcap 验证):**4E 帧带序列号**
+三菱 4E 帧按 SH-080008 口径实现(pcap 验证):**4E 帧带序列号**
 (请求副头部恒 `54 00`、响应 `D4 00`)、软元件编号进制(X/Y/W/B
 十六进制、ZR 十进制)、应答数据长字段校验均与规范一致。
 
-FINS 协议复审(2026-09,对照欧姆龙 FINS 手册 W340):FINS 帧头 10 字节布局
+FINS 协议复审(2026-09,对照欧姆龙 FINS 手册 W342):FINS 帧头 10 字节布局
 (ICF=0x80/RSV=0/GCT/目的 3 + 源 3 + SID)、命令 0101/0102、存储区码
 (CIO 30/B0、W 31/B1、H 32/B2、A 33/B3、D 02/82、EM 位 20+bank/字 A0+bank)、
 地址 3 字节编码(字 2 字节大端 + 位 1 字节)、位写每点 1 字节/字写逐字
@@ -961,15 +961,15 @@ FINS 协议复审(2026-09,对照欧姆龙 FINS 手册 W340):FINS 帧头 10 字�
 据此修正与采纳:
 
 - **修正 EM 字码基址笔误**:本库原为 `0xE0`,正确 `0xA0`
-  (手册 W340 5-2-2;0xE0 段是 bank≥16 扩展区的**位**码),原测试断言一并纠正。
+  (手册 W342 5-2-2;0xE0 段是 bank≥16 扩展区的**位**码),原测试断言一并纠正。
 - **补 T/C(定时器/计数器)存储区**:按手册码表——
   位 09 = 完成标志(只读,地址不带位号),字 89 = 当前值 PV(可读写);
   位写拒绝,防止误走 D/EM 的读-改-写路径改写 PV。
-- **补全结束码全表**(85 条,手册 W340 5-4-2)
+- **补全结束码全表**(85 条,手册 W342 5-4-2)
   填入 `FINS_END_CODE_TEXT`,`last_error` 可读性对齐。
 - **不采纳项**:GCT 取 `0x07` 的常见实现(手册规定固定 `0x02`,
   本库正确);TCP 模式裸发 FINS 帧——无 `FINS`
-  魔数/长度/命令/错误域封装、无节点分配握手,不符合 W340,无法对接
+  魔数/长度/命令/错误域封装、无节点分配握手,不符合 W342,无法对接
   标准 FINS/Ethernet(本库实现完整 TCP 封帧 + 握手)。
 - **不采纳的功能**:0103 填充/0105 传送/0401·0402 启停/
   2301 强制置复位等运维命令与本库"点位读写"契约不符,留 v1.x;
@@ -1027,7 +1027,7 @@ FINS 协议复审(2026-09,对照欧姆龙 FINS 手册 W340):FINS 帧头 10 字�
   `__eq__/__hash__/__repr__` 样板;
 - 开发环境 `.python-version=3.7.9`(运行期最低版本口径,与 v0.31.4 履历
   一致);静态检查目标版本另见 §6.2(mypy 目标 3.10、ruff target-version 推导为
-  py37、规则集显式圈定,CI 在 Python 3.12 跑裸 `uvx mypy src/omniplc`);发布前用本机
+  py37、规则集显式圈定,CI 在 3.7.9+3.12 矩阵上跑 `uvx --python 3.12 mypy src/omniplc`);发布前用本机
   Python 3.7.9 做导入验证。
 
 ## 11. 路线图

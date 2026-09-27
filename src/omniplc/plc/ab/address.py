@@ -1,5 +1,8 @@
 """AB Logix 标签名解析。
 
+依据:Rockwell《EtherNet/IP Explicit Messaging Guide》第 1 章(symbolic tag addressing);
+数组下标 / 位号语法为 Logix 标签命名约定。
+
 Logix 地址即标签名,支持::
 
     MyDint               基本标签

@@ -54,6 +54,8 @@ v1 评审稿逐条对源码复核后形成本版:
 - **二轮复审 MX 批 7(2026-09-26)**:`MxComponent.read_batch` 支持 32/64 位条目——16 位(BOOL/SHORT/USHORT)仍合并 `ReadDeviceRandom` 单笔;32/64 位(INT/UINT/FLOAT/LONG/ULONG/DOUBLE)按条目各发一笔 `ReadDeviceBlock`(地址原文透传,控件内部递增字号),同一锁内完成、顺序保持。**据手册 5.2.18/5.2.20 勘误**:`ReadDeviceBlock2`/`ReadDeviceRandom2` 是 16 位 SHORT 版而非 32 位,故实现走非 2 的 LONG 版块读。回归 `test_read_batch_wide_types`。门禁 1193 → **1194**。
 - **二轮复审 OPC-UA 线程安全批 8(2026-09-26)**:①`BaseClient` 增独立**状态锁** `_state_lock`(与事务锁 `_lock` 分离,短临界区不涉 I/O),护 `_set_error`/`_clear_error`/`_record_error`/`stats`;订阅回调在 asyncua 线程写 `last_error`/`error_count` 不再丢计数或阻塞事件循环;②`OpcUaSubscription.unsubscribe` 增 `_unsub_lock`,并发首取消原子化。回归 `test_set_error_counter_is_thread_safe`、`test_unsubscribe_is_thread_safe`。门禁 1194 → **1196**。
 - **工程批 9(2026-09-26)**:引入 **pytest-timeout** 防卡死——`dev` 依赖加 `pytest-timeout>=2.1`(解析 2.4.0,3.7 可用),`[tool.pytest.ini_options]` 设 `timeout=120` / `timeout_method=thread`(全局兜底,慢链路用例可就近 `@pytest.mark.timeout` 放宽);`CONTRIBUTING.md` 门禁说明同步。门禁仍 1196(纯门禁加固,无新用例)。
+- **三轮复审 P0(2026-09-27)**:MC 定时器/计数器设备码修正——`MC_DEVICE_CODES` `TC 0xC2→0xC0 / TN 0xC3→0xC2 / CC 0xC5→0xC3 / CN 0xC6→0xC5`(依 SH080008 §8.1;原连续 C1..C6 排列致 3E/4E/4C 下 `TN`/`CN` 静默错区),`MC_1E_DEVICE_CODES["S"]` `0x5320→0x4D20`(1E `M/L/S` 同码);新增手册门禁 2 条。门禁 1196 → **1198**。
+- **三轮复审 文档/引用纪律(2026-09-27)**:协议实现 × 文档要求审计并补足——MC 依据 `SH-080956`→`SH-080008`(`codec_qna.py:3`、`melsec.py:64`、`architecture.md:539/931/952`);FINS 依据 `W340`→`W342`(`omron/codec.py:3`、`core/constants.py`、`architecture.md` 5 处);`keyence/mc.py` `SH081257ENG`→SLMP `SH-080956`+待核;Pro-face 端口来源标第三方待核;**10 个文件补页码级引用**(地址解析 4 个 + S7/OPC-UA/MTConnect/SR/CIP/AB 封装);`CONTRIBUTING.md` 铁律补两条硬约束 + PR 列出依据手册编号+页码,CI 矩阵措辞订正。
 
 ---
 
@@ -159,6 +161,56 @@ v1 评审稿逐条对源码复核后形成本版:
 - **§2.8.2 Inovance C200~C255(H3U 手册)**:C200~C255 为 32 位计数器,占两个 16 位寄存器。→ 型号事实确认。
 
 仍待核(无对应手册或扫描件):FINS W342(§2.3.9 EM bank / §2.3.13-14)、松下 MEWTOCOL(§2.9.2-3)、TOYOPUC(§2.10.x)、基恩士 KV Host Link/MC(§2.7.3-4)、OPC-UA Part 2-6(§2.11.x 细节)。相关手册 PDF 仅本地留存(`.gitignore` 的 `docs/**/*.pdf|pptx|ppt`),索引见 `docs/protocol/README.md`。
+
+---
+
+## 三轮复审(2026-09-27,全量)
+
+> 范围:76 个源文件 / ~22.5k 行(v0.43.0),6 域(核心·异步·native / Modbus+OpenTcp / MC 家族 / Omron·AB·ADS·S7 / OPC-UA·MTConnect·TOYOPUC·工程)。
+> 方法:逐行读源 + 只读探针(Python 3.7.9)+ 与 `docs/protocol` 官方手册文本比对;标「已核验」者为三轮亲自复现。
+> 结论:新增 **P0 ×1、P1 ×6(含 1 条 v0.43.0 自引入回归)**,及若干 P2/P3。**P0(MC 设备码)已于 2026-09-27 修复**(见「修复记录」)。
+
+### P0
+
+- **MC 设备码 `TC/TN/CC/CN` 错(已核验,手册 SH080008 §8.1 / SLMP)—— 已修复(2026-09-27)** — `core/constants.py` `MC_DEVICE_CODES`。
+  - 现值 `TC=0xC2 / TN=0xC3 / CC=0xC5 / CN=0xC6`;手册为 **`TC=0xC0 / TN=0xC2 / CC=0xC3 / CN=0xC5`**(`Timer Contact TS C1H / Coil TC C0H / Current TN C2H`;`Counter Contact CS C4H / Coil CC C3H / Current CN C5H`)。
+  - 后果:3E/4E/4C 下 **`TN`/`CN` 静默读到错误区**(分别落 CC/STC 线圈区),`TC`/`CC`(线圈)按字设备位写被 PLC 拒绝。v0.41.0 扩容引入;`no_collisions` 门禁(仅查表内无重码)抓不到跨手册错值。
+  - 旁证:同库 `PANASONIC_MC_DEVICE_CODES` 的 `TN=0xC2/CN=0xC5` 与手册一致。
+  - **修复(2026-09-27)**:改 `TC=0xC0/TN=0xC2/CC=0xC3/CN=0xC5`,并新增手册门禁 `test_mc_timer_counter_device_codes_match_manual`(锁六码 + 字宽)。
+  - **同类(已一并修)**:`MC_1E_DEVICE_CODES["S"]` 由凭空值 `0x5320` 改为手册值 `0x4D20`(1E 表 `M/L/S` 同码),门禁 `test_mc_1e_step_relay_code_matches_manual`。
+
+### P1
+
+- **`write_tag` 恒等缩放回归(v0.43.0 自引入,已核验复现)**:`core/base_client.py:657-662` 为修 64 位精度在 `scale=1/offset=0` 时整段跳过逆缩放,连带跳过「整数值 float → int」还原;`write_tag(整数点位, 5.0)` 现抛 `ValueError`(旧版写 5)。现场「算得 float 再写整数点位」大范围受影响。
+- **native 未镜像恒等缩放(已核验)**:`native/base.py:557/570` 的 `read_tag`/`write_tag` 仍强制 float64 往返,64 位丢低位(v0.43.0 同步侧已修,native 漏)。
+- **MC `ZR` 进制错(已核验,手册)**:`constants.py:279` `ZR` base 10;手册为 **Hexadecimal**。`ZR100` 实际访问 ZR64,`ZR1F` 抛 `ValueError`。
+- **MC 字符串读写忽略 `.bit`(已核验)**:`plc/melsec/melsec.py:202-215` `_read_string`/`_write_string` 不校验 `parsed.bit`,`read_string("D100.3")` 静默读 D100(Modbus/Keyence/MX/MEWTOCOL 均拒)。
+- **Modbus 区域×类型不匹配静默错功能码(已核验复现)**:`modbus/modbus.py:115/134` 不校验「字类型仅寄存器区/位类型仅位区」;`read_short("c0")` 发 FC01、`read_int("c0")` 返回 65537;写落到 FC05/15。
+- **TOYOPUC 负 32/64 位写抛 `OverflowError`(已核验复现)**:`plc/toyopuc/toyopuc.py:246` `raw.to_bytes(..., signed=False)`;`write_int("D0100", -5)` 逃出公开 API 契约。
+
+### P2
+
+- **aio `active_subscriptions` 仍进事务锁(已核验)**:`opcua/client.py:429` + aio 转发(v0.43「属性读无锁」漏网),事务在途时读该属性冻结事件循环。
+- **`convert.decode_string` 漏 `utf16`/`utf32` 别名(已核验复现)**:`convert.py:317` 前缀只认带连字符写法;`encoding="utf16"` 走单字节路径 → 返回 `\ufffd`。
+- **`TagTable` 接受 NaN/Inf `scale/offset`(已核验)**:`tag.py:65` 仅拒 `==0`;JSON `"scale":"nan"` 可把 NaN 写进 FLOAT/DOUBLE 寄存器。
+- **TCP `recv` 收窄 socket 超时未复位(已核验)**:`transport/tcp.py:95-112` 残超时被下次 `sendall` 继承,慢链路伪超时断连(OpenTcp 已复位,基础协议未)。
+- **AB `ListIdentity` 解析偏移错(已核验)**:`plc/ab/codec_cip.py:1031` 只跳 2 字节前缀;规范为「ItemCount(2)+ItemHeader(4)+Version(2)+SocketAddr(16)=24 字节」后才到 Vendor ID → 身份字段全错(测试夹具亦编码了错误偏移)。
+- **ADS transport 码集缺 `0x1A ERR_TCPSEND`(已核手册)**:`plc/beckhoff/ads.py:98` 有 `0x1B/0x1D` 无 `0x1A` → TCP 发送失败当设备错误不断线。
+- **OPC-UA `_coerce_read` 设备越界抛 `ValueError`(已核验复现)**:`opcua/client.py:867` 读侧设备返回越界(如 `read_ushort` 遇 70000)应 `DeviceError`(设备条件)却抛 `ValueError` 逃出 `_execute`。
+- **Keyence SR `bank` 范围错(已核手册)**:`scanner/keyence_sr.py:95` 暴露 0~15;手册 `LON,b` 为 **01~16** → `bank=0` 发非法 `LON,00`、设备 bank 16 被拒。
+- 其余 P2:**native 退避指数未封顶**(`native/base.py:670`,`OverflowError` 逃出);**ADS transport 错误分类为 UNKNOWN**(`ads.py:135`,应 TRANSPORT);**ADS `write(addr, STRING)` 绕过声明长预检**(`ads.py:382`);**AB/FINS/MX 非 BOOL `.bit` 未拒/未处理**(`ab.py` read_batch、`omron.py` 字符串、`mx.py` 读);**1E `X/Y` 八进制 vs 手册十六进制**(`constants.py:291`,待核);**Inovance 0406 未列手册**(`melsec.py:242`,待核);**AB 自定义 STRING<88 仍按 88 写**(`codec_cip.py:1174`);**AB 单条超预算不拆**(`ab.py:818`)。
+
+### P3(合并)
+
+- Modbus:FC20 上界 `0x7D` 非规范(聚合响应无上界,`codec.py:877/896`);RTU FC43 增量无 ADU cap(`modbus.py:1409`);FC05/06/15/16 写响应不回显(`_write_pdu` 未用 `parse_write_response`);批量写只读区在锁内才抛(`write_many`/`write_batch`);FC08 清计数器广播被误拒;异常响应对尾字节宽容(`codec.py:186`);FC12 事件 0~64 未限;掩码/批量值 `int()` 静默截断 float;设备标识翻页非法 `NextObjectId` 抛裸 `ValueError`。
+- OpenTcp:`max_frame` 不严格遵守(单分片自带分隔符可超)、`recv_chunk_size` 无上界、长度前缀 `to_bytes` 可溢出发送端。
+- native:`__aexit__` 用 `disconnect()`(aio 用 `close()`);UDP `close` 在无当前 loop 时可能漏关 FD。
+- 工程:`docs/architecture.md` §6.2/§10 与 `CONTRIBUTING.md:9` 仍称「CI 裸 mypy / 仅 3.12」与 3.7.9+3.12 矩阵不符(review 台账曾误标已订正;已订正 2026-09-27);`[tool.mypy] files=["src","tests"]` 因显式路径而失效(tests 实际未检查);MTConnect 单点读每次拉整份 `/current`;S7 `_write` 未支持类型抛 `KeyError`、docstring 引用不存在的 `DataType.BYTE`;TOYOPUC packed 地址校验与编码口径自相矛盾(`address.py:132` vs `139`,待手册)。
+- **文档/引用纪律(审计 + 补足,2026-09-27)**:协议实现 × `docs/protocol` 索引全面核对——①**MC 依据误标** `SH-080956`(SLMP)统一改为 **`SH-080008`**(MC 协议);②**FINS 依据误标** `W340` → **`W342`**(§5-1-3 结束码 / §5-2-1·§5-2-2 存储区):`omron/codec.py`、`core/constants.py` 及 `architecture.md` 5 处;③`keyence/mc.py` 的 `SH081257ENG` 未见于索引 → 改引 SLMP `SH-080956` 并标 **待核**;④`core/constants.py` MEWTOCOL 端口来源 Pro-face 标 **第三方非官方·待核**;⑤**补足缺失引用**:`melsec/address.py`(SH-080008 §8.1/8.2)、`modbus/address.py`(Modbus §4.4 + Modicon 记法存档)、`omron/address.py`(W342 §5-2)、`ab/address.py`(Rockwell Explicit Messaging)、`siemens/client.py`·`address.py`(S7-1500 §3.5/§6.4/§3;S7comm 编码待核)、`opcua/client.py`(Part1 §6.3.3/§7.11;Part 4 待核)、`cnc/mtconnect.py`(Part1 HTTP 端点)、`scanner/keyence_sr.py`(SR-2000 LON,b)、`plc/omron/cip.py`(W506 §7/W627)、`plc/ab/codec_cip.py`(ODVA EtherNet/IP/PUB00123/Rockwell)。`CONTRIBUTING.md` 铁律补两条硬约束(引用须指向正确文档编号、码表/错误码禁止按连续性推断须逐项对表),PR 流程加「列出依据手册编号+页码/章节」;CI 版本矩阵措辞(3.7.9+3.12)订正。**无文档依据者一律标「待核」**,不臆造。
+
+### 待核(需手册/真机)
+
+- 1E `X/Y` 进制(手册标 Hexadecimal,库用八进制)、TOYOPUC packed 段字索引、Inovance 0405/0406 支持面、FINS 字符串带位号的 PLC 端行为。
 
 ---
 

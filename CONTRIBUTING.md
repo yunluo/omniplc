@@ -6,7 +6,8 @@
 ## 一、开发环境
 
 - **Python**:本仓库声明 `requires-python = ">=3.7.9"`;本地推荐钉 3.7.9 真机门禁
-  (`.python-version` 已设),CI 用 3.12(`uv` 不托管下载 3.7,详见 `CHANGELOG.md` v0.31.4)。
+  (`.python-version` 已设)。CI 跑版本矩阵 **`3.7.9` + `3.12`**(3.7 必保——老设备 vendor
+  SDK 只到 3.7;`uv` 不托管下载 3.7,详见 `.github/workflows/ci.yml` 与 `CHANGELOG.md` v0.31.4)。
 - **包管理 / 构建**:`uv`(`uv sync --extra dev` 装 dev 依赖——dev 是 optional-dependencies
   的 extra,不是 dependency-group;`uv lock` 同步 lockfile)。
 - **编辑器**:任意;提交前请跑通门禁四件套(见「三、测试」,静态检查用
@@ -23,6 +24,12 @@
   扫描件无文本层的至少给章节 + 可定位的特征段落。**找不到文档依据的协议不得新增实现**
   (`docs/protocol/README.md`「待补」表登记拿不到的厂商手册;存量无文档实现保持登记并标注
   待核,补齐文档时逐处补引用)。新驱动 / 协议面改动的 PR 按此逐条核对引用可回溯。
+  **两条硬约束**:(a)**引用必须指向正确的文档编号**——同一厂商多份手册不得张冠李戴
+  (例:三菱 MC 协议 = `SH-080008`,`SH-080956` 是 SLMP 参考手册;以
+  [`docs/protocol/README.md`](docs/protocol/README.md) 索引表的「编号/来源」列为准)。
+  (b)**码表 / 错误码 / 常量不得按"看似连续"推断或照抄相邻行**——必须逐项对到手册表里
+  的**该行原值**(设备码、地址进制、字宽三者都要核);凡"待真机终核"的取值须同时给出手册
+  依据,不得以"与手册吻合"草率结案。
 - **零核心依赖**:协议实现除已声明的 `[project.dependencies]` 外不得引入新依赖;
   新增第三方包须先开 issue 讨论。
 - **类型标注**:全量 `typing`(PEP 484)+ `# type: ignore` 仅在必要时局部使用;
@@ -67,7 +74,10 @@ uvx ty check src/omniplc                 # 0 问题(Astral 第二类型检查器
 4. 填 `.github/PULL_REQUEST_TEMPLATE.md` 的清单。
 5. 协议/breaking change 必须:
    - 在 `docs/architecture.md` 状态链与版本履历表加行;
-   - README 与 `docs/architecture.md` 文案同步。
+   - README 与 `docs/architecture.md` 文案同步;
+   - **在 PR 描述里列出所依据的 `docs/protocol` 手册编号 + 页码/章节/表**(可用「文档复核」
+     小节形式),并确认代码就近注释与该引用一致(见「二、代码约定」铁律);协议字段/码表
+     改动要说明「逐项对表」的核对方法,而非只给结论。
 
 ## 六、版本发布
 

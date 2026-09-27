@@ -61,7 +61,7 @@ from ...transport import BaseTransport, SerialConfig, SerialTransport, TcpTransp
 from ...types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity
 
 # iQ-F(FX5U)X/Y 八进制口径码表(其余软元件与 Q/L/R 同):xy_octal=True 时
-# 经 :meth:`_MelsecMcBase._effective_codes` 生效(组帧与校验共用,见 SH-080956)
+# 经 :meth:`_MelsecMcBase._effective_codes` 生效(组帧与校验共用,见 SH-080008)
 _MC_DEVICE_CODES_FX5U_XY: Dict[str, Tuple[int, int, int]] = {
     **MC_DEVICE_CODES,
     "X": (0x9C, 1, 8),

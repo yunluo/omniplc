@@ -1,5 +1,8 @@
 """CNC MTConnect 客户端(HTTP/XML 只读数采,Agent 默认端口 5000)。
 
+依据:MTConnect Part1 Overview and Fundamentals(HTTP 请求 /probe、/current、/sample、
+/assets、/asset/{id})。
+
 MTConnect 是机床数控领域开放的互联标准:机器侧运行 MTConnect **Agent**
 (HTTP 服务,由 FANUC/三菱等控制器的适配器喂数),客户端以普通 HTTP GET
 读取 XML 文档——``/probe``(设备清单)、``/current``(全量当前值快照)、

@@ -1,5 +1,8 @@
 """OPC-UA 客户端(封装 asyncua,opc.tcp 会话)。
 
+依据:OPC-UA Part1 Overview and Concepts §6.3.3(AddressSpace / Nodes)、§6.3.4.2 与
+§7.11(Subscription);Browse/Read/Write 服务集合见 Part 4(本目录未收录,**待核**)。
+
 OPC-UA 是完整规范栈(二进制编码、会话/订阅、X.509 安全栈),
 **不自研协议**,封装成熟库 `asyncua`(1.1.5 为最后支持 Python 3.7
 的版本)。本驱动在统一契约

@@ -1,5 +1,8 @@
 """欧姆龙 CIP / 连接型 CIP 客户端——NJ/NX 内置 EtherNet/IP 变量读写。
 
+依据:Omron W506 §7(CIP Message Communications,client function)、W627(NX EtherNet/IP
+单元);变量 / 标签的显式报文访问。
+
 NJ/NX(Sysmac)系列没有 FINS/TCP-UDP,变量经标准 CIP 显式报文访问;
 与罗克韦尔 AB 同属 ODVA EtherNet/IP(端口同为 44818),故继承
 :class:`~omniplc.plc.ab.AllenBradleyEthIpClient`,仅覆写走线与变量

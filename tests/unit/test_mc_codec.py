@@ -291,6 +291,35 @@ def test_mc_device_code_table_l_is_92_and_no_collisions() -> None:
     assert not collisions, "MC 设备码重码:{}".format(collisions)
 
 
+def test_mc_timer_counter_device_codes_match_manual() -> None:
+    """MC 定时器/计数器设备码按 SH080008 §8.1:TS=C1H/TC=C0H/TN=C2H,CS=C4H/CC=C3H/CN=C5H。
+
+    回归:v0.41.0 扩容时把六者误排成连续 C1..C6,导致 3E/4E/4C 下
+    ``TN``/``CN``(当前值,字)静默落到 ``CC``/``STC`` 线圈区。
+    """
+    from omniplc.core.constants import MC_DEVICE_CODES
+
+    assert MC_DEVICE_CODES["TS"][0] == 0xC1
+    assert MC_DEVICE_CODES["TC"][0] == 0xC0
+    assert MC_DEVICE_CODES["TN"][0] == 0xC2
+    assert MC_DEVICE_CODES["CS"][0] == 0xC4
+    assert MC_DEVICE_CODES["CC"][0] == 0xC3
+    assert MC_DEVICE_CODES["CN"][0] == 0xC5
+    # 字宽:接点/线圈(TS/TC/CS/CC)=位,当前值(TN/CN)=字
+    assert MC_DEVICE_CODES["TC"][1] == 1
+    assert MC_DEVICE_CODES["TN"][1] == 0
+    assert MC_DEVICE_CODES["CC"][1] == 1
+    assert MC_DEVICE_CODES["CN"][1] == 0
+
+
+def test_mc_1e_step_relay_code_matches_manual() -> None:
+    """1E 的 M/L/S 共用内部继电器码 4D20H(手册);S 不得为凭空值。"""
+    from omniplc.core.constants import MC_1E_DEVICE_CODES
+
+    assert MC_1E_DEVICE_CODES["M"][0] == 0x4D20
+    assert MC_1E_DEVICE_CODES["S"][0] == 0x4D20
+
+
 def test_check_byte_field_rejects_non_int() -> None:
     """路由字节字段校验:bool/float/str 不再被 int() 静默收窄。"""
     from omniplc.core.validation import check_byte_field

@@ -1,5 +1,9 @@
 """西门子 S7 客户端(封装 python-snap7,ISO-on-TCP 102)。
 
+依据:Siemens S7-1500 Communication Function Manual §3.5(端口 102,ISO-on-TCP)、
+§6.4(TCP/ISO-on-TCP/UDP 开放通信)、§3(PUT/GET 访问授权);S7comm 数据项编码
+(TPKT/COTP/S7 PDU、数据长度/DB 寻址)公开手册未逐条收录,依赖 python-snap7,**待核**。
+
 S7comm 是完整私有协议栈(TPKT/COTP/S7 PDU、机架/槽位路由、
 S7-1200/1500 的 PUT-GET 授权与优化块限制),**不自研**,封装成熟库
 `python-snap7`,依赖按解释器版本二选一(``s7`` extra 环境标记自动生效,

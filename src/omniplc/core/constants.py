@@ -264,11 +264,11 @@ MC_DEVICE_CODES: Dict[str, Tuple[int, int, int]] = {
     "DX": (0xA2, 1, 16),
     "DY": (0xA3, 1, 16),
     "TS": (0xC1, 1, 10),
-    "TC": (0xC2, 1, 10),
-    "TN": (0xC3, 0, 10),
+    "TC": (0xC0, 1, 10),
+    "TN": (0xC2, 0, 10),
     "CS": (0xC4, 1, 10),
-    "CC": (0xC5, 1, 10),
-    "CN": (0xC6, 0, 10),
+    "CC": (0xC3, 1, 10),
+    "CN": (0xC5, 0, 10),
     "SM": (0x91, 1, 10),
     "SD": (0xA9, 0, 10),
     "D": (0xA8, 0, 10),
@@ -280,9 +280,10 @@ MC_DEVICE_CODES: Dict[str, Tuple[int, int, int]] = {
 }
 """3E/4E 软元件码表:软元件 → (二进制码, 位软元件?, 地址进制)。
 
-来源:SH-080956 手册二进制码列:X/Y/W/B/SB/SW/DX/DY 十六进制,
+来源:SH-080008 §8.1 手册二进制码列:X/Y/W/B/SB/SW/DX/DY 十六进制,
 L/F/S/V/TS/TC/TN/CS/CC/CN/SM/SD/ZR 十进制;TS/TC/CS/CC 为定时器
-计数器接点/线圈(位),TN/CN 为当前值(字,TN=C3/CN=C6 待真机终核)。
+计数器接点/线圈(位,TS=C1H/TC=C0H/CS=C4H/CC=C3H),TN/CN 为当前值
+(字,TN=C2H/CN=C5H——注意接点/线圈码非连续)。
 仅 iQ-F(FX5U)的 X/Y 为八进制,v1 按 Q/L/R 口径处理(可用
 :class:`~omniplc.plc.melsec` 以太网客户端的 ``xy_octal=True`` 切换)。
 智能功能模块缓冲存储器不在本表(SLMP 走专用命令,非软元件寻址)。
@@ -291,11 +292,14 @@ MC_1E_DEVICE_CODES: Dict[str, Tuple[int, int, int]] = {
     "X": (0x5820, 1, 8),
     "Y": (0x5920, 1, 8),
     "M": (0x4D20, 1, 10),
-    "S": (0x5320, 1, 10),
+    "S": (0x4D20, 1, 10),
     "D": (0x4420, 0, 10),
     "R": (0x5220, 0, 10),
 }
-"""1E 软元件码表:软元件 → (两字节码, 位软元件?, 地址进制)(A 兼容帧协议约定)。"""
+"""1E 软元件码表:软元件 → (两字节码, 位软元件?, 地址进制)(A 兼容帧协议约定)。
+
+手册 1E 表把内部继电器 ``M/L/S`` 归为同一码 ``4D20H``,故 ``S`` 与 ``M`` 同码(别名)。
+"""
 
 # ---------------------------------------------------------------- 三菱 MC 串口帧(3C/4C)
 MC_SERIAL_FRAME_ID_3C: int = 0xF9
@@ -467,7 +471,7 @@ PANASONIC_MC_SD_BASE: int = 90000
 MEWTOCOL_DEFAULT_PORT: int = 1024
 """MEWTOCOL 以太网默认端口(TCP/UDP,PLC 为服务器)。
 
-来源:Pro-face《MEWTOCOL-COM Ethernet Driver》目标端口号 1024;
+来源:Pro-face《MEWTOCOL-COM Ethernet Driver》目标端口号 1024(第三方资料,非厂商官方手册,**待核**);
 实际以 PLC 以太网模块设置为准。
 """
 MEWTOCOL_DEFAULT_STATION: int = 1
@@ -637,7 +641,7 @@ FINS_END_CODE_TEXT: Dict[int, str] = {
     0x3001: "访问权被其他设备持有",
     0x4001: "命令被 ABORT 命令中止",
 }
-"""FINS 结束码 → 可读描述(全表,依据手册 W340 5-4-2;2026-09 复审补全);
+"""FINS 结束码 → 可读描述(全表,依据手册 W342 §5-1-3 End Codes;2026-09 复审补全);
 未收录的提示查阅手册。"""
 FINS_MAX_DATAGRAM: int = 8192
 """UDP 整包接收缓冲上限(8192 覆盖长字符串/大批量响应;UDP 单包上限 65507)。"""
@@ -658,7 +662,7 @@ FINS_HANDSHAKE_RESPONSE_SIZE: int = 24
 FINS_EM_BANK_MAX: int = 15
 """EM 区 bank 号上限(E0~EF)。"""
 FINS_EM_WORD_CODE_BASE: int = 0xA0
-"""EM 区字操作码基址(bank 0 → 0xA0;手册 W340 5-2-2:字 A0~AF、位 20~2F。
+"""EM 区字操作码基址(bank 0 → 0xA0;手册 W342 §5-2-1/§5-2-2:字 A0~AF、位 20~2F。
 2026-09 复审修正:原 0xE0 为 bank≥16 扩展区的位码,系笔误)。"""
 FINS_EM_BIT_CODE_BASE: int = 0x20
 """EM 区位操作码基址(bank 0 → 0x20)。"""
@@ -671,7 +675,7 @@ FINS_MEMORY_CODES: Dict[str, Tuple[int, int]] = {
     "T": (0x09, 0x89),
     "C": (0x09, 0x89),
 }
-"""FINS 存储区码:区名 → (位操作码, 字操作码)。来源:手册 W340 5-2-2;EM 区按 bank 换算(位 0x20/字 0xA0 + bank,bank 0~15)。
+"""FINS 存储区码:区名 → (位操作码, 字操作码)。来源:手册 W342 §5-2-1/§5-2-2;EM 区按 bank 换算(位 0x20/字 0xA0 + bank,bank 0~15)。
 T/C(定时器/计数器)共享码表(按地址区分):位 = 完成标志(09,只读),
 字 = 当前值 PV(89,可读写)。"""
 FINS_TIMER_COUNTER_AREAS: Tuple[str, ...] = ("T", "C")

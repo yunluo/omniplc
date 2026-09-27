@@ -1,6 +1,8 @@
 """EtherNet/IP(CIP)编解码纯函数——ENIP 封装 + CIP 消息路由服务。
 
-帧格式按 CIP/EtherNet/IP 规范与 ODVA 公开资料实现:
+帧格式按 ODVA《EtherNet/IP — CIP on Ethernet》/ PUB00123《CIP Networks》、Rockwell
+《EtherNet/IP Explicit Messaging Guide》实现(ENIP 封装、SendRRData/SendUnitData、CIP 报文);
+部分封装命令结构(如 ListIdentity)见 EtherNet/IP 规范 Vol 2(本目录未收录,**待核**):
 
 - ENIP 封装头 24 字节:command(H) + length(H) + session(I) + status(I)
   + sender context(8) + options(I)
