@@ -208,7 +208,7 @@ v1 评审稿逐条对源码复核后形成本版:
 - **AB `ListIdentity` 解析偏移错(已核验)——已修复(2026-09-27)**:`codec_cip.parse_list_identity_reply` 重写为 CPF 标准布局——ENIP 头 24 + Item Count(2)+ Item Type 0x000C(2)+ Item Length(2)+ Encap Version(2)+ Socket Address(16)= **Vendor ID 从载荷第 48 字节起**;Item 计数/类型码/长度域非法按坏帧拒绝。依据:Rockwell《Communicating with RA Products Using EtherNet/IP Explicit Messaging》p.20-21(封装头 24 字节 + CPF Item 结构)+ **pycomm3 1.2.16 `ListIdentityObject` 参考实现裁决**(临时环境安装实测:标准布局帧逐字段解出,旧 2 字节前缀帧 `is_valid=False`);原「2 字节兼容前缀」口径与测试夹具均系误判,一并订正(结论记 architecture.md §8.1)。回归 `test_parse_list_identity_reply_full_fields` 重写 + 新增 `test_parse_list_identity_reply_bad_item`;客户端夹具 `_identity_list_reply` 同步改标准布局。原描述:只跳 2 字节前缀,身份字段全错。
 - ~~**ADS transport 码集缺 `0x1A ERR_TCPSEND`(已核手册)**~~:**已修复(2026-09-27,ADS 专项)**——TE1000 §8 p.128 `0x1A ERR_TCPSEND` 补入(原 `0x1B/0x1D` 独缺 `0x1A`,TCP 发送失败当设备错误不断线)。
 - **OPC-UA `_coerce_read` 设备越界抛 `ValueError`(已核验复现)——已修复(2026-09-27)**:`_narrow_int` 捕获范围校验的 `ValueError` 转译为 `DeviceError(code=0)`——越界值来自**服务端**属设备侧条件(与"节点值为空"同口径,`_execute` 转 `(False, None)` 不断线);写路径维持 `ValueError`(调用方参数错误)。回归更新 `test_coerce_read_narrows_integer_range`(旧实现 FAILED)。原描述:`opcua/client.py:867` 读侧设备返回越界(如 `read_ushort` 遇 70000)应 `DeviceError` 却抛 `ValueError` 逃出 `_execute`。
-- **Keyence SR `bank` 范围错(已核手册)**:`scanner/keyence_sr.py:95` 暴露 0~15;手册 `LON,b` 为 **01~16** → `bank=0` 发非法 `LON,00`、设备 bank 16 被拒。
+- ~~**Keyence SR `bank` 范围错(已核手册)**~~:**已修复(2026-09-27,基恩士专项)**——手册 `LON,b` 为 **b:01~16**;`SR_BANK_MAX` 15→16、加 `SR_BANK_MIN=1`,校验 `1~16`(原 `0~15` 致 `bank=0` 发非法 `LON,00`、`bank=16` 被误拒)。
 - 其余 P2:**native 退避指数未封顶**(`native/base.py:670`,`OverflowError` 逃出);~~**ADS transport 错误分类为 UNKNOWN**(`ads.py:135`,应 TRANSPORT)~~(**已修复 2026-09-27**:transport 分支改抛 `TransportClosedError`,归 TRANSPORT);~~**ADS `write(addr, STRING)` 绕过声明长预检**(`ads.py:382`)~~(**已修复 2026-09-27**:STRING 分支路由 `_write_string` 预检);**AB/FINS/MX 非 BOOL `.bit` 未拒/未处理**(`ab.py` read_batch、`omron.py` 字符串、`mx.py` 读;其中 **FINS 字符串已修 2026-09-27** 见 FINS 专项);**1E `X/Y` 八进制 vs 手册十六进制**(`constants.py:291`,待核);**Inovance 0406 未列手册**(`melsec.py:242`,待核);**AB 自定义 STRING<88 仍按 88 写**(`codec_cip.py:1174`);**AB 单条超预算不拆**(`ab.py:818`)。
 
 ### P3(合并)
@@ -242,7 +242,9 @@ pdfplumber 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、�
 | OPC-UA | ✅ 已完成 | P2 Deadband 透传(DataChangeFilter);P3 GUID 格式严格校验(8-4-4-4-12)+ browse ReferenceType;§2.11.5/7/8 已由既有修复覆盖——见下「OPC-UA 专项」 |
 | MTConnect | ✅ 已完成 | P2 `/sample` 历史流 + `/asset` + 多 Device `/probe`;P3 空元素 UNAVAILABLE + path 过滤——见下「MTConnect 专项」 |
 | 汇川 H3U/H5U(Modbus + MC 兼容) | ✅ 已完成 | P2 X/Y 上限按 H5U 放宽到 X1777(1024 点)、P2 C200~C255 32 位计数器字访问(0xF700 双寄存器 + 32 位类型门控);地址表逐项对照 H3U 9.4.3 / H5U 9.5.1 与 MC 16.4——见下「汇川专项」 |
-| 丰田 TOYOPUC / 松下 / 基恩士 KV·SR | ⚠️ 丰田已完成(同源参考裁决修正);其余待查 | 丰田:打包字/字节编号口径经 `plc-comm-toyopuc` 4.2.0 双向裁决 → 修正校验多移 4 位;缺命令待官方手册;见下「丰田 TOYOPUC 专项」 |
+| 丰田 TOYOPUC 计算机链接 | ✅ 已完成(同源参考裁决修正) | 打包字/字节编号口径经 `plc-comm-toyopuc` 4.2.0 双向裁决 → 修正校验多移 4 位;缺命令待官方手册——见下「丰田 TOYOPUC 专项」 |
+| 松下 FP(MC / MEWTOCOL) | ⏳ 待查 | 官方手册缺(MEWTOCOL-COM 手册待补);协议要点在 §2.9 |
+| 基恩士 KV·SR | ⚠️ SR 已完成(bank 范围修正);KV 待查 | SR:P2 bank 范围 01~16 修正 + 缺口登记;KV 官方手册缺——见下「基恩士 SR/KV 专项」 |
 | native / aio 层 | ⏳ 待查 | 三轮 P1 恒等缩放(同步回归 + native 镜像)、Modbus 区域×类型、TOYOPUC 负写已修(2026-09-27);退避封顶等 P2 待处理 |
 
 ### MX 专项(2026-09-27,逐协议深入;PyMuPDF 抽取《MX Component Version 4 编程手册》全 564 页)
@@ -360,6 +362,17 @@ byte count、FC43 按对象头)与 CRC 低字节在前。
 - **待核/能力缺口(登记)**:`S7comm` 帧格式(依赖 pyS7snap7);SZL 系统状态列表;块操作;DB 寻址全部经绝对寻址,优化块访问(`_raise_link_aware` 提示)。
 
 门禁:全量 **1267 passed**(+8)/ ruff / mypy(76) / ty 全零。
+
+### 基恩士 SR 扫码枪专项(2026-09-27;SR-2000 用户手册 Rev6.0 pdfplumber 全 122 页)
+
+核对通过(SR-2000 手册站「多站通讯网络 / 多个读取头」命令表,PDF 页 56):命令 `LON`(无参)/ `LON,b`(指定库)/ `LOFF`(读取结束)/ `BCLR` / `RESET` 与实现一致(命令以 CR 结束;应答在 LOFF 之后);`KEYENCE`(版本查询)、`CANCEL`(取消读取)手册有、本库未实现。
+
+- **P2 SR `bank` 范围错(三轮 P2)——已修复**:手册明载「读取开始(指定库)**LON,b**  b:**01 至 16**」;`SR_BANK_MAX` 原 15 且校验 `0~15`,`bank=0` 会发非法 `LON,00`、`bank=16` 被误拒。现 `SR_BANK_MAX=16` + 新增 `SR_BANK_MIN=1`,校验 `1~16`;门禁 `test_scan_with_bank_upper_bound`(bank=16 → `LON,16\r`)+ `test_scan_bank_validation`(0/17/-1 拒绝)。
+- **能力缺口(手册有命令,未实现,登记)**:`CANCEL`(取消读取)、`HCLR`(历史清除)、`KEYENCE`(版本查询,resp `OK,KEYENCE,SR-2000,v`)。
+- **设计边界(维持,非缺陷)**:§2.7.6 仅 level-trigger(TRG 为**硬件触发输入**/`TRG BUSY` 输出信号,命令表无 TRG 下发命令 → 不实现);§2.7.7 `scan_dwell` 锁内 sleep(单枪串行化即正确语义);§2.7.8 `LON` 不带 bank 已支持(`bank=None`);§2.7.9 超时残行 `_drain_line` 已缓解(全库超时不断线契约)。
+- **KV MC(KV-7500/8000/X,SLMP 兼容 3E)**:§2.7.3 R 位组编号口径维持「记号原样」(依 SLMP 手册 KEYENCE 设备格式约定 + 真机 checklist,**待真机核证**);§2.7.4 T/C 类软元件、§2.7.10 型号门控需 **KV 官方手册**(Host Link/MC,`docs/protocol/README.md`「待补」),按铁律未改。
+
+门禁:全量 **1292 passed**(+1)/ ruff / mypy(76) / ty 全零。
 
 ### 丰田 TOYOPUC 专项(2026-09-27;同源参考实现双向裁决)
 

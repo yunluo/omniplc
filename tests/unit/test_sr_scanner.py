@@ -53,10 +53,21 @@ def test_scan_with_bank(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient
     assert bytes(scripted.sent).startswith(b"LON,01\r")
 
 
+def test_scan_with_bank_upper_bound(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient) -> None:
+    """bank 上界 16(手册 LON,b 为 01~16):LON,16 合法。"""
+    scripted = ScriptedTransport(_chunks_of(b"XYZ\r"))
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.scan(bank=16) == (True, "XYZ")
+    assert bytes(scripted.sent).startswith(b"LON,16\r")
+
+
 def test_scan_bank_validation(client: KeyenceSrClient) -> None:
-    """bank 越界抛 ValueError。"""
+    """bank 越界抛 ValueError:合法范围 01~16(手册),故 0 与 17 拒绝。"""
     with pytest.raises(ValueError):
-        client.scan(bank=16)
+        client.scan(bank=0)
+    with pytest.raises(ValueError):
+        client.scan(bank=17)
     with pytest.raises(ValueError):
         client.scan(bank=-1)
 

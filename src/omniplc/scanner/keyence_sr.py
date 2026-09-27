@@ -1,6 +1,8 @@
 """基恩士 SR 系列扫码枪客户端(TCP,用户模式)。
 
-依据:基恩士 SR-2000 用户手册 Rev6.0(CN)「读取开始 LON / LON,b(b=01~16);读取结束 LOFF」。
+依据:基恩士 SR-2000 用户手册 Rev6.0(CN)「多站通讯网络/多个读取头」命令表
+(PDF 页 56):读取开始 `LON`、指定库 `LON,b`(**b:01~16**)、读取结束 `LOFF`、
+`BCLR`、`RESET`(另有 `KEYENCE` 版本查询 / `CANCEL` 未实现)。
 
 协议为请求/应答式(TCP 默认端口 9004,命令以 CR 结束):
 
@@ -23,6 +25,7 @@ from typing import Optional, Tuple
 from ..core.base_client import BaseClient, validate_endpoint
 from ..core.constants import (
     SR_BANK_MAX,
+    SR_BANK_MIN,
     SR_CMD_BUFFER_CLEAR,
     SR_CMD_LOFF,
     SR_CMD_LON,
@@ -87,15 +90,17 @@ class KeyenceSrClient(BaseClient):
         重试次数用 :attr:`write_retries`(默认 0),避免重试造成重复触发;
         事务计数、退避门控与错误分类与全库其他驱动一致。
 
-        :param bank: 预设 bank 号(0~15),不同 bank 存储不同的解码/曝光/对焦配置;
-            ``None`` 使用扫码枪当前 bank
+        :param bank: 预设 bank 号(**1~16**;手册 LON,b 为 b:01~16),不同 bank
+            存储不同的解码/曝光/对焦配置;``None`` 使用不带 bank 的 ``LON``
         :param timeout: LOFF 后等待应答的超时(秒);``None`` 用 :attr:`receive_timeout`
         :return: ``(是否读到条码, 条码文本)``;未读到/ERROR/超时/断线返回
             ``(False, None)``,原因记入 :attr:`last_error`
         :raises ValueError: bank 越界
         """
-        if bank is not None and not 0 <= int(bank) <= SR_BANK_MAX:
-            raise ValueError(f"bank 必须在 0~{SR_BANK_MAX} 之间,收到:{bank}")
+        if bank is not None and not SR_BANK_MIN <= int(bank) <= SR_BANK_MAX:
+            raise ValueError(
+                f"bank 必须在 {SR_BANK_MIN}~{SR_BANK_MAX} 之间,收到:{bank}"
+            )
         read_timeout = self._receive_timeout if timeout is None else float(timeout)
         if read_timeout <= 0:
             raise ValueError(f"timeout 必须大于 0,收到:{read_timeout}")

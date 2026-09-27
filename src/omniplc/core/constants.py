@@ -813,7 +813,10 @@ SR_DEFAULT_PORT: int = 9004
 """SR 系列 Ethernet 用户模式默认 TCP 端口。"""
 SR_DEFAULT_SCAN_DWELL: float = 1.0
 """默认扫码窗口时长(秒):LON 开窗到 LOFF 关窗的等待时间。"""
-SR_BANK_MAX: int = 15
+SR_BANK_MAX: int = 16
+"""SR 预设库(bank)编号上限;手册「读取开始(指定库)LON,b」为 **b:01~16**。"""
+SR_BANK_MIN: int = 1
+"""SR 预设库编号下限(手册 b:01~16;无 bank 用不带参的 LON)。"""
 """预设 bank 号上限(LON,{bank:02d},0~15)。"""
 SR_RECV_MAX: int = 1024
 """单次响应读取字节上限。"""
