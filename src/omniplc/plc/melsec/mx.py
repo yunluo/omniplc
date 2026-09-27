@@ -384,13 +384,28 @@ def _com_get_error_message(com: Any, code: int) -> str:
     """出错代码转官方文本(GetErrorMessage,经 ActSupportMsg 控件)。
 
     (lErrorCode 入参、szErrorMessage 出参):先按"出参收进返回值"
-    单参调用,TypeError 退回 byref VARIANT 形态。
+    单参调用;该形态不可用(TypeError)时退回 byref VARIANT 形态。
+    byref 路径在探测异常**处理块之外**执行——探测期的 TypeError 只是
+    形态判断,不应作为后续异常的 ``__context__`` 挂在链上(那会把
+    控件代理引用经 traceback 扣到 GC)。
+
+    退出时(**含异常路径**)置空本地 ``com`` 引用:STA 控件代理随引用
+    计数立即释放,不留待 traceback 帧。
     """
     from comtypes.automation import VARIANT
 
     try:
-        result = com.GetErrorMessage(int(code))
-    except TypeError:
+        probe_failed = False
+        try:
+            result = com.GetErrorMessage(int(code))
+        except TypeError:
+            probe_failed = True  # 形态探测:单参形态不成立,走 byref 回退
+        except _com_error() as exc:
+            raise OmniPLCInternalError(
+                "MX Component GetErrorMessage 失败:{}".format(exc)
+            ) from exc
+        if not probe_failed:
+            return str(_first(result))
         message = VARIANT()
         try:
             raw = com.GetErrorMessage(int(code), ctypes.byref(message))
@@ -400,11 +415,8 @@ def _com_get_error_message(com: Any, code: int) -> str:
             ) from exc
         _check_rc(_return_code(raw), "GetErrorMessage")
         return str(message.value)
-    except _com_error() as exc:
-        raise OmniPLCInternalError(
-            "MX Component GetErrorMessage 失败:{}".format(exc)
-        ) from exc
-    return str(_first(result))
+    finally:
+        com = None
 
 
 class _MxComLink(BaseTransport):
@@ -884,7 +896,10 @@ class MelsecMxClient(BaseClient):
         """把 MX 出错代码转为官方文本(GetErrorMessage)。
 
         经独立的 **ActSupportMsg** 控件查询(手册 5.2.26:该功能不在
-        ActUtlType 上),控件按需创建,ProgID 见
+        ActUtlType 上),控件按需创建、**用毕即时释放**(成功/失败路径
+        都在 ``finally`` 置空引用,COM 代理随引用计数立即回收——每次
+        调用新建是刻意的:STA 控件绑定创建线程,缓存跨线程复用反而
+        不可用),ProgID 见
         :data:`omniplc.core.constants.MX_SUPPORT_MSG_PROG_ID`(真机待核证)。
 
         :param code: 出错代码(手册第 7 章,如 ``0xC0500100``)
@@ -893,9 +908,11 @@ class MelsecMxClient(BaseClient):
         """
 
         def operation() -> str:
-            return _com_get_error_message(
-                _new_support_msg_com(self._logical_station_number), int(code)
-            )
+            com = _new_support_msg_com(self._logical_station_number)
+            try:
+                return _com_get_error_message(com, int(code))
+            finally:
+                com = None  # 与 CreateObject 配对:失败路径也不留代理引用
 
         ok, value = self._execute(operation)
         return ok, (value if ok else None)

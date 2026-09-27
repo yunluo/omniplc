@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import weakref
 from typing import Any
 
 import pytest
@@ -33,6 +34,9 @@ from omniplc.plc.melsec.melsec import _encode_32, _encode_64
 from omniplc.types import DataType
 
 _TEXT_RE = re.compile(r"^([A-Za-z]+)(\d+)(?:\.(\d+))?$")
+
+_REAL_GET_ERROR_MESSAGE = mx_module._com_get_error_message
+"""真 GetErrorMessage 助手(夹具会替换为假件;需要走真实现的用例显式换回)。"""
 
 
 class FakeActUtlType:
@@ -455,6 +459,65 @@ def test_com_helpers_raw_error_code() -> None:
     com.read_code = 0xC0500100
     with pytest.raises(OmniPLCInternalError):
         mx_module._com_read_words(com, "D100", 2)
+
+
+def test_com_get_error_message_releases_reference_on_error() -> None:
+    """GetErrorMessage 失败路径不扣留 ActSupportMsg 代理引用(配对收口)。
+
+    回归:控件按调用新建后引用直丢,traceback 帧的本地 ``com`` 会把 STA
+    代理扣到 GC;现在 helper 退出(含异常)即置空引用——调用方持有异常
+    对象时也不再留代理(模拟 ``_execute`` 转文本前的真实形态)。
+    """
+
+    class RcFailMsg:
+        def GetErrorMessage(self, *args: Any) -> int:
+            if len(args) == 1:
+                raise TypeError("call takes exactly 3 arguments (2 given)")
+            return 0xC0500100  # byref 回退形态的非 0 返回码 → _check_rc 抛内部异常
+
+    obj = RcFailMsg()
+    ref = weakref.ref(obj)
+    box: list = []
+
+    def call(target: Any) -> None:
+        try:
+            mx_module._com_get_error_message(target, 0xBAD)
+        except OmniPLCInternalError as exc:
+            target = None  # 排除测试自身帧对代理的引用
+            box.append(exc)
+
+    call(obj)
+    del obj  # 调用方用完即弃(排除本帧对代理的引用)
+    assert box, "非 0 返回码应抛内部异常"
+    assert ref() is None, "异常路径不得扣留控件代理引用"
+
+
+def test_get_error_message_releases_support_msg_control(
+    fake: FakeActUtlType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """get_error_message 用毕即时释放 ActSupportMsg 控件(创建点配对收口)。
+
+    守卫:控件每次调用新建(刻意——STA 控件绑定创建线程,缓存跨线程复用
+    不可用),创建点的 ``finally`` 置空引用,成功路径返回即释放。
+    """
+    refs: list = []
+
+    class TrackedMsg:
+        def GetErrorMessage(self, code: int) -> str:
+            return "出错文本 0x{:08X}".format(code & 0xFFFFFFFF)
+
+    def new_com(station: int) -> TrackedMsg:
+        obj = TrackedMsg()
+        refs.append(weakref.ref(obj))
+        return obj
+
+    monkeypatch.setattr(mx_module, "_new_support_msg_com", new_com)
+    monkeypatch.setattr(mx_module, "_com_get_error_message", _REAL_GET_ERROR_MESSAGE)
+    client = _client()
+    assert client.connect() is True
+    ok, text = client.get_error_message(0xC0500100)
+    assert ok is True and text == "出错文本 0xC0500100"
+    assert refs[0]() is None
 
 
 def test_com_helpers_raw_hresult_error() -> None:
