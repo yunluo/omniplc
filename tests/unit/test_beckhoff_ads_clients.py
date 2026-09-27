@@ -20,8 +20,14 @@ import pytest
 
 from omniplc import BeckhoffAdsClient
 from omniplc.aio import ABeckhoffAdsClient
+from omniplc.core.base_client import _categorize
 from omniplc.core.constants import ADS_DEFAULT_ADS_PORT
-from omniplc.core.errors import DeviceError, OmniPLCInternalError
+from omniplc.core.errors import (
+    DeviceError,
+    ErrorCategory,
+    OmniPLCInternalError,
+    TransportClosedError,
+)
 from omniplc.plc.beckhoff.ads import (
     _AdsSession,
     _build_net_id,
@@ -262,21 +268,67 @@ def test_translate_ads_error(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_translate_ads_error_transport_codes(monkeypatch: pytest.MonkeyPatch) -> None:
-    """TE1000 §8 通断类错误码 → 内部异常,标记断线走惰性重连。
+    """TE1000 §8 p.128 通断类错误码 → TransportClosedError(TRANSPORT,断线重连)。
 
     全局组:0x06 目标端口未找到 / 0x07 目标机器未找到 / 0x0D 端口未连接 /
-    0x12 端口禁用(服务未启)/ 0x1B 主机不可达 / 0x1D TLS 发送失败;
-    Router 组:0x0500~0x050D。
+    0x12 端口禁用(服务未启)/ **0x1A ERR_TCPSEND(TCP 发送失败,三轮 P2 补缺)** /
+    0x1B 主机不可达 / 0x1D TLS 发送失败;Router 组:0x0500~0x050D。
     """
     ads_error_class = _install_pyads_stub(monkeypatch)
     transport_codes = (
-        0x06, 0x07, 0x0D, 0x12, 0x1B, 0x1D,
+        0x06, 0x07, 0x0D, 0x12, 0x1A, 0x1B, 0x1D,
         0x500, 0x505, 0x50A, 0x50D,
     )
     for code in transport_codes:
         translated = _translate_ads_error(ads_error_class(code, "transport down"))
-        assert isinstance(translated, OmniPLCInternalError), hex(code)
+        assert isinstance(translated, TransportClosedError), hex(code)
         assert not isinstance(translated, DeviceError), hex(code)
+        assert _categorize(translated) is ErrorCategory.TRANSPORT, hex(code)
+
+
+def test_tcp_send_error_disconnects_with_transport_category(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """0x1A ERR_TCPSEND 翻译结果(TransportClosedError)→ (False, None) + 断线
+    + TRANSPORT 分类(翻译层本身由上一用例覆盖)。"""
+    client = BeckhoffAdsClient("127.0.0.1")
+    fake = FakeAdsSession()
+    fake.read_errors["MAIN.x"] = TransportClosedError("ADS 连接失效 0x0000001A:TCP send error")
+    monkeypatch.setattr(client, "_create_transport", lambda: fake)
+    client.connect()
+    assert client.read_int("MAIN.x") == (False, None)
+    assert client.connected is False
+    assert client.last_error_category is ErrorCategory.TRANSPORT
+    assert "0x0000001A" in (client.last_error or "")
+
+
+def test_typed_write_string_prechecked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """write(..., DataType.STRING) 与 write_string 同预检(声明长,三轮 P2 补缺)。"""
+    from omniplc.types import DataType
+
+    client = BeckhoffAdsClient("127.0.0.1")
+    fake = FakeAdsSession()
+    fake.symbol_types["MAIN.s"] = "STRING(3)"
+    monkeypatch.setattr(client, "_create_transport", lambda: fake)
+    client.connect()
+    assert client.write("MAIN.s", DataType.STRING, "ABC") is True
+    with pytest.raises(ValueError):
+        client.write("MAIN.s", DataType.STRING, "ABCD")
+    assert fake.written == [("MAIN.s", "ABC", "PLCTYPE_STRING")]
+
+
+def test_auto_net_id_requires_ip_literal() -> None:
+    """主机名不能自动拼 NetId(ADS 经本机路由器按 NetId 路由,主机名不解析);
+    显式 net_id 时主机名可作占位。"""
+    with pytest.raises(ValueError) as exc_info:
+        BeckhoffAdsClient("plc01")
+    assert "net_id" in exc_info.value.args[0]
+    with pytest.raises(ValueError):
+        _build_net_id("plc01", "")
+    assert _build_net_id("192.168.0.10", "") == "192.168.0.10.1.1"
+    assert (
+        BeckhoffAdsClient("plc01", net_id="10.1.100.5.1.1").net_id == "10.1.100.5.1.1"
+    )
 
 
 def test_translate_ads_error_parameter_codes_are_device(

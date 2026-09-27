@@ -204,10 +204,10 @@ v1 评审稿逐条对源码复核后形成本版:
 - **`TagTable` 接受 NaN/Inf `scale/offset`(已核验)**:`tag.py:65` 仅拒 `==0`;JSON `"scale":"nan"` 可把 NaN 写进 FLOAT/DOUBLE 寄存器。
 - **TCP `recv` 收窄 socket 超时未复位(已核验)**:`transport/tcp.py:95-112` 残超时被下次 `sendall` 继承,慢链路伪超时断连(OpenTcp 已复位,基础协议未)。
 - **AB `ListIdentity` 解析偏移错(已核验)——已修复(2026-09-27)**:`codec_cip.parse_list_identity_reply` 重写为 CPF 标准布局——ENIP 头 24 + Item Count(2)+ Item Type 0x000C(2)+ Item Length(2)+ Encap Version(2)+ Socket Address(16)= **Vendor ID 从载荷第 48 字节起**;Item 计数/类型码/长度域非法按坏帧拒绝。依据:Rockwell《Communicating with RA Products Using EtherNet/IP Explicit Messaging》p.20-21(封装头 24 字节 + CPF Item 结构)+ **pycomm3 1.2.16 `ListIdentityObject` 参考实现裁决**(临时环境安装实测:标准布局帧逐字段解出,旧 2 字节前缀帧 `is_valid=False`);原「2 字节兼容前缀」口径与测试夹具均系误判,一并订正(结论记 architecture.md §8.1)。回归 `test_parse_list_identity_reply_full_fields` 重写 + 新增 `test_parse_list_identity_reply_bad_item`;客户端夹具 `_identity_list_reply` 同步改标准布局。原描述:只跳 2 字节前缀,身份字段全错。
-- **ADS transport 码集缺 `0x1A ERR_TCPSEND`(已核手册)**:`plc/beckhoff/ads.py:98` 有 `0x1B/0x1D` 无 `0x1A` → TCP 发送失败当设备错误不断线。
+- ~~**ADS transport 码集缺 `0x1A ERR_TCPSEND`(已核手册)**~~:**已修复(2026-09-27,ADS 专项)**——TE1000 §8 p.128 `0x1A ERR_TCPSEND` 补入(原 `0x1B/0x1D` 独缺 `0x1A`,TCP 发送失败当设备错误不断线)。
 - **OPC-UA `_coerce_read` 设备越界抛 `ValueError`(已核验复现)——已修复(2026-09-27)**:`_narrow_int` 捕获范围校验的 `ValueError` 转译为 `DeviceError(code=0)`——越界值来自**服务端**属设备侧条件(与"节点值为空"同口径,`_execute` 转 `(False, None)` 不断线);写路径维持 `ValueError`(调用方参数错误)。回归更新 `test_coerce_read_narrows_integer_range`(旧实现 FAILED)。原描述:`opcua/client.py:867` 读侧设备返回越界(如 `read_ushort` 遇 70000)应 `DeviceError` 却抛 `ValueError` 逃出 `_execute`。
 - **Keyence SR `bank` 范围错(已核手册)**:`scanner/keyence_sr.py:95` 暴露 0~15;手册 `LON,b` 为 **01~16** → `bank=0` 发非法 `LON,00`、设备 bank 16 被拒。
-- 其余 P2:**native 退避指数未封顶**(`native/base.py:670`,`OverflowError` 逃出);**ADS transport 错误分类为 UNKNOWN**(`ads.py:135`,应 TRANSPORT);**ADS `write(addr, STRING)` 绕过声明长预检**(`ads.py:382`);**AB/FINS/MX 非 BOOL `.bit` 未拒/未处理**(`ab.py` read_batch、`omron.py` 字符串、`mx.py` 读);**1E `X/Y` 八进制 vs 手册十六进制**(`constants.py:291`,待核);**Inovance 0406 未列手册**(`melsec.py:242`,待核);**AB 自定义 STRING<88 仍按 88 写**(`codec_cip.py:1174`);**AB 单条超预算不拆**(`ab.py:818`)。
+- 其余 P2:**native 退避指数未封顶**(`native/base.py:670`,`OverflowError` 逃出);~~**ADS transport 错误分类为 UNKNOWN**(`ads.py:135`,应 TRANSPORT)~~(**已修复 2026-09-27**:transport 分支改抛 `TransportClosedError`,归 TRANSPORT);~~**ADS `write(addr, STRING)` 绕过声明长预检**(`ads.py:382`)~~(**已修复 2026-09-27**:STRING 分支路由 `_write_string` 预检);**AB/FINS/MX 非 BOOL `.bit` 未拒/未处理**(`ab.py` read_batch、`omron.py` 字符串、`mx.py` 读;其中 **FINS 字符串已修 2026-09-27** 见 FINS 专项);**1E `X/Y` 八进制 vs 手册十六进制**(`constants.py:291`,待核);**Inovance 0406 未列手册**(`melsec.py:242`,待核);**AB 自定义 STRING<88 仍按 88 写**(`codec_cip.py:1174`);**AB 单条超预算不拆**(`ab.py:818`)。
 
 ### P3(合并)
 
@@ -235,7 +235,7 @@ PyMuPDF 抽取),产出「核对通过 / P0~P3 / 待核」并就地修复、门�
 | 欧姆龙 NJ/NX CIP | ⏳ 待查 | — |
 | Modbus(TCP/RTU) | ✅ 已完成 | 写响应回显校验、FC21/FC08 广播合法化、FC12 上界 0x46、写区域收口、FC24 变量名——见下「Modbus 专项」;另 FC20 上界 0x7D 维持自加宽容(见 P3 残留) |
 | AB EtherNet/IP(CIP) | ⏳ 待查 | 三轮 P2(ListIdentity 偏移、read_batch `.bit`)已修(2026-09-27,详见 P2 批);其余待查 |
-| 倍福 TwinCAT ADS | ⏳ 待查 | — |
+| 倍福 TwinCAT ADS | ✅ 已完成 | P2 补 0x1A ERR_TCPSEND / transport 分类改 TRANSPORT / `write(STRING)` 补声明长预检;P3 自动 NetId 要求 IP 字面量——见下「倍福 TwinCAT ADS 专项」 |
 | 西门子 S7 | ⏳ 待查 | 三轮 P3(`_write` 未支持类型 `KeyError`)待处理 |
 | OPC-UA | ⏳ 待查 | 三轮 P2(`active_subscriptions` 取事务锁、`_coerce_read` 越界类型)已修(2026-09-27,详见 P2 批);其余待查 |
 | MTConnect | ⏳ 待查 | — |
@@ -342,6 +342,18 @@ byte count、FC43 按对象头)与 CRC 低字节在前。
 - **待核 / 能力缺口(未实现)**:节点 `FF`(广播,§3-3-3)不支持(节点范围 0~254);EM bank 10-18(位 `E0~E8`/字 `60~68`,CJ2/CS1D-CPU68HA 专属)与 EM 当前 bank(位 `0A`/字 `98`/`BC`)未实现(§5-2-2 注 1/2);位访问单次 1 点(位批量走 0104 字码提位)——设计边界。
 
 门禁:全量 **1256 passed**(+11)/ ruff / mypy(76) / ty 全零。
+
+### 倍福 TwinCAT ADS 专项(2026-09-27;TE1000 pdfplumber 全 133 页核对,§8 p.128-129)
+
+核对通过:§8 ADS Return Codes 分组与码值(全局 `0x0000~0x001F`、Router `0x0500~0x050D`、General `0x0700+`);**AMS 端口表(p.9-10)**:851 = TC3 PLC runtime 1(库默认 ✓,TC2 为 801,多 runtime 852+)、501 = Router;AMS NetId 6 字节(p.11,「通常与 IP 无关」→ 库默认 IP.1.1 仅便利约定,显式路由需覆盖——已文档化);`pyads 3.5.1` 为参考实现(钉版,封装边界不变)。驱动本身不组帧(封装 pyads),专项聚焦错误码集、分类与字符串预检。
+
+- **P2 transport 码集缺 `0x1A ERR_TCPSEND`(三轮 P2)——已修复**:TE1000 §8 p.128「0x1A 26 0x9811001A ERR_TCPSEND TCP send error」属全局组通断码;原码集有 `0x1B/0x1D` 独缺 `0x1A`,TCP 发送失败(路由中断/网线断)落 `DeviceError` 不断线。现补入;门禁 `test_translate_ads_error_transport_codes` 增 0x1A。
+- **P2 transport 错误分类 UNKNOWN(三轮 P2)——已修复**:transport 分支原抛裸 `OmniPLCInternalError`(`_categorize` 落 UNKNOWN);改抛 `TransportClosedError`(OmniPLCInternalError 子类,归 **TRANSPORT**,`_execute` 同样标记断线+惰性重连,仅分类修正);门禁断言分类 + 客户端级 `test_tcp_send_error_disconnects_with_transport_category`(断线 + `last_error_category=TRANSPORT` + 原始码入文)。
+- **P2 `write(addr, DataType.STRING)` 绕过声明长预检(三轮 P2)——已修复**:`_write` 原直接 `write_by_name`(仅 `_write_string` 预检);现 STRING 分支路由 `_write_string`(含 `symbol_type` 声明长预检 + 非 str 拒绝);门禁 `test_typed_write_string_prechecked`。
+- **P3 自动 NetId 遇主机名拼出非法值——已修复**:`ip_address` 传主机名时自动拼 `"plc01.1.1"`(ADS 经本机路由器按 NetId 路由,主机名不参与解析,必死路由);现自动拼装要求 **IPv4 字面量**,否则构造期 `ValueError` 提示显式传 `net_id`(显式 net_id 时主机名可作占位);门禁 `test_auto_net_id_requires_ip_literal`。
+- **待核/能力缺口(登记)**:结构体成员路径(需 TwinCAT 侧导出独立符号,pyads 边界);>32KB 大块符号不切块(当前仅标量/STRING,单值不触及);Online Change 句柄失效无显式处理(无客户端句柄缓存,实际影响有限,待真机)。
+
+门禁:全量 **1259 passed**(+3)/ ruff / mypy(76) / ty 全零。
 
 ### 发布记录(2026-09-27)
 

@@ -101,15 +101,17 @@ _ADS_TRANSPORT_ERROR_CODES = frozenset(
         0x07,  # ERR_TARGETMACHINENOTFOUND  未找到 AMS 路由
         0x0D,  # ERR_PORTNOTCONNECTED  端口未连接
         0x12,  # ERR_PORTDISABLED  TwinCAT 系统服务未启动
+        0x1A,  # ERR_TCPSEND  TCP 发送失败(路由中断/网线断)
         0x1B,  # ERR_HOSTUNREACHABLE  主机不可达
         0x1D,  # ERR_TLSSEND  安全 ADS 连接建立失败
     }
 ) | frozenset(range(0x0500, 0x050E))
-"""transport 类 ADS 错误码(TE1000 §8「ADS Return Codes」):链路/路由/服务
-不可用,出现即标记断线走惰性重连。
+"""transport 类 ADS 错误码(TE1000 §8「ADS Return Codes」p.128-129):链路/路由/
+服务不可用,出现即标记断线走惰性重连。
 
-- 全局组 ``0x06/0x07/0x0D/0x12/0x1B/0x1D``:目标端口未找到 / 目标机器未
-  找到 / 端口未连接 / 端口禁用 / 主机不可达 / TLS 发送失败。
+- 全局组 ``0x06/0x07/0x0D/0x12/0x1A/0x1B/0x1D``:目标端口未找到 / 目标机器
+  未找到 / 端口未连接 / 端口禁用 / **TCP 发送失败(0x1A ERR_TCPSEND)** /
+  主机不可达 / TLS 发送失败。
 - Router 组 ``0x0500~0x050D``:本机 AMS 路由器侧错误。
 
 注意 ``0x0705``(参数尺寸错)/``0x0706``(数据非法)/``0x0725``(许可过期)
@@ -121,8 +123,9 @@ def _translate_ads_error(exc: BaseException) -> OmniPLCInternalError:
     """把 pyads 异常翻译为本库内部异常(内部函数)。
 
     - ``ADSError`` 且错误码属 transport 类(:data:`_ADS_TRANSPORT_ERROR_CODES`,
-      TwinCAT 重启/路由器断开等)→ :class:`OmniPLCInternalError`,
-      由基类标记断线、下次事务惰性重连
+      TwinCAT 重启/路由器断开/TCP 发送失败等)→ :class:`TransportClosedError`
+      (OmniPLCInternalError 子类,基类归 **TRANSPORT** 分类并标记断线、
+      下次事务惰性重连)
     - 其余 ``ADSError``(符号不存在/长度不符等设备语义错误)→
       :class:`DeviceError`,``code`` 携带原始 ADS 错误码——链路是好的,
       不断线不重试
@@ -133,7 +136,7 @@ def _translate_ads_error(exc: BaseException) -> OmniPLCInternalError:
     if error_class is not None and isinstance(exc, error_class):
         code = int(getattr(exc, "err_code", 0) or 0)
         if code in _ADS_TRANSPORT_ERROR_CODES:
-            return OmniPLCInternalError(
+            return TransportClosedError(
                 "ADS 连接失效 0x{:08X}:{}(下次事务将重连)".format(code, exc)
             )
         return DeviceError(f"ADS 出错 0x{code:08X}:{exc}", code)
@@ -380,9 +383,20 @@ class BeckhoffAdsClient(BaseClient):
         return _coerce_read(value, data_type, text)
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
-        """按数据类型对应的 PLCTYPE 写变量值。"""
+        """按数据类型对应的 PLCTYPE 写变量值。
+
+        STRING 走 :meth:`_write_string`(含 PLC 侧声明长度预检,防溢出污染
+        相邻变量);其余类型按 PLCTYPE 编码并先做范围校验。
+        """
         if data_type not in _PLCTYPE_NAMES:
             raise ValueError(f"ADS 不支持的数据类型:{data_type}")
+        if data_type is DataType.STRING:
+            if not isinstance(value, str):
+                raise ValueError(
+                    "字符串必须是 str,收到:{}".format(type(value).__name__)
+                )
+            self._write_string(address, value, "utf-8")
+            return
         text = _check_address(address)
         coerced = _coerce_write(value, data_type)
         self._session().write_by_name(text, coerced, _PLCTYPE_NAMES[data_type])
@@ -423,23 +437,37 @@ class BeckhoffAdsClient(BaseClient):
 def _build_net_id(ip_address: str, net_id: str) -> str:
     """组装目标 AMS NetId(内部函数)。
 
-    显式给出时校验 6 段 0~255 数字;缺省由 IP 拼 ``.1.1`` 后缀。
+    显式给出时校验 6 段 0~255 数字;缺省由 IP 拼 ``.1.1`` 后缀——自动
+    拼装要求 ``ip_address`` 为 **IPv4 字面量**(ADS 连接经本机 AMS 路由器
+    按 NetId 路由,主机名不参与解析,拼出 ``"plc01.1.1"`` 必然是死路由),
+    主机名目标请显式传 ``net_id``。
 
-    :raises ValueError: NetId 格式非法
+    :raises ValueError: NetId 格式非法 / 自动拼装时 IP 非 IPv4 字面量
     """
     text = net_id.strip() if net_id else ""
     if not text:
-        return "{}{}".format(ip_address.strip(), ADS_NET_ID_SUFFIX)
-    parts = text.split(".")
-    if len(parts) != 6 or not all(
-        part.isdigit() and 0 <= int(part) <= 255 for part in parts
-    ):
+        host = ip_address.strip()
+        if not _is_dotted_number(host, 4):
+            raise ValueError(
+                "ADS 自动 NetId 需 IPv4 字面量 IP:{!r}——ADS 经本机 AMS 路由器按 "
+                "NetId 路由(主机名不解析),请改用 IP 或显式传 net_id".format(host)
+            )
+        return "{}{}".format(host, ADS_NET_ID_SUFFIX)
+    if not _is_dotted_number(text, 6):
         raise ValueError(
             "AMS NetId 非法(应为 6 段 0~255 数字):{!r}(示例:192.168.0.10.1.1)".format(
                 net_id
             )
         )
     return text
+
+
+def _is_dotted_number(text: str, count: int) -> bool:
+    """校验 ``count`` 段 0~255 十进制数字的 IP/NetId 字面量(内部函数)。"""
+    parts = text.split(".")
+    return len(parts) == count and all(
+        part.isdigit() and 0 <= int(part) <= 255 for part in parts
+    )
 
 
 def _check_address(address: str) -> str:
