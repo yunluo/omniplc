@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import os
 from dataclasses import dataclass
 from typing import Dict, Iterable, Iterator, Mapping, Optional, Union
@@ -62,8 +63,18 @@ class TagTable(Mapping[str, Tag]):
             raise ValueError("点位标识不能为空")
         if not tag.address or not tag.address.strip():
             raise ValueError(f"点位 {tag.tag_id!r} 的地址不能为空")
+        if not math.isfinite(tag.scale):
+            # NaN == 0 / inf == 0 均为 False,`scale == 0` 拦不住;
+            # scale=inf 会把整数点位逆缩放成 0 静默写入,NaN 写 nan
+            raise ValueError(
+                f"点位 {tag.tag_id!r} 的 scale 必须为有限数,收到:{tag.scale!r}"
+            )
         if tag.scale == 0:
             raise ValueError(f"点位 {tag.tag_id!r} 的 scale 不能为 0(写入无法逆缩放)")
+        if not math.isfinite(tag.offset):
+            raise ValueError(
+                f"点位 {tag.tag_id!r} 的 offset 必须为有限数,收到:{tag.offset!r}"
+            )
         if tag.tag_id in self._tags:
             raise ValueError(f"点位标识重复:{tag.tag_id!r}")
         self._tags[tag.tag_id] = tag

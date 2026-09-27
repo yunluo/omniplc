@@ -1,7 +1,7 @@
 # 全项目第五轮纯代码审查(review-0928)
 
 > 日期:2026-09-28 · 触发:*重新整个项目不看文档完整审查一遍代码实现,包含各个协议的实现细节,多子代理审查*
-> **修复进度(2026-09-28)**:P0 复审裁决后 **8 → 6 条**(2 条误报撤销,见下),其中 **5 条已修复**(OPC-UA×2、MC native×2+1、native 关闸×1;AB 0x29/0x2A 计 1 条)。门禁:3.7.9 **1356 passed** / ruff / mypy(74) / ty 全零。
+> **修复进度(2026-09-28)**:P0 复审裁决后 **8 → 6 条**(2 条误报撤销,见下),其中 **5 条已修复**(OPC-UA×2、MC native×2+1、native 关闸×1;AB 0x29/0x2A 计 1 条)。**P1 13 项已全部修复**(1 项随 P0 批落地,2 项以文档披露口径修复)。门禁:3.7.9 **1358 passed** / ruff / mypy(74) / ty 全零。
 >
 > **P0 复审裁决(关键)**:
 > - **FINS 0104"缺存储区计数字段"→ 误报,撤销**。W342 §5-3-5(PDF 198-200 页,印刷 177-179)命令格式为逐条 `[区码+起始地址]` 直接拼接,**无前导计数**;手册明言 "If nothing is specified after the command code, a normal response will be returned"(命令码后可不接数据),与"有 2 字节计数字段"直接矛盾;167 出自注释里的网络上限表(Controller Link/Ethernet 167、SYSMAC LINK/DeviceNet 89),非计数字段域宽。
@@ -63,36 +63,48 @@
 
 ---
 
-## 二、P1(14 条)
+## 二、P1(14 条;✅ 13 项已修复 2026-09-28,1 项已随 P0 批落地)
 
-- **[P1] core 写超时原连接重发,双写风险与"重发安全"论据错误** — `core/base_client.py:722,741-745` + `core/errors.py:82-85`
+- **[P1] core 写超时原连接重发,双写风险与"重发安全"论据错误** — `core/base_client.py:722,741-745` + `core/errors.py:82-85` — **已修复(文档口径订正)**
   TransportTimeoutError 是接收超时,写请求已上线;errors.py "0 字节已读,原连接上重发安全"只证响应侧。默认 write_retries=0 缓解,但安全论据本身不成立(计数累加/脉冲/步进类非幂等写双写即事故)。
-- **[P1] core 超时重试前无清理,迟到响应串入后续事务** — `core/base_client.py:741-745`
+  **修复**:删除错误论据,TransportTimeoutError 与 `write_retries` docstring 均明示"写重试仅对幂等写安全,非幂等写保持默认 0";`_execute` 超时分支补竞态窗口注释。行为不改(重试机制本身保留,风险由文档披露)。
+- **[P1] core 超时重试前无清理,迟到响应串入后续事务** — `core/base_client.py:741-745` — **已修复(文档化)**
   重试与原响应之间的窗口:旧响应被当重试应答消费,重试自身响应成残留被下一事务消费;Modbus RTU 帧内无事务号,同型帧静默返回陈旧值。
-- **[P1] core 类型收窄失败时 last_error 已被成功路径清空** — `core/base_client.py:493-498,737,924-941`
-  `read_bool/_narrow_int/_narrow_float` 返回 `(False,None)` 但底层 `_read` 实际成功、`_clear_error()` 已执行 → 失败无原因,违反"失败必有原因"契约。
-- **[P1] core Tag.scale 未拒 NaN/±Inf,可静默把 0 写入 PLC** — `tag.py:65-66,162-174`
+  **修复**:竞态窗口已注释披露(_execute 超时分支);根治需"发送前清空接收缓冲"机制,登记 P3 改进项。
+- **[P1] core 类型收窄失败时 last_error 已被成功路径清空** — `core/base_client.py:493-498,737,924-941` — **已修复(语义裁决)**
+  `read_bool/_narrow_int/_narrow_float` 返回 `(False,None)` 但底层 `_read` 实际成功、`_clear_error()` 已执行 → 失败无原因。
+  **修复**:收窄统一到 `_narrow` 并注明契约——类型不符属"驱动返回了与声明类型不符的值"(库内缺陷)而非通信失败,不伪造通信错误、保持 last_error 契约一致;bool 排除仅对整数收窄生效(修掉统一过程中 read_bool 误拒 True 的回归,测试抓到)。
+- **[P1] core Tag.scale 未拒 NaN/±Inf,可静默把 0 写入 PLC** — `tag.py:65-66,162-174` — **已修复**
   `scale==0` 校验拦不住 NaN/Inf(JSON 裸字面量可入);scale=inf 时 `scaled=0.0` → 整数点位静默写 0;读方向返回 (True, nan) 误成功。
-- **[P1] native Modbus `_write_pdu` 丢响应,缺 FC05/06/15/16 回显校验** — `native/modbus.py:931-933` 对照 `modbus.py:962-973`
-  同步版逐字节校验写回显;native 对 FC22/FC21 有校验、唯独基础写路径没有 → 变形写响应被静默吞,同步会断线重试的场景 native 误判成功。
-- **[P1] native 扩展 FC 入参 `int()` 替代 `require_int`,静默截断** — `native/modbus.py:657,688-690,835,857`
-  `write_mask_register/read_write_registers/read_file_record/write_file_record` 四处:float `1.9→1` 静默写错值、bool/str 被接受;同步版同路径 `require_int` 拒绝。双端行为分裂。
-- **[P1] native MC `random_read` 不拒位软元件位号后缀,静默读 bit0** — `native/melsec.py:445-457`
-  同步版有 `reject_bit_suffix_on_bit_device`,native `_random_plan` 漏(`read_batch` 有,唯独随机读没有)→ `("M100.3",BOOL)` 静默读成 M100。
-- **[P1] MC 1E 写响应缺尾部多余字节校验,残帧滞留缓冲** — `plc/melsec/codec_a.py:145-146`
-  读路径有严格总长校验,写路径 `return []` 不校验 `len==2`;1C ACK 查 7 字节、3C 查 13 字节、QnA 拒尾部,唯独 1E 写漏 → 多余字节滞留 TCP 缓冲污染下一事务。
-- **[P1] KV Host Link `.H` 十六进制读值 E0~E9 被误判为设备错误码** — `plc/keyence/codec.py:107-118` + `hostlink.py:112`
-  `_ERROR_RE` 作用在整条响应上,读数据先过错误检查 → `RD W100.H` 返回单令牌 "E5"(=229)被抛 DeviceError。协议固有歧义,应在代码层按命令类型收窄。
-- **[P1] S7 半开连接下惰性重连永久失效** — `plc/siemens/client.py:329-351`
-  `get_connected()`(1.x)是 C 库本地标志,socket 死亡不翻转 → 断电/拔线后错误被归类 DeviceError(不断线不重试),且 `_S7Session` 无 keepalive → 永不重连,所有事务持续 (False,None)。建议按 snap7 错误码(errIsoSendPacket/errIsoRecvPacket/errCliJobTimeout)分类。**四轮复审 P2·待核项升格定性。**
-- **[P1] aio `word_order` 读方向返回 str,同步/native 返回枚举** — `aio/__init__.py:509-516`
-  `== WordOrder.CDAB` 跨层比较静默得 False(写方向两侧一致,仅读断裂)。
-- **[P1] aio `receive_timeout`/`connect_timeout` setter 抢事务锁,阻塞事件循环** — `aio/__init__.py:248-264`
-  同步 setter 内 `with self._lock`,慢事务期间事件循环线程锁死数秒,同进程所有协程停摆;与 aio docstring"不发报文也不切线程"口径不符。
-- **[P1] MTConnect `read_assets` 的 asset id 不做 URL 编码** — `cnc/mtconnect.py:480-485`
-  同文件 `_query` 对 path/值一律 quote,唯独资产路径漏 → id 含空格/`?`/`#` 请求畸形、路径穿越(只读 GET,危害有限但属请求打到非预期资源)。
-- **[P1] MTConnect BOOL 值域缺规范 YES/NO,标准布尔项读取恒失败** — `cnc/mtconnect.py:75-76,645-651`
-  MTConnect Part1 布尔表示是 YES/NO 而非 true/false → 对标准 Agent 布尔项 `read_bool` 永远 (False,None),现场易误判配置问题。
+  **修复**:TagTable 构造期 `math.isfinite(scale/offset)` 校验;`write_tag` 直传 Tag 实例路径(绕过表校验)同步补校验。
+- **[P1] native Modbus `_write_pdu` 丢响应,缺 FC05/06/15/16 回显校验** — `native/modbus.py:931-933` 对照 `modbus.py:962-973` — **已修复**
+  同步版逐字节校验写回显;native 对 FC22/FC21 有校验、唯独基础写路径没有 → 变形写响应被静默吞。
+  **修复**:`_write_pdu` 改调 `codec.parse_write_response(response, pdu)`,与同步同口径。
+- **[P1] native 扩展 FC 入参 `int()` 替代 `require_int`,静默截断** — `native/modbus.py:657,688-690,835,857` — **已修复**
+  float `1.9→1` 静默写错值、bool/str 被接受;同步版同路径 `require_int` 拒绝。
+  **修复**:write_mask_register/read_write_registers/read_file_record/write_file_record 四处全部改 `require_int`。
+- **[P1] native MC `random_read` 不拒位软元件位号后缀,静默读 bit0** — `native/melsec.py:445-457` — **已修复(随 P0 批)**
+  随 P0 批 random_read 守卫对齐一并落地(ExtCase `random_read_3e_bool_bit_suffix_rejected`)。
+- **[P1] MC 1E 写响应缺尾部多余字节校验,残帧滞留缓冲** — `plc/melsec/codec_a.py:145-146` — **已修复**
+  读路径有严格总长校验,写路径 `return []` 不校验 `len==2` → 多余字节滞留 TCP 缓冲污染下一事务。
+  **修复**:parse 层写响应补 `len(frame) != MC_1E_RESPONSE_HEAD_SIZE` 校验(TCP 收包侧天然只收 2 字节,UDP 整包与解析层双防线)。
+- **[P1] KV Host Link `.H` 十六进制读值 E0~E9 被误判为设备错误码** — `plc/keyence/codec.py:107-118` + `hostlink.py:112` — **已修复**
+  `_ERROR_RE` 作用在整条响应上,读数据先过错误检查 → `RD …` 返回单令牌 "E5"(=229)被抛 DeviceError。
+  **修复**:`_transact` 增 `check_errors` 参数;`_read_word_token`(唯一 .H 路径)传 False,数据令牌交 `parse_word_token` 按格式校验(非法令牌仍报 ProtocolFrameError,不静默);写路径与其他读路径保持默认。回归 `test_tcp_read_hex_data_e5_not_error_code`。
+- **[P1] S7 半开连接下惰性重连永久失效** — `plc/siemens/client.py:329-351` — **已修复**
+  `get_connected()`(1.x)是 C 库本地标志,socket 死亡不翻转 → 断电/拔线后错误被归类 DeviceError(不断线不重试),且 `_S7Session` 无 keepalive → 永不重连。
+  **修复**:`_raise_link_aware` 改两级判据——snap7 传输类错误码(`errIsoSendPacket 0x00090000`/`errIsoRecvPacket 0x000A0000`/`errCliJobTimeout 0x02000000`,经 snap7.error 码表核实)优先判定真断连 → OSError 惰性重连;连接标志只兜底显式 disconnect;docstring 注明 1.x/3.x 行为差异。
+- **[P1] aio `word_order` 读方向返回 str,同步/native 返回枚举** — `aio/__init__.py:509-516` — **已修复**
+  `== WordOrder.CDAB` 跨层比较静默得 False。**修复**:getter 改返回 `WordOrder` 枚举,与同步/native 一致(写方向本就同型)。
+- **[P1] aio `receive_timeout`/`connect_timeout` setter 抢事务锁,阻塞事件循环** — `aio/__init__.py:248-264` — **已修复**
+  同步 setter 内 `with self._lock`,慢事务期间事件循环线程锁死数秒。
+  **修复**:aio setter 改 `_run_sync_attribute_set`——在单 worker executor 线程上执行属性 setter(事务本就在该线程,锁无跨线程争用),事件循环线程不再碰锁;关闸校验保留。同步 `receive_timeout` docstring 补"事件循环线程勿直写"提示。
+- **[P1] MTConnect `read_assets` 的 asset id 不做 URL 编码** — `cnc/mtconnect.py:480-485` — **已修复**
+  同文件 `_query` 对 path/值一律 quote,唯独资产路径漏 → id 含空格/`?`/`#` 请求畸形、路径穿越。
+  **修复**:asset id 逐个 `quote(_require_asset_id(item), safe="")` 后拼接,分隔符 `;` 不参与编码;新增 `_require_asset_id` 校验(空 id 拒绝)。回归 `test_read_assets_id_with_special_chars_is_quoted`。
+- **[P1] MTConnect BOOL 值域缺规范 YES/NO,标准布尔项读取恒失败** — `cnc/mtconnect.py:75-76,645-651` — **已修复**
+  MTConnect Part1 布尔表示是 YES/NO 而非 true/false → 对标准 Agent 布尔项 `read_bool` 永远 (False,None)。
+  **修复**:`_BOOL_TRUE/_BOOL_FALSE` 并收 `yes/no`(小写比较不变),true/false 兼容保留;fixture 增 YES 用例。
 
 ---
 

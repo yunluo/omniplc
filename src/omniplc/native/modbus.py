@@ -42,7 +42,13 @@ from ..core.constants import (
 )
 from ..core.debug import format_hex
 from ..core.errors import DeviceError, ProtocolFrameError
-from ..core.validation import check_int16, check_uint16, require_bool, require_float
+from ..core.validation import (
+    check_int16,
+    check_uint16,
+    require_bool,
+    require_float,
+    require_int,
+)
 from ..modbus import codec
 from ..modbus.address import ModbusAddress, ModbusArea, parse_address
 from ..modbus.modbus import (
@@ -654,7 +660,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
             raise ValueError(f"掩码写地址不支持位号后缀:{address!r}")
         order = byte_order.value if isinstance(byte_order, ByteOrder) else str(byte_order)
         pdu = codec.build_mask_write_pdu(
-            parsed.offset, int(and_mask), int(or_mask), order
+            parsed.offset, require_int(and_mask), require_int(or_mask), order
         )
 
         async def operation() -> None:
@@ -685,9 +691,9 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         read_parsed = _check_holding_register(read_address, "FC23 读地址")
         write_parsed = _check_holding_register(write_address, "FC23 写地址")
         self._reject_broadcast_read()
-        data = [int(value) for value in values]
+        data = [require_int(value) for value in values]
         pdu = codec.build_read_write_registers_pdu(
-            read_parsed.offset, int(read_count), write_parsed.offset, data
+            read_parsed.offset, require_int(read_count), write_parsed.offset, data
         )
 
         async def operation() -> List[int]:
@@ -832,7 +838,8 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         :raises ValueError: 入参非法
         """
         trimmed = [
-            (int(file), int(record), int(length)) for file, record, length in requests
+            (require_int(file), require_int(record), require_int(length))
+            for file, record, length in requests
         ]
         self._reject_broadcast_read()
         pdu = codec.build_read_file_record_pdu(trimmed)
@@ -854,7 +861,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         :raises ValueError: 入参非法
         """
         trimmed = [
-            (int(file), int(record), [int(value) for value in values])
+            (require_int(file), require_int(record), [require_int(value) for value in values])
             for file, record, values in records
         ]
         pdu = codec.build_write_file_record_pdu(trimmed)
@@ -929,8 +936,15 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         )
 
     async def _write_pdu(self, pdu: bytes) -> None:
-        """发送写 PDU(内部方法)。TCP 无广播语义,站号 0 照常等待响应。"""
-        await self._transact(pdu)
+        """发送写 PDU 并校验正常响应回显(内部方法)。
+
+        与同步 :meth:`~omniplc.modbus.ModbusBaseClient._write_pdu` 同口径:
+        规范 §6.5/6.6/6.11/6.12 正常响应为请求 PDU 前 5 字节回显,不符按
+        坏帧处理(TCP 无广播语义,站号 0 照常等待响应并校验)。
+        """
+        response = await self._transact(pdu)
+        if response:
+            codec.parse_write_response(response, pdu)
 
     def _reject_broadcast_read(self) -> None:
         """广播站号(0)上的读操作直接拒绝(与同步基类同口径)。"""

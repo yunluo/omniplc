@@ -59,12 +59,18 @@ class _KeyenceHostLinkBase(BaseClient):
     # 行式事务(由走线子类决定收包方式)
     # ------------------------------------------------------------------
 
-    def _transact(self, body: bytes) -> str:
+    def _transact(self, body: bytes, check_errors: bool = True) -> str:
         """发送命令帧并返回一行响应文本(已去除 CR/LF,内部方法)。
 
+        :param check_errors: 是否把形如 ``E0``~``E9`` 的整条响应判为出错
+            代码。**读路径应保持默认**;唯一例外是读数据时显式跳过——
+            ``.H`` 十六进制读的合法数据(值 0xE0~0xE9,如 ``"E5"`` = 229)
+            与出错代码形状重合,协议层无法区分,按"读请求无出错回显语义
+            之外的保护"处理:数据令牌交由 parse 层按格式校验,形状不符
+            一样报错(ProtocolFrameError),不会静默错值。
         :raises ProtocolFrameError: 响应无效(结束符/行长/令牌形状不符;
             消息带**收到的原始数据**十六进制转储,便于现场与抓包比对)
-        :raises DeviceError: PLC 返回出错代码(E0~E9)
+        :raises DeviceError: PLC 返回出错代码(E0~E9,``check_errors=True`` 时)
         """
         transport = self._require_transport()
         transport.send(body)
@@ -109,7 +115,8 @@ class _KeyenceHostLinkBase(BaseClient):
             finally:
                 transport.receive_timeout = previous_timeout
             text = codec.parse_response(b"".join(chunks))
-        codec.check_error_code(text)
+        if check_errors:
+            codec.check_error_code(text)
         return text
 
     # ------------------------------------------------------------------
@@ -270,8 +277,15 @@ class _KeyenceHostLinkBase(BaseClient):
         )
 
     def _read_word_token(self, parsed: KvAddress, data_format: str) -> int:
-        """单字读并解析为整数(内部方法)。"""
-        response = self._transact(codec.build_read(_token(parsed, data_format)))
+        """单字读并解析为整数(内部方法)。
+
+        ``check_errors=False``:.H 十六进制读数据值 0xE0~0xE9 与出错代码
+        形状重合(协议固有歧义),读数据令牌交 :func:`codec.parse_word_token`
+        按格式校验——非法令牌照样报错,不会静默错值。
+        """
+        response = self._transact(
+            codec.build_read(_token(parsed, data_format)), check_errors=False
+        )
         tokens = codec.split_tokens(response)
         if len(tokens) != 1:
             raise ProtocolFrameError(

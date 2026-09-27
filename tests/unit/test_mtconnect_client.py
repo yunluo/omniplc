@@ -30,6 +30,7 @@ _CURRENT_XML = """<?xml version="1.0" encoding="UTF-8"?>
           <DoorState dataItemId="door">CLOSED</DoorState>
           <ClampState dataItemId="clamp" name="clamp">true</ClampState>
           <AuxPower dataItemId="aux">FALSE</AuxPower>
+          <WorkholderState dataItemId="workholder" name="workholder">YES</WorkholderState>
           <PowerState dataItemId="power">UNAVAILABLE</PowerState>
         </Events>
       </ComponentStream>
@@ -198,10 +199,15 @@ def test_typed_reads(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_bool_read(monkeypatch: pytest.MonkeyPatch) -> None:
-    """布尔量:true/false 与大小写兼容;非布尔文本抛 ValueError。"""
+    """布尔量:true/false/YES/NO 与大小写兼容;非布尔文本抛 ValueError。
+
+    YES/NO 是 MTConnect Part1 布尔数据类型的规范表示(标准 Agent 布尔
+    事件项输出该形态),原实现缺该值域导致标准点位永远读不到。
+    """
     client = _client(monkeypatch)
     assert client.read_bool("clamp") == (True, True)
     assert client.read_bool("aux") == (True, False)
+    assert client.read_bool("workholder") == (True, True)
     with pytest.raises(ValueError):
         client.read_bool("exec")  # ACTIVE 不是布尔文本
 
@@ -669,6 +675,22 @@ def test_read_assets_all_and_by_id(monkeypatch: pytest.MonkeyPatch) -> None:
     assert assets[1]["attributes"]["mediaType"] == "text/plain"
     ok, subset = client.read_assets(["tool.1", "file.1"])
     assert ok is True and subset is not None and len(subset) == 2
+
+
+def test_read_assets_id_with_special_chars_is_quoted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """回归:asset id 含空格/?/# 时 URL 编码后拼路径(不破坏请求行)。
+
+    原实现直接拼接原始 id——含特殊字符时请求行畸形;现 ``quote(id,
+    safe="")`` 与查询串值口径一致,id 间分隔符 ``;`` 不参与编码。
+    """
+    client = _client_with(
+        monkeypatch,
+        {
+            "/asset/KX-1%20v2%3Frev%3D1": (200, _ASSETS_XML.encode("utf-8")),
+        },
+    )
+    ok, assets = client.read_assets(["KX-1 v2?rev=1"])
+    assert ok is True and assets is not None
 
 
 def test_snapshot_path_filter(monkeypatch: pytest.MonkeyPatch) -> None:

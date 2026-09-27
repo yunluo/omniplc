@@ -81,8 +81,12 @@ class TransportTimeoutError(DeviceError):
 
     计数与重试口径(``BaseClient._execute``):**不计入**
     ``device_error_count``("设备返回错误码的次数"不含传输超时),但与其他
-    传输失败一样按 ``retries``/``write_retries`` 重试(0 字节已读,原连接
-    上重发安全)。
+    传输失败一样按 ``retries``/``write_retries`` 重试。
+
+    **写重试双写警示**:接收超时只证明响应未到达,**写请求可能已被
+    PLC 执行**——对非幂等写(计数累加、脉冲、步进指令)开启
+    ``write_retries >= 1`` 存在双写风险,仅对幂等写(覆盖写、位写入)
+    安全;非幂等写场景请保持默认 ``write_retries=0`` 并在应用层确认。
     """
 
 

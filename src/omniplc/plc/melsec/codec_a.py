@@ -143,6 +143,15 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
             raise ProtocolFrameError("1E 错误响应缺少扩展信息字节")
         raise DeviceError(f"MC(1E) 结束代码 0x{end_code:02X},详见 A 系列手册", end_code)
     if not is_read:
+        if len(frame) != MC_1E_RESPONSE_HEAD_SIZE:
+            # 1E 帧无长度域,写响应成功时应答恰为 2 字节头;多余字节滞留
+            # TCP 缓冲会被下一事务当响应头消费(串帧),UDP 整包路径下
+            # 属数据报边界异常——统一按坏帧拒绝
+            raise ProtocolFrameError(
+                "1E 写响应尾部有冗余字节:期望 {} 字节,实际 {}".format(
+                    MC_1E_RESPONSE_HEAD_SIZE, len(frame)
+                )
+            )
         return []
     expected = (points + 1) // 2 if is_bit else points * 2
     data = frame[2:2 + expected]

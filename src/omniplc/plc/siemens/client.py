@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import os
 import struct
-from typing import Any, List, NoReturn, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, NoReturn, Optional, Sequence, Tuple, Union
 
 from ... import convert
 from ...core.base_client import BaseClient, DEFAULT_STRING_ENCODING, validate_endpoint
@@ -90,6 +90,39 @@ _SNAP7_ERRORS: Tuple[Any, ...] = (RuntimeError,)
 """snap7 错误类元组(会话边界捕获):1.x/2.x 抛 RuntimeError;3.x 纯
 Python 抛 ``S7Error`` 谱系(基类挂在 snap7.client 命名空间,由
 :func:`_new_client` 探测并入表)。"""
+
+_SNAP7_TRANSPORT_ERROR_CODES: Tuple[int, ...] = (
+    0x00090000,  # errIsoSendPacket:ISO-on-TCP 发送失败(链路死亡/半开)
+    0x000A0000,  # errIsoRecvPacket:ISO-on-TCP 接收失败(链路死亡/半开)
+    0x02000000,  # errCliJobTimeout:作业超时(响应未达,典型半开形态)
+)
+"""表示**传输层故障**的 snap7 错误码(经 snap7.error 错误码表核实):
+半开连接(拔线/断电)下 ``get_connected()`` 本地标志不翻转,这些码是
+判"真断连"的第一依据,命中即 OSError(惰性重连),不看连接标志。"""
+
+
+def _is_snap7_transport_error(exc: BaseException) -> bool:
+    """判断 snap7 异常是否携带传输类错误码(内部函数)。
+
+    错误码藏在异常文本里(1.3 的 RuntimeError 文本含 ``err*`` 名或
+    十六进制码,3.x ``S7Error`` 同样透传),按文本与已知码表匹配;
+    匹配不上返回 False(回退连接标志判据)。
+    """
+    text = str(exc)
+    for code in _SNAP7_TRANSPORT_ERROR_CODES:
+        hex_text = "0x{:08X}".format(code)
+        name = _SNAP7_ERROR_CODE_NAMES.get(code, "")
+        if hex_text.lower() in text.lower() or (name and name in text):
+            return True
+    return False
+
+
+_SNAP7_ERROR_CODE_NAMES: Dict[int, str] = {
+    0x00090000: "errIsoSendPacket",
+    0x000A0000: "errIsoRecvPacket",
+    0x02000000: "errCliJobTimeout",
+}
+"""传输类错误码 → snap7 官方名称(异常文本通常携带该名称)。"""
 
 _AREAS_ENUM: Any = False
 """snap7 ``Areas`` 枚举类缓存:False = 未探测,None = 探测失败(裸 int
@@ -327,24 +360,36 @@ class _S7Session(BaseTransport):
         )
 
     def _raise_link_aware(self, exc: BaseException, db_number: int = 0) -> NoReturn:
-        """按 snap7 连接态翻译错误(内部方法,恒抛出)。
+        """按 snap7 错误码与连接态翻译错误(内部方法,恒抛出)。
 
-        在线 → :class:`DeviceError`(PLC 侧拒绝,不断线),并对 DB 访问
-        附上"优化块访问"排查提示(S7-1200/1500 绝对寻址常见失败原因);
-        断连 → :class:`OSError`(惰性重连)。
+        分类依据(两层):
+        1. **snap7 错误码**(优先)——1.3 的 ``Cli_GetConnected`` 读的是
+           C 库本地标志,会话中途 socket 死亡(拔线/断电)时**不翻转**,
+           不能单独作为断连判据;``errIsoSendPacket(0x00090000)``/
+           ``errIsoRecvPacket(0x000A0000)``/``errCliJobTimeout(0x02000000)``
+           三个码表示发送/接收失败或作业超时,属**传输层故障** → OSError
+           (惰性重连)。
+        2. 其余错误 → 在线视为 PLC 侧拒绝(DeviceError,不断线),DB
+           访问附"优化块访问"提示;``get_connected()`` 为 False(显式
+           disconnect 后)时同样按断连处理。
         """
-        if self._is_connected():
-            message = f"S7 错误:{exc}"
-            if db_number:
-                message += (
-                    "(按绝对地址访问 DB 失败:若为 S7-1200/1500,请确认该 DB "
-                    "已在 TIA 中取消 Optimized block access)"
-                )
-            raise DeviceError(message, 0)
-        raise OSError(f"S7 连接已断:{exc}")
+        if not self._is_connected() or _is_snap7_transport_error(exc):
+            raise OSError(f"S7 连接已断:{exc}")
+        message = f"S7 错误:{exc}"
+        if db_number:
+            message += (
+                "(按绝对地址访问 DB 失败:若为 S7-1200/1500,请确认该 DB "
+                "已在 TIA 中取消 Optimized block access)"
+            )
+        raise DeviceError(message, 0)
 
     def _is_connected(self) -> bool:
-        """取 snap7 本地连接态标志(不产生网络流量;异常视为断连)。"""
+        """取 snap7 本地连接态标志(不产生网络流量;异常视为断连)。
+
+        注意:1.3 该标志在 socket 半开(拔线/断电)下不翻转,故
+        :meth:`_raise_link_aware` 以 snap7 传输类错误码优先判定,本标志
+        只兜底显式 disconnect 的场景;3.x 起为主动探测,两口径均安全。
+        """
         try:
             return bool(self._require_client().get_connected())
         except Exception:

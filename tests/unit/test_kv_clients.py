@@ -108,6 +108,22 @@ def test_tcp_read_short_negative(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.read_short("DM100") == (True, -5)
 
 
+def test_tcp_read_hex_data_e5_not_error_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    """回归:.H 十六进制读数据值 E0~E9(如 "E5"=229)不得误判为出错码。
+
+    协议固有歧义:整条响应 "E5" 与出错代码形状重合;读路径
+    (``check_errors=False``)跳过错误检查,数据令牌交 parse 层按 .H
+    格式校验——合法值正常返回,非法令牌仍报 ProtocolFrameError。
+    走 ``_read_word_token`` 内部路径(.H 无公开读入口,数据后缀由
+    调用方显式传入,地址层只认点号位访问)。
+    """
+    client = KeyenceHostLinkTcpClient("127.0.0.1", 8000)
+    scripted = ScriptedTransport(_chunks(b"E5\r\n"))
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    parsed = parse_kv_address("DM100")
+    assert client._read_word_token(parsed, ".H") == 0xE5
+
 def test_tcp_read_bit_device(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP:位软元件 RD 无后缀,ON/OFF 令牌解析。"""
     client = KeyenceHostLinkTcpClient("127.0.0.1", 8000)

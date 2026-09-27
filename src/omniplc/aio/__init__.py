@@ -99,7 +99,7 @@ from ..plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
 from ..scanner import KeyenceSrClient
 from ..plc.omron import OmronCipClient, OmronFinsTcpClient, OmronFinsUdpClient
 from ..tag import Tag, TagTable
-from ..types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity
+from ..types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity, WordOrder
 
 _T = TypeVar("_T")
 _A = TypeVar("_A", bound="ABaseClient")
@@ -200,6 +200,25 @@ class ABaseClient:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, operation)
 
+    def _run_sync_attribute_set(self, name: str, value: object) -> None:
+        """在 executor 线程上设置同步实例属性(内部方法)。
+
+        取锁的 setter(receive_timeout/connect_timeout)不能在事件循环
+        线程直写——慢事务持锁时会阻塞整个 loop;属性 setter 是同步调用
+        (非协程),这里**等待投递完成**前先校验关门,避免关闸后写入。
+        属性写入本身是毫秒级操作,阻塞调用方一次事件循环拍可接受。
+        """
+        self._ensure_open()
+        executor = self._executor
+        if executor is None:
+            raise RuntimeError("aio 客户端已关闭")
+        setter = getattr(type(self._sync), name).fset
+
+        def _apply() -> None:
+            setter(self._sync, value)
+
+        executor.submit(_apply).result()
+
     # ------------------------------------------------------------------
     # 连接管理
     # ------------------------------------------------------------------
@@ -244,7 +263,9 @@ class ABaseClient:
 
     @receive_timeout.setter
     def receive_timeout(self, seconds: float) -> None:
-        self._sync.receive_timeout = seconds
+        # 经 executor 下发:同步 setter 取事务锁,事件循环线程直写会在
+        # 慢事务期间锁死整个 loop(单 worker 串行,实测数秒级停摆)
+        self._run_sync_attribute_set("receive_timeout", seconds)
 
     @property
     def connect_timeout(self) -> float:
@@ -253,7 +274,7 @@ class ABaseClient:
 
     @connect_timeout.setter
     def connect_timeout(self, seconds: float) -> None:
-        self._sync.connect_timeout = seconds
+        self._run_sync_attribute_set("connect_timeout", seconds)
 
     @property
     def retries(self) -> int:
@@ -499,9 +520,10 @@ class AModbusBaseClient(ABaseClient):
         return self._modbus.station
 
     @property
-    def word_order(self) -> str:
-        """多寄存器字序(ABCD/CDAB/BADC/DCBA)。"""
-        return self._modbus.word_order.value
+    def word_order(self) -> WordOrder:
+        """多寄存器字序(与同步版一致返回 :class:`~omniplc.types.WordOrder`
+        枚举——跨层迁移时 ``== WordOrder.CDAB`` 比较不再因 str/枚举错位)。"""
+        return self._modbus.word_order
 
     @word_order.setter
     def word_order(self, value: str) -> None:

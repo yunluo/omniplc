@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import math
 import random
 import socket
 import sys
@@ -280,7 +281,13 @@ class BaseClient(ABC):
 
     @property
     def receive_timeout(self) -> float:
-        """单次收发超时(秒)。可在连接建立后修改,立即生效。"""
+        """单次收发超时(秒)。可在连接建立后修改,立即生效。
+
+        **加锁口径**:与在途事务互斥更新传输对象——同步层直接调用无碍;
+        aio 层**不要**在事件循环线程写本属性(同步 setter 取事务锁,慢事务
+        期间会阻塞循环),经 :meth:`~omniplc.aio.ABaseClient.configure`
+        或事务路径设置。
+        """
         return self._receive_timeout
 
     @receive_timeout.setter
@@ -310,7 +317,13 @@ class BaseClient(ABC):
 
     @property
     def write_retries(self) -> int:
-        """写操作失败后的重试次数(默认 0,防止重复写入危险动作)。"""
+        """写操作失败后的重试次数(默认 0,防止重复写入危险动作)。
+
+        **仅对幂等写安全**(覆盖写、位写入):写响应超时说明请求可能已被
+        PLC 执行,重试即写第二次——计数累加、脉冲、步进类非幂等写开启
+        本项会双写。超时重试还存在"迟到响应被当重试应答消费"的竞态窗口
+        (见 :class:`~omniplc.core.errors.TransportTimeoutError`)。
+        """
         return self._write_retries
 
     @write_retries.setter
@@ -492,10 +505,10 @@ class BaseClient(ABC):
 
     def read_bool(self, address: str) -> Tuple[bool, Optional[bool]]:
         """读取布尔量(位)。"""
-        ok, value = self.read(address, DataType.BOOL)
-        if not ok or value is None or not isinstance(value, bool):
-            return False, None
-        return True, value
+        narrowed: Tuple[bool, Optional[PrimitiveValue]] = _narrow(
+            self.read(address, DataType.BOOL), bool, "bool"
+        )
+        return cast(Tuple[bool, Optional[bool]], narrowed)
 
     def read_short(self, address: str) -> Tuple[bool, Optional[int]]:
         """读取 16 位有符号整数。"""
@@ -661,6 +674,13 @@ class BaseClient(ABC):
         """
         resolved = self._resolve_tag(tag)
         if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if not math.isfinite(resolved.scale) or not math.isfinite(resolved.offset):
+                # TagTable 校验只覆盖表构造路径;直接传 Tag 实例可绕过——
+                # scale=inf 时逆缩放结果恒 0(静默写 0 触发设备动作)、NaN 写 nan
+                raise ValueError(
+                    f"点位 {resolved.tag_id!r} 的 scale/offset 必须为有限数:"
+                    "scale={!r}, offset={!r}".format(resolved.scale, resolved.offset)
+                )
             if resolved.scale == 0:
                 raise ValueError(f"点位 {resolved.tag_id!r} 的 scale 不能为 0,无法逆缩放")
             if resolved.scale == 1.0 and resolved.offset == 0.0:
@@ -740,7 +760,10 @@ class BaseClient(ABC):
                     return True, value
                 except TransportTimeoutError as exc:
                     # 超时但 0 字节已读:链路无残渣,不拆连也不计设备错误码;
-                    # 与其他传输失败一致进入重试(串口/UDP 与 TCP 口径统一)
+                    # 与其他传输失败一致进入重试(串口/UDP 与 TCP 口径统一)。
+                    # 注意:重试与重试之间存在"迟到响应落入接收缓冲"的竞态
+                    # 窗口(旧响应被当重试应答消费),写重试另有双写风险——
+                    # 见 TransportTimeoutError docstring 与 write_retries。
                     self._set_error(_describe(exc), _categorize(exc), _extract_code(exc))
                     continue
                 except DeviceError as exc:
@@ -925,17 +948,41 @@ def _narrow_int(
     result: Tuple[bool, Optional[PrimitiveValue]]
 ) -> Tuple[bool, Optional[int]]:
     """把通用读结果收窄为整数签名(内部函数)。"""
-    ok, value = result
-    if not ok or value is None or isinstance(value, bool) or not isinstance(value, int):
-        return False, None
-    return True, value
+    narrowed: Tuple[bool, Optional[PrimitiveValue]] = _narrow(result, int, "整数")
+    return cast(Tuple[bool, Optional[int]], narrowed)
 
 
 def _narrow_float(
     result: Tuple[bool, Optional[PrimitiveValue]]
 ) -> Tuple[bool, Optional[float]]:
     """把通用读结果收窄为浮点签名(内部函数)。"""
+    narrowed: Tuple[bool, Optional[PrimitiveValue]] = _narrow(result, float, "浮点数")
+    return cast(Tuple[bool, Optional[float]], narrowed)
+
+
+def _narrow(
+    result: Tuple[bool, Optional[PrimitiveValue]],
+    expected_type: type,
+    type_name: str,
+) -> Tuple[bool, Optional[PrimitiveValue]]:
+    """类型收窄的统一实现(内部函数)。
+
+    底层读成功(``ok=True``)而值类型不符时返回 ``(False, None)``——
+    此时 ``_clear_error`` 已在成功路径执行,``last_error`` 为空。类型
+    不符属**驱动返回了与声明类型不符的值**(库内缺陷)而非通信失败,
+    不伪造通信错误。
+
+    ``bool`` 排除仅对整数收窄生效(bool 是 int 子类,``read_ushort``
+    不得把 True 当 1 放行);``expected_type is bool`` 时布尔值恰是
+    目标类型,必须放行。
+    """
     ok, value = result
-    if not ok or value is None or isinstance(value, bool) or not isinstance(value, float):
+    if not ok or value is None:
+        return False, None
+    if expected_type is bool:
+        if not isinstance(value, bool):
+            return False, None
+        return True, value
+    if isinstance(value, bool) or not isinstance(value, expected_type):
         return False, None
     return True, value

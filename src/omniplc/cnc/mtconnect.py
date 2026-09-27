@@ -72,8 +72,10 @@ _STALE_CONNECTION_ERRORS = (ConnectionResetError, BrokenPipeError)
 ``BadStatusLine``,故归入此类;这类失效按 GET 幂等重建连接重试一次。
 """
 
-_BOOL_TRUE = ("true", "1")
-_BOOL_FALSE = ("false", "0")
+_BOOL_TRUE = ("true", "1", "yes")
+_BOOL_FALSE = ("false", "0", "no")
+"""MTConnect 布尔值域:Part1 数据类型定义 Boolean 表示为 ``YES``/``NO``,
+Agent 亦广泛输出 true/false(小写比较),双口径并收。"""
 
 _SUPPORTED_TYPES = (
     DataType.BOOL,
@@ -478,9 +480,16 @@ class MTConnectClient(BaseClient):
         return {"next_sequence": next_sequence, "samples": samples}
 
     def _fetch_assets(self, asset_ids: Optional[List[str]]) -> List[Dict[str, object]]:
-        """读取 /assets(全量)或 /asset/{id;id}(指定)(内部方法)。"""
+        """读取 /assets(全量)或 /asset/{id;id}(指定)(内部方法)。
+
+        asset id 是任意文本(规范允许空格/``?``/``#`` 等),路径侧必须
+        ``quote(..., safe="")``——与 :meth:`_query` 的值编码口径一致;
+        不编码时含特殊字符的 id 会破坏请求行,甚至把请求打到非资产端点。
+        多 id 分隔符 ``;`` 在拼好路径**之后**保留,不参与编码。
+        """
         if asset_ids:
-            path = _ASSET_PATH + "/" + ";".join(asset_ids)
+            encoded = ";".join(quote(_require_asset_id(item), safe="") for item in asset_ids)
+            path = _ASSET_PATH + "/" + encoded
         else:
             path = _ASSETS_PATH
         root = self._fetch(path)
@@ -627,6 +636,14 @@ class MTConnectClient(BaseClient):
             失败为 ``(False, None)``
         """
         return self._execute(lambda: self._fetch_assets(asset_ids))
+
+
+def _require_asset_id(asset_id: str) -> str:
+    """资产 id 校验:非空字符串,返回去除首尾空白后的 id(内部函数)。"""
+    text = asset_id.strip() if isinstance(asset_id, str) else ""
+    if not text:
+        raise ValueError("MTConnect 资产 id 不能为空")
+    return text
 
 
 def _check_address(address: str) -> str:
