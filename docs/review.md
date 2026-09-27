@@ -555,6 +555,12 @@ aio 层经镜像守卫测试与同步层同面,本身无需平展;本专项处�
 - **P3 `_clear_stale_selector` 吞所有 OSError(§1.7)— 已修复**:`errno` 属
   `EBADF`/`EINVAL`(fd 提前失效)时记 WARNING,其余(注册本就不存在)静默;
   无循环时直接返回(见上条);门禁 `test_udp_stale_selector_ebadf_logs_warning`。
+- **P2 跨循环使用不检测(§3.7)— 已修复**:原实现换事件循环时**静默换一把新锁**
+  ——两个循环各自"串行"却互不排斥,而传输对象绑在旧循环上(读写静默失败或串帧)。
+  现事务入口在"连接已建立而循环已变"时抛 `RuntimeError`(`_check_loop_affinity`),
+  `_guard` 另在"原循环正持有锁"时报错;未连接换循环与跨循环 `close()` 刻意放行
+  (前者兼容"逐个调用各起一次 `asyncio.run`"的既有写法,后者不堵死收尾路径)。
+  回归 2 例(旧实现实测 FAILED)+ 反向守卫 2 例。
 - **补漏(native 未镜像同步侧两处)— 已修复**:①**MC `_device_info` 未传生效码表**
   ——同步侧为 `codec_qna.device_info(device, self._effective_codes())`,native 漏传,
   `xy_octal=True` 时**查表与组帧不同源**(FX5U 表的 X/Y 进制与默认表不同);
@@ -583,7 +589,7 @@ aio 层经镜像守卫测试与同步层同面,本身无需平展;本专项处�
   错误三件套/计数一致 + **命令域符合期望**(钉住"该合并的确实合并为一笔");
   另加整批容错与逐 chunk 独立失败两例。
 
-门禁:全量 **1374 passed**(本批 1292 → 1374)/ ruff / mypy(76) / ty(零诊断)。
+门禁:全量 **1378 passed**(本批 1292 → 1378)/ ruff / mypy(76) / ty(零诊断)。
 
 ### 发布记录(2026-09-27)
 
@@ -1235,9 +1241,18 @@ aio 层经镜像守卫测试与同步层同面,本身无需平展;本专项处�
 - `native/base.py:613-655`
 - 复核:与 §1.2 同口径——默认 retries 关闭时的风险是 opt-in;UDP 写超时重发语义文档需强化。
 
-### 3.7 native 跨循环/跨线程使用不检测 — **P2(实锤)**
-- `native/base.py:717-723`
-- **修复**:loop 失配即抛 RuntimeError。
+### 3.7 native 跨循环/跨线程使用不检测 — **已修复(2026-09-27)**
+- `native/base.py`(`_guard` / `_check_loop_affinity`)
+- 复核:原实现换循环时**静默换一把新锁**,两个循环各自"串行"却互不排斥——而传输
+  对象(``StreamReader`` / 已连接 UDP 套接字)绑在旧循环上,在别的循环里读写要么
+  静默失败要么串帧。**修复**:事务入口在"连接已建立而循环已变"时抛
+  ``RuntimeError``(措辞单点维护);``_guard`` 另在"原循环正持有锁"(真并发)时
+  同样报错。**不断**的两种情形是刻意的:未连接时换循环安全(会新建传输,兼容
+  "逐个调用各起一次 ``asyncio.run``"的常见写法)、跨循环 ``close()`` 照常执行
+  (收尾路径不堵死)。回归 `test_reuse_of_connected_client_across_loops_raises`、
+  `test_concurrent_cross_loop_use_raises_runtime_error`(旧实现实测 FAILED)+
+  反向守卫 `test_sequential_cross_loop_calls_without_connection_stay_usable`、
+  `test_close_from_another_loop_still_closes`。
 
 ### 3.8 native `connect()` 取消后半开 socket — **P3(实锤)**
 - `native/base.py:160-220`,`native/transport.py:252-262`

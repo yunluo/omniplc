@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import socket
+import threading
 from typing import Any, List, Optional, Sequence
 
 import pytest
@@ -333,3 +334,94 @@ def test_async_with_exit_gates_the_client_like_close() -> None:
             await client.read_ushort("hr0")
 
     asyncio.run(scenario())
+
+
+def test_sequential_cross_loop_calls_without_connection_stay_usable() -> None:
+    """未建立连接时,逐个调用各起一次 ``asyncio.run`` 必须继续可用。
+
+    换循环本身无害(会新建传输);若一律报错,这种写法会被误伤——本文件多例
+    即"一次调用一次 ``asyncio.run``",且部分用例从未成功连上。
+    """
+
+    async def read_once() -> Any:
+        return await client.read_ushort("hr0")
+
+    client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+    client._create_transport = lambda: FakeTransport([], connect_error=OSError("拒绝"))  # type: ignore[method-assign]
+
+    assert asyncio.run(read_once()) == (False, None)  # 循环 A:连不上
+    assert asyncio.run(read_once()) == (False, None)  # 循环 B:仍可调用,不抛
+    asyncio.run(client.close())
+
+
+def test_reuse_of_connected_client_across_loops_raises() -> None:
+    """连接已建立后换事件循环发起事务 → 显式 ``RuntimeError``。
+
+    传输对象(``StreamReader`` / 已连接 UDP 套接字)绑在旧循环上,在别的循环里
+    读写要么静默失败要么串帧——原实现静默换锁,读写"看着能用"但结果是脏的。
+    """
+    client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+
+    async def connect_in_first_loop() -> None:
+        client._create_transport = lambda: FakeTransport(["hang"])  # type: ignore[method-assign]
+        assert await client.connect() is True
+
+    asyncio.run(connect_in_first_loop())
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(client.read_ushort("hr0"))
+
+
+def test_close_from_another_loop_still_closes() -> None:
+    """跨循环 ``close()`` 不拦(收尾路径):换锁后照常断开,不把清理机会也堵死。"""
+    client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+
+    async def connect_in_first_loop() -> None:
+        client._create_transport = lambda: FakeTransport([])  # type: ignore[method-assign]
+        assert await client.connect() is True
+
+    asyncio.run(connect_in_first_loop())
+    asyncio.run(client.close())  # 不抛
+
+    assert client.connected is False
+    with pytest.raises(RuntimeError):  # 关闸仍然生效
+        asyncio.run(client.read_ushort("hr0"))
+
+
+def test_concurrent_cross_loop_use_raises_runtime_error() -> None:
+    """另一事件循环**正持有**事务锁时,本循环发起调用 → 显式 ``RuntimeError``。
+
+    静默换锁会让两个循环各自"串行"却互不排斥:同一连接上的收发交错,协议帧
+    串包(见 :meth:`AsyncBaseClient._guard` / :meth:`_check_loop_affinity`)。
+    """
+    client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+    release = threading.Event()
+    started = threading.Event()
+
+    async def busy_loop() -> None:
+        scripted = FakeTransport(["hang"])
+        client._create_transport = lambda: scripted  # type: ignore[method-assign]
+        client.receive_timeout = 30.0
+        task = asyncio.ensure_future(client.read_ushort("hr0"))
+        lock = client._lock
+        while lock is None or not lock.locked():
+            await asyncio.sleep(0.01)  # 等事务拿到锁(在途)
+            lock = client._lock
+        started.set()
+        await asyncio.get_event_loop().run_in_executor(None, release.wait, 5.0)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        await client.close()
+
+    thread = threading.Thread(target=lambda: asyncio.run(busy_loop()), daemon=True)
+    thread.start()
+    try:
+        assert started.wait(5.0), "后台循环未能进入在途事务"
+        with pytest.raises(RuntimeError):
+            asyncio.run(client.read_ushort("hr0"))
+    finally:
+        release.set()
+        thread.join(5.0)

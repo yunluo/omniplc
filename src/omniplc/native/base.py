@@ -18,7 +18,10 @@
 
 **锁纪律**(``asyncio.Lock`` 非重入,与同步层 ``RLock`` 不同):只有公开
 入口(:meth:`connect`/:meth:`disconnect`/:meth:`close`/:meth:`_execute`)取锁,
-内部 ``_*_locked`` 助手假定"锁已持有"。跨线程/跨事件循环使用同一实例不支持。
+内部 ``_*_locked`` 助手假定"锁已持有"。跨线程/跨事件循环使用同一实例不支持:
+锁按"首次使用时所在循环"惰性创建,换循环时若**原循环正持有锁**(真并发),
+显式抛 ``RuntimeError``;原循环空闲(如逐个调用各起一次 ``asyncio.run``)
+则照常工作。
 
 **首批能力面**:单点读/写 + 类型化方法 + 字符串 + 点位表;批量
 (``read_many``/``read_batch`` 等)与各驱动扩展方法留后续批次。
@@ -677,6 +680,7 @@ class AsyncBaseClient(ABC):
         :return: ``(是否成功, 值)``
         """
         self._ensure_open()
+        self._check_loop_affinity()
         retries = self._write_retries if is_write else self._retries
         async with self._guard():
             self._counters["transactions"] += 1
@@ -787,12 +791,48 @@ class AsyncBaseClient(ABC):
             raise RuntimeError("客户端已关闭(close 之后不再受理调用)")
 
     def _guard(self) -> asyncio.Lock:
-        """取当前事件循环的事务锁(内部方法,惰性创建)。"""
+        """取当前事件循环的事务锁(内部方法,惰性创建)。
+
+        锁在**首次使用时**按当时的事件循环创建——3.7 的 ``asyncio.Lock`` 构造
+        即绑循环,若在 ``__init__`` 里建,模块级构造客户端再 ``asyncio.run`` 会
+        直接炸。换循环且**原循环正持有锁**(另一循环/线程的事务在途)时抛
+        ``RuntimeError``:静默换锁会让两个循环各自"串行"却互不排斥,同一连接上
+        的收发会交错。连接在用但循环已换的检查在事务入口
+        (:meth:`_check_loop_affinity`),那条路更要紧(传输对象绑在旧循环上)。
+        """
         loop = asyncio.get_event_loop()
-        if self._lock is None or self._lock_loop is not loop:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+            self._lock_loop = loop
+        elif self._lock_loop is not loop:
+            if self._lock.locked():
+                self._raise_loop_mismatch()
             self._lock = asyncio.Lock()
             self._lock_loop = loop
         return self._lock
+
+    def _check_loop_affinity(self) -> None:
+        """事务入口的跨循环检查(内部方法)。
+
+        **连接已建立**却换到别的事件循环发起事务 → 报错:传输对象(``StreamReader``
+        / 已连接 UDP 套接字)绑在旧循环上,在别的循环里读写要么静默失败、要么
+        串帧。未连接时换循环是安全的(会新建传输),故不拦——"逐个调用各起一次
+        ``asyncio.run``"的写法在未连接场景下照常工作。
+
+        :raises RuntimeError: 连接在用而当前循环不是它的创建循环
+        """
+        if not self._connected or self._lock_loop is None:
+            return
+        if self._lock_loop is not asyncio.get_event_loop():
+            self._raise_loop_mismatch()
+
+    @staticmethod
+    def _raise_loop_mismatch() -> None:
+        """抛跨循环使用的统一错误(内部方法,便于措辞单点维护)。"""
+        raise RuntimeError(
+            "该客户端已在另一个事件循环中使用(连接/在途事务绑在那个循环上):"
+            "跨循环/跨线程共享同一实例不支持。请在原循环内 close 后重建实例"
+        )
 
     # ------------------------------------------------------------------
     # 驱动子类需要实现的协议原语
