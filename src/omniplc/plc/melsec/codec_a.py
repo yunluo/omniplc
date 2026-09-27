@@ -3,8 +3,8 @@
 1E 帧用于 A 系列及以太网单元,帧结构比 3E/4E 更短(无网络号/PC 号
 路由字段),软元件码表也不同。帧布局(按 MELSEC 手册 1E 帧格式口径):
 
-- 请求 = 副头部(1) + PLC号/站号(1) + 监视定时器(2,小端) + 起始软元件(2,小端)
-  + 保留(2,恒 0) + 软元件码(2,小端) + 点数(2,小端,高字节恒 0) + [写数据]
+- 请求 = 副头部(1) + PLC号/站号(1) + 监视定时器(2,小端) + 设备编号(4,小端;
+  本库支持 ≤0xFFFF,高 2 字节恒 0) + 软元件码(2,小端) + 点数(2,小端) + [写数据]
 - 副头部:位读 0x00 / 字读 0x01 / 位写 0x02 / 字写 0x03
 - 响应 = 副头部(请求值 + 0x80)(1) + 结束代码(1,0=成功) + [数据]
   位数据每字节 2 位、高位在前;字数据逐字小端
@@ -93,6 +93,12 @@ def build_request(
     if not 1 <= points <= MC_1E_MAX_POINTS:
         raise ValueError(f"1E 访问点数超出范围 1~{MC_1E_MAX_POINTS}:{points}")
     number = device_number(address.device, address.number, base)
+    if not is_bit and is_bit_device and number % 16 != 0:
+        raise ValueError(
+            "1E 字单位访问位软元件要求首编号为 16 的倍数:{}{}".format(
+                address.device, address.number
+            )
+        )
 
     if is_write:
         subtitle = MC_1E_WRITE_BIT if is_bit else MC_1E_WRITE_WORD

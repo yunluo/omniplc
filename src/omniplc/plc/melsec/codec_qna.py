@@ -231,6 +231,18 @@ def build_random_read(
         raise ValueError(
             f"多块批量读总块数超出上限 {MC_MAX_RANDOM_BLOCKS}:{total_blocks}"
         )
+    word_points = sum(points for _code, _number, points in word_blocks)
+    bit_points = sum(points for _code, _number, points in bit_blocks)
+    response_bytes = 2 + (word_points + bit_points) * 2
+    if response_bytes > MC_MAX_RESPONSE_CONTENT:
+        raise ValueError(
+            "多块批量读响应过大:{} 字节(结束码 2 + 数据 {},上限 {}),"
+            "请拆分为多笔请求".format(
+                response_bytes,
+                (word_points + bit_points) * 2,
+                MC_MAX_RESPONSE_CONTENT,
+            )
+        )
     core = bytearray(MC_COMMAND_BATCH_READ_BLOCKS.to_bytes(2, "big"))
     core += MC_SUBCOMMAND_WORD_UNITS.to_bytes(2, "little")
     core += len(word_blocks).to_bytes(2, "little")

@@ -166,6 +166,30 @@ def test_mc_device_radix_matches_manual() -> None:
     assert MC_1E_DEVICE_CODES["D"][2] == 10
 
 
+def test_1e_word_access_bit_device_requires_multiple_of_16() -> None:
+    """1E 字单位访问位软元件:首编号须为 16 的倍数(SH-080008 §18.4)。"""
+    with pytest.raises(ValueError):
+        codec_a.build_request(
+            0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("M10"),
+            1, False, False, None,
+        )
+    # 16 的倍数放行
+    codec_a.build_request(
+        0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("M16"),
+        1, False, False, None,
+    )
+
+
+def test_build_random_read_response_budget() -> None:
+    """0406 响应总量超 MC_MAX_RESPONSE_CONTENT → 入参期 ValueError(不发请求)。"""
+    # 每块 900 点(≤单块上限),5 块 = 4500 点 → 9000 字节 > 8192 上限
+    blocks = [(0xA8, i * 1000, 900) for i in range(5)]
+    with pytest.raises(ValueError):
+        codec_qna.build_random_read(
+            "3E", 0, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, blocks, []
+        )
+
+
 def test_build_random_read_golden() -> None:
     """多块批量读请求字面字节(SH-080008 §8.4 二进制通信例:2 字块 + 3 位块)。"""
     request = codec_qna.build_random_read(
