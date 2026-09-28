@@ -69,6 +69,7 @@ from ..modbus.modbus import (
     _encode_value_for_write,
 )
 from ..core.types import ByteOrder, DataType, PrimitiveValue, WordOrder
+from ..core.i18n import _
 
 
 class AsyncModbusTcpClient(AsyncBaseClient):
@@ -115,7 +116,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         """站号范围校验(内部方法)。"""
         if not MODBUS_STATION_MIN <= value <= MODBUS_STATION_MAX:
             raise ValueError(
-                f"站号必须在 {MODBUS_STATION_MIN}~{MODBUS_STATION_MAX} 之间,收到:{value}"
+                _("站号必须在 {}~{} 之间,收到:{}").format(MODBUS_STATION_MIN, MODBUS_STATION_MAX, value)
             )
         return int(value)
 
@@ -149,7 +150,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             registers = await self._read_registers(parsed, 4)
             return _decode_64bit(registers, data_type, self._word_order)
-        raise ValueError(f"Modbus 不支持的数据类型:{data_type}")
+        raise ValueError(_("Modbus 不支持的数据类型:{}").format(data_type))
 
     async def _write(
         self, address: str, data_type: DataType, value: PrimitiveValue
@@ -185,7 +186,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
             )
             await self._write_registers_impl(parsed, registers)
             return
-        raise ValueError(f"Modbus 不支持的数据类型:{data_type}")
+        raise ValueError(_("Modbus 不支持的数据类型:{}").format(data_type))
 
     async def _read_string(
         self, address: str, length: int, encoding: str
@@ -193,9 +194,9 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         """从寄存器区读字符串:连续寄存器 → 按大端拼字节 → 解码。"""
         parsed = parse_address(address)
         if parsed.area not in (ModbusArea.HOLDING_REGISTER, ModbusArea.INPUT_REGISTER):
-            raise ValueError(f"字符串只能从寄存器区域(hr/ir)读取,收到:{address!r}")
+            raise ValueError(_("字符串只能从寄存器区域(hr/ir)读取,收到:{!r}").format(address))
         if parsed.bit is not None:
-            raise ValueError(f"字符串地址不支持位号后缀:{address!r}")
+            raise ValueError(_("字符串地址不支持位号后缀:{!r}").format(address))
         registers = await self._read_registers(parsed, (length + 1) // 2)
         data = b"".join(reg.to_bytes(2, "big") for reg in registers)[:length]
         return convert.decode_string(data, encoding)
@@ -206,9 +207,9 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         """向寄存器区写字符串:编码 → 补齐偶数字节 → 按大端拆寄存器。"""
         parsed = parse_address(address)
         if parsed.area != ModbusArea.HOLDING_REGISTER:
-            raise ValueError(f"字符串只能写入保持寄存器区域(hr),收到:{address!r}")
+            raise ValueError(_("字符串只能写入保持寄存器区域(hr),收到:{!r}").format(address))
         if parsed.bit is not None:
-            raise ValueError(f"字符串地址不支持位号后缀:{address!r}")
+            raise ValueError(_("字符串地址不支持位号后缀:{!r}").format(address))
         raw = convert.encode_string(
             value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
         )
@@ -257,7 +258,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
             # 输入寄存器/离散输入不可写:在读-改-写之前拒绝,避免先发一次读
             # (与同步 :meth:`ModbusBaseClient._write_bool_impl` 同口径)
             raise ValueError(
-                "位写只支持线圈(c)与保持寄存器(hr)区域,收到:{!r}".format(
+                _("位写只支持线圈(c)与保持寄存器(hr)区域,收到:{!r}").format(
                     parsed.area.value
                 )
             )
@@ -297,7 +298,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         :param values: 连续 ``count`` 个线圈的真值表(LSB first)
         """
         if parsed.area != ModbusArea.COIL:
-            raise ValueError(f"FC 15 仅支持线圈区域,收到:{parsed.area.value!r}")
+            raise ValueError(_("FC 15 仅支持线圈区域,收到:{!r}").format(parsed.area.value))
         int_values: List[int] = [1 if flag else 0 for flag in values]
         await self._write_pdu(
             codec.build_write_multi_pdu(
@@ -354,7 +355,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         :raises ValueError: 列表为空 / 地址或类型非法
         """
         if not items:
-            raise ValueError("read_batch 至少需要一个 (地址, 数据类型) 项")
+            raise ValueError(_("read_batch 至少需要一个 (地址, 数据类型) 项"))
         parsed: List[Tuple[ModbusAddress, DataType]] = []
         for addr, data_type in items:
             coerced = DataType.coerce(data_type)
@@ -452,7 +453,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
                     words[word_idx : word_idx + 4], dtype, self._word_order
                 )
                 continue
-            raise ValueError(f"Modbus 不支持的数据类型:{dtype}")
+            raise ValueError(_("Modbus 不支持的数据类型:{}").format(dtype))
 
     async def write_many(
         self,
@@ -498,7 +499,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         :raises ValueError: 列表为空 / 地址 / 类型 / 值非法
         """
         if not items:
-            raise ValueError("write_batch 至少需要一个 (地址, 数据类型, 值) 项")
+            raise ValueError(_("write_batch 至少需要一个 (地址, 数据类型, 值) 项"))
         parsed_items: List[Tuple[ModbusAddress, DataType, PrimitiveValue]] = []
         for address, dtype, value in items:
             data_type_enum = DataType.coerce(dtype)
@@ -566,7 +567,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
                 await self._write_bool_impl(parsed, flag)
                 result[item_index] = True
             else:
-                ok, _ = await self._execute(
+                ok, _unused = await self._execute(
                     lambda: self._write_bool_impl(parsed, flag), is_write=True
                 )
                 result[item_index] = ok
@@ -590,14 +591,14 @@ class AsyncModbusTcpClient(AsyncBaseClient):
                 chunk_items = [item for item in group if item[1] in chunk_entries]
                 if fail_fast:
                     await self._write_chunk(area, kind, chunk_items)
-                    for item_index, _, _ in chunk_items:
+                    for item_index, _entry, _area in chunk_items:
                         result[item_index] = True
                 else:
-                    ok, _ = await self._execute(
+                    ok, _unused = await self._execute(
                         lambda: self._write_chunk(area, kind, chunk_items),
                         is_write=True,
                     )
-                    for item_index, _, _ in chunk_items:
+                    for item_index, _entry, _area in chunk_items:
                         result[item_index] = ok
 
         return [bool(flag) for flag in result]
@@ -623,14 +624,14 @@ class AsyncModbusTcpClient(AsyncBaseClient):
 
         if kind == "bit":
             values: List[bool] = [False] * count
-            for _, entry, encoded in chunk:
+            for _unused, entry, encoded in chunk:
                 idx = entry.parsed.offset - start_offset
                 values[idx] = bool(encoded[0])
             probe = ModbusAddress(area=area, offset=start_offset)
             await self._write_bools_impl(probe, values)
         else:
             words: List[int] = [0] * count
-            for _, entry, encoded in chunk:
+            for _unused, entry, encoded in chunk:
                 idx = entry.parsed.offset - start_offset
                 for offset_within, word in enumerate(encoded):
                     words[idx + offset_within] = word
@@ -662,9 +663,9 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         """
         parsed = parse_address(address)
         if parsed.area != ModbusArea.HOLDING_REGISTER:
-            raise ValueError(f"掩码写只支持保持寄存器区域(hr),收到:{address!r}")
+            raise ValueError(_("掩码写只支持保持寄存器区域(hr),收到:{!r}").format(address))
         if parsed.bit is not None:
-            raise ValueError(f"掩码写地址不支持位号后缀:{address!r}")
+            raise ValueError(_("掩码写地址不支持位号后缀:{!r}").format(address))
         order = byte_order.value if isinstance(byte_order, ByteOrder) else str(byte_order)
         pdu = codec.build_mask_write_pdu(
             parsed.offset, require_int(and_mask), require_int(or_mask), order
@@ -673,7 +674,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         async def operation() -> None:
             codec.parse_mask_write_response(await self._transact(pdu), pdu)
 
-        ok, _ = await self._execute(operation, is_write=True)
+        ok, _unused = await self._execute(operation, is_write=True)
         return ok
 
     async def read_write_registers(
@@ -711,8 +712,8 @@ class AsyncModbusTcpClient(AsyncBaseClient):
             except DeviceError as exc:
                 if exc.code == 0x02:
                     raise DeviceError(
-                        "{};部分网关/老设备不支持跨段 FC23(读、写地址分属不同网段)"
-                        ",可改用 write_many + read_many".format(exc),
+                        _("{};部分网关/老设备不支持跨段 FC23(读、写地址分属不同网段)"
+                        ",可改用 write_many + read_many").format(exc),
                         exc.code,
                     ) from exc
                 raise
@@ -816,7 +817,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
             )
             if status != 0:
                 raise DeviceError(
-                    "FC11 状态字非就绪:0x{:04X}".format(status), int(status)
+                    _("FC11 状态字非就绪:0x{:04X}").format(status), int(status)
                 )
             return count
 
@@ -876,7 +877,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         async def operation() -> None:
             codec.parse_write_file_record_response(await self._transact(pdu), pdu)
 
-        ok, _ = await self._execute(operation, is_write=True)
+        ok, _unused = await self._execute(operation, is_write=True)
         return ok
 
     async def read_fifo_queue(self, address: str) -> Tuple[bool, Optional[List[int]]]:
@@ -903,7 +904,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         """
         collected: Dict[int, bytes] = {}
         object_id = 0
-        for _ in range(MODBUS_DEVICE_ID_MAX_PAGES):
+        for _unused in range(MODBUS_DEVICE_ID_MAX_PAGES):
             if not 0 <= object_id <= 0xFF or (
                 MODBUS_DEVICE_ID_RESERVED_MIN
                 <= object_id
@@ -912,8 +913,8 @@ class AsyncModbusTcpClient(AsyncBaseClient):
                 # 设备侧坏指针按 DeviceError 分类(与同步层同口径),
                 # 不以 ValueError 逃出 read_device_id
                 raise DeviceError(
-                    "设备标识翻页指针非法:设备下发 next_object_id=0x{:02X}"
-                    "(越界或落在规范保留区间)".format(object_id),
+                    _("设备标识翻页指针非法:设备下发 next_object_id=0x{:02X}"
+                    "(越界或落在规范保留区间)").format(object_id),
                     0,
                 )
             pdu = codec.build_device_id_pdu(code, object_id)
@@ -926,11 +927,11 @@ class AsyncModbusTcpClient(AsyncBaseClient):
                 return _device_id_to_text(collected)
             if parsed.next_object_id == object_id:
                 raise ProtocolFrameError(
-                    "设备标识翻页不收敛:对象号停在 0x{:02X}".format(object_id)
+                    _("设备标识翻页不收敛:对象号停在 0x{:02X}").format(object_id)
                 )
             object_id = parsed.next_object_id
         raise ProtocolFrameError(
-            "设备标识翻页次数超过上限 {}:疑似设备重复下发同一页".format(
+            _("设备标识翻页次数超过上限 {}:疑似设备重复下发同一页").format(
                 MODBUS_DEVICE_ID_MAX_PAGES
             )
         )
@@ -949,7 +950,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
             if item_id == object_id:
                 return raw
         raise ProtocolFrameError(
-            "设备标识个体访问未返回请求对象:期望 0x{:02X},收到 {}".format(
+            _("设备标识个体访问未返回请求对象:期望 0x{:02X},收到 {}").format(
                 object_id, [hex(item) for item, _ in parsed.objects]
             )
         )
@@ -974,7 +975,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         ``ModbusTcpClient`` 一致。
         """
         if self._station == 0 and self._BROADCAST_WITHOUT_RESPONSE:
-            raise ValueError("广播站号(station=0)仅支持写操作,读操作请指定实际站号")
+            raise ValueError(_("广播站号(station=0)仅支持写操作,读操作请指定实际站号"))
 
     def _create_transport(self) -> AsyncBaseTransport:
         return AsyncTcpTransport(self._ip_address, self._port)
@@ -996,13 +997,13 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         received_id, station, response_pdu = codec.parse_mbap(frame)
         if received_id != sent_id:
             raise ProtocolFrameError(
-                "MBAP 事务号不匹配:期望 {},收到 {}(收到的原始帧:{})".format(
+                _("MBAP 事务号不匹配:期望 {},收到 {}(收到的原始帧:{})").format(
                     sent_id, received_id, format_hex(frame)
                 )
             )
         if station != self.station:
             raise ProtocolFrameError(
-                "MBAP 站号不匹配:期望 {},收到 {}(收到的原始帧:{})".format(
+                _("MBAP 站号不匹配:期望 {},收到 {}(收到的原始帧:{})").format(
                     self.station, station, format_hex(frame)
                 )
             )

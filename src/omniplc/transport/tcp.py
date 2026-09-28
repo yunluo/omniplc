@@ -13,6 +13,7 @@ from ..core.constants import (
 )
 from ..core.debug import RECV_MARK, SEND_MARK, log_frame, log_op
 from ..core.errors import TransportClosedError
+from ..core.i18n import _
 
 
 class TcpTransport(BaseTransport):
@@ -106,12 +107,12 @@ class TcpTransport(BaseTransport):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise socket.timeout(
-                        f"TCP 接收超时({self._receive_timeout}s)"
+                        _("TCP 接收超时({}s)").format(self._receive_timeout)
                     )
                 sock.settimeout(remaining)
                 chunk = sock.recv(size - received)
                 if not chunk:
-                    raise TransportClosedError("TCP 连接已被对端关闭")
+                    raise TransportClosedError(_("TCP 连接已被对端关闭"))
                 chunks.append(chunk)
                 received += len(chunk)
         finally:
@@ -137,14 +138,14 @@ class TcpTransport(BaseTransport):
         sock = self._require_socket()
         chunk = sock.recv(max_bytes)
         if not chunk:
-            raise TransportClosedError("TCP 连接已被对端关闭")
+            raise TransportClosedError(_("TCP 连接已被对端关闭"))
         log_frame(self._debug_label, RECV_MARK, chunk)
         return chunk
 
     def _require_socket(self) -> socket.socket:
         """取当前 socket,未连接则抛出。"""
         if self._socket is None:
-            raise TransportClosedError("TCP 未连接,请先调用 connect()")
+            raise TransportClosedError(_("TCP 未连接,请先调用 connect()"))
         return self._socket
 
 

@@ -28,6 +28,7 @@ from .validation import (
     require_int,
 )
 from .types import ByteOrder, DataType, PrimitiveValue, WordOrder
+from .i18n import _
 
 BytesLike = Union[bytes, bytearray, Sequence[int]]
 
@@ -61,7 +62,7 @@ def crc16(data: BytesLike) -> int:
     crc = CRC16_INIT
     for byte in data:
         crc ^= byte & 0xFF
-        for _ in range(8):
+        for _unused in range(8):
             if crc & 0x0001:
                 crc = (crc >> 1) ^ CRC16_POLY
             else:
@@ -87,7 +88,7 @@ def get_bit(value: int, bit: int) -> bool:
     :raises ValueError: bit 超出允许范围
     """
     if not 0 <= bit <= BIT_INDEX_MAX:
-        raise ValueError(f"bit 必须在 0~{BIT_INDEX_MAX} 之间,收到:{bit}")
+        raise ValueError(_("bit 必须在 0~{} 之间,收到:{}").format(BIT_INDEX_MAX, bit))
     return (int(value) >> bit) & 0x01 == 0x01
 
 
@@ -97,7 +98,7 @@ def set_bit(value: int, bit: int, on: bool) -> int:
     :raises ValueError: bit 超出允许范围
     """
     if not 0 <= bit <= BIT_INDEX_MAX:
-        raise ValueError(f"bit 必须在 0~{BIT_INDEX_MAX} 之间,收到:{bit}")
+        raise ValueError(_("bit 必须在 0~{} 之间,收到:{}").format(BIT_INDEX_MAX, bit))
     value = int(value)
     if on:
         return value | (1 << bit)
@@ -113,7 +114,7 @@ def to_signed(raw: int, bits: int) -> int:
     """
     raw = int(raw)
     if not 0 <= raw < (1 << bits):
-        raise ValueError(f"无符号原始值超出 {bits} 位范围:{raw}")
+        raise ValueError(_("无符号原始值超出 {} 位范围:{}").format(bits, raw))
     return raw - (1 << bits) if raw >= 1 << (bits - 1) else raw
 
 
@@ -130,7 +131,7 @@ def words_to_bytes(
     for word in words:
         number = int(word)
         if not 0 <= number <= 0xFFFF:
-            raise ValueError(f"字值超出 0~65535 范围:{number}")
+            raise ValueError(_("字值超出 0~65535 范围:{}").format(number))
     return b"".join((int(word) & 0xFFFF).to_bytes(2, order) for word in words)
 
 
@@ -145,7 +146,7 @@ def bytes_to_words(
     """
     order = _byteorder(byteorder)
     if len(data) % 2 != 0:
-        raise ValueError("字节串长度必须为偶数,收到:{}".format(len(data)))
+        raise ValueError(_("字节串长度必须为偶数,收到:{}").format(len(data)))
     return [int.from_bytes(data[i:i + 2], order) for i in range(0, len(data), 2)]
 
 
@@ -158,7 +159,7 @@ def bytes_to_short(data: bytes, byteorder: Union[ByteOrder, str] = ByteOrder.BIG
     :raises ValueError: 长度不是 2
     """
     if len(data) != 2:
-        raise ValueError(f"16 位解码需要恰 2 字节,收到:{len(data)}")
+        raise ValueError(_("16 位解码需要恰 2 字节,收到:{}").format(len(data)))
     return int.from_bytes(data, _byteorder(byteorder), signed=True)
 
 
@@ -170,7 +171,7 @@ def bytes_to_ushort(data: bytes, byteorder: Union[ByteOrder, str] = ByteOrder.BI
     :raises ValueError: 长度不是 2
     """
     if len(data) != 2:
-        raise ValueError(f"16 位解码需要恰 2 字节,收到:{len(data)}")
+        raise ValueError(_("16 位解码需要恰 2 字节,收到:{}").format(len(data)))
     return int.from_bytes(data, _byteorder(byteorder), signed=False)
 
 
@@ -181,7 +182,7 @@ def short_to_bytes(value: int, byteorder: Union[ByteOrder, str] = ByteOrder.BIG)
     """
     number = int(value)
     if not -32768 <= number <= 32767:
-        raise ValueError(f"short 超出范围 -32768~32767:{number}")
+        raise ValueError(_("short 超出范围 -32768~32767:{}").format(number))
     return number.to_bytes(2, _byteorder(byteorder), signed=True)
 
 
@@ -192,7 +193,7 @@ def ushort_to_bytes(value: int, byteorder: Union[ByteOrder, str] = ByteOrder.BIG
     """
     number = int(value)
     if not 0 <= number <= 65535:
-        raise ValueError(f"ushort 超出范围 0~65535:{number}")
+        raise ValueError(_("ushort 超出范围 0~65535:{}").format(number))
     return number.to_bytes(2, _byteorder(byteorder), signed=False)
 
 
@@ -205,7 +206,7 @@ def _require_register_count(
     """
     if len(registers) != count:
         raise ValueError(
-            "{} 需要 {} 个寄存器,收到 {}".format(name, count, len(registers))
+            _("{} 需要 {} 个寄存器,收到 {}").format(name, count, len(registers))
         )
 
 
@@ -345,7 +346,7 @@ def encode_string(value: str, length: int, encoding: str = "ascii") -> bytes:
     """
     raw = value.encode(encoding)
     if len(raw) > length:
-        raise ValueError("字符串编码后 {} 字节,超出目标长度 {}".format(len(raw), length))
+        raise ValueError(_("字符串编码后 {} 字节,超出目标长度 {}").format(len(raw), length))
     return raw.ljust(length, b"\x00")
 
 
@@ -359,7 +360,7 @@ def _byteorder(byteorder: Union[ByteOrder, str]) -> Any:
         return cast(Any, byteorder.value)
     if byteorder in ("big", "little"):
         return cast(Any, byteorder)
-    raise ValueError(f"byteorder 必须是 ByteOrder.BIG/LITTLE 或 big/little,收到:{byteorder!r}")
+    raise ValueError(_("byteorder 必须是 ByteOrder.BIG/LITTLE 或 big/little,收到:{!r}").format(byteorder))
 
 
 def registers_to_canonical(
@@ -375,7 +376,7 @@ def registers_to_canonical(
     for reg in registers:
         number = int(reg)
         if not 0 <= number <= 0xFFFF:
-            raise ValueError(f"寄存器值超出 0~65535 范围:{number}")
+            raise ValueError(_("寄存器值超出 0~65535 范围:{}").format(number))
     raw = b"".join((int(reg) & 0xFFFF).to_bytes(2, "big") for reg in registers)
     return _reorder_bytes(raw, word_order)
 
@@ -412,15 +413,15 @@ def words_to_value(
     seq = list(reversed(words)) if reverse_words else list(words)
     if data_type is DataType.BOOL:
         if len(seq) != 1:
-            raise ValueError(f"BOOL 需要 1 个字,收到 {len(seq)} 个")
+            raise ValueError(_("BOOL 需要 1 个字,收到 {} 个").format(len(seq)))
         return bool(int(seq[0]) & 0xFFFF)
     if data_type is DataType.STRING:
         return decode_string(words_to_bytes(seq, byteorder), encoding)
     if data_type not in _TYPE_BYTE_SIZES:
-        raise ValueError(f"不支持的数据类型:{data_type!r}")
+        raise ValueError(_("不支持的数据类型:{!r}").format(data_type))
     size = _TYPE_BYTE_SIZES[data_type]
     if len(seq) * 2 != size:
-        raise ValueError(f"{data_type.name} 需要 {size // 2} 个字,收到 {len(seq)} 个")
+        raise ValueError(_("{} 需要 {} 个字,收到 {} 个").format(data_type.name, size // 2, len(seq)))
     raw = words_to_bytes(seq, byteorder)
     order = _byteorder(byteorder)
     if data_type is DataType.FLOAT:
@@ -469,11 +470,11 @@ def value_to_words(
         try:
             raw = struct.pack(("<f" if order == "little" else ">f"), number_f)
         except OverflowError as exc:
-            raise ValueError(f"float 超出 float32 范围:{value}") from exc
+            raise ValueError(_("float 超出 float32 范围:{}").format(value)) from exc
     elif data_type is DataType.DOUBLE:
         raw = struct.pack(("<d" if order == "little" else ">d"), require_float(value))
     else:
-        raise ValueError(f"value_to_words 只支持数值类型,收到:{data_type!r}")
+        raise ValueError(_("value_to_words 只支持数值类型,收到:{!r}").format(data_type))
     words = bytes_to_words(raw, byteorder)
     return list(reversed(words)) if reverse_words else words
 
@@ -496,7 +497,7 @@ def _reorder_bytes(data: bytes, word_order: WordOrder) -> bytes:
             word_order = WordOrder(word_order)
         except (ValueError, TypeError) as exc:
             raise ValueError(
-                "非法字序:{!r}(可选 ABCD/CDAB/BADC/DCBA)".format(word_order)
+                _("非法字序:{!r}(可选 ABCD/CDAB/BADC/DCBA)").format(word_order)
             ) from exc
     if word_order is WordOrder.ABCD:
         return data

@@ -76,6 +76,7 @@ from ..core.errors import (
 )
 from ..core.tag import Tag, TagTable
 from ..core.types import DataType, PrimitiveValue
+from ..core.i18n import _
 
 _T = TypeVar("_T")
 _C = TypeVar("_C", bound="AsyncBaseClient")
@@ -164,7 +165,7 @@ class AsyncBaseClient(ABC):
         if self._reconnect_backoff and now < self._next_connect_at:
             delay = self._next_connect_at - now
             self._set_error(
-                f"连接退避中:{delay:.1f} 秒后允许重连",
+                _("连接退避中:{:.1f} 秒后允许重连").format(delay),
                 ErrorCategory.TRANSPORT,
                 None,
                 record=False,
@@ -188,7 +189,7 @@ class AsyncBaseClient(ABC):
             self._connected = False
             self._register_connect_failure()
             self._set_error(
-                "连接 {}:{} 失败:{}".format(
+                _("连接 {}:{} 失败:{}").format(
                     self._ip_address or "-", self._port or "-", exc
                 ),
                 _categorize(exc),
@@ -213,7 +214,7 @@ class AsyncBaseClient(ABC):
             # 握手/会话初始化失败:清理到干净状态,下次事务惰性重连
             self._register_connect_failure()
             self._set_error(
-                "连接初始化失败:{}".format(_describe(exc)),
+                _("连接初始化失败:{}").format(_describe(exc)),
                 _categorize(exc),
                 _extract_code(exc),
             )
@@ -269,7 +270,7 @@ class AsyncBaseClient(ABC):
         try:
             transport.close()
         except Exception as exc:
-            self._set_error(f"关闭连接失败:{exc}", _categorize(exc), _extract_code(exc))
+            self._set_error(_("关闭连接失败:{}").format(exc), _categorize(exc), _extract_code(exc))
             return False
         self._counters["disconnect_count"] += 1
         return True
@@ -306,7 +307,7 @@ class AsyncBaseClient(ABC):
     @connect_timeout.setter
     def connect_timeout(self, seconds: float) -> None:
         if seconds <= 0:
-            raise ValueError(f"connect_timeout 必须大于 0,收到:{seconds}")
+            raise ValueError(_("connect_timeout 必须大于 0,收到:{}").format(seconds))
         self._connect_timeout = float(seconds)
         if self._transport is not None:
             self._transport.connect_timeout = self._connect_timeout
@@ -319,7 +320,7 @@ class AsyncBaseClient(ABC):
     @receive_timeout.setter
     def receive_timeout(self, seconds: float) -> None:
         if seconds <= 0:
-            raise ValueError(f"receive_timeout 必须大于 0,收到:{seconds}")
+            raise ValueError(_("receive_timeout 必须大于 0,收到:{}").format(seconds))
         self._receive_timeout = float(seconds)
         if self._transport is not None:
             self._transport.receive_timeout = self._receive_timeout
@@ -337,7 +338,7 @@ class AsyncBaseClient(ABC):
     @retries.setter
     def retries(self, count: int) -> None:
         if count < 0:
-            raise ValueError(f"retries 不能为负数,收到:{count}")
+            raise ValueError(_("retries 不能为负数,收到:{}").format(count))
         self._retries = int(count)
 
     @property
@@ -348,7 +349,7 @@ class AsyncBaseClient(ABC):
     @write_retries.setter
     def write_retries(self, count: int) -> None:
         if count < 0:
-            raise ValueError(f"write_retries 不能为负数,收到:{count}")
+            raise ValueError(_("write_retries 不能为负数,收到:{}").format(count))
         self._write_retries = int(count)
 
     @property
@@ -359,7 +360,7 @@ class AsyncBaseClient(ABC):
     @reconnect_backoff.setter
     def reconnect_backoff(self, enabled: bool) -> None:
         if not isinstance(enabled, bool):
-            raise ValueError(f"reconnect_backoff 必须为布尔值,收到:{enabled!r}")
+            raise ValueError(_("reconnect_backoff 必须为布尔值,收到:{!r}").format(enabled))
         self._reconnect_backoff = enabled
 
     @property
@@ -428,7 +429,7 @@ class AsyncBaseClient(ABC):
         :raises ValueError: 参数非法
         """
         data_type_enum = DataType.coerce(data_type)
-        ok, _ = await self._execute(
+        ok, _unused = await self._execute(
             lambda: self._write(address, data_type_enum, value), is_write=True
         )
         return ok
@@ -528,7 +529,7 @@ class AsyncBaseClient(ABC):
         :raises ValueError: length 非正
         """
         if length <= 0:
-            raise ValueError(f"length 必须大于 0,收到:{length}")
+            raise ValueError(_("length 必须大于 0,收到:{}").format(length))
         ok, value = await self._execute(
             lambda: self._read_string(address, length, encoding)
         )
@@ -544,7 +545,7 @@ class AsyncBaseClient(ABC):
             同口径:不把 ``"0"`` 这类非空字符串静默吞成 ``True``,也不把 5 当 True)
         """
         if isinstance(value, str) or not isinstance(value, int) or value not in (0, 1):
-            raise ValueError(f"布尔量必须是 bool 或 int 0/1,收到:{value!r}")
+            raise ValueError(_("布尔量必须是 bool 或 int 0/1,收到:{!r}").format(value))
         return await self.write(address, DataType.BOOL, bool(value))
 
     async def write_short(self, address: str, value: int) -> bool:
@@ -590,8 +591,8 @@ class AsyncBaseClient(ABC):
         :raises ValueError: value 为空字符串
         """
         if not value:
-            raise ValueError("value 不能为空字符串")
-        ok, _ = await self._execute(
+            raise ValueError(_("value 不能为空字符串"))
+        ok, _unused = await self._execute(
             lambda: self._write_string(address, str(value), encoding), is_write=True
         )
         return ok
@@ -641,7 +642,7 @@ class AsyncBaseClient(ABC):
         resolved = self._resolve_tag(tag)
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             if resolved.scale == 0:
-                raise ValueError(f"点位 {resolved.tag_id!r} 的 scale 不能为 0,无法逆缩放")
+                raise ValueError(_("点位 {!r} 的 scale 不能为 0,无法逆缩放").format(resolved.tag_id))
             if resolved.scale == 1.0 and resolved.offset == 0.0:
                 # 恒等缩放不过 float64 往返(保 64 位整数精度);但整数值 float
                 # 仍要还原为 int——现场"算得 float 再写整数点位"依赖该行为
@@ -659,11 +660,11 @@ class AsyncBaseClient(ABC):
         if isinstance(tag, Tag):
             return tag
         if self._tag_table is None:
-            raise ValueError(f"未绑定 TagTable,无法按点位标识读写:{tag!r}")
+            raise ValueError(_("未绑定 TagTable,无法按点位标识读写:{!r}").format(tag))
         try:
             return self._tag_table[tag]
         except KeyError:
-            raise ValueError(f"点位表中不存在:{tag!r}")
+            raise ValueError(_("点位表中不存在:{!r}").format(tag))
 
     # ------------------------------------------------------------------
     # 事务执行:惰性重连 + 重试 + 错误转换(事件循环内串行的核心)
@@ -808,7 +809,7 @@ class AsyncBaseClient(ABC):
     def _ensure_open(self) -> None:
         """关闸检查(内部方法)::meth:`close` 之后不再受理协议调用。"""
         if self._closed:
-            raise RuntimeError("客户端已关闭(close 之后不再受理调用)")
+            raise RuntimeError(_("客户端已关闭(close 之后不再受理调用)"))
 
     def _guard(self) -> asyncio.Lock:
         """取当前事件循环的事务锁(内部方法,惰性创建)。
@@ -850,8 +851,8 @@ class AsyncBaseClient(ABC):
     def _raise_loop_mismatch() -> None:
         """抛跨循环使用的统一错误(内部方法,便于措辞单点维护)。"""
         raise RuntimeError(
-            "该客户端已在另一个事件循环中使用(连接/在途事务绑在那个循环上):"
-            "跨循环/跨线程共享同一实例不支持。请在原循环内 close 后重建实例"
+            _("该客户端已在另一个事件循环中使用(连接/在途事务绑在那个循环上):"
+            "跨循环/跨线程共享同一实例不支持。请在原循环内 close 后重建实例")
         )
 
     # ------------------------------------------------------------------
@@ -864,7 +865,7 @@ class AsyncBaseClient(ABC):
         :raises TransportClosedError: 连接未建立(正常流程下由基类先重连)
         """
         if self._transport is None:
-            raise TransportClosedError("连接未建立")
+            raise TransportClosedError(_("连接未建立"))
         return self._transport
 
     @abstractmethod
@@ -904,13 +905,13 @@ class AsyncBaseClient(ABC):
         缺省实现抛 :class:`DeviceError`(链路正常,由基类转
         ``(False, None)`` + ``last_error``),不逃逸裸异常。
         """
-        raise DeviceError("当前驱动暂不支持字符串读取", 0)
+        raise DeviceError(_("当前驱动暂不支持字符串读取"), 0)
 
     async def _write_string(
         self, address: str, value: str, encoding: str
     ) -> PrimitiveValue:
         """字符串写原语,默认不支持,由驱动覆写(协程;内部方法)。"""
-        raise DeviceError("当前驱动暂不支持字符串写入", 0)
+        raise DeviceError(_("当前驱动暂不支持字符串写入"), 0)
 
     def _bump_id(self, attr: str, bits: int = 16) -> int:
         """递增指定字段的协议序列号(回绕到 0),返回新值(内部方法)。
@@ -930,7 +931,7 @@ class AsyncBaseClient(ABC):
     async def __aenter__(self: _C) -> _C:
         """进入 ``async with`` 时自动连接,失败抛 ConnectionError(常见约定)。"""
         if not await self.connect():
-            raise ConnectionError(f"连接失败:{self._last_error}")
+            raise ConnectionError(_("连接失败:{}").format(self._last_error))
         return self
 
     async def __aexit__(

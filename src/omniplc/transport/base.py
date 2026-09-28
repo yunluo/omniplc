@@ -6,6 +6,7 @@ from types import TracebackType
 from typing import Optional, TypeVar
 
 from ..core.constants import DEFAULT_CONNECT_TIMEOUT, DEFAULT_RECEIVE_TIMEOUT
+from ..core.i18n import _
 
 _T = TypeVar("_T", bound="BaseTransport")
 
@@ -44,7 +45,7 @@ class BaseTransport(ABC):
     @connect_timeout.setter
     def connect_timeout(self, seconds: float) -> None:
         if seconds <= 0:
-            raise ValueError(f"connect_timeout 必须大于 0,收到:{seconds}")
+            raise ValueError(_("connect_timeout 必须大于 0,收到:{}").format(seconds))
         self._connect_timeout = float(seconds)
 
     @property
@@ -55,7 +56,7 @@ class BaseTransport(ABC):
     @receive_timeout.setter
     def receive_timeout(self, seconds: float) -> None:
         if seconds <= 0:
-            raise ValueError(f"receive_timeout 必须大于 0,收到:{seconds}")
+            raise ValueError(_("receive_timeout 必须大于 0,收到:{}").format(seconds))
         self._receive_timeout = float(seconds)
 
     @abstractmethod

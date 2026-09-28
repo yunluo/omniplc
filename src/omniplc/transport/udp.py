@@ -8,6 +8,7 @@ from typing import Optional
 from .base import BaseTransport
 from ..core.debug import RECV_MARK, SEND_MARK, log_frame, log_op, log_warning
 from ..core.errors import DeviceError, TransportClosedError, TransportTimeoutError
+from ..core.i18n import _
 
 # Windows ``recv`` 对超长 UDP 报文抛 WSAEMSGSIZE(errno 10040);库捕获后
 # 与 POSIX 截断分支统一处理(见 :meth:`UdpTransport.recv`)。诊断码取负值,
@@ -120,7 +121,7 @@ class UdpTransport(BaseTransport):
                 datagram_size = sock.recv_into(buffer, size, socket.MSG_TRUNC)
             except socket.timeout as exc:
                 raise TransportTimeoutError(
-                    f"UDP 接收超时({self._receive_timeout}s)", 0
+                    _("UDP 接收超时({}s)").format(self._receive_timeout), 0
                 ) from exc
             if datagram_size > size:
                 # 与 Windows 分支同口径:截断是故障,响亮抛错而非返回
@@ -133,7 +134,7 @@ class UdpTransport(BaseTransport):
                     datagram_size - size,
                 )
                 raise DeviceError(
-                    "UDP 报文超过缓冲({}B,实收 {}B),链路正常(对端报文超长)".format(
+                    _("UDP 报文超过缓冲({}B,实收 {}B),链路正常(对端报文超长)").format(
                         size, datagram_size
                     ),
                     code=-_WSAEMSGSIZE_ERRNO,
@@ -147,7 +148,7 @@ class UdpTransport(BaseTransport):
             frame = sock.recv(size)
         except socket.timeout as exc:
             raise TransportTimeoutError(
-                f"UDP 接收超时({self._receive_timeout}s)", 0
+                _("UDP 接收超时({}s)").format(self._receive_timeout), 0
             ) from exc
         except OSError as exc:
             if getattr(exc, "errno", None) == _WSAEMSGSIZE_ERRNO:
@@ -160,7 +161,7 @@ class UdpTransport(BaseTransport):
                 # 错误码空间),不计入 device_error_count——本地缓冲配置
                 # 问题不应冒充"PLC 返回错误码"
                 raise DeviceError(
-                    f"UDP 报文超过缓冲({size}B),链路正常(对端报文超长)",
+                    _("UDP 报文超过缓冲({}B),链路正常(对端报文超长)").format(size),
                     code=-_WSAEMSGSIZE_ERRNO,
                 ) from exc
             raise
@@ -170,5 +171,5 @@ class UdpTransport(BaseTransport):
     def _require_socket(self) -> socket.socket:
         """取当前 socket,未初始化则抛出。"""
         if self._socket is None:
-            raise TransportClosedError("UDP 未初始化,请先调用 connect()")
+            raise TransportClosedError(_("UDP 未初始化,请先调用 connect()"))
         return self._socket

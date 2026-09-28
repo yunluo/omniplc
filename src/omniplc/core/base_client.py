@@ -46,6 +46,7 @@ from .errors import (
 from .tag import Tag, TagTable
 from ..transport import BaseTransport
 from .types import DataType, PrimitiveValue
+from .i18n import _
 
 _T = TypeVar("_T")
 _C = TypeVar("_C", bound="BaseClient")
@@ -87,9 +88,9 @@ def validate_endpoint(ip_address: str, port: int) -> None:
     :raises ValueError: 地址为空或端口不在 1~65535
     """
     if not ip_address or not ip_address.strip():
-        raise ValueError("ip_address 不能为空")
+        raise ValueError(_("ip_address 不能为空"))
     if not PORT_MIN <= int(port) <= PORT_MAX:
-        raise ValueError(f"port 必须在 {PORT_MIN}~{PORT_MAX} 之间,收到:{port}")
+        raise ValueError(_("port 必须在 {}~{} 之间,收到:{}").format(PORT_MIN, PORT_MAX, port))
 
 
 class BaseClient(ABC):
@@ -174,7 +175,7 @@ class BaseClient(ABC):
             if self._reconnect_backoff and now < self._next_connect_at:
                 delay = self._next_connect_at - now
                 self._set_error(
-                    f"连接退避中:{delay:.1f} 秒后允许重连",
+                    _("连接退避中:{:.1f} 秒后允许重连").format(delay),
                     ErrorCategory.TRANSPORT,
                     None,
                     record=False,
@@ -191,7 +192,7 @@ class BaseClient(ABC):
                 self._connected = False
                 self._register_connect_failure()
                 self._set_error(
-                    "连接 {}:{} 失败:{}".format(
+                    _("连接 {}:{} 失败:{}").format(
                         self._ip_address or "-", self._port or "-", exc
                     ),
                     _categorize(exc),
@@ -209,7 +210,7 @@ class BaseClient(ABC):
                 # 握手/会话初始化失败:清理到干净状态,下次事务惰性重连
                 self._register_connect_failure()
                 self._set_error(
-                    "连接初始化失败:{}".format(_describe(exc)),
+                    _("连接初始化失败:{}").format(_describe(exc)),
                     _categorize(exc),
                     _extract_code(exc),
                 )
@@ -249,7 +250,7 @@ class BaseClient(ABC):
             try:
                 transport.close()
             except OSError as exc:
-                self._set_error(f"关闭连接失败:{exc}", _categorize(exc), _extract_code(exc))
+                self._set_error(_("关闭连接失败:{}").format(exc), _categorize(exc), _extract_code(exc))
                 # 连接事实上已终结(transport 引用已清),失败也计入断开
                 with self._state_lock:
                     self._counters["disconnect_count"] += 1
@@ -279,7 +280,7 @@ class BaseClient(ABC):
     @connect_timeout.setter
     def connect_timeout(self, seconds: float) -> None:
         if seconds <= 0:
-            raise ValueError(f"connect_timeout 必须大于 0,收到:{seconds}")
+            raise ValueError(_("connect_timeout 必须大于 0,收到:{}").format(seconds))
         with self._lock:
             self._connect_timeout = float(seconds)
             if self._transport is not None:
@@ -299,7 +300,7 @@ class BaseClient(ABC):
     @receive_timeout.setter
     def receive_timeout(self, seconds: float) -> None:
         if seconds <= 0:
-            raise ValueError(f"receive_timeout 必须大于 0,收到:{seconds}")
+            raise ValueError(_("receive_timeout 必须大于 0,收到:{}").format(seconds))
         with self._lock:
             self._receive_timeout = float(seconds)
             if self._transport is not None:
@@ -318,7 +319,7 @@ class BaseClient(ABC):
     @retries.setter
     def retries(self, count: int) -> None:
         if count < 0:
-            raise ValueError(f"retries 不能为负数,收到:{count}")
+            raise ValueError(_("retries 不能为负数,收到:{}").format(count))
         self._retries = int(count)
 
     @property
@@ -335,7 +336,7 @@ class BaseClient(ABC):
     @write_retries.setter
     def write_retries(self, count: int) -> None:
         if count < 0:
-            raise ValueError(f"write_retries 不能为负数,收到:{count}")
+            raise ValueError(_("write_retries 不能为负数,收到:{}").format(count))
         self._write_retries = int(count)
 
     @property
@@ -350,7 +351,7 @@ class BaseClient(ABC):
     @reconnect_backoff.setter
     def reconnect_backoff(self, enabled: bool) -> None:
         if not isinstance(enabled, bool):
-            raise ValueError(f"reconnect_backoff 必须为布尔值,收到:{enabled!r}")
+            raise ValueError(_("reconnect_backoff 必须为布尔值,收到:{!r}").format(enabled))
         self._reconnect_backoff = enabled
 
     @property
@@ -474,7 +475,7 @@ class BaseClient(ABC):
         :raises ValueError: 参数非法
         """
         data_type_enum = DataType.coerce(data_type)
-        ok, _ = self._execute(
+        ok, _unused = self._execute(
             lambda: self._write(address, data_type_enum, value), is_write=True
         )
         return ok
@@ -561,7 +562,7 @@ class BaseClient(ABC):
         :param encoding: 字符编码,默认 ASCII
         """
         if length <= 0:
-            raise ValueError(f"length 必须大于 0,收到:{length}")
+            raise ValueError(_("length 必须大于 0,收到:{}").format(length))
         ok, value = self._execute(lambda: self._read_string(address, length, encoding))
         if not ok or value is None:
             return False, None
@@ -569,7 +570,7 @@ class BaseClient(ABC):
             # 驱动 _read_string 返回非 str(如 bytes)属库内缺陷:repr 包装
             # 会把二进制噪声伪装成"读到的字符串",显式拒绝并记录
             self._set_error(
-                f"read_string 内部类型错误:驱动返回 {type(value).__name__} 而非 str",
+                _("read_string 内部类型错误:驱动返回 {} 而非 str").format(type(value).__name__),
                 ErrorCategory.UNKNOWN,
                 None,
             )
@@ -586,7 +587,7 @@ class BaseClient(ABC):
             静默写错
         """
         if isinstance(value, str) or not isinstance(value, int) or value not in (0, 1):
-            raise ValueError(f"布尔量必须是 bool 或 int 0/1,收到:{value!r}")
+            raise ValueError(_("布尔量必须是 bool 或 int 0/1,收到:{!r}").format(value))
         return self.write(address, DataType.BOOL, bool(value))
 
     def write_short(self, address: str, value: int) -> bool:
@@ -633,8 +634,8 @@ class BaseClient(ABC):
         :param encoding: 字符编码,默认 ASCII
         """
         if not value:
-            raise ValueError("value 不能为空字符串")
-        ok, _ = self._execute(
+            raise ValueError(_("value 不能为空字符串"))
+        ok, _unused = self._execute(
             lambda: self._write_string(address, str(value), encoding), is_write=True
         )
         return ok
@@ -697,7 +698,7 @@ class BaseClient(ABC):
                     "scale={!r}, offset={!r}".format(resolved.scale, resolved.offset)
                 )
             if resolved.scale == 0:
-                raise ValueError(f"点位 {resolved.tag_id!r} 的 scale 不能为 0,无法逆缩放")
+                raise ValueError(_("点位 {!r} 的 scale 不能为 0,无法逆缩放").format(resolved.tag_id))
             if resolved.scale == 1.0 and resolved.offset == 0.0:
                 # 恒等缩放不过 float64 往返(保 64 位整数精度);但整数值 float
                 # 仍要还原为 int——现场"算得 float 再写整数点位"依赖该行为
@@ -725,11 +726,11 @@ class BaseClient(ABC):
         if isinstance(tag, Tag):
             return tag
         if self._tag_table is None:
-            raise ValueError(f"未绑定 TagTable,无法按点位标识读写:{tag!r}")
+            raise ValueError(_("未绑定 TagTable,无法按点位标识读写:{!r}").format(tag))
         try:
             return self._tag_table[tag]
         except KeyError:
-            raise ValueError(f"点位表中不存在:{tag!r}")
+            raise ValueError(_("点位表中不存在:{!r}").format(tag))
 
     # ------------------------------------------------------------------
     # 事务执行:惰性重连 + 重试 + 错误转换(线程安全核心)
@@ -834,7 +835,7 @@ class BaseClient(ABC):
     def __enter__(self: _C) -> _C:
         """进入 with 时自动连接,失败抛 ConnectionError(常见约定)。"""
         if not self.connect():
-            raise ConnectionError(f"连接失败:{self._last_error}")
+            raise ConnectionError(_("连接失败:{}").format(self._last_error))
         return self
 
     def __exit__(
@@ -855,7 +856,7 @@ class BaseClient(ABC):
         :raises TransportClosedError: 连接未建立(正常流程下由基类先重连)
         """
         if self._transport is None:
-            raise TransportClosedError("连接未建立")
+            raise TransportClosedError(_("连接未建立"))
         return self._transport
 
     @abstractmethod
@@ -892,14 +893,14 @@ class BaseClient(ABC):
         缺省实现抛 :class:`DeviceError`(链路正常,由基类转
         ``(False, None)`` + ``last_error``),不逃逸裸异常。
         """
-        raise DeviceError("当前驱动暂不支持字符串读取", 0)
+        raise DeviceError(_("当前驱动暂不支持字符串读取"), 0)
 
     def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
         """字符串写原语,默认不支持,由驱动覆写(内部方法)。
 
         缺省实现语义同 :meth:`_read_string`。
         """
-        raise DeviceError("当前驱动暂不支持字符串写入", 0)
+        raise DeviceError(_("当前驱动暂不支持字符串写入"), 0)
 
     def _bump_id(self, attr: str, bits: int = 16) -> int:
         """递增指定字段的协议序列号(回绕到 0),返回新值(内部方法)。
@@ -926,10 +927,10 @@ def _describe(exc: BaseException) -> str:
     """
     text = str(exc).strip()
     if isinstance(exc, TransportTimeoutError):
-        return text or "通信超时"
+        return text or _("通信超时")
     if isinstance(exc, socket.timeout):
-        return f"通信超时:{text or 'receive_timeout 到期'}"
-    return f"{type(exc).__name__}:{text}" if text else type(exc).__name__
+        return _("通信超时:{}").format(text or _("receive_timeout 到期"))
+    return _("{}:{}").format(type(exc).__name__, text) if text else type(exc).__name__
 
 
 def _categorize(exc: BaseException) -> ErrorCategory:

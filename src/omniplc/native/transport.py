@@ -52,6 +52,7 @@ from ..core.errors import (
     _CANCELLED_ERRORS,
 )
 from ..transport.tcp import _enable_keepalive
+from ..core.i18n import _
 
 # Windows ``recv`` 对超长 UDP 报文抛 ``WSAEMSGSIZE``(errno 10040),与同步
 # 传输层同一常量含义:协议帧问题而非链路问题。
@@ -126,7 +127,7 @@ class AsyncBaseTransport(ABC):
     @connect_timeout.setter
     def connect_timeout(self, seconds: float) -> None:
         if seconds <= 0:
-            raise ValueError(f"connect_timeout 必须大于 0,收到:{seconds}")
+            raise ValueError(_("connect_timeout 必须大于 0,收到:{}").format(seconds))
         self._connect_timeout = float(seconds)
 
     @property
@@ -141,7 +142,7 @@ class AsyncBaseTransport(ABC):
     @receive_timeout.setter
     def receive_timeout(self, seconds: float) -> None:
         if seconds <= 0:
-            raise ValueError(f"receive_timeout 必须大于 0,收到:{seconds}")
+            raise ValueError(_("receive_timeout 必须大于 0,收到:{}").format(seconds))
         self._receive_timeout = float(seconds)
 
     @property
@@ -241,7 +242,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
             asyncio.open_connection(self._ip_address, self._port), self._connect_timeout
         )
         if not opened[0] or opened[1] is None:
-            raise socket.timeout(f"TCP 连接超时({self._connect_timeout}s)")
+            raise socket.timeout(_("TCP 连接超时({}s)").format(self._connect_timeout))
         reader, writer = opened[1]
         sock = writer.get_extra_info("socket")
         if sock is not None:
@@ -283,7 +284,7 @@ class AsyncTcpTransport(AsyncBaseTransport):
         writer.write(data)
         drained = await _await_with_timeout(writer.drain(), self._receive_timeout)
         if not drained[0]:
-            raise socket.timeout(f"TCP 发送超时({self._receive_timeout}s)")
+            raise socket.timeout(_("TCP 发送超时({}s)").format(self._receive_timeout))
 
     async def recv(self, size: int) -> bytes:
         """读取恰好 ``size`` 字节(循环读取,应对粘包/分段)。
@@ -304,14 +305,14 @@ class AsyncTcpTransport(AsyncBaseTransport):
         while received < size:
             remaining = deadline - loop.time()
             if remaining <= 0:
-                raise socket.timeout(f"TCP 接收超时({self._receive_timeout}s)")
+                raise socket.timeout(_("TCP 接收超时({}s)").format(self._receive_timeout))
             done, chunk = await _await_with_timeout(reader.read(size - received), remaining)
             if not done:
                 # 已读部分字节留在 StreamReader 缓冲里,但半帧残留在连接上,
                 # 按超时拆连处理(与同步 TCP 同口径:迟到响应会串帧)
-                raise socket.timeout(f"TCP 接收超时({self._receive_timeout}s)")
+                raise socket.timeout(_("TCP 接收超时({}s)").format(self._receive_timeout))
             if not chunk:
-                raise TransportClosedError("TCP 连接已被对端关闭")
+                raise TransportClosedError(_("TCP 连接已被对端关闭"))
             chunks.append(chunk)
             received += len(chunk)
         frame = b"".join(chunks)
@@ -329,22 +330,22 @@ class AsyncTcpTransport(AsyncBaseTransport):
             reader.read(max_bytes), self._receive_timeout
         )
         if not done:
-            raise socket.timeout(f"TCP 接收超时({self._receive_timeout}s)")
+            raise socket.timeout(_("TCP 接收超时({}s)").format(self._receive_timeout))
         if not chunk:
-            raise TransportClosedError("TCP 连接已被对端关闭")
+            raise TransportClosedError(_("TCP 连接已被对端关闭"))
         log_frame(self._debug_label, RECV_MARK, chunk)
         return chunk
 
     def _require_reader(self) -> asyncio.StreamReader:
         """取当前读端,未连接则抛出。"""
         if self._reader is None:
-            raise TransportClosedError("TCP 未连接,请先调用 connect()")
+            raise TransportClosedError(_("TCP 未连接,请先调用 connect()"))
         return self._reader
 
     def _require_writer(self) -> asyncio.StreamWriter:
         """取当前写端,未连接则抛出。"""
         if self._writer is None:
-            raise TransportClosedError("TCP 未连接,请先调用 connect()")
+            raise TransportClosedError(_("TCP 未连接,请先调用 connect()"))
         return self._writer
 
 
@@ -399,7 +400,7 @@ class AsyncUdpTransport(AsyncBaseTransport):
             family=socket.AF_INET,
             type=socket.SOCK_DGRAM,
         )
-        family, _, _, _, sockaddr = infos[0]
+        family, _proto, _canonname, _flags, sockaddr = infos[0]
         sock = socket.socket(family, socket.SOCK_DGRAM)
         try:
             sock.setblocking(False)
@@ -459,14 +460,14 @@ class AsyncUdpTransport(AsyncBaseTransport):
         loop = asyncio.get_event_loop()
         # 已连接 UDP:一次 sendall 即一条数据报(Selector 循环只调一次
         # sock.send;Proactor 的 sock_sendall 为单次 IOCP 发送,不会拆分)
-        done, _ = await _await_with_timeout(
+        done, _unused = await _await_with_timeout(
             loop.sock_sendall(sock, data), self._receive_timeout
         )
         if not done:
             self._clear_stale_selector(sock)
             # 与同步 UDP 传输同口径:发送超时按 OSError 语义抛(事务层分类
             # TIMEOUT 并拆连重试),不套用"0 字节已读"的接收超时语义
-            raise socket.timeout(f"UDP 发送超时({self._receive_timeout}s)")
+            raise socket.timeout(_("UDP 发送超时({}s)").format(self._receive_timeout))
 
     async def recv(self, size: int) -> bytes:
         """接收一条数据报。
@@ -497,13 +498,13 @@ class AsyncUdpTransport(AsyncBaseTransport):
                     size,
                 )
                 raise DeviceError(
-                    f"UDP 报文超过缓冲({size}B),链路正常(对端报文超长)",
+                    _("UDP 报文超过缓冲({}B),链路正常(对端报文超长)").format(size),
                     code=_WSAEMSGSIZE_ERRNO,
                 ) from exc
             raise
         if not done or received is None:
             self._clear_stale_selector(sock)
-            raise TransportTimeoutError(f"UDP 接收超时({self._receive_timeout}s)", 0)
+            raise TransportTimeoutError(_("UDP 接收超时({}s)").format(self._receive_timeout), 0)
         frame = bytes(buffer[:received])
         log_frame(self._debug_label, RECV_MARK, frame)
         return frame
@@ -554,5 +555,5 @@ class AsyncUdpTransport(AsyncBaseTransport):
     def _require_socket(self) -> socket.socket:
         """取当前 socket,未初始化则抛出。"""
         if self._socket is None:
-            raise TransportClosedError("UDP 未初始化,请先调用 connect()")
+            raise TransportClosedError(_("UDP 未初始化,请先调用 connect()"))
         return self._socket

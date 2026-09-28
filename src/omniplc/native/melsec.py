@@ -60,6 +60,7 @@ from ..plc.melsec.melsec import (
     _merge_bit_blocks,
 )
 from ..core.types import DataType, McFrame, PrimitiveValue
+from ..core.i18n import _
 
 
 class AsyncMelsecMcBase(AsyncBaseClient):
@@ -108,8 +109,8 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         if self._frame not in self._SUPPORTED_FRAMES:
             supported = "/".join(member.value for member in self._SUPPORTED_FRAMES)
             raise ValueError(
-                "{} 暂不支持帧型 {},首批支持:{}(串口帧请用同步客户端或"
-                " omniplc.aio 过渡)".format(
+                _("{} 暂不支持帧型 {},首批支持:{}(串口帧请用同步客户端或"
+                " omniplc.aio 过渡)").format(
                     type(self).__name__, self._frame.value, supported
                 )
             )
@@ -140,7 +141,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         """MC 读原语:软元件地址 → 成批读请求 → 按类型解码(MC 字序小端)。"""
         parsed = parse_mc_address(address)
         if data_type is not DataType.BOOL and parsed.bit is not None:
-            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+            raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         if data_type is DataType.BOOL:
             return await self._read_bool_impl(parsed)
         if data_type in (DataType.SHORT, DataType.USHORT):
@@ -152,7 +153,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             data = await self._read_words(parsed, 4)
             return _decode_64(data, data_type)
-        raise ValueError(f"MC 不支持的数据类型:{data_type}")
+        raise ValueError(_("MC 不支持的数据类型:{}").format(data_type))
 
     async def _write(
         self, address: str, data_type: DataType, value: PrimitiveValue
@@ -160,10 +161,10 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         """MC 写原语:成批写请求。位软元件按位写;字软元件按位写用读-改-写。"""
         parsed = parse_mc_address(address)
         if data_type is not DataType.BOOL and parsed.bit is not None:
-            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+            raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         if data_type is DataType.BOOL:
             flag = require_bool(value)
-            _, is_bit_device, _ = self._device_info(parsed.device)
+            _unused, is_bit_device, _unused = self._device_info(parsed.device)
             if is_bit_device:
                 await self._write_bits(parsed, [1 if flag else 0])
             else:
@@ -184,7 +185,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             await self._write_words(parsed, _encode_64(value, data_type))
             return
-        raise ValueError(f"MC 不支持的数据类型:{data_type}")
+        raise ValueError(_("MC 不支持的数据类型:{}").format(data_type))
 
     async def _read_string(
         self, address: str, length: int, encoding: str
@@ -192,7 +193,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         """从字软元件读字符串:逐字小端拼字节后解码(MC 字序约定)。"""
         parsed = parse_mc_address(address)
         if parsed.bit is not None:
-            raise ValueError(f"字符串地址不支持位号后缀:{address!r}")
+            raise ValueError(_("字符串地址不支持位号后缀:{!r}").format(address))
         words = await self._read_words(parsed, (length + 1) // 2)
         data = b"".join(word.to_bytes(2, "little") for word in words)[:length]
         return convert.decode_string(data, encoding)
@@ -203,7 +204,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         """向字软元件写字符串:编码 → 补齐偶数字节 → 逐字小端。"""
         parsed = parse_mc_address(address)
         if parsed.bit is not None:
-            raise ValueError(f"字符串地址不支持位号后缀:{address!r}")
+            raise ValueError(_("字符串地址不支持位号后缀:{!r}").format(address))
         raw = convert.encode_string(
             value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
         )
@@ -254,10 +255,10 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         :raises ValueError: 列表为空/帧型不支持/地址或类型非法
         """
         if not items:
-            raise ValueError("read_batch 至少需要一个 (地址, 数据类型) 项")
+            raise ValueError(_("read_batch 至少需要一个 (地址, 数据类型) 项"))
         if self._frame not in (McFrame.FRAME_3E, McFrame.FRAME_4E):
             raise ValueError(
-                f"多块批量读仅支持 3E/4E 帧,当前帧型:{self._frame.value}"
+                _("多块批量读仅支持 3E/4E 帧,当前帧型:{}").format(self._frame.value)
             )
         word_blocks: List[Tuple[int, int, int]] = []
         bit_requests: List[Tuple[int, int, int]] = []  # (软元件码, 起始编号, plan 下标)
@@ -267,7 +268,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
             data_type_enum = DataType.coerce(data_type)
             parsed = self._translate_address(parse_mc_address(address))
             if data_type_enum is not DataType.BOOL and parsed.bit is not None:
-                raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+                raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
             code, is_bit_device, base = self._device_info(parsed.device)
             if (
                 is_bit_device
@@ -275,8 +276,8 @@ class AsyncMelsecMcBase(AsyncBaseClient):
                 and not self._bit_device_word_access_allowed
             ):
                 raise ValueError(
-                    "MC 批量读:位软元件 {}{} 只支持 BOOL,字单位请改用字软元件"
-                    "(如 D)或逐点读取".format(parsed.device, parsed.number)
+                    _("MC 批量读:位软元件 {}{} 只支持 BOOL,字单位请改用字软元件"
+                    "(如 D)或逐点读取").format(parsed.device, parsed.number)
                 )
             number = codec_qna.device_number(parsed.device, parsed.number, base)
             if data_type_enum is DataType.BOOL:
@@ -303,7 +304,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
                 plan.append(("word", word_index, 4, data_type_enum))
                 word_index += 4
             else:
-                raise ValueError(f"MC 批量读取不支持的数据类型:{data_type_enum}")
+                raise ValueError(_("MC 批量读取不支持的数据类型:{}").format(data_type_enum))
         word_points = word_index
         bit_blocks, bit_points = _merge_bit_blocks(bit_requests, plan)
 
@@ -363,9 +364,9 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         :raises ValueError: 列表为空/帧型不支持/地址或类型非法
         """
         if not word_items and not double_word_items:
-            raise ValueError("random_read 至少需要一个字访问或双字访问软元件")
+            raise ValueError(_("random_read 至少需要一个字访问或双字访问软元件"))
         if self._frame not in (McFrame.FRAME_3E, McFrame.FRAME_4E):
-            raise ValueError(f"随机读仅支持 3E/4E 帧,当前帧型:{self._frame.value}")
+            raise ValueError(_("随机读仅支持 3E/4E 帧,当前帧型:{}").format(self._frame.value))
         word_devices, word_plan = self._random_plan(word_items, is_double=False)
         dword_devices, dword_plan = self._random_plan(double_word_items, is_double=True)
         word_count = len(word_devices)
@@ -431,7 +432,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
             data_type_enum = DataType.coerce(data_type)
             if data_type_enum not in allowed:
                 raise ValueError(
-                    "MC 随机访问{}软元件类型不符:{}(允许:{})".format(
+                    _("MC 随机访问{}软元件类型不符:{}(允许:{})").format(
                         "双字" if is_double else "字",
                         data_type_enum,
                         "/".join(t.value for t in allowed),
@@ -440,14 +441,14 @@ class AsyncMelsecMcBase(AsyncBaseClient):
             parsed = self._translate_address(parse_mc_address(address))
             code, is_bit_device, base = self._device_info(parsed.device)
             if data_type_enum is not DataType.BOOL and parsed.bit is not None:
-                raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+                raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
             if data_type_enum is DataType.BOOL:
                 if not is_bit_device:
-                    raise ValueError(f"MC 随机读 BOOL 需要位软元件:{address!r}")
+                    raise ValueError(_("MC 随机读 BOOL 需要位软元件:{!r}").format(address))
                 codec_qna.reject_bit_suffix_on_bit_device(parsed)
             if data_type_enum is not DataType.BOOL and is_bit_device:
                 raise ValueError(
-                    "MC 随机读:位软元件 {}{} 只支持 BOOL".format(
+                    _("MC 随机读:位软元件 {}{} 只支持 BOOL").format(
                         parsed.device, parsed.number
                     )
                 )
@@ -472,9 +473,9 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         :raises ValueError: 两列表均空/帧型不支持/地址或数值非法
         """
         if not word_items and not double_word_items:
-            raise ValueError("随机写至少需要一个字访问或双字访问软元件")
+            raise ValueError(_("随机写至少需要一个字访问或双字访问软元件"))
         if self._frame not in (McFrame.FRAME_3E, McFrame.FRAME_4E):
-            raise ValueError(f"随机写仅支持 3E/4E 帧,当前帧型:{self._frame.value}")
+            raise ValueError(_("随机写仅支持 3E/4E 帧,当前帧型:{}").format(self._frame.value))
 
         def plan_devices(
             items: Sequence[Tuple[str, PrimitiveValue]], byte_count: int
@@ -486,19 +487,18 @@ class AsyncMelsecMcBase(AsyncBaseClient):
                     # 与同步层同口径:位号后缀静默丢弃会按 16 点/字写,
                     # 位软元件清零相邻 15 点、字软元件写错点
                     raise ValueError(
-                        f"MC 随机写地址不支持位号后缀:{address!r}"
-                        "(位软元件直接写编号,按 16 点/字)"
+                        _("MC 随机写地址不支持位号后缀:{!r}(位软元件直接写编号,按 16 点/字)").format(address)
                     )
                 code, is_bit_device, base = self._device_info(parsed.device)
                 number = codec_qna.device_number(parsed.device, parsed.number, base)
                 if is_bit_device and not 0 <= number <= 0xFFFFFF - 15:
                     raise ValueError(
-                        f"MC 随机写位软元件编号越界:{parsed.device}{parsed.number}"
+                        _("MC 随机写位软元件编号越界:{}{}").format(parsed.device, parsed.number)
                     )
                 number_value = require_int(value)
                 if not 0 <= number_value <= (1 << (byte_count * 8)) - 1:
                     raise ValueError(
-                        "随机写值超出 {} 字节无符号范围:{}={}".format(
+                        _("随机写值超出 {} 字节无符号范围:{}={}").format(
                             byte_count, address, number_value
                         )
                     )
@@ -520,7 +520,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
             )
             await self._transact(request)
 
-        ok, _ = await self._execute(operation, is_write=True)
+        ok, _unused = await self._execute(operation, is_write=True)
         return ok
 
     async def get_cpu_type(self) -> Tuple[bool, Optional[Tuple[str, int]]]:
@@ -531,7 +531,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         """
         if self._frame not in (McFrame.FRAME_3E, McFrame.FRAME_4E):
             raise ValueError(
-                f"CPU 型号读取仅支持 3E/4E 帧,当前帧型:{self._frame.value}"
+                _("CPU 型号读取仅支持 3E/4E 帧,当前帧型:{}").format(self._frame.value)
             )
 
         async def operation() -> Tuple[str, int]:
@@ -557,7 +557,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
 
     async def _read_bool_impl(self, parsed: McAddress) -> bool:
         """位软元件按点位成批读;字软元件读 1 字后按位提取。"""
-        _, is_bit_device, _ = self._device_info(parsed.device)
+        _unused, is_bit_device, _unused = self._device_info(parsed.device)
         if is_bit_device:
             return bool((await self._read_bits(parsed, 1))[0])
         words = await self._read_words(parsed, 1)

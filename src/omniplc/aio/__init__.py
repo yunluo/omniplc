@@ -100,6 +100,7 @@ from ..scanner import KeyenceSrClient
 from ..plc.omron import OmronCipClient, OmronFinsTcpClient, OmronFinsUdpClient
 from ..core.tag import Tag, TagTable
 from ..core.types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity, WordOrder
+from ..core.i18n import _
 
 _T = TypeVar("_T")
 _A = TypeVar("_A", bound="ABaseClient")
@@ -191,7 +192,7 @@ class ABaseClient:
         """
         sync = self._sync
         if not isinstance(sync, expected):
-            raise TypeError(f"内部错误:sync 实例不是 {expected.__name__}")
+            raise TypeError(_("内部错误:sync 实例不是 {}").format(expected.__name__))
         return sync
 
     async def _run(self, operation: Callable[[], _T]) -> _T:
@@ -211,7 +212,7 @@ class ABaseClient:
         self._ensure_open()
         executor = self._executor
         if executor is None:
-            raise RuntimeError("aio 客户端已关闭")
+            raise RuntimeError(_("aio 客户端已关闭"))
         setter = getattr(type(self._sync), name).fset
 
         def _apply() -> None:
@@ -446,7 +447,7 @@ class ABaseClient:
     def _ensure_open(self) -> None:
         """已关闭客户端不可再执行协议操作(内部方法)。"""
         if self._executor is None:
-            raise RuntimeError("客户端已关闭,无法再执行协议操作")
+            raise RuntimeError(_("客户端已关闭,无法再执行协议操作"))
 
     async def close(self) -> None:
         """断开连接并释放单工作线程(幂等;关闭后客户端不可复用)。
@@ -499,7 +500,7 @@ class ABaseClient:
     async def __aenter__(self: _A) -> _A:
         """进入 async with 时自动连接,失败抛 ConnectionError。"""
         if not await self.connect():
-            raise ConnectionError(f"连接失败:{self._sync.last_error}")
+            raise ConnectionError(_("连接失败:{}").format(self._sync.last_error))
         return self
 
     async def __aexit__(
@@ -1488,7 +1489,7 @@ class AOpcUaClient(ABaseClient):
         """
         if not isinstance(subscription, OpcUaSubscription):
             raise ValueError(
-                "subscription 必须是订阅句柄,收到:{}".format(
+                _("subscription 必须是订阅句柄,收到:{}").format(
                     type(subscription).__name__
                 )
             )
@@ -1503,7 +1504,7 @@ class _AFinsRoutingClient(ABaseClient):
         """取 FINS 同步实例并断言驱动类型(内部属性)。"""
         sync = self._sync
         if not isinstance(sync, (OmronFinsTcpClient, OmronFinsUdpClient)):
-            raise TypeError("内部错误:sync 实例不是 FINS 客户端")
+            raise TypeError(_("内部错误:sync 实例不是 FINS 客户端"))
         return sync
 
     @property

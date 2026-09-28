@@ -7,6 +7,7 @@ import math
 import os
 from dataclasses import dataclass
 from typing import Dict, Iterable, Iterator, Mapping, Optional, Union
+from .i18n import _
 
 PathLike = Union[str, os.PathLike]
 
@@ -60,23 +61,23 @@ class TagTable(Mapping[str, Tag]):
     def _validate_and_insert(self, tag: Tag) -> None:
         """校验一个点位并写入内部字典(内部方法,仅构造期调用)。"""
         if not tag.tag_id or not tag.tag_id.strip():
-            raise ValueError("点位标识不能为空")
+            raise ValueError(_("点位标识不能为空"))
         if not tag.address or not tag.address.strip():
-            raise ValueError(f"点位 {tag.tag_id!r} 的地址不能为空")
+            raise ValueError(_("点位 {!r} 的地址不能为空").format(tag.tag_id))
         if not math.isfinite(tag.scale):
             # NaN == 0 / inf == 0 均为 False,`scale == 0` 拦不住;
             # scale=inf 会把整数点位逆缩放成 0 静默写入,NaN 写 nan
             raise ValueError(
-                f"点位 {tag.tag_id!r} 的 scale 必须为有限数,收到:{tag.scale!r}"
+                _("点位 {!r} 的 scale 必须为有限数,收到:{!r}").format(tag.tag_id, tag.scale)
             )
         if tag.scale == 0:
-            raise ValueError(f"点位 {tag.tag_id!r} 的 scale 不能为 0(写入无法逆缩放)")
+            raise ValueError(_("点位 {!r} 的 scale 不能为 0(写入无法逆缩放)").format(tag.tag_id))
         if not math.isfinite(tag.offset):
             raise ValueError(
-                f"点位 {tag.tag_id!r} 的 offset 必须为有限数,收到:{tag.offset!r}"
+                _("点位 {!r} 的 offset 必须为有限数,收到:{!r}").format(tag.tag_id, tag.offset)
             )
         if tag.tag_id in self._tags:
-            raise ValueError(f"点位标识重复:{tag.tag_id!r}")
+            raise ValueError(_("点位标识重复:{!r}").format(tag.tag_id))
         self._tags[tag.tag_id] = tag
 
     @classmethod
@@ -99,7 +100,7 @@ class TagTable(Mapping[str, Tag]):
         with open(path, "r", encoding=encoding) as fp:
             data = json.load(fp)
         if not isinstance(data, list):
-            raise ValueError(f"JSON 点位表必须是数组,收到:{type(data).__name__}")
+            raise ValueError(_("JSON 点位表必须是数组,收到:{}").format(type(data).__name__))
         return cls(_tag_from_record(item) for item in data)
 
     @classmethod
@@ -117,7 +118,7 @@ class TagTable(Mapping[str, Tag]):
             names = reader.fieldnames or []
             for required in ("tag_id", "address", "data_type"):
                 if required not in names:
-                    raise ValueError(f"CSV 缺少必需列:{required!r},表头:{names}")
+                    raise ValueError(_("CSV 缺少必需列:{!r},表头:{}").format(required, names))
             return cls(_tag_from_record(row) for row in reader)
 
     def __getitem__(self, key: str) -> Tag:
@@ -142,13 +143,13 @@ def _tag_from_record(record: Mapping[str, object]) -> Tag:
     :raises ValueError: 记录不是对象、缺必需字段或必填单元格为空
     """
     if not isinstance(record, dict):
-        raise ValueError(f"点位记录必须是对象,收到:{type(record).__name__}")
+        raise ValueError(_("点位记录必须是对象,收到:{}").format(type(record).__name__))
     try:
         tag_id = _required_cell(record["tag_id"], "tag_id")
         address = _required_cell(record["address"], "address")
         data_type = _required_cell(record["data_type"], "data_type").lower()
     except KeyError as exc:
-        raise ValueError(f"点位记录缺少必需字段:{exc},记录:{record}") from exc
+        raise ValueError(_("点位记录缺少必需字段:{},记录:{}").format(exc, record)) from exc
     scale = _to_float(record.get("scale"), 1.0)
     offset = _to_float(record.get("offset"), 0.0)
     remark = "" if record.get("remark") is None else str(record.get("remark")).strip()
@@ -166,7 +167,7 @@ def _required_cell(value: object, field: str) -> str:
     """取必填文本单元格,``None``/空白视为空(CSV 短行的缺列即 ``None``)。"""
     text = "" if value is None else str(value).strip()
     if not text:
-        raise ValueError(f"点位记录字段 {field!r} 不能为空")
+        raise ValueError(_("点位记录字段 {!r} 不能为空").format(field))
     return text
 
 
@@ -182,4 +183,4 @@ def _to_float(value: object, default: float) -> float:
     try:
         return float(str(value))
     except ValueError:
-        raise ValueError(f"点位数值字段格式错误:{value!r}") from None
+        raise ValueError(_("点位数值字段格式错误:{!r}").format(value)) from None

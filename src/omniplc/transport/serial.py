@@ -20,6 +20,7 @@ from ..core.constants import (
 from ..core.debug import RECV_MARK, SEND_MARK, log_frame, log_op
 from ..core.errors import TransportClosedError, TransportTimeoutError
 from ..core.types import SerialParity
+from ..core.i18n import _
 
 
 @dataclass
@@ -46,13 +47,13 @@ class SerialConfig:
         :raises ValueError: 参数非法
         """
         if not self.port_name or not self.port_name.strip():
-            raise ValueError("串口名 port_name 不能为空")
+            raise ValueError(_("串口名 port_name 不能为空"))
         if self.baud_rate <= 0:
-            raise ValueError(f"波特率必须大于 0,收到:{self.baud_rate}")
+            raise ValueError(_("波特率必须大于 0,收到:{}").format(self.baud_rate))
         if not 5 <= self.data_bits <= 8:
-            raise ValueError(f"数据位必须在 5~8 之间,收到:{self.data_bits}")
+            raise ValueError(_("数据位必须在 5~8 之间,收到:{}").format(self.data_bits))
         if self.stop_bits not in (1, 1.5, 2):
-            raise ValueError(f"停止位必须是 1/1.5/2,收到:{self.stop_bits}")
+            raise ValueError(_("停止位必须是 1/1.5/2,收到:{}").format(self.stop_bits))
         _coerce_parity(self.parity)
 
 
@@ -116,7 +117,7 @@ class SerialTransport(BaseTransport):
             import serial  # 延迟导入:仅在真正使用串口时要求 pyserial
         except ImportError as exc:
             raise RuntimeError(
-                "串口传输需要 pyserial 支持,请安装:pip install omniplc[serial]"
+                _("串口传输需要 pyserial 支持,请安装:pip install omniplc[serial]")
             ) from exc
 
         port = serial.Serial()
@@ -189,19 +190,18 @@ class SerialTransport(BaseTransport):
         """超时收尾:按已读字节数选择不断线超时或断线重同步(内部方法)。"""
         if received == 0:
             raise TransportTimeoutError(
-                f"串口读取超时(receive_timeout={self._receive_timeout})",
+                _("串口读取超时(receive_timeout={})").format(self._receive_timeout),
                 0,
             )
         self.close()
         raise TransportClosedError(
-            f"串口读取超时且已收 {received}/{size} 字节(帧截断,残渣必致后续帧错位),"
-            "已关闭串口,下次事务将重新打开以重新同步"
+            _("串口读取超时且已收 {}/{} 字节(帧截断,残渣必致后续帧错位),已关闭串口,下次事务将重新打开以重新同步").format(received, size)
         )
 
     def _require_serial(self) -> Any:
         """取当前串口对象,未打开则抛出。"""
         if self._serial is None:
-            raise TransportClosedError("串口未打开,请先调用 connect()")
+            raise TransportClosedError(_("串口未打开,请先调用 connect()"))
         return self._serial
 
 
@@ -213,5 +213,5 @@ def _coerce_parity(value: Union[SerialParity, str]) -> SerialParity:
         return SerialParity(str(value).strip().upper())
     except ValueError:
         raise ValueError(
-            f"校验位必须是 SerialParity 枚举或 N/E/O,收到:{value!r}"
+            _("校验位必须是 SerialParity 枚举或 N/E/O,收到:{!r}").format(value)
         )

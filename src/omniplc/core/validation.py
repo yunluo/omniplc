@@ -7,26 +7,27 @@ from __future__ import annotations
 
 from .constants import INT16_MAX, INT16_MIN, UINT16_MAX, UINT8_MAX
 from .types import PrimitiveValue
+from .i18n import _
 
 
 def require_bool(value: PrimitiveValue) -> bool:
     """校验布尔参数。"""
     if not isinstance(value, bool):
-        raise ValueError("布尔量必须是 bool,收到:{}".format(type(value).__name__))
+        raise ValueError(_("布尔量必须是 bool,收到:{}").format(type(value).__name__))
     return value
 
 
 def require_int(value: PrimitiveValue) -> int:
     """校验整数参数(排除 bool)。"""
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError("整数必须是 int,收到:{}".format(type(value).__name__))
+        raise ValueError(_("整数必须是 int,收到:{}").format(type(value).__name__))
     return value
 
 
 def require_float(value: PrimitiveValue) -> float:
     """校验浮点参数(接受 int/float,排除 bool)。"""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError("浮点量必须是数字,收到:{}".format(type(value).__name__))
+        raise ValueError(_("浮点量必须是数字,收到:{}").format(type(value).__name__))
     return float(value)
 
 
@@ -34,7 +35,7 @@ def check_int16(value: PrimitiveValue) -> int:
     """校验 16 位有符号整数范围,返回 0~65535 原始字。"""
     number = require_int(value)
     if not INT16_MIN <= number <= INT16_MAX:
-        raise ValueError(f"short 超出范围 {INT16_MIN}~{INT16_MAX}:{number}")
+        raise ValueError(_("short 超出范围 {}~{}:{}").format(INT16_MIN, INT16_MAX, number))
     return number & 0xFFFF
 
 
@@ -42,7 +43,7 @@ def check_uint16(value: PrimitiveValue) -> int:
     """校验 16 位无符号整数范围。"""
     number = require_int(value)
     if not 0 <= number <= UINT16_MAX:
-        raise ValueError(f"ushort 超出范围 0~{UINT16_MAX}:{number}")
+        raise ValueError(_("ushort 超出范围 0~{}:{}").format(UINT16_MAX, number))
     return number
 
 
@@ -53,7 +54,7 @@ def check_range(value: int, low: int, high: int, name: str) -> int:
     :func:`check_uint16`,它们还带换算语义)。
     """
     if not low <= value <= high:
-        raise ValueError(f"{name} 超出范围 {low}~{high}:{value}")
+        raise ValueError(_("{} 超出范围 {}~{}:{}").format(name, low, high, value))
     return value
 
 
@@ -65,5 +66,5 @@ def check_byte_field(name: str, value: int, maximum: int = UINT8_MAX) -> int:
     """
     number = require_int(value)
     if not 0 <= number <= maximum:
-        raise ValueError(f"{name} 必须在 0~{maximum} 之间,收到:{value}")
+        raise ValueError(_("{} 必须在 0~{} 之间,收到:{}").format(name, maximum, value))
     return number
