@@ -52,7 +52,7 @@
 | 罗克韦尔 | EtherNet/IP(connected, Forward Open) | | | RPI 默认 100ms(`rpi_us` 可覆盖)、CIP 0x01/0x07 断线重连、Forward Close 应答解析待真机核证 |
 | 倍福 | TwinCAT ADS | | | transport 类错误码 0x705/0x706/0x725 分流(断线惰性重连)、`set_timeout` 返回值告警待真机核证 |
 | 西门子 | S7-300/1200/1500 | | | STRING/WSTRING 读超长按 `length` 截断、写保留 PLC 侧声明长(超声明长拒绝);优化块访问错误提示、PUT/GET 缺失文本细分待真机核证 |
-| 汇川 | H3U/H5U Modbus TCP | | | |
+| 汇川 | H3U/H5U Modbus TCP | 汇川 H5U 系列 ✓ | 汇川 H5U 系列 ✓ | 2026-09-28 真机读写通过(`InovanceTcpClient`,汇川 TCP/502) |
 | 汇川 | H3U/H5U Modbus RTU | | | |
 | 汇川 | H3U/H5U MC 协议兼容(3E) | | | |
 | 松下 | MEWTOCOL TCP/UDP | | | |
@@ -62,7 +62,7 @@
 | 基恩士 | KV MC 协议兼容(SLMP 3E) | | | 位组记号核证(2026-09-26 复核后仍待真机,判据已定):本库按**记号数字原样**发帧(`R515` → 515)。核证法:**写 `R100`**,在 KV Studio 同时看 `R100`(组 1 位 0)与 `R604`(组 6 位 4 = 线性 100)——前者变化 = 现状正确;后者变化 = 需换算为 `组×16+位号`(那时改 `_translate_address` 并按行为变更记 CHANGELOG)。依据与反证详见 `plc/keyence/mc.py` 模块 docstring 与 `docs/review.md` §2.7.3 |
 | 基恩士 | SR 扫码枪 | — | — | SR 扫码枪为读码设备,读=扫码触发,写=不适用 |
 | 丰田 | TOYOPUC 计算机链接 TCP/UDP | | | |
-| Modbus | Modbus TCP | | | FC22 掩码写(字节序可配) / FC23 读写多寄存器 / FC24 FIFO / FC43·14 设备标识待真机核证 |
+| Modbus | Modbus TCP | 汇川 H5U 系列 ✓ | 汇川 H5U 系列 ✓ | 2026-09-28 基础读写通过(`ModbusTcpClient`,同机汇川 H5U);FC22 掩码写(字节序可配) / FC23 读写多寄存器 / FC24 FIFO / FC43·14 设备标识待真机核证 |
 | Modbus | Modbus RTU | | | FC22 掩码写 / FC23 读写多寄存器 / FC24 FIFO(按 byte count 增量收包) / FC43·14 设备标识(按对象头增量收包) / `inter_frame_delay` 帧间静默待真机核证 |
 | OPC-UA | opc.tcp | | | 订阅/Browse 为 v0.35 新增,待真机验证 |
 | CNC | MTConnect Agent HTTP/XML | | | |
