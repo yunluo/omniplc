@@ -9,14 +9,15 @@ from .base import BaseTransport
 from ..core.debug import RECV_MARK, SEND_MARK, log_frame, log_op, log_warning
 from ..core.errors import DeviceError, TransportClosedError, TransportTimeoutError
 
-# Windows ``recv`` 对超长 UDP 报文抛 :data:`WSAEMSGSIZE`(errno 10040)。
-# POSIX 静默截断,Windows 显式 OSError;两者都指示"对端报文超过缓冲"。
+# Windows ``recv`` 对超长 UDP 报文抛 WSAEMSGSIZE(errno 10040);库捕获后
+# 与 POSIX 截断分支统一处理(见 :meth:`UdpTransport.recv`)。诊断码取负值,
+# 避开真实协议错误码空间(基类据此不计入 device_error_count)。
 _WSAEMSGSIZE_ERRNO = 10040
 
-# UDP 静默截断仅在 POSIX(Linux/macOS)出现——Windows ``recv``/``recv_into``
-# 对超长报文直接抛 ``WSAEMSGSIZE``(WinError 10040),``recv_into`` + ``MSG_TRUNC``
-# 还会在 Windows 上抛 ``WSAESYSNOTREADY``(WinError 10045)。POSIX 下
-# :meth:`recv_into` + ``MSG_TRUNC`` 暴露真实报文字节数,用于探测截断。
+# UDP 截断探测手段按平台:POSIX ``recv_into`` + ``MSG_TRUNC`` 暴露真实
+# 报文字节数(POSIX ``recv`` 本身静默截断);Windows 下 ``recv`` 直接抛
+# ``WSAEMSGSIZE``,无需 ``MSG_TRUNC``(该组合在 Windows 上抛
+# WSAEOPNOTSUPP, WinError 10045)。
 _SUPPORTS_MSG_TRUNC = sys.platform != "win32" and hasattr(socket, "MSG_TRUNC")
 
 
@@ -94,22 +95,22 @@ class UdpTransport(BaseTransport):
     def recv(self, size: int) -> bytes:
         """接收一条数据报。
 
-        UDP 报文截断处理分平台:
+        UDP 报文截断**跨平台同口径**:库以 WARNING 日志输出一行带
+        "缓冲 size / 实收字节"的诊断,随后抛
+        :class:`DeviceError`(``code`` 为诊断性负码 ``-10040``,基类按
+        ``DEVICE`` 分类且**不计入** ``device_error_count``——本地缓冲
+        配置问题非 PLC 报错,也不触发重连):
 
-        - **POSIX**(Linux/macOS):``recv(size)`` 对超长报文**静默截断**——
-          超出字节不会保留到下次 recv。库用 ``recv_into`` + ``MSG_TRUNC``
-          拿到真实报文字节数,截断时通过 :func:`log_warning` 输出一条
-          WARNING(不受调试开关门控)以提示调用方增大缓冲——多半是协议层
-          size 估错或对端回了超长报文。
-        - **Windows**::meth:`recv` 对超长报文抛 ``WSAEMSGSIZE``(errno 10040)。
-          库捕获后:1) WARNING 日志输出一行带"缓冲 size"的诊断;2) 转抛
-          :class:`DeviceError`,基类按 ``DEVICE`` 分类(与真断线 ``TRANSPORT``
-          区分)且"不重试、不断线"——UDP 报文超长是协议帧问题,链路完好。
+        - **POSIX**(Linux/macOS):``recv_into`` + ``MSG_TRUNC`` 拿到真实
+          报文字节数,超出缓冲即按上述口径处理(POSIX ``recv`` 本身会
+          静默截断,``MSG_TRUNC`` 是探测真长的唯一手段)。
+        - **Windows**:``recv`` 对超长报文抛 ``WSAEMSGSIZE``(errno
+          10040),捕获后同口径处理。
 
-        :param size: 缓冲上限(超出部分截断)
+        :param size: 缓冲上限(超出按截断故障处理)
         :raises TransportClosedError: 未初始化
         :raises TransportTimeoutError: 接收超时(不断线语义)
-        :raises DeviceError: Windows 上报文超过缓冲时抛(code=10040)
+        :raises DeviceError: 报文超过缓冲时抛(code=-10040,链路正常)
         :raises OSError: 其他 OS 层错误
         """
         sock = self._require_socket()
@@ -122,6 +123,8 @@ class UdpTransport(BaseTransport):
                     f"UDP 接收超时({self._receive_timeout}s)", 0
                 ) from exc
             if datagram_size > size:
+                # 与 Windows 分支同口径:截断是故障,响亮抛错而非返回
+                # 残缺帧(跨平台行为一致,调用方不必按平台分支处理)
                 log_warning(
                     self._debug_label,
                     "UDP 数据报截断:实收 %dB,缓冲 %dB(超出 %dB 已丢,检查协议层 size 或对端报文)",
@@ -129,9 +132,13 @@ class UdpTransport(BaseTransport):
                     size,
                     datagram_size - size,
                 )
-                frame = bytes(buffer)
-            else:
-                frame = bytes(buffer[:datagram_size])
+                raise DeviceError(
+                    "UDP 报文超过缓冲({}B,实收 {}B),链路正常(对端报文超长)".format(
+                        size, datagram_size
+                    ),
+                    code=-_WSAEMSGSIZE_ERRNO,
+                )
+            frame = bytes(buffer[:datagram_size])
             log_frame(self._debug_label, RECV_MARK, frame)
             return frame
         # Windows:recv 对超长报文抛 WSAEMSGSIZE(无静默截断);捕获并
@@ -149,12 +156,12 @@ class UdpTransport(BaseTransport):
                     "UDP 数据报超长(WinError 10040 WSAEMSGSIZE):缓冲 %dB,检查协议层 size 或对端报文",
                     size,
                 )
-                # 转 :class:`DeviceError`:基类按 DEVICE 分类(与真断线 TRANSPORT
-                # 区分),且"不重试、不断线"——UDP 报文超长是协议帧问题,
-                # 链路是好的,不应当触发连接重置。
+                # 与 POSIX 截断分支同口径:诊断性负码(负值避开真实协议
+                # 错误码空间),不计入 device_error_count——本地缓冲配置
+                # 问题不应冒充"PLC 返回错误码"
                 raise DeviceError(
                     f"UDP 报文超过缓冲({size}B),链路正常(对端报文超长)",
-                    code=_WSAEMSGSIZE_ERRNO,
+                    code=-_WSAEMSGSIZE_ERRNO,
                 ) from exc
             raise
         log_frame(self._debug_label, RECV_MARK, frame)

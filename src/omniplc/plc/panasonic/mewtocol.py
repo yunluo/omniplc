@@ -194,9 +194,20 @@ class _MewtocolBase(BaseClient):
         """发送请求并接收完整响应,返回数据文本(内部方法)。
 
         TCP:先收 4 字节头判断正常/错误,再精确收齐余量;
-        UDP:一次 recv 整包,长度由解析层校验。
+        UDP:一次 recv 整包,长度由解析层校验——但**收包缓冲 2048 字节**,
+        预算超缓冲的响应会静默截断(POSIX)/报错(Windows),故发送前按
+        ``data_chars`` 预算拦截(响亮拒绝,不发不该发的请求)。
         """
         transport = self._require_transport()
+        if transport.datagram and data_chars:
+            expected = codec_mewtocol.parse_expected_size(data_chars)
+            if expected > MEWTOCOL_MAX_DATAGRAM:
+                raise ValueError(
+                    "MEWTOCOL UDP 长读超出整包缓冲:预算响应 {} 字节 > {}"
+                    "(UDP 侧请减小单次字数或改 TCP 走线)".format(
+                        expected, MEWTOCOL_MAX_DATAGRAM
+                    )
+                )
         transport.send(request)
         if transport.datagram:
             response = transport.recv(MEWTOCOL_MAX_DATAGRAM)

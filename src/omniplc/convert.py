@@ -124,8 +124,13 @@ def words_to_bytes(
 
     :param words: 原始字序列(0~65535),按传输顺序给出
     :param byteorder: 字内字节序,默认小端
+    :raises ValueError: 任一字超出 0~65535(不做静默掩码——写错值比报错更危险)
     """
     order = _byteorder(byteorder)
+    for word in words:
+        number = int(word)
+        if not 0 <= number <= 0xFFFF:
+            raise ValueError(f"字值超出 0~65535 范围:{number}")
     return b"".join((int(word) & 0xFFFF).to_bytes(2, order) for word in words)
 
 
@@ -147,14 +152,25 @@ def bytes_to_words(
 def bytes_to_short(data: bytes, byteorder: Union[ByteOrder, str] = ByteOrder.BIG) -> int:
     """按指定字节序把 2 字节解码为 16 位有符号整数。
 
-    :param data: 原始字节
+    :param data: 原始字节(长度必须恰为 2——驱动切片错位时在源头报错,
+        不静默解出错值)
     :param byteorder: 字节序,推荐 :class:`omniplc.types.ByteOrder` 枚举
+    :raises ValueError: 长度不是 2
     """
+    if len(data) != 2:
+        raise ValueError(f"16 位解码需要恰 2 字节,收到:{len(data)}")
     return int.from_bytes(data, _byteorder(byteorder), signed=True)
 
 
 def bytes_to_ushort(data: bytes, byteorder: Union[ByteOrder, str] = ByteOrder.BIG) -> int:
-    """按指定字节序把 2 字节解码为 16 位无符号整数。"""
+    """按指定字节序把 2 字节解码为 16 位无符号整数。
+
+    :param data: 原始字节(长度必须恰为 2)
+    :param byteorder: 字节序,推荐 :class:`omniplc.types.ByteOrder` 枚举
+    :raises ValueError: 长度不是 2
+    """
+    if len(data) != 2:
+        raise ValueError(f"16 位解码需要恰 2 字节,收到:{len(data)}")
     return int.from_bytes(data, _byteorder(byteorder), signed=False)
 
 
@@ -353,7 +369,13 @@ def registers_to_canonical(
 
     输入寄存器按设备实际顺序给出(每个寄存器内部恒为大端),
     输出为该数值标准大端表示,可直接交给 struct 解码。
+
+    :raises ValueError: 任一寄存器超出 0~65535(不做静默掩码)
     """
+    for reg in registers:
+        number = int(reg)
+        if not 0 <= number <= 0xFFFF:
+            raise ValueError(f"寄存器值超出 0~65535 范围:{number}")
     raw = b"".join((int(reg) & 0xFFFF).to_bytes(2, "big") for reg in registers)
     return _reorder_bytes(raw, word_order)
 

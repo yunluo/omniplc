@@ -58,12 +58,19 @@ class KeyenceSrClient(BaseClient):
         ip_address: str = "192.168.0.10",
         port: int = SR_DEFAULT_PORT,
         scan_dwell: float = SR_DEFAULT_SCAN_DWELL,
+        encoding: str = "utf-8",
+        encoding_errors: str = "strict",
     ) -> None:
         """初始化 SR 扫码枪客户端。
 
         :param ip_address: 扫码枪 IP 或主机名
         :param port: TCP 端口,默认 9004
         :param scan_dwell: 扫码窗口时长(秒),LON 到 LOFF 的等待时间
+        :param encoding: 条码内容解码编码,默认 utf-8。QR/DataMatrix 可携带
+            Shift-JIS/GB2312/任意二进制内容,按现场码制选择
+        :param encoding_errors: 解码失败策略,默认 ``strict``——非法序列抛错
+            并记 last_error(不静默以 U+FFFD 乱码当条码成功返回);
+            确需容错可显式传 ``replace``
         :raises ValueError: 参数非法
         """
         validate_endpoint(ip_address, port)
@@ -73,6 +80,12 @@ class KeyenceSrClient(BaseClient):
         if scan_dwell <= 0:
             raise ValueError(f"scan_dwell 必须大于 0,收到:{scan_dwell}")
         self._scan_dwell = float(scan_dwell)
+        try:
+            "".encode(encoding)
+        except LookupError as exc:
+            raise ValueError(f"encoding 非法:{encoding!r}") from exc
+        self._encoding = encoding
+        self._encoding_errors = encoding_errors
 
     @property
     def scan_dwell(self) -> float:
@@ -140,19 +153,20 @@ class KeyenceSrClient(BaseClient):
         transport.receive_timeout = read_timeout
         try:
             line = self._read_line(transport, read_timeout)
-            if line.strip().upper().startswith("ER,"):
+            text = line.decode(self._encoding, errors=self._encoding_errors)
+            if text.strip().upper().startswith("ER,"):
                 # 命令错误应答 ``ER,<命令名称>,<错误代码>``(SR-2000 手册 Rev6.0 §12-1
                 # 印刷页 76);不可当条码返回,按设备错误抛出(不断线)
-                fields = line.strip().split(",")
+                fields = text.strip().split(",")
                 code_text = fields[2].strip() if len(fields) >= 3 else ""
                 code = int(code_text) if code_text.isdigit() else 0
                 raise DeviceError(
                     "SR 命令错误应答:{}(错误代码 {})".format(
-                        line.strip(), code_text or "未知"
+                        text.strip(), code_text or "未知"
                     ),
                     code,
                 )
-            return line
+            return text
         except socket.timeout:
             # 读码窗口内无应答:链路仍然完好,不断线
             self._drain_line(transport)
@@ -182,7 +196,7 @@ class KeyenceSrClient(BaseClient):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _read_line(transport: BaseTransport, read_timeout: float) -> str:
+    def _read_line(transport: BaseTransport, read_timeout: float) -> bytes:
         """读取一行以 CR 结束的应答,整行受 ``read_timeout`` 总预算约束(内部方法)。"""
         chunks = []
         started = False
@@ -205,7 +219,7 @@ class KeyenceSrClient(BaseClient):
                     raise OmniPLCInternalError(f"SR 应答超过 {SR_RECV_MAX} 字节上限")
         finally:
             transport.receive_timeout = previous_timeout
-        return b"".join(chunks).decode("utf-8", errors="replace")
+        return b"".join(chunks)
 
     def _drain_line(self, transport: BaseTransport) -> bool:
         """尽力读掉已到达的半行残留,防下一事务从流中间续读(内部方法)。
@@ -239,7 +253,9 @@ class KeyenceSrClient(BaseClient):
     def _command_expect_ok(self, transport: BaseTransport, command: bytes) -> None:
         """发送命令并校验 OK 应答(内部方法)。"""
         transport.send(command)
-        text = self._read_line(transport, self._receive_timeout).strip()
+        text = self._read_line(transport, self._receive_timeout).decode(
+            self._encoding, errors=self._encoding_errors
+        ).strip()
         if text != SR_RESP_OK:
             # code 0 = 无具体错误码(设备应答异常但链路正常,不断线)
             raise DeviceError("SR 命令 {} 应答异常:期望 OK,收到 {!r}".format(

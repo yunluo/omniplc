@@ -55,9 +55,15 @@ class TcpTransport(BaseTransport):
             (self._ip_address, self._port),
             timeout=self._connect_timeout,
         )
-        sock.settimeout(self._receive_timeout)
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        _enable_keepalive(sock)
+        try:
+            sock.settimeout(self._receive_timeout)
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            _enable_keepalive(sock)
+        except OSError:
+            # create_connection 成功后的配置失败同样要收 FD,否则
+            # BaseClient.connect 的清理(transport._socket is None)兜不住
+            sock.close()
+            raise
         self._socket = sock
         log_op(self._debug_label, "已连接")
 

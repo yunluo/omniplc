@@ -31,6 +31,7 @@ v1 范围:**只读监控**——类型化 ``read_*``、``snapshot()`` 全量快�
 from __future__ import annotations
 
 import http.client
+import math
 import xml.etree.ElementTree as ElementTree
 from typing import Dict, List, Optional, Sequence, Tuple
 from urllib.parse import quote
@@ -76,6 +77,10 @@ _BOOL_TRUE = ("true", "1", "yes")
 _BOOL_FALSE = ("false", "0", "no")
 """MTConnect 布尔值域:Part1 数据类型定义 Boolean 表示为 ``YES``/``NO``,
 Agent 亦广泛输出 true/false(小写比较),双口径并收。"""
+
+_CONDITION_LEVELS = ("Fault", "Warning", "Normal")
+"""条件项层级(Part1 §6.2 Condition):带 dataItemId 但语义属报警,
+不进 ``/current`` 数据项映射(走 :meth:`MTConnectClient.read_conditions`)。"""
 
 _SUPPORTED_TYPES = (
     DataType.BOOL,
@@ -357,23 +362,39 @@ class MTConnectClient(BaseClient):
         """读取 /current 快照,展开为 id/name → 文本值(内部方法)。
 
         :param path: 可选 XPath 查询(``/current?path=<XPath>`` 过滤)
+
+        两遍展开,消解 id/name 冲突:先收全部 ``dataItemId``,再补
+        ``name`` 别名(仅在键位未被 id 或其他 name 占用时)——原实现
+        单遍写入,数据项 B 的 dataItemId 恰为 A 的 name 时会**覆盖**
+        A 的 name 条目,且最终值随文档顺序变化。条件项子元素
+        (Fault/Warning/Normal)带 dataItemId 但语义属报警,不进数据项
+        映射(走 :meth:`read_conditions`)。
         """
         root = self._fetch(_CURRENT_PATH + _query(path))
         if _local_name(root.tag) != "MTConnectStreams":
             raise ProtocolFrameError(
                 f"MTConnect /current 返回了 {_local_name(root.tag)} 文档"
             )
-        items: Dict[str, str] = {}
+        by_id: Dict[str, str] = {}
+        aliases: List[Tuple[str, str]] = []
         for elem in root.iter():
+            if _local_name(elem.tag) in _CONDITION_LEVELS:
+                # 条件项混入数据项映射会让 read("cl") 读到报警文本而非报
+                # "不存在",类型化读与条件项语义串线
+                continue
             item_id = elem.attrib.get("dataItemId")
             if item_id is None:
                 continue
             # 空元素/空文本是"当前无值"的合法形态(UNAVAILABLE 等价),
             # 存空串而非跳过,供 _read 报"不可用"而非"不存在"
             text = (elem.text or "").strip()
-            items[item_id] = text
+            by_id[item_id] = text
             name = elem.attrib.get("name")
-            if name is not None and name not in items:
+            if name is not None:
+                aliases.append((name, text))
+        items = dict(by_id)
+        for name, text in aliases:
+            if name not in items:
                 items[name] = text
         return items
 
@@ -612,14 +633,23 @@ class MTConnectClient(BaseClient):
         :param at: 取指定序号的值(与 ``from_sequence`` 互斥)
         :return: ``(是否成功, {"next_sequence": int|None, "samples":
             [{sequence, data_item_id, name, type, sub_type, timestamp, value}]})``
-        :raises ValueError: ``count < 1``,或 ``from_sequence`` 与 ``at`` 同时给出
+        :raises ValueError: ``count < 1``、参数类型非整数(字符串/浮点显式
+            拒绝,不做静默截断),或 ``from_sequence`` 与 ``at`` 同时给出
         """
+        if isinstance(count, bool) or not isinstance(count, int):
+            raise ValueError(f"count 必须为整数,收到:{count!r}")
         if count < 1:
             raise ValueError(f"count 必须大于等于 1,收到:{count}")
         if from_sequence is not None and at is not None:
             raise ValueError("from_sequence 与 at 互斥,只能给其一")
+        if from_sequence is not None and (
+            isinstance(from_sequence, bool) or not isinstance(from_sequence, int)
+        ):
+            raise ValueError(f"from_sequence 必须为整数,收到:{from_sequence!r}")
         if from_sequence is not None and from_sequence < 0:
             raise ValueError(f"from_sequence 不能为负,收到:{from_sequence}")
+        if at is not None and (isinstance(at, bool) or not isinstance(at, int)):
+            raise ValueError(f"at 必须为整数,收到:{at!r}")
         if at is not None and at < 0:
             raise ValueError(f"at 不能为负,收到:{at}")
         return self._execute(
@@ -675,11 +705,19 @@ def _coerce(value: str, data_type: DataType, address: str) -> PrimitiveValue:
         )
     if data_type in (DataType.FLOAT, DataType.DOUBLE):
         try:
-            return float(value)
+            number_f = float(value)
         except ValueError:
             raise ValueError(
                 f"MTConnect 数据项不是数值:{address} ← {value!r}"
             )
+        if not math.isfinite(number_f):
+            # "nan"/"inf"/"1e999" 文本 float() 接受成功——非有限值进数据链
+            # 会把下游报警比较恒短路为 False,与 UNAVAILABLE 同类无效值,
+            # 按设备侧条件拒绝
+            raise ValueError(
+                f"MTConnect 数据项不是有限数值:{address} ← {value!r}"
+            )
+        return number_f
     try:
         number = int(value)
     except ValueError:

@@ -87,6 +87,16 @@ class SerialTransport(BaseTransport):
         self._serial: Optional[Any] = None
         self._debug_label = f"serial://{config.port_name}({config.baud_rate})"
 
+    @property
+    def baud_rate(self) -> int:
+        """当前波特率(构造期定,只读)。
+
+        供协议层计算线速相关时序——如 Modbus RTU 帧间 3.5 字符静默期
+        (T3.5 = 3.5 × 11 位 / 波特率,每字符按 1 起始 + 8 数据 + 1 校验
+        + 1 停止 = 11 位计)。
+        """
+        return self._config.baud_rate
+
     @BaseTransport.receive_timeout.setter  # type: ignore[attr-defined]
     def receive_timeout(self, seconds: float) -> None:
         """串口已打开时立即下发。"""

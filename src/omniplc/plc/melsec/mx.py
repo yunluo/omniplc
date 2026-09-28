@@ -456,14 +456,24 @@ class _MxComLink(BaseTransport):
         try:
             # ActUtlType 是 STA 控件:在使用线程上初始化 COM(幂等)
             _com_initialize()
-            com = _new_com_object(self._logical_station_number)
         except Exception as exc:
             raise OSError(
-                "MX Component 初始化失败:{}(请确认已安装 MX Component 运行时,"
+                "MX Component COM 初始化失败:{}(请确认已安装 MX Component 运行时,"
+                "并执行 pip install omniplc[mx])".format(exc)
+            )
+        try:
+            com = _new_com_object(self._logical_station_number)
+        except Exception as exc:
+            # 初始化成功但对象创建失败:必须配对释放,否则惰性重连循环
+            # 每次在线程上累积一个 CoInitialize 引用计数
+            _com_uninitialize()
+            raise OSError(
+                "MX Component 控件创建失败:{}(请确认已安装 MX Component 运行时,"
                 "并执行 pip install omniplc[mx])".format(exc)
             )
         code = int(com.Open())
         if code != 0:
+            _com_uninitialize()
             raise OSError(
                 "MX Component Open 失败(逻辑站号 {}):返回码 {}".format(
                     self._logical_station_number, _format_code(code)

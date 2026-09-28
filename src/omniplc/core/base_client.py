@@ -228,8 +228,10 @@ class BaseClient(ABC):
             self._connected = True
             self._clear_error()
             self._reset_backoff()
-            self._counters["connect_count"] += 1
-            self._timestamps["last_connect_at"] = time.monotonic()
+            with self._state_lock:
+                # 计数器口径统一:与 stats 快照同锁,避免快照读到跨锁序中间态
+                self._counters["connect_count"] += 1
+                self._timestamps["last_connect_at"] = time.monotonic()
             return True
 
     def disconnect(self) -> bool:
@@ -248,8 +250,12 @@ class BaseClient(ABC):
                 transport.close()
             except OSError as exc:
                 self._set_error(f"关闭连接失败:{exc}", _categorize(exc), _extract_code(exc))
+                # 连接事实上已终结(transport 引用已清),失败也计入断开
+                with self._state_lock:
+                    self._counters["disconnect_count"] += 1
                 return False
-            self._counters["disconnect_count"] += 1
+            with self._state_lock:
+                self._counters["disconnect_count"] += 1
             return True
 
     @property
@@ -559,7 +565,16 @@ class BaseClient(ABC):
         ok, value = self._execute(lambda: self._read_string(address, length, encoding))
         if not ok or value is None:
             return False, None
-        return True, str(value)
+        if not isinstance(value, str):
+            # 驱动 _read_string 返回非 str(如 bytes)属库内缺陷:repr 包装
+            # 会把二进制噪声伪装成"读到的字符串",显式拒绝并记录
+            self._set_error(
+                f"read_string 内部类型错误:驱动返回 {type(value).__name__} 而非 str",
+                ErrorCategory.UNKNOWN,
+                None,
+            )
+            return False, None
+        return True, value
 
     def write_bool(self, address: str, value: bool) -> bool:
         """写入布尔量(位)。
@@ -741,7 +756,10 @@ class BaseClient(ABC):
         """
         retries = self._write_retries if is_write else self._retries
         with self._lock:
-            self._counters["transactions"] += 1
+            with self._state_lock:
+                # 计数器口径统一:全部计数只在状态锁内变更,stats 快照
+                # (状态锁)不再可能读到跨锁序中间态
+                self._counters["transactions"] += 1
             started = time.perf_counter()
             for attempt in range(retries + 1):
                 if not self._connected:
@@ -754,9 +772,10 @@ class BaseClient(ABC):
                         continue
                 try:
                     value = operation()
-                    self._clear_error()
-                    self._timestamps["last_success_at"] = time.monotonic()
-                    self._timestamps["last_rtt"] = time.perf_counter() - started
+                    with self._state_lock:
+                        self._clear_error()
+                        self._timestamps["last_success_at"] = time.monotonic()
+                        self._timestamps["last_rtt"] = time.perf_counter() - started
                     return True, value
                 except TransportTimeoutError as exc:
                     # 超时但 0 字节已读:链路无残渣,不拆连也不计设备错误码;
@@ -769,10 +788,12 @@ class BaseClient(ABC):
                 except DeviceError as exc:
                     code = _extract_code(exc)
                     self._set_error(_describe(exc), _categorize(exc), code)
-                    if code is not None:
+                    if code is not None and code >= 0:
                         # 只计"PLC 明确返回错误码"的次数:code=0 的无码失败
-                        # (能力缺失、设备侧条件、超时)不计入
-                        self._counters["device_error_count"] += 1
+                        # (能力缺失、设备侧条件、超时)与负码诊断
+                        # (本地缓冲/配置问题,如 UDP 报文超长 -10040)不计入
+                        with self._state_lock:
+                            self._counters["device_error_count"] += 1
                     return False, None
                 except (OSError, OmniPLCInternalError) as exc:
                     self._set_error(_describe(exc), _categorize(exc), _extract_code(exc))
@@ -788,7 +809,8 @@ class BaseClient(ABC):
             except OSError:
                 pass
             self._transport = None
-            self._counters["disconnect_count"] += 1
+            with self._state_lock:
+                self._counters["disconnect_count"] += 1
 
     def _register_connect_failure(self) -> None:
         """登记一次建连失败并推进退避门控(内部方法,须锁内调用)。"""
@@ -934,8 +956,10 @@ def _extract_code(exc: BaseException) -> Optional[int]:
     """提取原始错误码:DeviceError 取协议码,OSError 取 errno,其余 None。
 
     ``DeviceError`` 的 ``code=0`` 表示"无具体错误码"(链路正常——能力缺失、
-    设备应答异常、超时等),按无码返回 ``None``;有码的照原样返回
-    (协议原始码,或 UDP 报文超长的 ``WSAEMSGSIZE`` errno)。
+    设备应答异常、超时等),按无码返回 ``None``;正码照原样返回(协议原始
+    码);**负码为库内诊断码**(本地缓冲/配置类问题,如 UDP 报文超长的
+    ``-WSAEMSGSIZE``),透传给 ``last_error_code`` 但基类不把它计入
+    ``device_error_count``(非 PLC 报错)。
     """
     if isinstance(exc, DeviceError):
         return exc.code or None

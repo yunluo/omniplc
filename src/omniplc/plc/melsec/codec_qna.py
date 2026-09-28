@@ -43,6 +43,7 @@ from ...core.constants import (
     MC_DEST_MODULE_STATION,
     MC_MAX_RANDOM_BLOCKS,
     MC_MAX_RESPONSE_CONTENT,
+    MC_MAX_RESPONSE_CONTENT_DATAGRAM,
     MC_MAX_TRANSFER_POINTS,
     MC_RANDOM_READ_MAX_POINTS,
     MC_RANDOM_WRITE_MAX_POINTS,
@@ -242,13 +243,17 @@ def build_random_read(
     word_points = sum(points for _code, _number, points in word_blocks)
     bit_points = sum(points for _code, _number, points in bit_blocks)
     response_bytes = 2 + (word_points + bit_points) * 2
-    if response_bytes > MC_MAX_RESPONSE_CONTENT:
+    if response_bytes > MC_MAX_RESPONSE_CONTENT_DATAGRAM:
+        # 上限按 UDP 整包缓冲收紧:3E 最大帧 = 头 9 + 数据长,若允许数据长
+        # 到 8190,响应 8199 字节会超出 MC_MAX_DATAGRAM(8192)——
+        # "库自己允许的请求,自己的传输层收不回来"。TCP 帧可分段收不受此限,
+        # 统一按保守值拦截(差值 <0.2%,拆分一笔即可)。
         raise ValueError(
             "多块批量读响应过大:{} 字节(结束码 2 + 数据 {},上限 {}),"
             "请拆分为多笔请求".format(
                 response_bytes,
                 (word_points + bit_points) * 2,
-                MC_MAX_RESPONSE_CONTENT,
+                MC_MAX_RESPONSE_CONTENT_DATAGRAM,
             )
         )
     core = bytearray(MC_COMMAND_BATCH_READ_BLOCKS.to_bytes(2, "big"))

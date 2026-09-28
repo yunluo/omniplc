@@ -38,6 +38,8 @@ from ..core.constants import (
     MODBUS_DEVICE_ID_FIXED_HEAD_SIZE,
     MODBUS_DEVICE_ID_MAX_PAGES,
     MODBUS_DEVICE_ID_OBJECT_NAMES,
+    MODBUS_DEVICE_ID_RESERVED_MAX,
+    MODBUS_DEVICE_ID_RESERVED_MIN,
     MODBUS_EXCEPTION_FLAG,
     MODBUS_RTU_MAX_ADU_SIZE,
     MODBUS_MAX_WRITE_BITS,
@@ -919,6 +921,20 @@ class ModbusBaseClient(BaseClient):
         collected: Dict[int, bytes] = {}
         object_id = 0
         for _ in range(MODBUS_DEVICE_ID_MAX_PAGES):
+            if not 0 <= object_id <= 0xFF or (
+                MODBUS_DEVICE_ID_RESERVED_MIN
+                <= object_id
+                <= MODBUS_DEVICE_ID_RESERVED_MAX
+            ):
+                # 设备在 More-follows=0xFF 时下发的 next_object_id 落在
+                # 保留区(0x07~0x7F)或越界:这是设备侧坏指针,不是调用方
+                # 参数错误——按 DeviceError 分类,走"设备返回错误"口径,
+                # 不以 ValueError 逃出 read_device_id
+                raise DeviceError(
+                    "设备标识翻页指针非法:设备下发 next_object_id=0x{:02X}"
+                    "(越界或落在规范保留区间)".format(object_id),
+                    0,
+                )
             pdu = codec.build_device_id_pdu(code, object_id)
             parsed = codec.parse_device_id_response(
                 self._transact(pdu), expected_read_code=code
@@ -1083,6 +1099,23 @@ class ModbusRtuClient(ModbusBaseClient):
             raise ValueError(f"inter_frame_delay 不能为负:{value}")
         self._inter_frame_delay = delay
 
+    # 3.5 字符时间(T3.5)的位宽口径:1 起始位 + 8 数据位 + 1 校验位 + 1 停止位
+    _BITS_PER_CHARACTER: int = 11
+
+    def _broadcast_silence(self) -> float:
+        """广播写后应保持的帧间静默秒数(内部方法)。
+
+        规范 §2.5.1.1:帧间至少 T3.5(= 3.5 字符时间);每字符按 11 位计,
+        波特率取当前串口配置(未经 :meth:`configure_serial` 配置时用默认
+        9600)。显式设置的 ``inter_frame_delay`` 更大时取其值。
+        """
+        baud = SERIAL_DEFAULT_BAUD_RATE
+        config = self._serial_config
+        if config is not None:
+            baud = config.baud_rate
+        t3_5 = 3.5 * self._BITS_PER_CHARACTER / float(baud)
+        return max(self._inter_frame_delay, t3_5)
+
     def configure_serial(
         self,
         port_name: str,
@@ -1133,6 +1166,12 @@ class ModbusRtuClient(ModbusBaseClient):
             time.sleep(self._inter_frame_delay)
         transport.send(codec.build_rtu_frame(station, pdu))
         if not expect_response:
+            # 广播写:无响应回包,靠"读满整帧"自然产生的帧间隔在这里不成立
+            # ——显式按 3.5 字符时间静默,防从站把紧跟的下一帧当作广播延续
+            # 而整帧作废(T3.5 = 3.5 × 11 位 / 波特率,见 _broadcast_silence)
+            silence = self._broadcast_silence()
+            if silence > 0:
+                time.sleep(silence)
             return b""
         head = transport.recv(2)
         if head[1] & MODBUS_EXCEPTION_FLAG:

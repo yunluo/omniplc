@@ -168,7 +168,20 @@ class OmronCipClient(AllenBradleyEthIpClient):
     def _write_string(
         self, address: str, value: str, encoding: str
     ) -> PrimitiveValue:
-        """写 NJ/NX STRING(先读模板号与声明尺寸,值超尺寸拒绝)。"""
+        """写 NJ/NX STRING(先读模板号与声明尺寸,值超尺寸拒绝)。
+
+        声明尺寸与模板号取自设备**回读满缓冲**的应答——NJ 固件对
+        STRING 变量按声明尺寸 NUL 填充返回(与 Logix 行为一致),此时
+        ``usable = len(payload) - 8`` 即声明尺寸。**已文档化的假设**:
+        若固件按实际内容截断返回,空串回读 payload 恰 8 字节,本方法
+        以"声明尺寸非法"响亮拒绝——写入前需真机核证回读行为
+        (见 docs/real-machine-checklist NJ STRING 条目)。
+
+        **长度口径**:长度域按**编码后字节数**(``len(value.encode(encoding))``)
+        书写,声明尺寸预检同按字节——多字节编码(Shift-JIS/GBK)下
+        "字符数"与"字节数"不同,勿按字符数预算长度,否则设备侧按
+        错误长度截断显示。
+        """
         parsed = parse_ab_tag(address)
         if parsed.bit is not None:
             raise ValueError(f"字符串标签不支持位访问:{address!r}")
@@ -186,7 +199,11 @@ class OmronCipClient(AllenBradleyEthIpClient):
         usable = len(payload) - 4 - 4  # 结构体尺寸 - 模板头 - 长度域
         if usable <= 0:
             raise ValueError(
-                "标签 {!r} 的 STRING 声明尺寸非法:{}".format(address, len(payload) - 4)
+                "标签 {!r} 的 STRING 声明尺寸非法:{}(回读载荷 {} 字节,"
+                "不足模板头 4 + 长度域 4;若该 STRING 变量当前为空,"
+                "说明固件未按声明尺寸 NUL 填充回读,请真机核证)".format(
+                    address, len(payload) - 4, len(payload)
+                )
             )
         raw = value.encode(encoding)
         if len(raw) > usable:

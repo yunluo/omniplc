@@ -853,6 +853,16 @@ def _parse_rr_data_cip(reply: bytes) -> bytes:
                 )
             )
     elif address_type == _CPF_ITEM_CONNECTED_ADDRESS:
+        # 连接式布局:地址项(2+4)后还要有数据项头(4 字节)+ 序列号(2)
+        # ——前缀不足 20 字节时 struct.unpack_from 会裸抛 struct.error
+        # (既非 OSError 也非 OmniPLCInternalError,基类不捕获不拆线),
+        # 与 NullAddress 分支的防护保持一致,按坏帧处理
+        if len(prefix) < EIP_RRDATA_PREFIX_SIZE + 4:
+            raise ProtocolFrameError(
+                "SendRRData 连接式 CPF 前缀不完整:{} 字节(收到的原始帧:{})".format(
+                    len(prefix), format_hex(reply)
+                )
+            )
         if address_length != 4:
             raise ProtocolFrameError(
                 "SendRRData 连接式 CPF 地址项非法(收到的原始帧:{})".format(

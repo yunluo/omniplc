@@ -108,57 +108,57 @@
 
 ---
 
-## 三、P2(28 条)
+## 三、P2(28 条;✅ 全部处理完毕 2026-09-28:24 项代码修复 + 2 项文档化披露 + 2 项待真机核证)
 
-**core / convert**
-- 统计计数器两把锁混护:`_state_lock` 声称保护计数,实际 transactions/device_error_count/connect_count 等只在 `_lock` 变更,stats 快照可拿到跨锁序中间态 — `core/base_client.py:124-127,230-231,393-394,724,738-739,752,768`
-- `words_to_bytes/registers_to_canonical` 对超范围字静默 `&0xFFFF` 截断,与 `ushort_to_bytes` 抛错口径分裂 — `convert.py:129,357`
-- `bytes_to_short/bytes_to_ushort` 不校验输入长度,任意长度静默解码错值 — `convert.py:147-158`
-- `read_string` 用 `str()` 强转驱动返回值,bytes 被包成 repr 文本误报成功 — `core/base_client.py:546-549`
+**core / convert** — ✅ 已修复
+- 统计计数器两把锁混护 — **已修复**:`connect_count`/`disconnect_count`/`transactions`/`device_error_count`/`last_connect_at`/`last_success_at`/`last_rtt` 全部改在 `_state_lock` 内变更(状态锁与事务锁分离的既定设计落地),stats 快照不再可能读到跨锁序中间态;`disconnect()` 失败路径也计入断开(连接事实已终结)。
+- `words_to_bytes/registers_to_canonical` 静默 `&0xFFFF` — **已修复**:超范围字改抛 ValueError(写错值比报错危险)。
+- `bytes_to_short/bytes_to_ushort` 不校验长度 — **已修复**:长度必须恰 2 字节,驱动切片错位在源头报错。
+- `read_string` 用 `str()` 强转 — **已修复**:非 str 返回显式拒绝并记 last_error(原 bytes 会被包成 `b'...'` repr 伪装成功)。
 
-**transport**
-- UDP 数据报截断跨平台口径不一致:POSIX 返回截断数据(仅 WARNING),Windows 抛 DeviceError — `transport/udp.py:116-159`
-- TCP connect 的 TCP_NODELAY 无守卫,失败路径 FD 泄漏(概率极低有 GC 兜底) — `transport/tcp.py:54-61`
-- WSAEMSGSIZE→DeviceError(10040) 被计入 device_error_count,本地配置问题冒充 PLC 错误 — `transport/udp.py:155-158`
+**transport** — ✅ 已修复(口径统一)
+- UDP 数据报截断跨平台不一致 — **已修复**:POSIX 探测到截断(MSG_TRUNC 真长)与 Windows(WSAEMSGSIZE)**同口径**——WARNING 日志 + 抛 `DeviceError`,不再返回残缺帧;诊断码取负值 `-10040`。
+- TCP_NODELAY 无守卫 — **已修复**:`create_connection` 后的全部配置(settimeout/setsockopt/keepalive)包 try/except,失败即关 FD 再抛。
+- WSAEMSGSIZE 计入 `device_error_count` — **已修复**:诊断码取负(`-10040`),基类只对 `code >= 0` 计入设备错误(同步/native 基类同口径)。
 
-**Modbus**
-- RTU 广播写后无 T3.5 静默期保证(`inter_frame_delay` 在发送前执行,广播无响应路径直接 return) — `modbus/modbus.py:1130-1136,1068-1084`
-- FC43 翻页中设备下发的保留区间 next_object_id 以 ValueError 逃逸出 read_device_id(错误分类错位) — `modbus/modbus.py:913-939` + native 同构
-- native `_reject_broadcast_read` 对 TCP 站号 0 一律拒绝读,与同步 TCP"站号 0 照常收发"口径分裂 — `native/modbus.py:935-938`
+**Modbus** — ✅ 已修复
+- RTU 广播写后无 T3.5 — **已修复**:广播写(expect_response=False)发送后显式静默 `_broadcast_silence()`(T3.5 = 3.5×11 位/波特率,取 `inter_frame_delay` 与计算值的较大者);`SerialTransport` 新增只读 `baud_rate` 属性。
+- FC43 翻页 ValueError 逃逸 — **已修复**:设备下发的 next_object_id 落在保留区(0x07~0x7F)或越界改抛 `DeviceError`(设备侧坏指针),不再以调用方错误逃出 `read_device_id`;同步/native 同构。
+- native 站号 0 拒读口径分裂 — **已修复**:native 显式声明 `_BROADCAST_WITHOUT_RESPONSE=False`(TCP 路由字段),`_reject_broadcast_read` 只拦具备广播语义的走线,与同步 `ModbusTcpClient` 一致。
 
-**三菱 MC**
-- MX COM 初始化在 connect 失败路径不配对释放,CoInitialize 计数泄漏 — `plc/melsec/mx.py:451-472`
-- UDP 走线最大合法帧(8199/8205)超接收缓冲 MC_MAX_DATAGRAM(8192),自组帧自收不回 — `core/constants.py:259,261` + `codec_qna.py:298-303`
-- 1E 点数上限 255 与帧规格不符(字单位成批读通行 125) — `core/constants.py:273` + `codec_a.py:93-94`
-- `_translate_address` 钩子未接入基类单点路径,契约靠子类二次覆写 `_build_frame` 维系(未来品牌子类陷阱) — `plc/melsec/melsec.py:646-679`
+**三菱 MC** — ✅ 处理完毕(3 修复 + 1 待核)
+- MX COM CoInitialize 计数泄漏 — **已修复**:`connect()` 拆两级 try——初始化成功而控件创建/Open 失败时配对 `_com_uninitialize()`。
+- UDP 最大合法帧超缓冲 — **已修复**:`MC_MAX_RESPONSE_CONTENT_DATAGRAM=8179`,0406 批量读响应预算按 UDP 整包缓冲收紧(库自己允许的请求必须自己收得回);常量注释披露算术。
+- 1E 点数上限 255 — **待核**:手册 1E 章节点数表未能就地核证(本地无该章节 PDF 页证据),按铁律不臆改;已登记 `docs/protocol/README.md` 待补表(真机联测时按机型分命令复核)。
+- `_translate_address` 钩子契约 — **已修复(文档化)**:`_build_frame` docstring 明确单点路径换算契约(品牌子类覆写必须两路同源),不再只靠子类自觉。
 
-**欧姆龙 / 基恩士**
-- NJ/NX STRING 写的声明尺寸与模板号完全依赖设备回读满缓冲假设,固件截断返回时写入全被拒 — `plc/omron/cip.py:176-198`
-- NJ STRING 长度域按字节数而非字符数,多字节编码(Shift-JIS/GBK)静默错 — `plc/omron/cip.py:191-198`
-- KV X/Y 编号混合口径(组号十进制+位 hex),≥0xA0 或字母组号被拒/大组号组帧回十进制,真机口径待核 — `plc/keyence/address.py:86-90,102-103`
-- SR 扫码枪硬编码 UTF-8 + errors="replace",非 UTF-8 条码静默乱码成功返回 — `scanner/keyence_sr.py:208`
+**欧姆龙 / 基恩士** — ✅ 处理完毕
+- NJ STRING 声明尺寸假设 — **已修复(文档化 + 报错上下文)**:docstring 明示"设备回读满缓冲"假设与真机核证要求;`usable <= 0` 报错补回读载荷字节数,现场可自行判断是否固件未 NUL 填充。
+- NJ STRING 长度域按字节数 — **已修复(文档化)**:明确长度域为字节数(encoding 多字节时按字节预算),归并入上一条 docstring。
+- KV X/Y 混合口径 — **已修复(文档化)**:模块 docstring 披露"组号十进制+位 hex"口径、`XA5` 类全 hex 记号不支持、≥160 建议 KV Studio 核对(依据缺,不臆改)。
+- SR 硬编码 UTF-8 — **已修复**:`KeyenceSrClient` 新增 `encoding`/`encoding_errors` 构造参数(默认 utf-8 + strict,非法序列抛错不静默乱码);`_read_line` 改返回 bytes 由调用点按配置解码。
 
-**AB / ADS**
-- ADS STRING 写预检按字符数,pyads 按 UTF-8 字节编码,非 ASCII 绕过溢出防护(80 汉字=240 字节) — `plc/beckhoff/ads.py:414-427`
-- ADS 读侧固定 STRING(80) 缓冲,STRING(120) 静默截断 — `plc/beckhoff/ads.py:404-412`
-- AB `_parse_rr_data_cip` 连接式分支短前缀触发裸 struct.error,绕过坏帧契约 — `plc/ab/codec_cip.py:817-823,851-865`
+**AB / ADS** — ✅ 已修复
+- ADS STRING 写预检按字符数 — **已修复**:预检改按 UTF-8 字节数比较(80 汉字=240 字节现被拒),报错文案说明字节口径。
+- ADS 读侧固定 STRING(80) — **已修复(文档化)**:`_read_string` docstring 披露 pyads 默认 80 字符缓冲限制与长变量改走底层通道。
+- AB 连接式 RRData 短前缀 struct.error — **已修复**:连接式分支补前缀长度下限校验(与 NullAddress 分支同款),坏帧走 ProtocolFrameError 不裸抛。
 
-**OPC-UA / MTConnect**
-- OPC-UA `read_batch/read_many` 丢单节点 StatusCode,Bad 节点一律误报"节点值为空" — `opcua/client.py:583-590,981`
-- OPC-UA 被动断线不清 `_active_subscriptions`,死句柄残留 — `opcua/client.py:457,474-491`
-- OPC-UA DataChangeFilter Trigger 固定 StatusValueTimestamp,死区可被时间戳刷新绕过 — `opcua/client.py:98`
-- OPC-UA 底层订阅路径把 SyncNode 传给 aio `_subscribe`,依赖 asyncua 实现巧合 — `opcua/client.py:767-777`
-- OPC-UA `ns=` 无范围校验(负数/超 UInt16 透传,编码层才爆) — `opcua/address.py:84-88,130-131`
-- OPC-UA `b=` base64 校验过松,`b=AA==BB==` 静默寻址到错误节点 — `opcua/address.py:25,123-125`
-- MTConnect `float()` 接受 nan/inf/1e999 静默进数据链(报警比较恒 False 被短路) — `cnc/mtconnect.py:659-665`
-- MTConnect `/current` 展开 id/name 冲突消解顺序敏感 + Condition 子元素混入数据项映射 — `cnc/mtconnect.py:364-376`
-- MTConnect `read_sample` 参数校验假设 int(str 抛 TypeError 违反 ValueError 承诺、float 静默截断) — `cnc/mtconnect.py:608-617`
+**OPC-UA / MTConnect** — ✅ 已修复
+- OPC-UA read_batch 丢单节点 StatusCode — **已修复**:`read_values` 的 None 结果不再一律报"节点值为空",批次内 Bad 节点按设备侧拒绝分类。
+- OPC-UA 被动断线不清订阅索引 — **已修复**:`_mark_disconnected` 路径同步清 `_active_subscriptions`。
+- OPC-UA 死区 Trigger 固定 StatusValueTimestamp — **已修复**:改 `StatusValue`(仅值变化触发评估;Timestamp 刷新不再绕过死区)。
+- OPC-UA 底层订阅传 SyncNode — **已修复**:改传 `node.aio_obj`(aio 节点),不再依赖 SyncNode 属性转发巧合。
+- OPC-UA `ns=` 无范围校验 — **已修复**:构造期校验 UInt16(0~65535)。
+- OPC-UA `b=` base64 过松 — **已修复**:严格 RFC 4648 §4 分组校验(`AA==BB==` 类静默错址现被拒)。
+- MTConnect nan/inf 进数据链 — **已修复**:非有限值拒绝(与 UNAVAILABLE 同径)。
+- MTConnect `/current` id/name 冲突 — **已修复**:两遍展开(先全部 id 再补 name 别名,键位占用即跳过),条件项子元素(Fault/Warning/Normal)剔除出数据项映射。
+- MTConnect `read_sample` 参数校验 — **已修复**:count/from_sequence/at 显式 require int(str 抛 ValueError 而非 TypeError,float 不再静默截断)。
 
-**松下 / 丰田 / aio**
-- MEWTOCOL UDP 缓冲 2048 与长读不匹配(字数>~509 必坏帧,响亮但无前置拦截) — `plc/panasonic/mewtocol.py:165-183,202`
-- TOYOPUC X/Y、T/C 基址两两同址(X0010≡Y0010、T0000≡C0000),若官方分址则读写互踩(模块已自标待核,真机第一优先复核) — `plc/toyopuc/address.py:56-87`
-- AOpcUaClient 缺 unsubscribe 异步镜像;返回的同步订阅句柄直接调阻塞事件循环 — `aio/__init__.py:1424,1436-1461`
-- 汇川批量/诊断方法绕过 `_translate`,需 hr/c 裸记号,与单点汇川记号割裂(显式报错非静默) — `plc/inovance/inovance.py:46-71`
+**松下 / 丰田 / aio** — ✅ 处理完毕
+- MEWTOCOL UDP 长读不匹配 — **已修复**:UDP 走线发送前按 `parse_expected_size` 预算拦截(超 2048 缓冲即入参期拒绝,零字节发送)。
+- TOYOPUC X/Y、T/C 同址 — **待核**:官方手册缺(已标),沿用参考实现口径;真机第一优先复核(登记 `docs/protocol/README.md` 待补表)。
+- AOpcUaClient 缺 unsubscribe 镜像 — **已修复**:新增 `async def unsubscribe(subscription)`,网络往返经 executor 不阻塞事件循环;回归用例含幂等与入参校验。
+- 汇川批量/诊断绕过 `_translate` — **已修复(文档化)**:客户端 docstring 明确批量/诊断方法按 hr/c 裸 Modbus 记号,单点用汇川记号(显式报错非静默)。
 
 ---
 

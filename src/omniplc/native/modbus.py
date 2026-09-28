@@ -33,6 +33,8 @@ from ..core.constants import (
     MODBUS_DEFAULT_STATION,
     MODBUS_DEVICE_ID_CODE_INDIVIDUAL,
     MODBUS_DEVICE_ID_MAX_PAGES,
+    MODBUS_DEVICE_ID_RESERVED_MAX,
+    MODBUS_DEVICE_ID_RESERVED_MIN,
     MODBUS_MAX_READ_BITS,
     MODBUS_MAX_READ_REGISTERS,
     MODBUS_MAX_WRITE_BITS,
@@ -75,9 +77,14 @@ class AsyncModbusTcpClient(AsyncBaseClient):
     语义与同步 :class:`~omniplc.modbus.ModbusTcpClient` 一致:站号(Unit ID)
     1~247、字序默认 ABCD、位与寄存器区域按地址前缀区分;区别只在 I/O 是原生
     ``asyncio``(属性读取不阻塞事件循环、``await`` 可被真取消)。
+    TCP 无广播语义(Unit ID 0 部分网关要求路由),读操作照常收发——
+    ``_BROADCAST_WITHOUT_RESPONSE=False`` 与同步基类同口径。
 
     :example: ``client = AsyncModbusTcpClient("192.168.0.10", 502, 1)``
     """
+
+    _BROADCAST_WITHOUT_RESPONSE: bool = False
+    """TCP 站号 0 为路由字段而非广播:读放行(与同步 ModbusTcpClient 一致)。"""
 
     def __init__(
         self,
@@ -897,6 +904,18 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         collected: Dict[int, bytes] = {}
         object_id = 0
         for _ in range(MODBUS_DEVICE_ID_MAX_PAGES):
+            if not 0 <= object_id <= 0xFF or (
+                MODBUS_DEVICE_ID_RESERVED_MIN
+                <= object_id
+                <= MODBUS_DEVICE_ID_RESERVED_MAX
+            ):
+                # 设备侧坏指针按 DeviceError 分类(与同步层同口径),
+                # 不以 ValueError 逃出 read_device_id
+                raise DeviceError(
+                    "设备标识翻页指针非法:设备下发 next_object_id=0x{:02X}"
+                    "(越界或落在规范保留区间)".format(object_id),
+                    0,
+                )
             pdu = codec.build_device_id_pdu(code, object_id)
             parsed = codec.parse_device_id_response(
                 await self._transact(pdu), expected_read_code=code
@@ -947,8 +966,14 @@ class AsyncModbusTcpClient(AsyncBaseClient):
             codec.parse_write_response(response, pdu)
 
     def _reject_broadcast_read(self) -> None:
-        """广播站号(0)上的读操作直接拒绝(与同步基类同口径)。"""
-        if self._station == 0:
+        """广播站号(0)上的读操作拒绝(与同步基类同口径,内部方法)。
+
+        仅具备广播语义的走线(RTU 站号 0 = 广播)拒绝读;TCP 侧站号 0 是
+        路由字段(Unit ID 0 部分网关要求),读放行——由 TCP 不覆写
+        ``_BROADCAST_WITHOUT_RESPONSE``(False)实现,与同步
+        ``ModbusTcpClient`` 一致。
+        """
+        if self._station == 0 and self._BROADCAST_WITHOUT_RESPONSE:
             raise ValueError("广播站号(station=0)仅支持写操作,读操作请指定实际站号")
 
     def _create_transport(self) -> AsyncBaseTransport:

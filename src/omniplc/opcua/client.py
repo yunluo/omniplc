@@ -95,7 +95,11 @@ def _build_data_change_filter(
         return None
     import asyncua.ua
 
-    trigger = asyncua.ua.DataChangeTrigger.StatusValueTimestamp
+    # Trigger 取 StatusValue:仅"值变化"触发评估,死区(DeadbandValue)按
+    # 值差过滤。不可用 StatusValueTimestamp——含 Timestamp 意味着服务器
+    # 仅刷新时间戳(值未变)也会下发通知,死区形同虚设(OPC-UA Part4
+    # §6.2.10 DataChangeTrigger 语义)。
+    trigger = asyncua.ua.DataChangeTrigger.StatusValue
     if deadband_type is not None:
         kind = getattr(asyncua.ua.DeadbandType, deadband_type, None)
         if kind is None:
@@ -218,15 +222,33 @@ class _OpcUaSession(BaseTransport):
         return value
 
     def read_values(self, node_texts: List[str]) -> List[Any]:
-        """批量读节点当前值(单次 Read 服务,asyncua 异常在此翻译)。"""
+        """批量读节点当前值(单次 Read 服务,asyncua 异常在此翻译)。
+
+        走底层 ``read_attributes`` 逐节点取 DataValue 并校验 StatusCode:
+        Bad 节点抛 :class:`DeviceError` 并带**具体状态名**(如
+        ``BadNodeIdUnknown``),而非被高层 ``read_values`` 压成 ``None``
+        后一律误报"节点值为空"。
+
+        :raises DeviceError: 任一节点 StatusCode 为 Bad(``code`` 为原始
+            StatusCode 数值,链路完好不断线)
+        """
         try:
-            values = self.client.read_values(
+            data_values = self.client.read_attributes(
                 [self.client.get_node(text) for text in node_texts]
             )
         except OSError:
             raise
         except Exception as exc:
             raise _translate_ua_error(exc) from exc
+        values: List[Any] = []
+        for text, data_value in zip(node_texts, data_values):
+            status = data_value.StatusCode
+            if status is not None and status.is_bad():
+                raise DeviceError(
+                    "OPC-UA 节点读失败({}):{}".format(text, status.name),
+                    int(status.value),
+                )
+            values.append(data_value.Value.Value if data_value.Value is not None else None)
         log_op(self._debug_label, "批量读 %d 节点", len(node_texts))
         return values
 
@@ -492,6 +514,19 @@ class OpcUaClient(BaseClient):
             except Exception:
                 pass
         return super().disconnect()
+
+    def _mark_disconnected(self) -> None:
+        """被动断线清理:清订阅索引(内部方法,基类拆连钩子)。
+
+        传输失败(网络中断)走基类 `_mark_disconnected`,不会经过
+        :meth:`disconnect`——原实现只关传输不清订阅,``active_subscriptions``
+        继续列出随旧 tloop 死亡的死句柄。此处与显式断开同口径清索引;
+        句柄随 asyncua 会话死亡,不再逐一调 ``unsubscribe()``(网络动作
+        在断链上必失败,徒增延迟)。
+        """
+        with self._state_lock:
+            self._active_subscriptions.clear()
+        super()._mark_disconnected()
 
     # ------------------------------------------------------------------
     # 会话访问(仅事务锁内)
@@ -771,9 +806,12 @@ class OpcUaClient(BaseClient):
                     import asyncua.ua
 
                     node = ua_client.get_node(parse_opcua_nodeid(node_text).text)
+                    # 传底层 aio 节点(node.aio_obj):_subscribe 是 aio 层
+                    # 方法,期望 Node;直接传 sync 包装只能靠其 .nodeid
+                    # 属性转发侥幸工作,依赖实现巧合
                     fut = ua_sub.tloop.post(
                         ua_sub.aio_obj._subscribe(
-                            [node],
+                            [node.aio_obj],
                             asyncua.ua.AttributeIds.Value,
                             filter_obj,
                             0,

@@ -402,7 +402,13 @@ class BeckhoffAdsClient(BaseClient):
         self._session().write_by_name(text, coerced, _PLCTYPE_NAMES[data_type])
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
-        """读字符串变量(编码由 pyads 固定,length 仅截断)。"""
+        """读字符串变量(编码由 pyads 固定,length 仅截断)。
+
+        pyads 的 PLCTYPE_STRING 读取缓冲按默认 ``STRING(80)`` 实现——
+        PLC 侧声明 ``STRING(120)`` 等更长变量时**读回静默截断到 80 字符**;
+        长变量请用 :meth:`read_by_name` 底层通道或调大 pyads 侧常量
+        (本库无独立 API 前先在此披露)。
+        """
         text = _check_address(address)
         value = self._session().read_by_name(text, _PLCTYPE_NAMES[DataType.STRING])
         if not isinstance(value, str):
@@ -412,15 +418,22 @@ class BeckhoffAdsClient(BaseClient):
         return value[:length]
 
     def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
-        """写字符串变量(写前按 PLC 侧声明长度预检,防溢出污染相邻变量)。"""
+        """写字符串变量(写前按 PLC 侧声明长度预检,防溢出污染相邻变量)。
+
+        pyads 按 **UTF-8 字节**编码后写入,而声明长度按 **字符数** 口径——
+        预检必须同样按字节数比较,否则 80 个汉字(240 字节)会以
+        ``len=80 <= 80`` 绕过检查,溢出污染相邻变量。
+        """
         if not isinstance(value, str):
             raise ValueError("字符串必须是 str,收到:{}".format(type(value).__name__))
         text = _check_address(address)
         declared = _declared_string_chars(self._session().symbol_type(text))
-        if declared is not None and len(value) > declared:
+        byte_len = len(value.encode("utf-8"))
+        if declared is not None and byte_len > declared:
             raise ValueError(
-                "ADS STRING 写入值超 PLC 侧声明长度:{} > {} 字符({!r})".format(
-                    len(value), declared, text
+                "ADS STRING 写入值超 PLC 侧声明长度(按 UTF-8 字节计):{} 字节 > {} 字符({!r})"
+                ";若含非 ASCII 字符请按字节预算或改用 ASCII 内容".format(
+                    byte_len, declared, text
                 )
             )
         self._session().write_by_name(text, value, _PLCTYPE_NAMES[DataType.STRING])

@@ -727,8 +727,9 @@ class AsyncBaseClient(ABC):
                 except DeviceError as exc:
                     code = _extract_code(exc)
                     self._set_error(_describe(exc), _categorize(exc), code)
-                    if code is not None:
-                        # 只计"PLC 明确返回错误码"的次数
+                    if code is not None and code >= 0:
+                        # 只计"PLC 明确返回错误码"的次数(负码为库内诊断码,
+                        # 与同步层同口径;native 侧当前无负码来源,防御一致)
                         self._counters["device_error_count"] += 1
                     return False, None
                 except (OSError, OmniPLCInternalError) as exc:

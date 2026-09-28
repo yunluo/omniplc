@@ -22,13 +22,19 @@ import re
 from functools import lru_cache
 from typing import Dict, NamedTuple
 
-_BASE64_RE = re.compile(r"^[A-Za-z0-9+/=]*$")
+_BASE64_RE = re.compile(
+    r"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}(?:==)|[A-Za-z0-9+/]{3}(?:=)|[A-Za-z0-9+/]{4})?$"
+)
+"""base64 严格校验(RFC 4648 §4):4 字符组 + 可选尾部 2/3 字符 + 对应
+数量的 padding。宽松的 ``[A-Za-z0-9+/=]*`` 会放行 ``AA==BB==`` 之类
+``=`` 夹在中间的串——Python ``b64decode`` 在首个 padding 后丢弃余料,
+该串静默解码为单字节节点,**寻址到与书写意图无关的节点**。"""
 _GUID_RE = re.compile(
     r"^\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
     r"[0-9A-Fa-f]{12}\}?$"
 )
-"""GUID 严格校验:8-4-4-4-12 共 32 位十六进制 + 4 连字符,允许带花括号;
-依据 OPC 10000-3 / RFC 4122 文本格式。"""
+"""GUID 严格校验:8-4-4-4-12 共 32 位十六进制 + 4 连字符,允许带花括号
+(须成对);依据 OPC 10000-3 / RFC 4122 文本格式。"""
 
 
 class OpcUaNodeId(NamedTuple):
@@ -86,6 +92,12 @@ def parse_opcua_nodeid(address: str) -> OpcUaNodeId:
                 namespace = int(value.strip())
             except ValueError as exc:
                 raise ValueError(_bad_nodeid(address)) from exc
+            if not 0 <= namespace <= 0xFFFF:
+                # NamespaceIndex 是 UInt16(OPC 10000-3):负数/超界先在
+                # 参数校验期拒绝,不延迟到 asyncua 编码层以深层异常爆出
+                raise ValueError(
+                    f"OPC-UA 命名空间索引超出 UInt16 范围 0~65535:{address!r}"
+                )
         elif key in ("i", "b", "g"):
             if kind is not None:
                 raise ValueError(_bad_nodeid(address))

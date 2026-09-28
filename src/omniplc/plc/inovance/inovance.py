@@ -41,6 +41,14 @@ class _InovanceBase(ModbusBaseClient):
     功能码选择/字序/事务/重连全部由 Modbus 实现承担。
     32 位计数器(C200~C255)的 32 位类型门控在翻译收口处完成
     (``C205`` → ``hr63242``,双寄存器展开由 Modbus 层按类型自动完成)。
+
+    **记号边界(注意)**:地址翻译只挂在单点读写钩子上
+    (``_read``/``_write``/``_read_string``/``_write_string``)——单点方法
+    用汇川记号(``D100``/``X17``/``C205``)。批量与诊断方法
+    (:meth:`read_batch`/:meth:`write_batch`/:meth:`write_mask_register`/
+    :meth:`read_write_registers`/:meth:`read_file_record` 等)直承
+    Modbus 基类实现,按 **Modbus 记号**(``hr100``/``c10``)解析;传汇川
+    记号会以"无法解析地址" ValueError 明确拒绝(不静默错址)。
     """
 
     def _translate(self, address: str, data_type: DataType) -> str:

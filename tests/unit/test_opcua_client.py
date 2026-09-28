@@ -602,6 +602,21 @@ def test_browse_nonexistent_node_returns_empty_tree(opcua_client: OpcUaClient) -
     assert tree == {}
 
 
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_read_batch_reports_bad_node_status(opcua_client: OpcUaClient) -> None:
+    """回归:批量读含坏节点(Bad StatusCode)→ 报具体状态名,不误报"节点值为空"。
+
+    原实现经 asyncua 高层 read_values,坏节点值被压成 None,协议层一律
+    报"节点值为空";现走 read_attributes 逐节点校验,错误文本携带
+    具体 StatusCode 名(如 BadNodeIdUnknown),现场可定位真实根因。
+    """
+    ok, value = opcua_client.read_batch([("ns=2;s=NoSuchNode", "short")])
+    assert ok is False and value is None
+    assert opcua_client.last_error is not None
+    assert "BadNodeIdUnknown" in opcua_client.last_error
+    assert "节点值为空" not in opcua_client.last_error
+
+
 class _FakeBrowseNode:
     """单链假节点:browse 深度上限测试用(无 asyncua)。"""
 
@@ -909,10 +924,25 @@ def test_aio_subscribe_data_change_callback_on_loop(_opcua_server_module) -> Non
         await _asyncio.wait_for(aev.wait(), timeout=5.0)
         assert cb_tids, "回调未被调用"
         assert cb_tids[0] == loop_tid, "回调未在 aio loop 线程执行"
-        assert sub.unsubscribe() is True
+        # 经异步镜像取消(同步句柄直接 unsubscribe 会阻塞 loop)
+        assert await aclient.unsubscribe(sub) is True
+        assert await aclient.unsubscribe(sub) is False  # 幂等
         # close 收尾(disconnect 只断同步侧;close 才释放工作线程,
         # py3.9+ executor 线程非守护,不关会卡死解释器退出)
         await aclient.close()
+
+    _asyncio.run(scenario())
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_aio_unsubscribe_validates_handle(_opcua_server_module) -> None:
+    """aio unsubscribe 入参校验:非订阅句柄 → ValueError(零网络动作)。"""
+    import asyncio as _asyncio
+
+    async def scenario() -> None:
+        aclient = AOpcUaClient("127.0.0.1", _OPCUA_TEST_PORT, endpoint=_TEST_ENDPOINT)
+        with pytest.raises(ValueError):
+            await aclient.unsubscribe("not-a-handle")  # type: ignore[arg-type]
 
     _asyncio.run(scenario())
 

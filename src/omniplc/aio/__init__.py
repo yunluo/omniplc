@@ -1474,6 +1474,26 @@ class AOpcUaClient(ABaseClient):
             lambda: sync.subscribe_event(node_text, _bridge, event_filter=event_filter)
         )
 
+    async def unsubscribe(self, subscription: OpcUaSubscription) -> bool:
+        """取消订阅(asyncua 网络往返经 executor,不阻塞事件循环)。
+
+        :class:`OpcUaSubscription.unsubscribe` 是**同步**方法(内部走
+        asyncua.sync 的 tloop 网络往返),aio 用户在协程里直接调 ``
+        subscription.unsubscribe()`` 会阻塞整个事件循环——本方法提供
+        等价异步入口:返回 ``(False)`` 表示订阅已失效(幂等,重复取消安全)。
+
+        :param subscription: :meth:`subscribe_data_change` /
+            :meth:`subscribe_event` 返回的句柄
+        :return: 是否成功取消
+        """
+        if not isinstance(subscription, OpcUaSubscription):
+            raise ValueError(
+                "subscription 必须是订阅句柄,收到:{}".format(
+                    type(subscription).__name__
+                )
+            )
+        return await self._run(subscription.unsubscribe)
+
 
 class _AFinsRoutingClient(ABaseClient):
     """FINS 路由参数只读镜像(TCP/UDP 共用,私有基类)。"""

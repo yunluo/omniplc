@@ -659,7 +659,15 @@ class _MelsecMcBase(BaseClient):
         is_write: bool,
         data: Optional[List[int]] = None,
     ) -> bytes:
-        """按当前帧型构造完整请求帧(内部方法)。"""
+        """按当前帧型构造完整请求帧(内部方法)。
+
+        **单点路径地址换算契约**:基类默认实现在此**不**调用
+        :meth:`_translate_address`——单点 `_read/_write` 的调用方已先换算。
+        品牌兼容子类(汇川/松下)若覆写 `_build_frame` 组帧,必须同时保证
+        单点路径的地址换算(覆写 `_translate_address` 并在 `_build_frame`
+        内换算,参照 ``plc/panasonic/mc.py``);只覆写其一会让单点或批量
+        一路用未换算地址静默发帧。
+        """
         if self._frame is McFrame.FRAME_1E:
             return codec_a.build_request(
                 self._pc_number, MC_DEFAULT_MONITOR_TIMER, parsed, points, is_bit, is_write, data

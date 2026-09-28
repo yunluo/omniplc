@@ -17,6 +17,14 @@
 
 编号进位规则与 ``McAddress`` 一致:本模块只做语法拆分,编号按
 软元件族的进制换算为整数,组帧时经 :func:`format_kv_device` 还原。
+
+**X/Y 记号口径(待真机终核)**:X/Y 采用「组号十进制 + 末位 1 位十六进制
+位号」混合口径(如 ``X10F`` = 组 10 位 F),编号含十六进制字母但组号为
+纯数字——``XA5`` 这类全十六进制记号**不支持**(解析期 ValueError)。
+组帧侧组号按十进制渲染(``format_kv_device``),编号 <160 时与全十六进制
+口径数值一致、无歧义;≥160 的现场请先以 KV Studio 确认物理点位映射
+(依据缺:KEYENCE 官方手册未收录该记号表的权威定义,见
+docs/protocol/README.md 待补表)。同款混合口径见 R/MR/CR 位组软元件。
 """
 from __future__ import annotations
 

@@ -109,14 +109,15 @@ class TestUdpTransport:
         assert closed == [True]
         assert transport._socket is None
 
-    def test_recv_truncation_logs_warning(
+    def test_recv_truncation_logs_warning_and_raises(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """UDP 数据报超过缓冲:返回截断后字节,并通过 WARNING 日志提示截断量。
+        """UDP 数据报超过缓冲:WARNING 提示截断量,并与 Windows 口径一致抛 DeviceError。
 
-        UDP 是原子报文协议——超出 ``size`` 的字节会被**静默丢弃**(POSIX 行为),
-        且**不会**留到下一次 recv。库必须以 WARNING 级(不受 ``set_debug`` 门控)
-        输出一条故障信号,提示调用方协议层 size 估错或对端回了超长报文。
+        UDP 是原子报文协议——超出 ``size`` 的字节会被**静默丢弃**
+        (POSIX 行为),且**不会**留到下一次 recv。原实现 POSIX 分支返回
+        截断字节(仅告警)、Windows 分支抛错,跨平台行为翻转;现统一:
+        响亮抛 :class:`DeviceError`(负码 -10040,基类不计 device_error_count)。
         假 socket 强制打开 ``MSG_TRUNC`` 截断分支,故 Windows 上同样可测。
         """
 
@@ -142,10 +143,12 @@ class TestUdpTransport:
         transport._socket = TruncatingSocket()  # type: ignore[assignment]
         try:
             with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
-                frame = transport.recv(1024)
+                with pytest.raises(DeviceError) as excinfo:
+                    transport.recv(1024)
         finally:
             transport.close()
-        assert frame == b"\xAA" * 1024  # 缓冲内收到的字节原样返回
+        assert excinfo.value.code == -10040
+        assert "2000" in str(excinfo.value)
         # 截断日志必出现,带"实收 2000B,缓冲 1024B,超出 976B"
         truncate_records = [
             record for record in caplog.records
@@ -221,8 +224,9 @@ class TestUdpTransport:
         # message 直说"UDP 报文超过缓冲"
         assert "UDP 报文超过缓冲" in str(excinfo.value)
         assert "1024" in str(excinfo.value)
-        # code 字段承载原 WSAEMSGSIZE errno(10040)便于应用层判定
-        assert excinfo.value.code == 10040
+        # code 为诊断性负码(-10040):避开真实协议错误码空间,
+        # 基类不把该失败计入 device_error_count(本地缓冲问题非 PLC 报错)
+        assert excinfo.value.code == -10040
 
 
 class _FakeSerialPort:
