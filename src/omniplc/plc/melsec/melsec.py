@@ -1070,23 +1070,66 @@ class MelsecMcSerialClient(_MelsecMcBase):
     def _transact_4c(transport: BaseTransport) -> bytes:
         """4C 收包:长度域 + 附加码还原,重组逻辑帧(内部方法)。
 
-        整帧受一次 ``receive_timeout`` 预算约束——逐字节收包不逐字节
-        重置超时,防慢速对端长占事务锁。
+        整帧受一次 ``receive_timeout`` 预算约束——不逐字节重置超时,防
+        慢速对端长占事务锁。正文**成块**读取后在本地缓冲内解 DLE 附加码:
+        每次请求"剩余未解字节数 + 4 字节尾部"上限内的块(附加码只增不减,
+        该预算不会越过帧尾,不会把下一帧读进缓冲),系统调用从逐字节降为
+        O(块数);DLE 配对跨块边界时由补读兜底。已消费帧头与若干正文后
+        超时,残渣留在串口缓冲必致下一帧错位,按串口的截断语义拆连重同步
+        (0 字节已读才算"链路无残渣",见 ``TransportTimeoutError``)。
         """
         previous_timeout = transport.receive_timeout
         deadline = time.monotonic() + previous_timeout
+        buf = bytearray()
+        pos = 0  # 已消费的线缆字节偏移
+
+        def _fill(want: int) -> None:
+            """按块读入缓冲(短读容忍;deadline 到点或传输空返回按帧截断断连)。
+
+            传输合约要求"收满请求量或抛错"(串口/TCP 均如此),空返回属
+            违约兜底:再无数据可来,按帧截断拆连,防 while 补读忙轮询烧 CPU。
+            """
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                transport.receive_timeout = remaining
+                chunk = transport.recv(want)
+                if chunk:
+                    buf.extend(chunk)
+                    return
+            raise TransportClosedError(
+                _("4C 收包超时({}s),帧已截断(已收 {} 字节),"
+                "已放弃本帧,下次事务将重连以重新同步").format(
+                    previous_timeout, len(buf)
+                )
+            )
+
+        def _ensure(count: int) -> None:
+            """确保缓冲内至少还有 count 个未消费字节(内部闭包)。"""
+            while len(buf) - pos < count:
+                _fill(count - (len(buf) - pos))
+
         try:
-            head = transport.recv(2)
+            _ensure(2)
+            head = bytes(buf[pos:pos + 2])
+            pos += 2
             if head != bytes([codec_serial.DLE, codec_serial.STX]):
                 raise ProtocolFrameError(
                     _("4C 响应必须以 DLE STX 开头:0x{:02X} 0x{:02X}").format(head[0], head[1])
                 )
-            first = transport.recv(1)[0]
+            _ensure(1)
+            first = buf[pos]
+            pos += 1
             if first == codec_serial.DLE:
-                first = transport.recv(1)[0]
-            second = transport.recv(1)[0]
+                _ensure(1)
+                first = buf[pos]
+                pos += 1
+            _ensure(1)
+            second = buf[pos]
+            pos += 1
             if second == codec_serial.DLE:
-                second = transport.recv(1)[0]
+                _ensure(1)
+                second = buf[pos]
+                pos += 1
             length = first | second << 8
             if length < 12:
                 raise ProtocolFrameError(
@@ -1098,34 +1141,32 @@ class MelsecMcSerialClient(_MelsecMcBase):
                 raise ProtocolFrameError(
                     _("4C 应答数据长超限:{} > {}").format(length, MC_SERIAL_MAX_FRAME)
                 )
-            frame_id = transport.recv(1)
+            _ensure(1)
+            frame_id = bytes(buf[pos:pos + 1])
+            pos += 1
             if frame_id[0] != MC_SERIAL_FRAME_ID_4C:
                 raise ProtocolFrameError(
                     _("4C 帧识别码不符:期望 F8H,收到 0x{:02X}").format(frame_id[0])
                 )
             body = bytearray()
             while len(body) < length - 1:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    # 已消费帧头(长度域+帧识别码)与若干正文:残渣留在串口
-                    # 缓冲里必致下一帧错位,按串口的截断语义拆连重同步
-                    # (0 字节已读才算"链路无残渣",见 TransportTimeoutError)
-                    raise TransportClosedError(
-                        _("4C 收包超时({}s),帧已截断(已收 {} 字节),"
-                        "已放弃本帧,下次事务将重连以重新同步").format(
-                            previous_timeout, len(body)
-                        )
-                    )
-                transport.receive_timeout = remaining
-                raw = transport.recv(1)[0]
+                if pos >= len(buf):
+                    # 成块补充:剩余未解字节 + 4 字节尾部为安全上限(附加码
+                    # 只增不减,该预算不会越过帧尾,避免阻塞读入下一帧)
+                    _fill(length - 1 - len(body) + 4)
+                raw = buf[pos]
+                pos += 1
                 if raw == codec_serial.DLE:
-                    following = transport.recv(1)[0]
+                    _ensure(1)
+                    following = buf[pos]
+                    pos += 1
                     if following != codec_serial.DLE:
                         raise ProtocolFrameError(
                             _("4C 附加码之后必须是 10H,收到 0x{:02X}").format(following)
                         )
                 body.append(raw)
-            trailer = transport.recv(4)
+            _ensure(4)
+            trailer = bytes(buf[pos:pos + 4])
             return length.to_bytes(2, "little") + frame_id + bytes(body) + trailer
         finally:
             transport.receive_timeout = previous_timeout
