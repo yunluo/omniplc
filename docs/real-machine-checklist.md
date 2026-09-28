@@ -60,6 +60,7 @@
 | 基恩士 | KV Host Link TCP | | | |
 | 基恩士 | KV Host Link UDP | | | |
 | 基恩士 | KV MC 协议兼容(SLMP 3E) | | | 位组记号核证(2026-09-26 复核后仍待真机,判据已定):本库按**记号数字原样**发帧(`R515` → 515)。核证法:**写 `R100`**,在 KV Studio 同时看 `R100`(组 1 位 0)与 `R604`(组 6 位 4 = 线性 100)——前者变化 = 现状正确;后者变化 = 需换算为 `组×16+位号`(那时改 `_translate_address` 并按行为变更记 CHANGELOG)。依据与反证详见 `plc/keyence/mc.py` 模块 docstring 与 `docs/review.md` §2.7.3 |
+| 基恩士 | KV 的 MC 兼容走**三菱**客户端(`MelsecMcTcpClient` / `MelsecMcUdpClient`) | 基恩士 KV 系列 ✓ | —(本次未在 Y 上写) | 2026-09-28 真机:该 KV 的 SLMP 兼容**接受标准三菱记号与软元件码**(至少 D/M/Y 已验),现场三色灯输出点 `Y90` 经 `MelsecMcUdpClient`(3E/UDP)读通。**同一地址**用 `KeyenceMcUdpClient` 时在**组帧期被本库码表拒**(`Y` 不在 `R/B/W/DM/ZR` 五设备内,报 `不支持的 MC 软元件`,一帧未发出)——读 KV 的 X/Y 等设备请走三菱客户端。编号按三菱表为**十六进制**(`Y90` = 0x90 = 第 144 点;若该灯实为第 90 点须写 `Y5A`)。`KeyenceMc*` 的 X/Y 直读支持待手册或真机定论(未入库探针 `tools/_probe_kv_slmp.py`) |
 | 基恩士 | SR 扫码枪 | — | — | SR 扫码枪为读码设备,读=扫码触发,写=不适用 |
 | 丰田 | TOYOPUC 计算机链接 TCP/UDP | | | |
 | Modbus | Modbus TCP | 汇川 H5U 系列 ✓ | 汇川 H5U 系列 ✓ | 2026-09-28 基础读写通过(`ModbusTcpClient`,同机汇川 H5U);FC22 掩码写(字节序可配) / FC23 读写多寄存器 / FC24 FIFO / FC43·14 设备标识待真机核证 |
