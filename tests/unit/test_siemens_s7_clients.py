@@ -646,8 +646,22 @@ def test_read_batch_dict_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     assert fake.multi_calls == 1  # 单事务
 
 
+def _snap7_1x_types_available() -> bool:
+    """1.x ctypes 线可测前提:snap7.types 模块存在(S7DataItem 所在)。
+
+    python-snap7 3.x(纯 Python,Python 3.10+ 轨道)已移除该模块,
+    1.x 的 ctypes read_multi_vars 线在此环境不可达,相关用例按依赖线跳过
+    (与 s7 extra 按解释器拆 1.3/3.2.0 的双轨口径一致)。
+    """
+    import importlib.util
+
+    return importlib.util.find_spec("snap7.types") is not None
+
+
 def test_read_batch_ctypes_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """1.x C 封装线:read_batch 走 read_multi_vars(S7DataItem 数组)单事务混读。"""
+    if not _snap7_1x_types_available():
+        pytest.skip("snap7.types 仅 python-snap7 1.x(3.x 纯 Python 线已移除该模块)")
     fake = FakeS7Client1x()
     fake.seed(_AREA_DB, 1, 0, struct.pack(">H", 0x1234))  # DB1.DBW0 USHORT
     fake.seed(_AREA_DB, 1, 2, b"\x04")                    # DB1.DBB2.2 ON
@@ -687,6 +701,8 @@ def test_read_batch_item_failure_reports_device_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """1.x 线:单条目 Result 非 0 → 整批失败(False, None)+ 条目提示,不断线。"""
+    if not _snap7_1x_types_available():
+        pytest.skip("snap7.types 仅 python-snap7 1.x(3.x 纯 Python 线已移除该模块)")
     fake = FakeS7Client1x()
     fake.fail_item_index = 1
     client, _ = _client_with(monkeypatch, fake)

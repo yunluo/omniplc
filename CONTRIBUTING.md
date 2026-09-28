@@ -55,6 +55,20 @@ uvx mypy src/omniplc                     # 0 问题(76 源文件,目标 python_v
 uvx ty check src/omniplc                 # 0 问题(Astral 第二类型检查器,与 mypy 互补)
 ```
 
+**本地双版本覆盖(对齐 CI 矩阵 3.7.9 + 3.12)**:项目 `.venv` 钉 3.7.9(3.7 腿直接
+`uv run`);3.12 腿**不得**在项目内 `uv run --python 3.12`(会重建 `.venv`),在仓库外
+建独立环境:
+
+```bash
+uv venv --python 3.12 "%LOCALAPPDATA%\omniplc_py312"
+uv pip install --python "%LOCALAPPDATA%\omniplc_py312\Scripts\python.exe" -e ".[dev]"
+"%LOCALAPPDATA%\omniplc_py312\Scripts\python.exe" -m pytest tests -q
+```
+
+依赖线差异按需跳过:仅存在于单一 snap7 轨道的用例(如 1.x 的 `snap7.types`
+ctypes 线)须在入口用 `importlib.util.find_spec` 探测并 `pytest.skip`,保证两条
+腿各自全绿(3.7:0 skipped;3.12:仅依赖线跳过)。
+
 新增功能必须补测试;黄金报文样本(protocol 字节级契约)在 `tests/golden/`,改动帧
 格式须同步生成脚本(`tests/golden/generate_*.py`)。
 
