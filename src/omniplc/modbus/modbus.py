@@ -20,7 +20,7 @@ from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple, Union, cas
 
 from . import codec
 from .address import ModbusAddress, ModbusArea, parse_address
-from .. import convert
+from ..core import convert
 from ..core.base_client import BaseClient, validate_endpoint
 from ..core.constants import (
     INT32_MAX,
@@ -63,7 +63,7 @@ from ..core.validation import (
     require_int,
 )
 from ..transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport
-from ..types import ByteOrder, DataType, SerialParity, WordOrder, PrimitiveValue
+from ..core.types import ByteOrder, DataType, SerialParity, WordOrder, PrimitiveValue
 
 
 class ModbusBaseClient(BaseClient):

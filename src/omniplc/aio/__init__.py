@@ -98,8 +98,8 @@ from ..plc.melsec import (
 from ..plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
 from ..scanner import KeyenceSrClient
 from ..plc.omron import OmronCipClient, OmronFinsTcpClient, OmronFinsUdpClient
-from ..tag import Tag, TagTable
-from ..types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity, WordOrder
+from ..core.tag import Tag, TagTable
+from ..core.types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity, WordOrder
 
 _T = TypeVar("_T")
 _A = TypeVar("_A", bound="ABaseClient")

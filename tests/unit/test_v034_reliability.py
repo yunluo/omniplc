@@ -19,7 +19,7 @@ from omniplc.core.errors import (
     TransportTimeoutError,
 )
 from omniplc.transport import BaseTransport
-from omniplc.types import DataType, PrimitiveValue
+from omniplc.core.types import DataType, PrimitiveValue
 
 
 class _ScriptedTransport(BaseTransport):

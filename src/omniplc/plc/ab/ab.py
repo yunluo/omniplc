@@ -50,7 +50,7 @@ from ...core.debug import format_hex, log_op
 from ...core.errors import DeviceError, OmniPLCInternalError, ProtocolFrameError
 from ...core.validation import require_bool
 from ...transport import BaseTransport, TcpTransport
-from ...types import DataType, PrimitiveValue
+from ...core.types import DataType, PrimitiveValue
 
 
 class AllenBradleyEthIpClient(BaseClient):

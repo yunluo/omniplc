@@ -52,7 +52,7 @@ from ...core.constants import (
     MC_DEFAULT_NETWORK_NUMBER,
     MC_DEFAULT_PC_NUMBER,
 )
-from ...types import McFrame
+from ...core.types import McFrame
 
 
 def _to_melsec_address(parsed: McAddress) -> McAddress:

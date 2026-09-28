@@ -16,7 +16,7 @@ from omniplc import SiemensS7Client
 from omniplc.aio import ASiemensS7Client
 from omniplc.plc.siemens import parse_s7_address
 from omniplc.plc.siemens import client as s7_module
-from omniplc.types import DataType
+from omniplc.core.types import DataType
 
 _AREA_I, _AREA_Q, _AREA_M, _AREA_DB = 0x81, 0x82, 0x83, 0x84
 

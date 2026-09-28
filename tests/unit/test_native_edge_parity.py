@@ -22,7 +22,7 @@ import pytest
 
 import omniplc as pkg
 import omniplc.native as native
-from omniplc.types import DataType
+from omniplc.core.types import DataType
 from scripted import ScriptedTransport
 from scripted_async import ScriptedAsyncTransport
 

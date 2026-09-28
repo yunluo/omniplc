@@ -54,7 +54,7 @@ from ..core.constants import (
 )
 from ..core.debug import log_op
 from ..core.errors import DeviceError, ProtocolFrameError, TransportClosedError
-from ..types import DataType, PrimitiveValue
+from ..core.types import DataType, PrimitiveValue
 from ..transport.base import BaseTransport
 
 _CURRENT_PATH = "/current"

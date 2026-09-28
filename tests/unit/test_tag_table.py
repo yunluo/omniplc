@@ -9,9 +9,9 @@ import pytest
 
 from omniplc import BaseClient
 from omniplc.core.errors import DeviceError
-from omniplc.tag import Tag, TagTable
+from omniplc.core.tag import Tag, TagTable
 from omniplc.transport.base import BaseTransport
-from omniplc.types import DataType, PrimitiveValue
+from omniplc.core.types import DataType, PrimitiveValue
 
 
 @pytest.fixture

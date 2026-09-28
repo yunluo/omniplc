@@ -23,7 +23,7 @@ import struct
 import time
 from typing import List
 
-from ... import convert
+from ...core import convert
 from ...core.base_client import BaseClient, validate_endpoint
 from ...core.constants import (
     INT32_MAX,
@@ -47,7 +47,7 @@ from ...core.validation import (
     require_int,
 )
 from ...transport import BaseTransport, TcpTransport, UdpTransport
-from ...types import DataType, PrimitiveValue
+from ...core.types import DataType, PrimitiveValue
 from . import codec
 from .address import KvAddress, is_bit_device, parse_kv_address
 

@@ -54,7 +54,7 @@ from ...core.validation import (
     require_int,
 )
 from ...transport.base import BaseTransport
-from ...types import DataType, PrimitiveValue
+from ...core.types import DataType, PrimitiveValue
 
 _PLCTYPE_NAMES = {
     DataType.BOOL: "PLCTYPE_BOOL",

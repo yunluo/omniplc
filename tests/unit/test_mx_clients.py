@@ -31,7 +31,7 @@ from omniplc.aio import AMelsecMxClient
 from omniplc.core.errors import OmniPLCInternalError
 from omniplc.plc.melsec import mx as mx_module
 from omniplc.plc.melsec.melsec import _encode_32, _encode_64
-from omniplc.types import DataType
+from omniplc.core.types import DataType
 
 _TEXT_RE = re.compile(r"^([A-Za-z]+)(\d+)(?:\.(\d+))?$")
 

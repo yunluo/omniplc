@@ -31,7 +31,7 @@ from ...core.constants import (
     SERIAL_DEFAULT_PARITY,
 )
 from ...modbus.modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
-from ...types import DataType, PrimitiveValue, SerialParity
+from ...core.types import DataType, PrimitiveValue, SerialParity
 
 
 class _InovanceBase(ModbusBaseClient):

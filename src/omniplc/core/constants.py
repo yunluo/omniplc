@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Dict, Tuple
 
-from ..types import SerialParity
+from .types import SerialParity
 
 # ---------------------------------------------------------------- 默认超时(秒)
 DEFAULT_CONNECT_TIMEOUT: float = 5.0

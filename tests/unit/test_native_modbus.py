@@ -17,9 +17,9 @@ from omniplc import ModbusTcpClient
 from omniplc.core.errors import ErrorCategory
 from omniplc.modbus import codec
 from omniplc.native import AsyncModbusTcpClient
-from omniplc.tag import Tag, TagTable
+from omniplc.core.tag import Tag, TagTable
 from omniplc.transport.base import BaseTransport
-from omniplc.types import DataType, PrimitiveValue
+from omniplc.core.types import DataType, PrimitiveValue
 from scripted import ScriptedTransport
 from scripted_async import ScriptedAsyncTransport, TcpResponder, loop_names, make_loop
 

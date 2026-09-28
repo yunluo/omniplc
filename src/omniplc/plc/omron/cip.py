@@ -35,7 +35,7 @@ from ..ab.ab import _check_bit_range, _single_array_index, _strip_bit, _word_ind
 from ..ab.address import AbTag, parse_ab_tag
 from ...core.constants import AB_EIP_DEFAULT_PORT
 from ...core.errors import DeviceError
-from ...types import PrimitiveValue
+from ...core.types import PrimitiveValue
 
 
 class OmronCipClient(AllenBradleyEthIpClient):

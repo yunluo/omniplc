@@ -17,8 +17,8 @@ from omniplc.native import AsyncMelsecMcTcpClient, AsyncMelsecMcUdpClient
 from omniplc.plc.melsec import codec_qna
 from omniplc.plc.melsec.address import parse_mc_address
 from omniplc.plc.melsec.melsec import _encode_32, _encode_64
-from omniplc.tag import Tag, TagTable
-from omniplc.types import DataType, PrimitiveValue
+from omniplc.core.tag import Tag, TagTable
+from omniplc.core.types import DataType, PrimitiveValue
 from scripted import ScriptedTransport
 from scripted_async import (
     RawTcpServer,

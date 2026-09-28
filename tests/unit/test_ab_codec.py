@@ -11,7 +11,7 @@ import pytest
 from omniplc.plc.ab import codec_cip
 from omniplc.plc.ab.address import parse_ab_tag
 from omniplc.core.errors import DeviceError, ProtocolFrameError
-from omniplc.types import DataType
+from omniplc.core.types import DataType
 
 _SESSION = 0x12345678
 _MYDINT_PATH = bytes.fromhex("91064d7944696e74")  # 91 06 "MyDint"

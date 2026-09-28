@@ -38,11 +38,13 @@ CNC 机床数采(MTConnect Agent,HTTP/XML 只读)、
 """
 from __future__ import annotations
 
-from . import convert
-from .cnc import MTConnectClient
+from .core import convert
 from .core.base_client import BaseClient, ClientStats
 from .core.debug import set_debug
 from .core.errors import ErrorCategory
+from .core.tag import Tag, TagTable
+from .core.types import ByteOrder, DataType, McFrame, SerialParity, WordOrder
+from .cnc import MTConnectClient
 from .modbus import ModbusArea, ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from .opcua import OpcUaClient
 from .plc.melsec import (
@@ -69,9 +71,7 @@ from .plc.keyence import (
 from .plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
 from .plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
 from .scanner import KeyenceSrClient
-from .tag import Tag, TagTable
 from .transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport, UdpTransport
-from .types import ByteOrder, DataType, McFrame, SerialParity, WordOrder
 
 __version__ = "0.45.0"
 __author__ = "云落"

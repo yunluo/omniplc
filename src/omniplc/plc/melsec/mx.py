@@ -36,7 +36,7 @@ from __future__ import annotations
 import ctypes
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, Union
 
-from ... import convert
+from ...core import convert
 from ...core.base_client import BaseClient
 from ...core.constants import (
     INT16_MIN,
@@ -52,7 +52,7 @@ from ...core.debug import log_op
 from ...core.errors import OmniPLCInternalError, TransportClosedError
 from ...core.validation import check_int16, check_uint16, require_bool
 from ...transport import BaseTransport
-from ...types import DataType, PrimitiveValue
+from ...core.types import DataType, PrimitiveValue
 from .address import McAddress, parse_mc_address
 from .melsec import _decode_32, _decode_64, _encode_32, _encode_64
 

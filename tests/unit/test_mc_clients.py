@@ -16,7 +16,7 @@ from omniplc.core.constants import MC_DEFAULT_MONITOR_TIMER
 from omniplc.plc.melsec import codec_a, codec_qna
 from omniplc.plc.melsec.address import parse_mc_address
 from omniplc.plc.melsec.melsec import _MC_DEVICE_CODES_FX5U_XY
-from omniplc.types import DataType
+from omniplc.core.types import DataType
 from scripted import ScriptedTransport, mount_real_tcp
 
 

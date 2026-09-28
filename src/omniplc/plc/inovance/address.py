@@ -44,7 +44,7 @@ from ...core.constants import (
     INOVANCE_WORD_DEVICES,
     MODBUS_REGISTER_BIT_MAX,
 )
-from ...types import DataType
+from ...core.types import DataType
 
 _INOVANCE_ADDRESS_RE = re.compile(
     r"^(SM|SD|M|S|T|C|X|Y|B|D|R)(\d+)(?:\.(\d+))?$", re.IGNORECASE

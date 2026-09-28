@@ -20,7 +20,7 @@ from omniplc.core.debug import format_hex
 from omniplc.core.errors import ErrorCategory, ProtocolFrameError
 from omniplc.plc.melsec import codec_serial, codec_serial_a
 from omniplc.plc.melsec.address import parse_mc_address
-from omniplc.types import McFrame
+from omniplc.core.types import McFrame
 from scripted import ScriptedTransport
 
 _ROUTE = "0000FF00"

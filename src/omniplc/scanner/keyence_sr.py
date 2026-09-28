@@ -39,7 +39,7 @@ from ..core.constants import (
 )
 from ..core.errors import DeviceError, ErrorCategory, OmniPLCInternalError, TransportTimeoutError
 from ..transport import BaseTransport, TcpTransport
-from ..types import DataType, PrimitiveValue
+from ..core.types import DataType, PrimitiveValue
 
 
 class KeyenceSrClient(BaseClient):

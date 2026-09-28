@@ -26,7 +26,7 @@ from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from .base import AsyncBaseClient
 from .transport import AsyncBaseTransport, AsyncTcpTransport, AsyncUdpTransport
-from .. import convert
+from ..core import convert
 from ..core.base_client import validate_endpoint
 from ..core.constants import (
     MC_1E_ERROR_EXTRA,
@@ -59,7 +59,7 @@ from ..plc.melsec.melsec import (
     _encode_64,
     _merge_bit_blocks,
 )
-from ..types import DataType, McFrame, PrimitiveValue
+from ..core.types import DataType, McFrame, PrimitiveValue
 
 
 class AsyncMelsecMcBase(AsyncBaseClient):

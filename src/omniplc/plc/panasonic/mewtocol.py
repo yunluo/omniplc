@@ -22,7 +22,7 @@ from typing import List, Sequence
 
 from . import codec_mewtocol
 from .address import MewtocolAddress, parse_mewtocol_address
-from ... import convert
+from ...core import convert
 from ...core.base_client import BaseClient, validate_endpoint
 from ...core.constants import (
     MEWTOCOL_CONTACT_AREAS,
@@ -33,7 +33,7 @@ from ...core.constants import (
 from ...core.errors import ProtocolFrameError
 from ...core.validation import check_int16, check_uint16, require_bool
 from ...transport import BaseTransport, TcpTransport, UdpTransport
-from ...types import ByteOrder, DataType, PrimitiveValue
+from ...core.types import ByteOrder, DataType, PrimitiveValue
 
 
 class _MewtocolBase(BaseClient):

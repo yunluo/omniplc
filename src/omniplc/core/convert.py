@@ -9,7 +9,7 @@ from __future__ import annotations
 import struct
 from typing import Any, Dict, List, Sequence, Tuple, Union, cast
 
-from .core.constants import (
+from .constants import (
     BIT_INDEX_MAX,
     CRC16_INIT,
     CRC16_POLY,
@@ -20,7 +20,7 @@ from .core.constants import (
     UINT32_MAX,
     UINT64_MAX,
 )
-from .core.validation import (
+from .validation import (
     check_int16,
     check_range,
     check_uint16,

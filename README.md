@@ -440,7 +440,7 @@ ok, value = client.read_tag("furnace_temp")   # 点位标识 → 地址+类型,�
 
 **迁移(v0.33.0 schema 破坏性变更)**:旧表 `name` 字段的值原样迁入 `tag_id`
 (点位标识,项目内唯一,一般字母/数字),原中文说明改写到新增的 `remark`
-(可选,缺省为空),其余字段不变;字段语义见 `tag.py` 的 `Tag` 文档。
+(可选,缺省为空),其余字段不变;字段语义见 `omniplc/core/tag.py` 的 `Tag` 文档。
 
 #### 错误处理约定
 

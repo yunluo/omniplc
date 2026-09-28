@@ -18,8 +18,8 @@ from omniplc.plc.omron import codec
 from omniplc.plc.omron import omron as omron_module
 from omniplc.plc.omron.address import parse_fins_address
 from omniplc.native import omron as native_omron_module
-from omniplc.tag import Tag, TagTable
-from omniplc.types import DataType, PrimitiveValue
+from omniplc.core.tag import Tag, TagTable
+from omniplc.core.types import DataType, PrimitiveValue
 from scripted import ScriptedTransport
 from scripted_async import ScriptedAsyncTransport, loop_names, make_loop
 

@@ -22,7 +22,7 @@ from omniplc.core.constants import (
 )
 from omniplc.plc.melsec import codec_qna
 from omniplc.plc.melsec.address import parse_mc_address
-from omniplc.types import McFrame
+from omniplc.core.types import McFrame
 from scripted import ScriptedTransport
 
 

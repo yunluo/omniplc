@@ -19,7 +19,7 @@ from ..core.constants import (
 )
 from ..core.debug import RECV_MARK, SEND_MARK, log_frame, log_op
 from ..core.errors import TransportClosedError, TransportTimeoutError
-from ..types import SerialParity
+from ..core.types import SerialParity
 
 
 @dataclass

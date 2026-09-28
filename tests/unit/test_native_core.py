@@ -24,7 +24,7 @@ from omniplc.core.constants import RECONNECT_BACKOFF_MAX
 from omniplc.core.errors import TransportTimeoutError
 from omniplc.native import AsyncModbusTcpClient
 from omniplc.native.transport import AsyncBaseTransport
-from omniplc.types import DataType
+from omniplc.core.types import DataType
 
 # FC03 读 1 寄存器 = 20 的完整 MBAP 响应(tid=1)
 _RESP_TID1 = bytes([0x00, 0x01, 0x00, 0x00, 0x00, 0x05, 0x01, 0x03, 0x02, 0x00, 0x14])

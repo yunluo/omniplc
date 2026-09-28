@@ -21,7 +21,7 @@ from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from . import codec_a, codec_qna, codec_serial, codec_serial_a
 from .address import McAddress, parse_mc_address
-from ... import convert
+from ...core import convert
 from ...core.base_client import BaseClient, validate_endpoint
 from ...core.constants import (
     MC_1C_DEFAULT_MESSAGE_WAIT,
@@ -59,7 +59,7 @@ from ...core.validation import (
     require_int,
 )
 from ...transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport, UdpTransport
-from ...types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity
+from ...core.types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity
 
 # iQ-F(FX5U)X/Y 八进制口径码表(其余软元件与 Q/L/R 同):xy_octal=True 时
 # 经 :meth:`_MelsecMcBase._effective_codes` 生效(组帧与校验共用,见 SH-080008)

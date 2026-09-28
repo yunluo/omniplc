@@ -30,7 +30,7 @@ from omniplc.aio import (
     AOmronFinsUdpClient,
 )
 from omniplc.transport import BaseTransport, SerialTransport, TcpTransport, UdpTransport
-from omniplc.types import DataType, McFrame
+from omniplc.core.types import DataType, McFrame
 
 
 class TestInheritance:

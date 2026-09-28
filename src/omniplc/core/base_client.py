@@ -43,9 +43,9 @@ from .errors import (
     TransportClosedError,
     TransportTimeoutError,
 )
-from ..tag import Tag, TagTable
+from .tag import Tag, TagTable
 from ..transport import BaseTransport
-from ..types import DataType, PrimitiveValue
+from .types import DataType, PrimitiveValue
 
 _T = TypeVar("_T")
 _C = TypeVar("_C", bound="BaseClient")

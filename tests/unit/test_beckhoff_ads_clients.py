@@ -304,7 +304,7 @@ def test_tcp_send_error_disconnects_with_transport_category(
 
 def test_typed_write_string_prechecked(monkeypatch: pytest.MonkeyPatch) -> None:
     """write(..., DataType.STRING) 与 write_string 同预检(声明长,三轮 P2 补缺)。"""
-    from omniplc.types import DataType
+    from omniplc.core.types import DataType
 
     client = BeckhoffAdsClient("127.0.0.1")
     fake = FakeAdsSession()

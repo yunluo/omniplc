@@ -13,9 +13,9 @@ import pytest
 from omniplc.core.errors import DeviceError, ErrorCategory, TransportClosedError
 from omniplc.core.errors import OmniPLCInternalError, ProtocolFrameError, TransportTimeoutError
 from omniplc.core.base_client import BaseClient, _categorize
-from omniplc.tag import Tag, TagTable
+from omniplc.core.tag import Tag, TagTable
 from omniplc.transport import BaseTransport
-from omniplc.types import DataType, PrimitiveValue
+from omniplc.core.types import DataType, PrimitiveValue
 
 
 class _ScriptedTransport(BaseTransport):

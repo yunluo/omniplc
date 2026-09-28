@@ -25,7 +25,7 @@ from typing import Dict, List, Optional, Sequence, Tuple, Union, cast
 
 from .base import AsyncBaseClient
 from .transport import AsyncBaseTransport, AsyncTcpTransport
-from .. import convert
+from ..core import convert
 from ..core.base_client import validate_endpoint
 from ..core.constants import (
     MBAP_HEADER_SIZE,
@@ -68,7 +68,7 @@ from ..modbus.modbus import (
     _encode_64bit,
     _encode_value_for_write,
 )
-from ..types import ByteOrder, DataType, PrimitiveValue, WordOrder
+from ..core.types import ByteOrder, DataType, PrimitiveValue, WordOrder
 
 
 class AsyncModbusTcpClient(AsyncBaseClient):

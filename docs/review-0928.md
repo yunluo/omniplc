@@ -3,6 +3,9 @@
 > 日期:2026-09-28 · 触发:*重新整个项目不看文档完整审查一遍代码实现,包含各个协议的实现细节,多子代理审查*
 > **修复进度(2026-09-28)**:P0 复审裁决后 **8 → 6 条**(2 条误报撤销,见下),其中 **5 条已修复**(OPC-UA×2、MC native×2+1、native 关闸×1;AB 0x29/0x2A 计 1 条)。**P1 13 项已全部修复**(1 项随 P0 批落地,2 项以文档披露口径修复)。门禁:3.7.9 **1358 passed** / ruff / mypy(74) / ty 全零。
 >
+> **路径提示(v0.46.0 起)**:本文内 `types.py` / `tag.py` / `convert.py` 的引用对应现
+> `src/omniplc/core/` 下同名文件(三文件由根包迁入 `core/`,见 CHANGELOG v0.46.0)。
+>
 > **P0 复审裁决(关键)**:
 > - **FINS 0104"缺存储区计数字段"→ 误报,撤销**。W342 §5-3-5(PDF 198-200 页,印刷 177-179)命令格式为逐条 `[区码+起始地址]` 直接拼接,**无前导计数**;手册明言 "If nothing is specified after the command code, a normal response will be returned"(命令码后可不接数据),与"有 2 字节计数字段"直接矛盾;167 出自注释里的网络上限表(Controller Link/Ethernet 167、SYSMAC LINK/DeviceNet 89),非计数字段域宽。
 > - **AB Large Forward Open"参数域应 <<7"→ 误报,撤销**。pylogix 1.1.6 `lgx_comm.py:503`(`0x4200 << 16 += size`)与 pycomm3 1.2.16 `cip_driver.py:354-357`(`init_net_params=0b0100_0010_0000_0000` 后 `size | params << 16`,注 CIP Vol 1 §3-5.5.1.1)均与本项目 `0x4200 << 16 + size` **逐字节一致**;两个真机验证过的参考实现同型,子代理的 `<<7` 推导不成立(登记 P3·待核:仅当真机抓包证伪再议)。

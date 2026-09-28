@@ -45,7 +45,7 @@ from ...core.validation import (
     require_float,
     require_int,
 )
-from ...types import DataType, PrimitiveValue
+from ...core.types import DataType, PrimitiveValue
 
 # ---- ENIP 封装(报文常量) ----
 EIP_COMMAND_REGISTER_SESSION: int = 0x0065

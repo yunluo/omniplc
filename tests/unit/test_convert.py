@@ -1,12 +1,12 @@
-"""convert.py 纯转换函数的单元测试。"""
+"""convert.py 纯转换函数的单元测试(模块位于 omniplc/core/convert.py)。"""
 from __future__ import annotations
 
 import struct
 
 import pytest
 
-from omniplc import convert
-from omniplc.types import ByteOrder, DataType, WordOrder
+from omniplc.core import convert
+from omniplc.core.types import ByteOrder, DataType, WordOrder
 
 
 class TestChecksum:

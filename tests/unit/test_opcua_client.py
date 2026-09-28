@@ -31,7 +31,7 @@ from omniplc.opcua.client import (
     _translate_ua_error,
     _validate_endpoint_url,
 )
-from omniplc.types import DataType
+from omniplc.core.types import DataType
 
 
 class FakeSession(_OpcUaSession):

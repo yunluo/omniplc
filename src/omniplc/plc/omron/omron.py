@@ -18,7 +18,7 @@ from typing import List, Optional, Sequence, Tuple, Union
 
 from . import codec
 from .address import FinsAddress, parse_fins_address
-from ... import convert
+from ...core import convert
 from ...core.base_client import BaseClient, validate_endpoint
 from ...core.constants import (
     FINS_BIT_FALLBACK_AREAS,
@@ -43,7 +43,7 @@ from ...core.constants import (
 from ...core.errors import DeviceError
 from ...core.validation import check_int16, check_range, check_uint16, require_bool
 from ...transport import BaseTransport, TcpTransport, UdpTransport
-from ...types import ByteOrder, DataType, PrimitiveValue
+from ...core.types import ByteOrder, DataType, PrimitiveValue
 
 
 def _node_from_host(host: str) -> int:

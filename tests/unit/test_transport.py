@@ -11,7 +11,7 @@ from omniplc.core.debug import LOGGER_NAME
 from omniplc.core.errors import DeviceError, TransportClosedError
 from omniplc.transport import SerialConfig, TcpTransport, UdpTransport
 from omniplc.transport import udp as udp_module
-from omniplc.types import SerialParity
+from omniplc.core.types import SerialParity
 
 # UDP 超长报文的两条平台分支(内核行为互斥,单机无法同时复现):
 # - POSIX:``recv`` 静默截断,库用 ``MSG_TRUNC`` 探真长并记 WARNING

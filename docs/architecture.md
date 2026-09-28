@@ -13,7 +13,7 @@ omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7
 ```mermaid
 flowchart TB
     subgraph UserApi["用户 API 层"]
-        Clients["协议 × 走线 具体客户端类<br/>28 个同步 + 28 个异步(A 前缀镜像,omniplc.aio 线程池包装)<br/>5 个原生异步(Async 前缀,omniplc.native 真 asyncio 协议栈,零第三方依赖)<br/>scanner:KeyenceSrClient 扫码枪 · cnc:MTConnectClient 机床数采<br/>Tag / TagTable 可选点位表层"]
+        Clients["协议 × 走线 具体客户端类<br/>28 个同步 + 28 个异步(A 前缀镜像,omniplc.aio 线程池包装)<br/>5 个原生异步(Async 前缀,omniplc.native 真 asyncio 协议栈,零第三方依赖)<br/>scanner:KeyenceSrClient 扫码枪 · cnc:MTConnectClient 机床数采"]
     end
     subgraph Drivers["驱动层 drivers(协议编解码 + 地址解析)"]
         Modbus["modbus/<br/>codec + address + client"]
@@ -37,8 +37,9 @@ flowchart TB
         Constants["core/constants.py(全局常量集中定义)"]
         DebugC["core/debug.py(全局报文调试开关 set_debug)"]
         ValidationC["core/validation.py(字段校验纯函数)"]
-        TypesC["types.py(DataType / WordOrder…)"]
-        ConvertC["convert.py(纯转换函数)"]
+        TypesC["core/types.py(DataType / WordOrder…)"]
+        ConvertC["core/convert.py(纯转换函数)"]
+        TagC["core/tag.py(Tag / TagTable 点位表)"]
     end
 
     UserApi ==> Drivers
@@ -392,7 +393,7 @@ stateDiagram-v2
 
 ## 6. 数据类型与类型标注
 
-### 6.1 类型系统(`types.py`)
+### 6.1 类型系统(`core/types.py`)
 
 `DataType` 枚举:与方法名 `read_*`/`write_*` 后缀一一对应——
 `bool / short / ushort / int / uint / long / ulong / float / double / string`
@@ -407,7 +408,7 @@ stateDiagram-v2
 | 三菱 MC | 固定小端字序(低字在前) | 编码层处理,不暴露配置 |
 | 欧姆龙 FINS | 固定大端 | 编码层处理,不暴露配置 |
 
-`convert.py` 提供全部转换纯函数:`crc16 / lrc / get_bit / set_bit`、
+`core/convert.py` 提供全部转换纯函数:`crc16 / lrc / get_bit / set_bit`、
 `bytes ↔ int16/uint16`、`registers ↔ int32/uint32/float32/float64(四字序)`、
 `encode_string / decode_string`、`words_to_value / value_to_words`
 (统一的多字解码/编码入口)。字序变换为对合变换,编解码共用一套实现。
@@ -426,12 +427,12 @@ ULONG/FLOAT/DOUBLE)要求字数与尺寸严格匹配;`BOOL` 取 1 个字、按"�
 
 | 参数 | 枚举类型 | 取值 |
 |---|---|---|
-| `read/write(data_type)` | `omniplc.types.DataType` | `DataType.FLOAT`、`DataType.SHORT`… |
+| `read/write(data_type)` | `omniplc.core.types.DataType` | `DataType.FLOAT`、`DataType.SHORT`… |
 | Modbus 区域(`ModbusAddress.area`) | `omniplc.modbus.ModbusArea` | `COIL / DISCRETE_INPUT / HOLDING_REGISTER / INPUT_REGISTER` |
-| Modbus 字序(`word_order`) | `omniplc.types.WordOrder` | `ABCD / CDAB / BADC / DCBA` |
-| 字节序(`byteorder`) | `omniplc.types.ByteOrder` | `BIG / LITTLE` |
-| 三菱 MC 帧型(`frame`) | `omniplc.types.McFrame` | `FRAME_3E / FRAME_4E / FRAME_1E / FRAME_3C / FRAME_4C / FRAME_1C` |
-| 串口校验位(`parity`) | `omniplc.types.SerialParity` | `NONE / EVEN / ODD` |
+| Modbus 字序(`word_order`) | `omniplc.core.types.WordOrder` | `ABCD / CDAB / BADC / DCBA` |
+| 字节序(`byteorder`) | `omniplc.core.types.ByteOrder` | `BIG / LITTLE` |
+| 三菱 MC 帧型(`frame`) | `omniplc.core.types.McFrame` | `FRAME_3E / FRAME_4E / FRAME_1E / FRAME_3C / FRAME_4C / FRAME_1C` |
+| 串口校验位(`parity`) | `omniplc.core.types.SerialParity` | `NONE / EVEN / ODD` |
 
 约定:枚举成员为**权威定义**;所有公开参数标注为 `Union[枚举, str]`,
 内部经统一的 `coerce` 辅助函数解析,非法值抛 `ValueError`。

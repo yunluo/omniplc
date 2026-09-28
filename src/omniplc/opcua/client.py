@@ -60,7 +60,7 @@ from ..core.validation import (
     require_float,
     require_int,
 )
-from ..types import DataType, PrimitiveValue
+from ..core.types import DataType, PrimitiveValue
 from ..transport.base import BaseTransport
 from .address import parse_opcua_nodeid
 

@@ -74,8 +74,8 @@ from ..core.errors import (
     TransportTimeoutError,
     _CANCELLED_ERRORS,
 )
-from ..tag import Tag, TagTable
-from ..types import DataType, PrimitiveValue
+from ..core.tag import Tag, TagTable
+from ..core.types import DataType, PrimitiveValue
 
 _T = TypeVar("_T")
 _C = TypeVar("_C", bound="AsyncBaseClient")

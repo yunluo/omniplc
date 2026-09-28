@@ -45,7 +45,7 @@ import os
 import struct
 from typing import Any, Dict, List, NoReturn, Optional, Sequence, Tuple, Union
 
-from ... import convert
+from ...core import convert
 from ...core.base_client import BaseClient, DEFAULT_STRING_ENCODING, validate_endpoint
 from ...core.constants import (
     S7_DEFAULT_PORT,
@@ -59,7 +59,7 @@ from ...core.constants import (
 from ...core.debug import log_op
 from ...core.errors import DeviceError, OmniPLCInternalError, TransportClosedError
 from ...core.validation import require_bool, require_float, require_int
-from ...types import DataType, PrimitiveValue
+from ...core.types import DataType, PrimitiveValue
 from ...transport.base import BaseTransport
 from .address import area_code, parse_s7_address
 

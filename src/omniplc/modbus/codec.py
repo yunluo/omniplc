@@ -18,7 +18,7 @@ import struct
 from enum import IntEnum
 from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple
 
-from ..convert import crc16
+from ..core.convert import crc16
 from ..core.constants import (
     MBAP_HEADER_SIZE,
     MODBUS_ADDRESS_MAX,

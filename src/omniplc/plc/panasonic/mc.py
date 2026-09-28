@@ -41,7 +41,7 @@ from ...core.constants import (
     PANASONIC_MC_SD_BASE,
     PANASONIC_MC_SM_LINEAR_BASE,
 )
-from ...types import McFrame
+from ...core.types import McFrame
 
 # "字号 + 位号"组织的位软元件(帧内编号 = 字号×16 + 位号)
 _WORD_BIT_DEVICES = ("X", "Y", "L", "R")

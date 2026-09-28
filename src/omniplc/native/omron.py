@@ -24,7 +24,7 @@ from typing import List, Optional, Sequence, Tuple, Union
 
 from .base import AsyncBaseClient
 from .transport import AsyncBaseTransport, AsyncTcpTransport, AsyncUdpTransport
-from .. import convert
+from ..core import convert
 from ..core.base_client import validate_endpoint
 from ..core.constants import (
     FINS_BIT_FALLBACK_AREAS,
@@ -55,7 +55,7 @@ from ..plc.omron.omron import (
     _value_to_words,
     _words_to_value,
 )
-from ..types import DataType, PrimitiveValue
+from ..core.types import DataType, PrimitiveValue
 
 
 class AsyncOmronFinsBase(AsyncBaseClient):
