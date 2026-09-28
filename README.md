@@ -7,7 +7,7 @@ omniplc:一个面向多品牌、多协议 PLC 的 Python 统一通信库。一�
 - 命名与使用习惯对齐,迁移成本极低
 - 全量类型标注(PEP 484 + py.typed),mypy 检查通过
 - 内置全局报文调试开关(`omniplc.set_debug(True)` 一键输出所有协议的请求/响应报文)
-- 内置报错语言开关(`omniplc.set_language("en")` 报错文案中英切换,默认中文)
+- 内置报错语言开关(`omniplc.set_lang("en")` 报错文案中英切换,默认中文)
 - 线程安全、惰性自动重连、可配置超时/重试
 - 同步 + 异步(异步类 = 同步类名前加 `A`)双轨 API
 
@@ -338,8 +338,8 @@ omniplc.set_debug(False)  # 关闭
 ```python
 import omniplc
 
-omniplc.set_language("en")  # 之后所有报错文案输出英文(默认中文)
-omniplc.set_language("zh")  # 切回中文
+omniplc.set_lang("en")  # 之后所有报错文案输出英文(默认中文)
+omniplc.set_lang("zh")  # 切回中文
 ```
 
 - 作用于**异常消息与错误码→文案表**(写失败时 `last_error` 的文本、参数
@@ -465,7 +465,7 @@ ok, value = client.read_tag("furnace_temp")   # 点位标识 → 地址+类型,�
 **读返回 `(bool, 值)`,写返回 `bool`,不抛自定义异常**;
 失败原因记录在 `client.last_error`(含 PLC 原始错误码)。参数非法(地址/类型/
 范围错误)抛 `ValueError`。`last_error` 文本默认中文,可用
-`omniplc.set_language("en")` 切英文(见「报错语言」节);程序化分类请依赖
+`omniplc.set_lang("en")` 切英文(见「报错语言」节);程序化分类请依赖
 `last_error_category` / `last_error_code`(语言无关)而非文本匹配。
 `read_many`/`write_many` **默认**逐点独立容错,单点失败不影响其他点;
 被覆写为协议级单事务的驱动(MC 0406 / FINS 0104 / AB 0x0A / OPC-UA UA Read /

@@ -4,9 +4,9 @@
 
     import omniplc
 
-    omniplc.set_language("en")  # 之后所有报错文案输出英文
+    omniplc.set_lang("en")  # 之后所有报错文案输出英文
     ...
-    omniplc.set_language("zh")  # 切回中文(默认)
+    omniplc.set_lang("zh")  # 切回中文(默认)
 
 口径:
 
@@ -28,12 +28,12 @@ from __future__ import annotations
 from typing import Dict, Tuple
 
 SUPPORTED_LANGUAGES: Tuple[str, ...] = ("zh", "en")
-"""支持的语言代码(传给 :func:`set_language` 的合法取值)。"""
+"""支持的语言代码(传给 :func:`set_lang` 的合法取值)。"""
 
 _language = "zh"
 
 
-def set_language(language: str) -> None:
+def set_lang(language: str) -> None:
     """设置全局报错文案语言(进程级开关,对所有客户端实例生效)。
 
     :param language: 语言代码,见 :data:`SUPPORTED_LANGUAGES`
