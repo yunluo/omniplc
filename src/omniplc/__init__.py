@@ -80,7 +80,7 @@ from .plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
 from .scanner import KeyenceSrClient
 from .transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport, UdpTransport
 
-__version__ = "0.46.0"
+__version__ = "0.47.0"
 __author__ = "云落"
 __description__ = "多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC 3E/4E/1E 与串口 1C/3C/4C / MX Component / 欧姆龙 FINS / NJ/NX CIP / 基恩士 KV Host Link / KV MC 兼容 / 汇川 H3U/H5U / 松下 MC 兼容/MEWTOCOL / 丰田 TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / 西门子 S7 / OPC-UA / CNC MTConnect)"
 
