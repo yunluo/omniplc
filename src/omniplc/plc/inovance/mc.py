@@ -53,6 +53,7 @@ from ...core.constants import (
     MC_DEFAULT_PC_NUMBER,
 )
 from ...core.types import McFrame
+from ...core.i18n import _
 
 
 def _to_melsec_address(parsed: McAddress) -> McAddress:
@@ -67,14 +68,14 @@ def _to_melsec_address(parsed: McAddress) -> McAddress:
         try:
             number = int(parsed.number, 10)
         except ValueError:
-            raise ValueError(f"汇川 R 编号为十进制,解析失败:{parsed.number!r}")
+            raise ValueError(_("汇川 R 编号为十进制,解析失败:{!r}").format(parsed.number))
         return McAddress("D", str(number + INOVANCE_MC_R_BASE), parsed.bit)
     if device in ("X", "Y"):
         try:
             number = int(parsed.number, 8)
         except ValueError:
             raise ValueError(
-                "汇川 {} 编号为八进制(数字 0~7),解析失败:{!r}(示例:X17)".format(
+                _("汇川 {} 编号为八进制(数字 0~7),解析失败:{!r}(示例:X17)").format(
                     device, parsed.number
                 )
             )

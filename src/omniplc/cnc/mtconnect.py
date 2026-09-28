@@ -56,6 +56,7 @@ from ..core.debug import log_op
 from ..core.errors import DeviceError, ProtocolFrameError, TransportClosedError
 from ..core.types import DataType, PrimitiveValue
 from ..transport.base import BaseTransport
+from ..core.i18n import _
 
 _CURRENT_PATH = "/current"
 _PROBE_PATH = "/probe"
@@ -118,7 +119,7 @@ def _fromstring_rejecting_doctype(body: bytes) -> ElementTree.Element:
     lowered = body.lower()
     if b"<!doctype" in lowered or b"<!doctype" in lowered.replace(b"\x00", b""):
         raise ElementTree.ParseError(
-            "DOCTYPE 不允许(XML 实体炸弹 / XXE 防御:纵深防护)"
+            _("DOCTYPE 不允许(XML 实体炸弹 / XXE 防御:纵深防护)")
         )
     return ElementTree.fromstring(body)
 
@@ -131,7 +132,7 @@ def _parse_document(body: bytes) -> ElementTree.Element:
     try:
         root = _fromstring_rejecting_doctype(body)
     except ElementTree.ParseError as exc:
-        raise ProtocolFrameError(f"MTConnect 响应不是合法 XML:{exc}") from exc
+        raise ProtocolFrameError(_("MTConnect 响应不是合法 XML:{}").format(exc)) from exc
     name = _local_name(root.tag)
     if name not in (
         "MTConnectStreams",
@@ -139,7 +140,7 @@ def _parse_document(body: bytes) -> ElementTree.Element:
         "MTConnectAssets",
         "MTConnectError",
     ):
-        raise ProtocolFrameError(f"MTConnect 响应文档类型非法:{name}")
+        raise ProtocolFrameError(_("MTConnect 响应文档类型非法:{}").format(name))
     return root
 
 
@@ -217,11 +218,11 @@ class _MtConnectSession(BaseTransport):
 
     def send(self, data: bytes) -> None:
         """MTConnect 为会话型协议,无字节流收发(不调用)。"""
-        raise TransportClosedError("MTConnect 走 HTTP 会话通道,无字节流收发")
+        raise TransportClosedError(_("MTConnect 走 HTTP 会话通道,无字节流收发"))
 
     def recv(self, size: int) -> bytes:
         """MTConnect 为会话型协议,无字节流收发(不调用)。"""
-        raise TransportClosedError("MTConnect 走 HTTP 会话通道,无字节流收发")
+        raise TransportClosedError(_("MTConnect 走 HTTP 会话通道,无字节流收发"))
 
     def request(self, path: str) -> bytes:
         """执行一次 HTTP GET,返回 200 响应体(会话调用,异常在此翻译)。
@@ -257,7 +258,7 @@ class _MtConnectSession(BaseTransport):
         except _STALE_CONNECTION_ERRORS:
             raise  # 连接层失效,由 request() 原位重建后重试
         except http.client.HTTPException as exc:
-            raise OSError(f"MTConnect HTTP 协议异常:{exc}") from exc
+            raise OSError(_("MTConnect HTTP 协议异常:{}").format(exc)) from exc
         log_op(self._debug_label, "GET %s → HTTP %d(%dB)", path, status, len(body))
         if status == 200:
             return body
@@ -265,12 +266,14 @@ class _MtConnectSession(BaseTransport):
             root = _fromstring_rejecting_doctype(body)
         except ElementTree.ParseError:
             raise OSError(
-                f"MTConnect HTTP 状态 {status}:{body[:120].decode('utf-8', 'replace')}"
+                _("MTConnect HTTP 状态 {}:{}").format(status, body[:120].decode('utf-8', 'replace'))
             )
         info = _error_of_document(root)
         if info is None:
-            raise OSError(f"MTConnect HTTP 状态 {status} 响应非错误文档")
-        raise DeviceError(f"MTConnect HTTP {status} {info[0]}:{info[1]}", 0)
+            raise OSError(_("MTConnect HTTP 状态 {} 响应非错误文档").format(status))
+        raise DeviceError(
+            _("MTConnect HTTP {0} {1}:{2}").format(status, info[0], info[1]), 0
+        )
 
     def _read_body(self, response: http.client.HTTPResponse) -> bytes:
         """分块读取响应体,总量超上限按坏帧断线(防恶意 Agent 无限灌数据)。
@@ -285,7 +288,7 @@ class _MtConnectSession(BaseTransport):
             body.extend(chunk)
             if len(body) > MTCONNECT_MAX_BODY:
                 raise ProtocolFrameError(
-                    f"MTConnect 响应体超过 {MTCONNECT_MAX_BODY} 字节上限"
+                    _("MTConnect 响应体超过 {} 字节上限").format(MTCONNECT_MAX_BODY)
                 )
         return bytes(body)
 
@@ -299,7 +302,7 @@ class _MtConnectSession(BaseTransport):
     def _require_conn(self) -> http.client.HTTPConnection:
         """取当前 HTTP 连接,未建立则抛出(内部方法)。"""
         if self._conn is None:
-            raise TransportClosedError("MTConnect 会话未建立")
+            raise TransportClosedError(_("MTConnect 会话未建立"))
         return self._conn
 
 
@@ -344,7 +347,7 @@ class MTConnectClient(BaseClient):
         """取当前会话适配器(仅事务锁内调用,内部方法)。"""
         link = self._require_transport()
         if not isinstance(link, _MtConnectSession):
-            raise TransportClosedError("内部错误:传输对象不是 MTConnect 会话")
+            raise TransportClosedError(_("内部错误:传输对象不是 MTConnect 会话"))
         return link
 
     def _create_transport(self) -> BaseTransport:
@@ -373,7 +376,7 @@ class MTConnectClient(BaseClient):
         root = self._fetch(_CURRENT_PATH + _query(path))
         if _local_name(root.tag) != "MTConnectStreams":
             raise ProtocolFrameError(
-                f"MTConnect /current 返回了 {_local_name(root.tag)} 文档"
+                _("MTConnect /current 返回了 {} 文档").format(_local_name(root.tag))
             )
         by_id: Dict[str, str] = {}
         aliases: List[Tuple[str, str]] = []
@@ -403,7 +406,7 @@ class MTConnectClient(BaseClient):
         root = self._fetch(_CURRENT_PATH + _query(path))
         if _local_name(root.tag) != "MTConnectStreams":
             raise ProtocolFrameError(
-                f"MTConnect /current 返回了 {_local_name(root.tag)} 文档"
+                _("MTConnect /current 返回了 {} 文档").format(_local_name(root.tag))
             )
         conditions: List[Dict[str, str]] = []
         for elem in root.iter():
@@ -427,7 +430,7 @@ class MTConnectClient(BaseClient):
         """读取 /probe,返回第一个 Device 的属性(内部方法,兼容保留)。"""
         devices = self._fetch_probe_devices()
         if not devices:
-            raise DeviceError("MTConnect /probe 未包含 Device", 0)
+            raise DeviceError(_("MTConnect /probe 未包含 Device"), 0)
         return devices[0]
 
     def _fetch_probe_devices(self) -> List[Dict[str, str]]:
@@ -435,7 +438,7 @@ class MTConnectClient(BaseClient):
         root = self._fetch(_PROBE_PATH)
         if _local_name(root.tag) != "MTConnectDevices":
             raise ProtocolFrameError(
-                f"MTConnect /probe 返回了 {_local_name(root.tag)} 文档"
+                _("MTConnect /probe 返回了 {} 文档").format(_local_name(root.tag))
             )
         devices: List[Dict[str, str]] = []
         for elem in root.iter():
@@ -465,7 +468,7 @@ class MTConnectClient(BaseClient):
         root = self._fetch(_SAMPLE_PATH + _query(path, params))
         if _local_name(root.tag) != "MTConnectStreams":
             raise ProtocolFrameError(
-                f"MTConnect /sample 返回了 {_local_name(root.tag)} 文档"
+                _("MTConnect /sample 返回了 {} 文档").format(_local_name(root.tag))
             )
         next_sequence: Optional[int] = None
         samples: List[Dict[str, object]] = []
@@ -516,7 +519,7 @@ class MTConnectClient(BaseClient):
         root = self._fetch(path)
         if _local_name(root.tag) != "MTConnectAssets":
             raise ProtocolFrameError(
-                f"MTConnect /asset 返回了 {_local_name(root.tag)} 文档"
+                _("MTConnect /asset 返回了 {} 文档").format(_local_name(root.tag))
             )
         assets_elem = None
         for elem in root.iter():
@@ -551,21 +554,21 @@ class MTConnectClient(BaseClient):
         :raises DeviceError: 数据项不存在或当前不可用(设备侧条件,不断线)
         """
         if data_type not in _SUPPORTED_TYPES:
-            raise ValueError(f"MTConnect 不支持的数据类型:{data_type}")
+            raise ValueError(_("MTConnect 不支持的数据类型:{}").format(data_type))
         text = _check_address(address)
         items = self._fetch_items()
         if text not in items:
-            raise DeviceError(f"MTConnect 数据项不存在:{text}", 0)
+            raise DeviceError(_("MTConnect 数据项不存在:{}").format(text), 0)
         value = items[text]
         if value == "" or value.lower() in _UNAVAILABLE_VALUES:
             raise DeviceError(
-                f"MTConnect 数据项当前不可用:{text}={value or 'UNAVAILABLE'}", 0
+                _("MTConnect 数据项当前不可用:{}={}").format(text, value or 'UNAVAILABLE'), 0
             )
         return _coerce(value, data_type, address)
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """MTConnect 为只读采集协议,不支持写入(不断线契约)。"""
-        raise DeviceError("MTConnect 为只读采集协议,不支持写入", 0)
+        raise DeviceError(_("MTConnect 为只读采集协议,不支持写入"), 0)
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """读文本数据项(值本身即字符串,length/encoding 不适用)。"""
@@ -637,21 +640,21 @@ class MTConnectClient(BaseClient):
             拒绝,不做静默截断),或 ``from_sequence`` 与 ``at`` 同时给出
         """
         if isinstance(count, bool) or not isinstance(count, int):
-            raise ValueError(f"count 必须为整数,收到:{count!r}")
+            raise ValueError(_("count 必须为整数,收到:{!r}").format(count))
         if count < 1:
-            raise ValueError(f"count 必须大于等于 1,收到:{count}")
+            raise ValueError(_("count 必须大于等于 1,收到:{}").format(count))
         if from_sequence is not None and at is not None:
-            raise ValueError("from_sequence 与 at 互斥,只能给其一")
+            raise ValueError(_("from_sequence 与 at 互斥,只能给其一"))
         if from_sequence is not None and (
             isinstance(from_sequence, bool) or not isinstance(from_sequence, int)
         ):
-            raise ValueError(f"from_sequence 必须为整数,收到:{from_sequence!r}")
+            raise ValueError(_("from_sequence 必须为整数,收到:{!r}").format(from_sequence))
         if from_sequence is not None and from_sequence < 0:
-            raise ValueError(f"from_sequence 不能为负,收到:{from_sequence}")
+            raise ValueError(_("from_sequence 不能为负,收到:{}").format(from_sequence))
         if at is not None and (isinstance(at, bool) or not isinstance(at, int)):
-            raise ValueError(f"at 必须为整数,收到:{at!r}")
+            raise ValueError(_("at 必须为整数,收到:{!r}").format(at))
         if at is not None and at < 0:
-            raise ValueError(f"at 不能为负,收到:{at}")
+            raise ValueError(_("at 不能为负,收到:{}").format(at))
         return self._execute(
             lambda: self._fetch_sample(from_sequence, int(count), path, at)
         )
@@ -672,7 +675,7 @@ def _require_asset_id(asset_id: str) -> str:
     """资产 id 校验:非空字符串,返回去除首尾空白后的 id(内部函数)。"""
     text = asset_id.strip() if isinstance(asset_id, str) else ""
     if not text:
-        raise ValueError("MTConnect 资产 id 不能为空")
+        raise ValueError(_("MTConnect 资产 id 不能为空"))
     return text
 
 
@@ -680,7 +683,7 @@ def _check_address(address: str) -> str:
     """地址校验:非空字符串,返回去除首尾空白后的数据项标识(内部函数)。"""
     text = address.strip() if isinstance(address, str) else ""
     if not text:
-        raise ValueError("MTConnect 数据项地址不能为空")
+        raise ValueError(_("MTConnect 数据项地址不能为空"))
     return text
 
 
@@ -695,40 +698,40 @@ def _coerce(value: str, data_type: DataType, address: str) -> PrimitiveValue:
             return True
         if lowered in _BOOL_FALSE:
             return False
-        raise ValueError(f"MTConnect 数据项不是布尔量:{address} ← {value!r}")
+        raise ValueError(_("MTConnect 数据项不是布尔量:{} ← {!r}").format(address, value))
     if data_type is DataType.STRING:
         return value
     if len(value) > MTCONNECT_MAX_NUMERIC_TEXT:
         # 3.11 之前的 int/float 对超长数字串是超线性开销,先按长度快拒
         raise ValueError(
-            f"MTConnect 数据项数值文本过长:{address} ← {len(value)} 字符"
+            _("MTConnect 数据项数值文本过长:{} ← {} 字符").format(address, len(value))
         )
     if data_type in (DataType.FLOAT, DataType.DOUBLE):
         try:
             number_f = float(value)
         except ValueError:
             raise ValueError(
-                f"MTConnect 数据项不是数值:{address} ← {value!r}"
+                _("MTConnect 数据项不是数值:{} ← {!r}").format(address, value)
             )
         if not math.isfinite(number_f):
             # "nan"/"inf"/"1e999" 文本 float() 接受成功——非有限值进数据链
             # 会把下游报警比较恒短路为 False,与 UNAVAILABLE 同类无效值,
             # 按设备侧条件拒绝
             raise ValueError(
-                f"MTConnect 数据项不是有限数值:{address} ← {value!r}"
+                _("MTConnect 数据项不是有限数值:{} ← {!r}").format(address, value)
             )
         return number_f
     try:
         number = int(value)
     except ValueError:
         raise ValueError(
-            f"MTConnect 数据项不是整数:{address} ← {value!r}"
+            _("MTConnect 数据项不是整数:{} ← {!r}").format(address, value)
         )
     # 按声明类型收窄范围:Agent 文本超出该类型属设备侧条件(不断线)
     bounds = _INT_RANGES.get(data_type)
     if bounds is not None and not bounds[0] <= number <= bounds[1]:
         raise DeviceError(
-            "MTConnect 数据项超出声明类型范围:{}({} 允许 {}~{})".format(
+            _("MTConnect 数据项超出声明类型范围:{}({} 允许 {}~{})").format(
                 address, data_type.name, bounds[0], bounds[1]
             ),
             0,

@@ -44,6 +44,7 @@ from ...core.errors import DeviceError
 from ...core.validation import check_int16, check_range, check_uint16, require_bool
 from ...transport import BaseTransport, TcpTransport, UdpTransport
 from ...core.types import ByteOrder, DataType, PrimitiveValue
+from ...core.i18n import _
 
 
 def _node_from_host(host: str) -> int:
@@ -176,10 +177,10 @@ class _OmronFinsBase(BaseClient):
         """FINS 读原语:存储区地址 → Area Read(0101)→ 按类型解码(大端)。"""
         parsed = parse_fins_address(address)
         if data_type is not DataType.BOOL and parsed.bit is not None:
-            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+            raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         if parsed.area in FINS_TIMER_COUNTER_AREAS and parsed.bit is not None:
             raise ValueError(
-                f"T/C 完成标志为单点位,地址不带位号:{address!r}(示例:T0)"
+                _("T/C 完成标志为单点位,地址不带位号:{!r}(示例:T0)").format(address)
             )
         if data_type is DataType.BOOL:
             return self._read_bit_impl(parsed)
@@ -189,7 +190,7 @@ class _OmronFinsBase(BaseClient):
             return _words_to_value(self._read_words(parsed, 2), data_type)
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             return _words_to_value(self._read_words(parsed, 4), data_type)
-        raise ValueError(f"FINS 不支持的数据类型:{data_type}")
+        raise ValueError(_("FINS 不支持的数据类型:{}").format(data_type))
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """FINS 写原语:Area Write(0102)。
@@ -198,16 +199,16 @@ class _OmronFinsBase(BaseClient):
         """
         parsed = parse_fins_address(address)
         if data_type is not DataType.BOOL and parsed.bit is not None:
-            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+            raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         if parsed.area in FINS_TIMER_COUNTER_AREAS and parsed.bit is not None:
             raise ValueError(
-                f"T/C 完成标志为单点位,地址不带位号:{address!r}(示例:T0)"
+                _("T/C 完成标志为单点位,地址不带位号:{!r}(示例:T0)").format(address)
             )
         if data_type is DataType.BOOL:
             flag = require_bool(value)
             if parsed.area in FINS_TIMER_COUNTER_AREAS:
                 raise ValueError(
-                    "T/C 完成标志由系统驱动,只读:{!r}(写当前值请用字访问,如 write_ushort({!r}, 100))".format(
+                    _("T/C 完成标志由系统驱动,只读:{!r}(写当前值请用字访问,如 write_ushort({!r}, 100))").format(
                         address, parsed.area + str(parsed.offset)
                     )
                 )
@@ -228,13 +229,13 @@ class _OmronFinsBase(BaseClient):
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             self._write_words(parsed, _value_to_words(value, data_type))
             return
-        raise ValueError(f"FINS 不支持的数据类型:{data_type}")
+        raise ValueError(_("FINS 不支持的数据类型:{}").format(data_type))
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """从字区读字符串:逐字大端拼字节后解码(FINS 字序约定)。"""
         parsed = parse_fins_address(address)
         if parsed.bit is not None:
-            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+            raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         words = self._read_words(parsed, (length + 1) // 2)
         data = b"".join(word.to_bytes(2, "big") for word in words)[:length]
         return convert.decode_string(data, encoding)
@@ -243,7 +244,7 @@ class _OmronFinsBase(BaseClient):
         """向字区写字符串:编码 → 补齐偶数字节 → 逐字大端。"""
         parsed = parse_fins_address(address)
         if parsed.bit is not None:
-            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+            raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         raw = convert.encode_string(value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding)
         words = [int.from_bytes(raw[i:i + 2], "big") for i in range(0, len(raw), 2)]
         self._write_words(parsed, words)
@@ -284,7 +285,7 @@ class _OmronFinsBase(BaseClient):
         :raises ValueError: 列表为空/地址或类型非法/条目数超限
         """
         if not items:
-            raise ValueError("read_batch 至少需要一个 (地址, 数据类型) 项")
+            raise ValueError(_("read_batch 至少需要一个 (地址, 数据类型) 项"))
         entries: List[Tuple[int, int]] = []
         # 解码计划:(类别, 字索引, 位号或字数, 数据类型)
         plan: List[Tuple[str, int, int, DataType]] = []
@@ -292,13 +293,13 @@ class _OmronFinsBase(BaseClient):
             data_type_enum = DataType.coerce(data_type)
             parsed = parse_fins_address(address)
             if data_type_enum is not DataType.BOOL and parsed.bit is not None:
-                raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+                raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
             if data_type_enum is DataType.BOOL:
                 if parsed.area in FINS_TIMER_COUNTER_AREAS:
                     raise ValueError(
-                        f"T/C 完成标志不支持批量读取(0104 仅字区):{address!r}"
+                        _("T/C 完成标志不支持批量读取(0104 仅字区):{!r}").format(address)
                     )
-                _, word_code = codec.memory_codes(parsed.area, parsed.bank)
+                _unused, word_code = codec.memory_codes(parsed.area, parsed.bank)
                 plan.append(("wordbit", len(entries), parsed.bit or 0, data_type_enum))
                 entries.append((word_code, parsed.offset))
                 continue
@@ -310,13 +311,13 @@ class _OmronFinsBase(BaseClient):
                 words = 4
             else:
                 raise ValueError(
-                    f"FINS 批量读取不支持的数据类型:{data_type_enum}"
+                    _("FINS 批量读取不支持的数据类型:{}").format(data_type_enum)
                 )
-            _, word_code = codec.memory_codes(parsed.area, parsed.bank)
+            _unused, word_code = codec.memory_codes(parsed.area, parsed.bank)
             plan.append(("word", len(entries), words, data_type_enum))
             for index in range(words):
                 entries.append((word_code, parsed.offset + index))
-        codes = [code for code, _ in entries]
+        codes = [code for code, _unused in entries]
 
         def operation() -> List[PrimitiveValue]:
             frame = codec.build_multiple_area_read(
@@ -395,7 +396,7 @@ class _OmronFinsBase(BaseClient):
         """
         if word_count > FINS_MAX_READ_ELEMENTS:
             raise ValueError(
-                "FINS 单命令读元素数超出 Ethernet/Controller Link 上限 {}:{}(W342 §5-2-2)".format(
+                _("FINS 单命令读元素数超出 Ethernet/Controller Link 上限 {}:{}(W342 §5-2-2)").format(
                     FINS_MAX_READ_ELEMENTS, word_count
                 )
             )
@@ -419,7 +420,7 @@ class _OmronFinsBase(BaseClient):
         """
         if len(words) > FINS_MAX_WRITE_ELEMENTS:
             raise ValueError(
-                "FINS 单命令写元素数超出 Ethernet/Controller Link 上限 {}:{}(W342 §5-2-2)".format(
+                _("FINS 单命令写元素数超出 Ethernet/Controller Link 上限 {}:{}(W342 §5-2-2)").format(
                     FINS_MAX_WRITE_ELEMENTS, len(words)
                 )
             )

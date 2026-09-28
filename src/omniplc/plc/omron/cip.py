@@ -36,6 +36,7 @@ from ..ab.address import AbTag, parse_ab_tag
 from ...core.constants import AB_EIP_DEFAULT_PORT
 from ...core.errors import DeviceError
 from ...core.types import PrimitiveValue
+from ...core.i18n import _
 
 
 class OmronCipClient(AllenBradleyEthIpClient):
@@ -96,12 +97,12 @@ class OmronCipClient(AllenBradleyEthIpClient):
             return bool(codec_cip.decode_values(data, cip_type, 1)[0])
         if cip_type == codec_cip.CIP_TYPE_DWORD:
             index = _single_array_index(parsed)
-            _, data = self._read_tag_values(_word_index_path(parsed, index), 1)
+            _unused, data = self._read_tag_values(_word_index_path(parsed, index), 1)
             return bool(
                 (codec_cip.decode_word(data, codec_cip.CIP_TYPE_DWORD) >> (index % 32)) & 1
             )
         raise ValueError(
-            "标签 {!r} 实际类型 {} 不是 BOOL".format(
+            _("标签 {!r} 实际类型 {} 不是 BOOL").format(
                 parsed.name, codec_cip.type_name(cip_type)
             )
         )
@@ -117,7 +118,7 @@ class OmronCipClient(AllenBradleyEthIpClient):
             cip_type = self._ensure_type(parsed)
             if cip_type == codec_cip.CIP_TYPE_BOOL:
                 raise ValueError(
-                    f"BOOL 标签不支持位号后缀:{parsed.name!r}"
+                    _("BOOL 标签不支持位号后缀:{!r}").format(parsed.name)
                 )
             bit = parsed.bit or 0
             _check_bit_range(parsed, cip_type, bit)
@@ -155,7 +156,7 @@ class OmronCipClient(AllenBradleyEthIpClient):
                 )
                 return
         raise ValueError(
-            "标签 {!r} 实际类型 {} 不是 BOOL".format(
+            _("标签 {!r} 实际类型 {} 不是 BOOL").format(
                 parsed.name, codec_cip.type_name(cip_type)
             )
         )
@@ -184,13 +185,13 @@ class OmronCipClient(AllenBradleyEthIpClient):
         """
         parsed = parse_ab_tag(address)
         if parsed.bit is not None:
-            raise ValueError(f"字符串标签不支持位访问:{address!r}")
+            raise ValueError(_("字符串标签不支持位访问:{!r}").format(address))
         # 先读:应答 = 0xA0 + 模板实例号(2) + len(u32) + 字符…
         request = codec_cip.build_tag_read(codec_cip.tag_type_path(parsed), 1)
         payload: bytes = self._transact(request, codec_cip.CIP_SERVICE_READ_TAG)
         if len(payload) < 8 or payload[0] != codec_cip.CIP_TYPE_STRUCT:
             raise ValueError(
-                "标签 {!r} 实际类型 {},字符串写入需要 STRING".format(
+                _("标签 {!r} 实际类型 {},字符串写入需要 STRING").format(
                     address,
                     codec_cip.type_name(payload[0]) if payload else "空应答",
                 )
@@ -199,16 +200,16 @@ class OmronCipClient(AllenBradleyEthIpClient):
         usable = len(payload) - 4 - 4  # 结构体尺寸 - 模板头 - 长度域
         if usable <= 0:
             raise ValueError(
-                "标签 {!r} 的 STRING 声明尺寸非法:{}(回读载荷 {} 字节,"
+                _("标签 {!r} 的 STRING 声明尺寸非法:{}(回读载荷 {} 字节,"
                 "不足模板头 4 + 长度域 4;若该 STRING 变量当前为空,"
-                "说明固件未按声明尺寸 NUL 填充回读,请真机核证)".format(
+                "说明固件未按声明尺寸 NUL 填充回读,请真机核证)").format(
                     address, len(payload) - 4, len(payload)
                 )
             )
         raw = value.encode(encoding)
         if len(raw) > usable:
             raise ValueError(
-                "写入值 {} 字符超出 NJ STRING 声明尺寸 {} 字符({!r})".format(
+                _("写入值 {} 字符超出 NJ STRING 声明尺寸 {} 字符({!r})").format(
                     len(raw), usable, address
                 )
             )

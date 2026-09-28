@@ -22,6 +22,7 @@ from functools import lru_cache
 from typing import NamedTuple, Optional, Tuple
 
 from ...core.constants import ADDRESS_CACHE_MAXSIZE, UINT32_MAX
+from ...core.i18n import _
 
 _ADDRESS_PATTERN = re.compile(r"[A-Za-z0-9_:\.\[\], ]+")
 _MEMBER_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?::[A-Za-z_][A-Za-z0-9_]*)?")
@@ -62,9 +63,9 @@ def parse_ab_tag(address: str) -> AbTag:
     """
     text = address.strip()
     if not text:
-        raise ValueError("AB 标签名为空")
+        raise ValueError(_("AB 标签名为空"))
     if not _ADDRESS_PATTERN.fullmatch(text):
-        raise ValueError(f"AB 标签含非法字符:{address!r}")
+        raise ValueError(_("AB 标签含非法字符:{!r}").format(address))
 
     bit: Optional[int] = None
     body = text
@@ -86,12 +87,12 @@ def parse_ab_tag(address: str) -> AbTag:
             segment = segment[: index_match.start()]
         if not _MEMBER_PATTERN.fullmatch(segment):
             raise ValueError(
-                f"AB 标签段非法(应为标识符):{raw_segment!r}(地址 {address!r})"
+                _("AB 标签段非法(应为标识符):{!r}(地址 {!r})").format(raw_segment, address)
             )
         for number in segment_indexes:
             if number > _INDEX_MAX:
                 raise ValueError(
-                    f"AB 数组下标超出 0~{_INDEX_MAX}:{address!r}"
+                    _("AB 数组下标超出 0~{}:{!r}").format(_INDEX_MAX, address)
                 )
         members.append(segment)
         indices.append(segment_indexes)

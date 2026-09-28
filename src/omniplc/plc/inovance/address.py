@@ -45,6 +45,7 @@ from ...core.constants import (
     MODBUS_REGISTER_BIT_MAX,
 )
 from ...core.types import DataType
+from ...core.i18n import _
 
 _INOVANCE_ADDRESS_RE = re.compile(
     r"^(SM|SD|M|S|T|C|X|Y|B|D|R)(\d+)(?:\.(\d+))?$", re.IGNORECASE
@@ -78,18 +79,18 @@ def parse_inovance_address(address: str) -> InovanceAddress:
     :raises ValueError: 语法错误、八进制编号非法或位号非法
     """
     if not address or not address.strip():
-        raise ValueError("汇川地址不能为空")
+        raise ValueError(_("汇川地址不能为空"))
     match = _INOVANCE_ADDRESS_RE.match(address.strip())
     if match is None:
         raise ValueError(
-            f"无法解析汇川地址:{address!r}(示例:D100 / M10 / X17 / SD10 / D100.3)"
+            _("无法解析汇川地址:{!r}(示例:D100 / M10 / X17 / SD10 / D100.3)").format(address)
         )
     device = match.group(1).upper()
     number_text = match.group(2)
     bit = int(match.group(3)) if match.group(3) is not None else None
     if device in INOVANCE_OCTAL_DEVICES:
         if "8" in number_text or "9" in number_text:
-            raise ValueError(f"软元件 {device} 编号为八进制,不能包含 8/9:{address!r}")
+            raise ValueError(_("软元件 {} 编号为八进制,不能包含 8/9:{!r}").format(device, address))
         number = int(number_text, 8)
         _check_bitless(device, bit, address)
     elif device in INOVANCE_BIT_DEVICES:
@@ -99,7 +100,7 @@ def parse_inovance_address(address: str) -> InovanceAddress:
         number = int(number_text)
         if bit is not None and not 0 <= bit <= MODBUS_REGISTER_BIT_MAX:
             raise ValueError(
-                f"寄存器位号必须在 0~{MODBUS_REGISTER_BIT_MAX} 之间,收到:{bit}"
+                _("寄存器位号必须在 0~{} 之间,收到:{}").format(MODBUS_REGISTER_BIT_MAX, bit)
             )
     return InovanceAddress(device=device, number=number, bit=bit)
 
@@ -131,7 +132,7 @@ def to_modbus_address(address: Union[InovanceAddress, str], is_bool: bool = Fals
             # 32 位计数器:双寄存器展开,位号后缀未定义(接点位访问请走 BOOL)
             if parsed.bit is not None:
                 raise ValueError(
-                    "C{}(32 位计数器)不支持位号后缀:{!r}(接点位访问请用 BOOL 读)".format(
+                    _("C{}(32 位计数器)不支持位号后缀:{!r}(接点位访问请用 BOOL 读)").format(
                         parsed.number, address
                     )
                 )
@@ -141,7 +142,7 @@ def to_modbus_address(address: Union[InovanceAddress, str], is_bool: bool = Fals
         if parsed.bit is not None:
             return "hr{}.{}".format(base + parsed.number, parsed.bit)
         return "hr{}".format(base + parsed.number)
-    raise ValueError(f"软元件 {parsed.device} 为位软元件,不支持字访问")
+    raise ValueError(_("软元件 {} 为位软元件,不支持字访问").format(parsed.device))
 
 
 def check_counter_word_type(parsed: InovanceAddress, data_type: DataType) -> None:
@@ -161,8 +162,8 @@ def check_counter_word_type(parsed: InovanceAddress, data_type: DataType) -> Non
         return
     if data_type not in _C32_ALLOWED_TYPES:
         raise ValueError(
-            "C{} 为 32 位计数器(C{}~{}),仅支持 32 位类型(INT/UINT/FLOAT),"
-            "收到:{}".format(
+            _("C{} 为 32 位计数器(C{}~{}),仅支持 32 位类型(INT/UINT/FLOAT),"
+            "收到:{}").format(
                 parsed.number, INOVANCE_C32_FIRST, INOVANCE_C32_LAST, data_type
             )
         )
@@ -172,7 +173,7 @@ def _check_number(device: str, number: int, limit: int) -> None:
     """按软元件编号上限校验(内部函数)。"""
     if not 0 <= number < limit:
         raise ValueError(
-            "软元件 {} 编号超出范围 0~{}:{}".format(device, limit - 1, number)
+            _("软元件 {} 编号超出范围 0~{}:{}").format(device, limit - 1, number)
         )
 
 
@@ -180,5 +181,5 @@ def _check_bitless(device: str, bit: Optional[int], address: str) -> None:
     """位软元件不允许位号后缀(内部函数)。"""
     if bit is not None:
         raise ValueError(
-            f"软元件 {device} 本身就是位地址,不支持位号后缀:{address!r}"
+            _("软元件 {} 本身就是位地址,不支持位号后缀:{!r}").format(device, address)
         )

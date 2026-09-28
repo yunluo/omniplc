@@ -62,6 +62,7 @@ from ...core.validation import require_bool, require_float, require_int
 from ...core.types import DataType, PrimitiveValue
 from ...transport.base import BaseTransport
 from .address import area_code, parse_s7_address
+from ...core.i18n import _
 
 _SIZES = {
     DataType.BOOL: 1,
@@ -170,7 +171,7 @@ def _new_client(dll_path: str) -> Any:
         import snap7.client
     except Exception as exc:
         raise OSError(
-            f"python-snap7 加载失败(pip install omniplc[s7]):{exc}"
+            _("python-snap7 加载失败(pip install omniplc[s7]):{}").format(exc)
         ) from exc
     error_base = getattr(snap7.client, "S7Error", None)
     if error_base is not None:
@@ -179,9 +180,9 @@ def _new_client(dll_path: str) -> Any:
         return snap7.client.Client(dll_path or None)
     except (OSError, RuntimeError) as exc:
         raise OSError(
-            "snap7 原生库加载失败:{}(3.7~3.9 用 python-snap7 1.3:64 位"
+            _("snap7 原生库加载失败:{}(3.7~3.9 用 python-snap7 1.3:64 位"
             " Python 可用捆绑 DLL,32 位需自备 32 位 snap7.dll 经 dll_path"
-            " 指定;3.10+ 为纯 Python 实现无需 DLL)".format(exc)
+            " 指定;3.10+ 为纯 Python 实现无需 DLL)").format(exc)
         ) from exc
 
 
@@ -232,8 +233,8 @@ class _S7Session(BaseTransport):
             client.connect(self._ip_address, self._rack, self._slot, self._port)
         except _SNAP7_ERRORS as exc:
             raise OSError(
-                "S7 连接失败:{}(可能原因:① IP/机架/槽位不符;② 网络/防火墙阻断 "
-                "ISO-on-TCP 102;③ 1200/1500 未开启 PUT/GET 访问授权)".format(exc)
+                _("S7 连接失败:{}(可能原因:① IP/机架/槽位不符;② 网络/防火墙阻断 "
+                "ISO-on-TCP 102;③ 1200/1500 未开启 PUT/GET 访问授权)").format(exc)
             ) from exc
         self._client = client
         log_op(self._debug_label, "会话已建立")
@@ -255,11 +256,11 @@ class _S7Session(BaseTransport):
 
     def send(self, data: bytes) -> None:
         """S7 为会话型协议,无字节流收发(不调用)。"""
-        raise TransportClosedError("S7 走会话通道,无字节流收发")
+        raise TransportClosedError(_("S7 走会话通道,无字节流收发"))
 
     def recv(self, size: int) -> bytes:
         """S7 为会话型协议,无字节流收发(不调用)。"""
-        raise TransportClosedError("S7 走会话通道,无字节流收发")
+        raise TransportClosedError(_("S7 走会话通道,无字节流收发"))
 
     def read_area(self, area: int, db_number: int, start: int, size: int) -> bytes:
         """读一块区域字节(会话调用,异常在此翻译)。"""
@@ -316,7 +317,7 @@ class _S7Session(BaseTransport):
         try:
             from snap7.types import S7DataItem, S7WLByte
         except Exception as exc:
-            raise OmniPLCInternalError(f"snap7 类型导入失败:{exc}")
+            raise OmniPLCInternalError(_("snap7 类型导入失败:{}").format(exc))
         array = (S7DataItem * len(specs))()
         buffers = []
         for index, (area, db, start, size) in enumerate(specs):
@@ -335,7 +336,7 @@ class _S7Session(BaseTransport):
         for index, item in enumerate(array):
             if item.Result != 0:
                 raise DeviceError(
-                    "S7 多变量读条目 {} 失败,错误码 0x{:08X}".format(
+                    _("S7 多变量读条目 {} 失败,错误码 0x{:08X}").format(
                         index, int(item.Result)
                     ),
                     0,
@@ -374,12 +375,12 @@ class _S7Session(BaseTransport):
            disconnect 后)时同样按断连处理。
         """
         if not self._is_connected() or _is_snap7_transport_error(exc):
-            raise OSError(f"S7 连接已断:{exc}")
-        message = f"S7 错误:{exc}"
+            raise OSError(_("S7 连接已断:{}").format(exc))
+        message = _("S7 错误:{}").format(exc)
         if db_number:
             message += (
-                "(按绝对地址访问 DB 失败:若为 S7-1200/1500,请确认该 DB "
-                "已在 TIA 中取消 Optimized block access)"
+                _("(按绝对地址访问 DB 失败:若为 S7-1200/1500,请确认该 DB ")
+                + _("已在 TIA 中取消 Optimized block access)")
             )
         raise DeviceError(message, 0)
 
@@ -398,7 +399,7 @@ class _S7Session(BaseTransport):
     def _require_client(self) -> Any:
         """取当前 snap7 Client,未建立则抛出(内部方法)。"""
         if self._client is None:
-            raise TransportClosedError("S7 会话未建立")
+            raise TransportClosedError(_("S7 会话未建立"))
         return self._client
 
 
@@ -436,15 +437,15 @@ class SiemensS7Client(BaseClient):
         validate_endpoint(ip_address, port)
         super().__init__(ip_address, int(port))
         if not 0 <= int(rack) <= S7_RACK_MAX:
-            raise ValueError(f"机架号必须在 0~{S7_RACK_MAX} 之间,收到:{rack}")
+            raise ValueError(_("机架号必须在 0~{} 之间,收到:{}").format(S7_RACK_MAX, rack))
         if not 0 <= int(slot) <= S7_SLOT_MAX:
-            raise ValueError(f"槽位号必须在 0~{S7_SLOT_MAX} 之间,收到:{slot}")
+            raise ValueError(_("槽位号必须在 0~{} 之间,收到:{}").format(S7_SLOT_MAX, slot))
         self._rack = int(rack)
         self._slot = int(slot)
         self._dll_path = dll_path.strip()
         if self._dll_path and not os.path.isfile(self._dll_path):
             raise ValueError(
-                f"dll_path 指定的 snap7 原生库不存在:{self._dll_path!r}"
+                _("dll_path 指定的 snap7 原生库不存在:{!r}").format(self._dll_path)
             )
 
     @property
@@ -465,7 +466,7 @@ class SiemensS7Client(BaseClient):
         """取当前 S7 会话适配器(仅事务锁内调用,内部方法)。"""
         link = self._require_transport()
         if not isinstance(link, _S7Session):
-            raise TransportClosedError("内部错误:传输对象不是 S7 会话")
+            raise TransportClosedError(_("内部错误:传输对象不是 S7 会话"))
         return link
 
     def _create_transport(self) -> BaseTransport:
@@ -480,16 +481,16 @@ class SiemensS7Client(BaseClient):
     def _read(self, address: str, data_type: DataType) -> PrimitiveValue:
         """读数据项并按 DataType 尺寸收窄(大端序)。"""
         if data_type not in _SIZES:
-            raise ValueError(f"S7 不支持的数据类型:{data_type}")
+            raise ValueError(_("S7 不支持的数据类型:{}").format(data_type))
         parsed = parse_s7_address(address)
         if data_type is DataType.BOOL:
             if parsed.bit is None:
                 raise ValueError(
-                    f"S7 按位读取需要位地址:{address!r}(示例:M10.2 / DB1.DBX0.3)"
+                    _("S7 按位读取需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)").format(address)
                 )
         elif parsed.bit is not None:
             raise ValueError(
-                f"S7 位地址只能按 BOOL 读写:{address!r}(数值请用字节起点地址)"
+                _("S7 位地址只能按 BOOL 读写:{!r}(数值请用字节起点地址)").format(address)
             )
         data = self._session().read_area(
             area_code(parsed.area), parsed.db_number, parsed.byte_index, _SIZES[data_type]
@@ -515,17 +516,17 @@ class SiemensS7Client(BaseClient):
             if data_type is DataType.STRING:
                 if not isinstance(value, str):
                     raise ValueError(
-                        "字符串必须是 str,收到:{}".format(type(value).__name__)
+                        _("字符串必须是 str,收到:{}").format(type(value).__name__)
                     )
                 self._write_string(address, value, DEFAULT_STRING_ENCODING)
                 return
-            raise ValueError(f"S7 不支持的数据类型:{data_type}")
+            raise ValueError(_("S7 不支持的数据类型:{}").format(data_type))
         parsed = parse_s7_address(address)
         session = self._session()
         if data_type is DataType.BOOL:
             if parsed.bit is None:
                 raise ValueError(
-                    f"S7 按位写入需要位地址:{address!r}(示例:M10.2 / DB1.DBX0.3)"
+                    _("S7 按位写入需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)").format(address)
                 )
             flag = require_bool(value)
             raw = session.read_area(
@@ -547,7 +548,7 @@ class SiemensS7Client(BaseClient):
             data = self._pack(_INT_FORMATS[data_type], number)
         if parsed.bit is not None:
             raise ValueError(
-                f"S7 位地址只能按 BOOL 读写:{address!r}(数值请用字节起点地址)"
+                _("S7 位地址只能按 BOOL 读写:{!r}(数值请用字节起点地址)").format(address)
             )
         session.write_area(area_code(parsed.area), parsed.db_number, parsed.byte_index, data)
 
@@ -558,13 +559,13 @@ class SiemensS7Client(BaseClient):
         """
         parsed = parse_s7_address(address)
         if parsed.bit is not None:
-            raise ValueError(f"S7 字符串地址不带位号:{address!r}")
+            raise ValueError(_("S7 字符串地址不带位号:{!r}").format(address))
         size = length + 2
         data = self._session().read_area(
             area_code(parsed.area), parsed.db_number, parsed.byte_index, size
         )
         if len(data) < 2:
-            raise DeviceError("S7 String 响应过短:{}".format(len(data)), 0)
+            raise DeviceError(_("S7 String 响应过短:{}").format(len(data)), 0)
         actual = data[1]
         if actual <= 0:
             return ""
@@ -582,7 +583,7 @@ class SiemensS7Client(BaseClient):
         """
         parsed = parse_s7_address(address)
         if parsed.bit is not None:
-            raise ValueError(f"S7 字符串地址不带位号:{address!r}")
+            raise ValueError(_("S7 字符串地址不带位号:{!r}").format(address))
         encoded = convert.encode_string(value, len(value.encode(encoding)), encoding)
         head = self._session().read_area(
             area_code(parsed.area), parsed.db_number, parsed.byte_index, 1
@@ -593,7 +594,7 @@ class SiemensS7Client(BaseClient):
             declared_max = len(encoded)
         if len(encoded) > declared_max:
             raise ValueError(
-                "S7 String 写入值超出 PLC 侧声明长:{} > {} 字符({!r})".format(
+                _("S7 String 写入值超出 PLC 侧声明长:{} > {} 字符({!r})").format(
                     len(encoded), declared_max, address
                 )
             )
@@ -618,7 +619,7 @@ class SiemensS7Client(BaseClient):
         :raises ValueError: 地址/长度非法
         """
         if length <= 0:
-            raise ValueError(f"length 必须大于 0,收到:{length}")
+            raise ValueError(_("length 必须大于 0,收到:{}").format(length))
         ok, value = self._execute(
             lambda: self._read_wstring_impl(address, int(length))
         )
@@ -635,8 +636,8 @@ class SiemensS7Client(BaseClient):
         :raises ValueError: 地址/值非法或超出 PLC 侧声明长
         """
         if not value:
-            raise ValueError("value 不能为空字符串")
-        ok, _ = self._execute(
+            raise ValueError(_("value 不能为空字符串"))
+        ok, _unused = self._execute(
             lambda: self._write_wstring_impl(address, str(value)), is_write=True
         )
         return ok
@@ -644,13 +645,13 @@ class SiemensS7Client(BaseClient):
     def _read_wstring_impl(self, address: str, length: int) -> PrimitiveValue:
         parsed = parse_s7_address(address)
         if parsed.bit is not None:
-            raise ValueError(f"S7 字符串地址不带位号:{address!r}")
+            raise ValueError(_("S7 字符串地址不带位号:{!r}").format(address))
         size = 4 + length * 2
         data = self._session().read_area(
             area_code(parsed.area), parsed.db_number, parsed.byte_index, size
         )
         if len(data) < 4:
-            raise DeviceError("S7 WString 响应过短:{}".format(len(data)), 0)
+            raise DeviceError(_("S7 WString 响应过短:{}").format(len(data)), 0)
         actual = int.from_bytes(data[2:4], "big")
         if actual <= 0:
             return ""
@@ -661,10 +662,10 @@ class SiemensS7Client(BaseClient):
     def _write_wstring_impl(self, address: str, value: str) -> PrimitiveValue:
         parsed = parse_s7_address(address)
         if parsed.bit is not None:
-            raise ValueError(f"S7 字符串地址不带位号:{address!r}")
+            raise ValueError(_("S7 字符串地址不带位号:{!r}").format(address))
         encoded = value.encode("utf-16-be")
         if len(encoded) != len(value) * 2:
-            raise ValueError("S7 WString 仅支持 BMP 字符(不含代理对):{!r}".format(address))
+            raise ValueError(_("S7 WString 仅支持 BMP 字符(不含代理对):{!r}").format(address))
         head = self._session().read_area(
             area_code(parsed.area), parsed.db_number, parsed.byte_index, 2
         )
@@ -673,7 +674,7 @@ class SiemensS7Client(BaseClient):
             declared_max = len(value)
         if len(value) > declared_max:
             raise ValueError(
-                "S7 WString 写入值超出 PLC 侧声明长:{} > {} 字符({!r})".format(
+                _("S7 WString 写入值超出 PLC 侧声明长:{} > {} 字符({!r})").format(
                     len(value), declared_max, address
                 )
             )
@@ -714,10 +715,10 @@ class SiemensS7Client(BaseClient):
         :raises ValueError: 列表为空/地址或类型非法/条目数超限
         """
         if not items:
-            raise ValueError("read_batch 至少需要一个 (地址, 数据类型) 项")
+            raise ValueError(_("read_batch 至少需要一个 (地址, 数据类型) 项"))
         if len(items) > S7_MAX_MULTI_VARS:
             raise ValueError(
-                "S7 多变量读条目数超出上限 {}:{}(snap7 MAX_VARS)".format(
+                _("S7 多变量读条目数超出上限 {}:{}(snap7 MAX_VARS)").format(
                     S7_MAX_MULTI_VARS, len(items)
                 )
             )
@@ -726,18 +727,18 @@ class SiemensS7Client(BaseClient):
         for address, data_type in items:
             data_type_enum = DataType.coerce(data_type)
             if data_type_enum not in _SIZES:
-                raise ValueError(f"S7 批量读取不支持的数据类型:{data_type_enum}")
+                raise ValueError(_("S7 批量读取不支持的数据类型:{}").format(data_type_enum))
             parsed = parse_s7_address(address)
             if data_type_enum is DataType.BOOL:
                 if parsed.bit is None:
                     raise ValueError(
-                        f"S7 按位读取需要位地址:{address!r}(示例:M10.2 / DB1.DBX0.3)"
+                        _("S7 按位读取需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)").format(address)
                     )
                 plan.append(("bit", len(specs), parsed.bit, data_type_enum))
             else:
                 if parsed.bit is not None:
                     raise ValueError(
-                        f"S7 位地址只能按 BOOL 读写:{address!r}(数值请用字节起点地址)"
+                        _("S7 位地址只能按 BOOL 读写:{!r}(数值请用字节起点地址)").format(address)
                     )
                 plan.append(("word", len(specs), None, data_type_enum))
             specs.append(
@@ -779,4 +780,4 @@ class SiemensS7Client(BaseClient):
         try:
             return struct.pack(fmt, value)
         except (struct.error, OverflowError) as exc:
-            raise ValueError(f"S7 写入值超出类型范围:{value}") from exc
+            raise ValueError(_("S7 写入值超出类型范围:{}").format(value)) from exc

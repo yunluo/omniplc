@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 from typing import Dict, NamedTuple
+from ..core.i18n import _
 
 _BASE64_RE = re.compile(
     r"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}(?:==)|[A-Za-z0-9+/]{3}(?:=)|[A-Za-z0-9+/]{4})?$"
@@ -70,7 +71,7 @@ def parse_opcua_nodeid(address: str) -> OpcUaNodeId:
     :raises ValueError: 语法非法
     """
     if not address or not address.strip():
-        raise ValueError("OPC-UA NodeId 不能为空")
+        raise ValueError(_("OPC-UA NodeId 不能为空"))
     normalized = address.strip()
     elements = normalized.split(";")
     namespace = 0
@@ -96,7 +97,7 @@ def parse_opcua_nodeid(address: str) -> OpcUaNodeId:
                 # NamespaceIndex 是 UInt16(OPC 10000-3):负数/超界先在
                 # 参数校验期拒绝,不延迟到 asyncua 编码层以深层异常爆出
                 raise ValueError(
-                    f"OPC-UA 命名空间索引超出 UInt16 范围 0~65535:{address!r}"
+                    _("OPC-UA 命名空间索引超出 UInt16 范围 0~65535:{!r}").format(address)
                 )
         elif key in ("i", "b", "g"):
             if kind is not None:
@@ -127,7 +128,7 @@ def parse_opcua_nodeid(address: str) -> OpcUaNodeId:
         except ValueError as exc:
             raise ValueError(_bad_nodeid(address)) from exc
         if number < 0 or number > 0xFFFFFFFF:
-            raise ValueError(f"OPC-UA 数字标识符超出 32 位范围:{address!r}")
+            raise ValueError(_("OPC-UA 数字标识符超出 32 位范围:{!r}").format(address))
         body = str(number)
     elif kind == "s":
         if body == "":

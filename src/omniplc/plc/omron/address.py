@@ -30,6 +30,7 @@ from ...core.constants import (
     FINS_MEMORY_AREA_MAX,
     MODBUS_REGISTER_BIT_MAX,
 )
+from ...core.i18n import _
 
 _FINS_ADDRESS_RE = re.compile(r"^([A-Za-z]{1,4})(\d+)(?:\.(\d+))?$")
 _FINS_EM_ADDRESS_RE = re.compile(r"^E(\d{1,2})_(\d+)(?:\.(\d+))?$")
@@ -60,24 +61,24 @@ def parse_fins_address(address: str) -> FinsAddress:
     :raises ValueError: 语法错误或位号越界
     """
     if not address or not address.strip():
-        raise ValueError("FINS 地址不能为空")
+        raise ValueError(_("FINS 地址不能为空"))
     text = address.strip()
     match = _FINS_EM_ADDRESS_RE.match(text)
     if match is not None:
         bank = int(match.group(1))
         if not 0 <= bank <= FINS_EM_BANK_MAX:
-            raise ValueError(f"EM 区 bank 号必须在 0~{FINS_EM_BANK_MAX} 之间,收到:{bank}")
+            raise ValueError(_("EM 区 bank 号必须在 0~{} 之间,收到:{}").format(FINS_EM_BANK_MAX, bank))
         offset = int(match.group(2))
         _check_area_max("E", offset)
         return FinsAddress(area="E", offset=offset, bit=_parse_bit(match.group(3)), bank=bank)
     match = _FINS_ADDRESS_RE.match(text)
     if match is None:
         raise ValueError(
-            f"无法解析 FINS 地址:{address!r}(示例:D100 / CIO0.5 / E0_100)"
+            _("无法解析 FINS 地址:{!r}(示例:D100 / CIO0.5 / E0_100)").format(address)
         )
     area = match.group(1).upper()
     if area == "E":
-        raise ValueError("EM 区请使用 E<bank>_<字地址> 语法,如 E0_100")
+        raise ValueError(_("EM 区请使用 E<bank>_<字地址> 语法,如 E0_100"))
     offset = int(match.group(2))
     _check_area_max(area, offset)
     return FinsAddress(area=area, offset=offset, bit=_parse_bit(match.group(3)))
@@ -88,7 +89,7 @@ def _check_area_max(area: str, offset: int) -> None:
     area_max = FINS_MEMORY_AREA_MAX.get(area)
     if area_max is not None and offset > area_max:
         raise ValueError(
-            f"FINS 地址越界:{area}{offset} 超出该区上界 {area_max}(W342 §5-2-2)"
+            _("FINS 地址越界:{}{} 超出该区上界 {}(W342 §5-2-2)").format(area, offset, area_max)
         )
 
 
@@ -98,5 +99,5 @@ def _parse_bit(text: Optional[str]) -> Optional[int]:
         return None
     bit = int(text)
     if not 0 <= bit <= MODBUS_REGISTER_BIT_MAX:
-        raise ValueError(f"位号必须在 0~{MODBUS_REGISTER_BIT_MAX} 之间,收到:{bit}")
+        raise ValueError(_("位号必须在 0~{} 之间,收到:{}").format(MODBUS_REGISTER_BIT_MAX, bit))
     return bit

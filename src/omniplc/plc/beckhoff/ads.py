@@ -55,6 +55,7 @@ from ...core.validation import (
 )
 from ...transport.base import BaseTransport
 from ...core.types import DataType, PrimitiveValue
+from ...core.i18n import _
 
 _PLCTYPE_NAMES = {
     DataType.BOOL: "PLCTYPE_BOOL",
@@ -137,11 +138,11 @@ def _translate_ads_error(exc: BaseException) -> OmniPLCInternalError:
         code = int(getattr(exc, "err_code", 0) or 0)
         if code in _ADS_TRANSPORT_ERROR_CODES:
             return TransportClosedError(
-                "ADS 连接失效 0x{:08X}:{}(下次事务将重连)".format(code, exc)
+                _("ADS 连接失效 0x{:08X}:{}(下次事务将重连)").format(code, exc)
             )
-        return DeviceError(f"ADS 出错 0x{code:08X}:{exc}", code)
+        return DeviceError(_("ADS 出错 0x{:08X}:{}").format(code, exc), code)
     return OmniPLCInternalError(
-        "ADS 调用失败:{}:{}".format(type(exc).__name__, exc)
+        _("ADS 调用失败:{}:{}").format(type(exc).__name__, exc)
     )
 
 
@@ -203,13 +204,13 @@ class _AdsSession(BaseTransport):
         pyads = _load_pyads()
         if pyads is None:
             raise OSError(
-                "pyads 加载失败(ADS 走线需 pip install omniplc[ads];"
-                "Windows 还需 Beckhoff TcAdsDll 运行库)"
+                _("pyads 加载失败(ADS 走线需 pip install omniplc[ads];"
+                "Windows 还需 Beckhoff TcAdsDll 运行库)")
             )
         try:
             connection = pyads.Connection(self._net_id, self._ads_port)
         except Exception as exc:
-            raise OSError(f"ADS 连接对象创建失败:{exc}")
+            raise OSError(_("ADS 连接对象创建失败:{}").format(exc))
         try:
             connection.open()
         except OSError:
@@ -218,7 +219,7 @@ class _AdsSession(BaseTransport):
         except Exception as exc:
             _safe_close(connection)
             raise OSError(
-                "ADS 连接失败:{}({})".format(type(exc).__name__, exc)
+                _("ADS 连接失败:{}({})").format(type(exc).__name__, exc)
             )
         self._connection = connection
         try:
@@ -247,27 +248,27 @@ class _AdsSession(BaseTransport):
 
     def send(self, data: bytes) -> None:
         """ADS 为会话型协议,无字节流收发(不调用)。"""
-        raise TransportClosedError("ADS 走会话通道,无字节流收发")
+        raise TransportClosedError(_("ADS 走会话通道,无字节流收发"))
 
     def recv(self, size: int) -> bytes:
         """ADS 为会话型协议,无字节流收发(不调用)。"""
-        raise TransportClosedError("ADS 走会话通道,无字节流收发")
+        raise TransportClosedError(_("ADS 走会话通道,无字节流收发"))
 
     @property
     def connection(self) -> Any:
         """当前 pyads Connection(仅连接成功后可用,内部属性)。"""
         if self._connection is None:
-            raise TransportClosedError("ADS 连接未建立")
+            raise TransportClosedError(_("ADS 连接未建立"))
         return self._connection
 
     def read_by_name(self, address: str, plctype_name: str) -> Any:
         """按变量名读值(会话调用,pyads 异常在此翻译)。"""
         pyads = _load_pyads()
         if pyads is None:
-            raise OmniPLCInternalError("pyads 加载失败,无法读取 ADS 变量")
+            raise OmniPLCInternalError(_("pyads 加载失败,无法读取 ADS 变量"))
         plctype = getattr(pyads, plctype_name, None)
         if plctype is None:
-            raise OmniPLCInternalError(f"ADS 类型解析失败:{plctype_name}")
+            raise OmniPLCInternalError(_("ADS 类型解析失败:{}").format(plctype_name))
         try:
             value = self.connection.read_by_name(address, plctype)
         except OSError:
@@ -281,10 +282,10 @@ class _AdsSession(BaseTransport):
         """按变量名写值(会话调用,pyads 异常在此翻译)。"""
         pyads = _load_pyads()
         if pyads is None:
-            raise OmniPLCInternalError("pyads 加载失败,无法写入 ADS 变量")
+            raise OmniPLCInternalError(_("pyads 加载失败,无法写入 ADS 变量"))
         plctype = getattr(pyads, plctype_name, None)
         if plctype is None:
-            raise OmniPLCInternalError(f"ADS 类型解析失败:{plctype_name}")
+            raise OmniPLCInternalError(_("ADS 类型解析失败:{}").format(plctype_name))
         try:
             self.connection.write_by_name(address, value, plctype)
         except OSError:
@@ -367,7 +368,7 @@ class BeckhoffAdsClient(BaseClient):
         """取当前会话适配器(仅事务锁内调用,内部方法)。"""
         link = self._require_transport()
         if not isinstance(link, _AdsSession):
-            raise TransportClosedError("内部错误:传输对象不是 ADS 会话")
+            raise TransportClosedError(_("内部错误:传输对象不是 ADS 会话"))
         return link
 
     # ------------------------------------------------------------------
@@ -377,7 +378,7 @@ class BeckhoffAdsClient(BaseClient):
     def _read(self, address: str, data_type: DataType) -> PrimitiveValue:
         """读变量值并按数据类型收窄。"""
         if data_type not in _PLCTYPE_NAMES:
-            raise ValueError(f"ADS 不支持的数据类型:{data_type}")
+            raise ValueError(_("ADS 不支持的数据类型:{}").format(data_type))
         text = _check_address(address)
         value = self._session().read_by_name(text, _PLCTYPE_NAMES[data_type])
         return _coerce_read(value, data_type, text)
@@ -389,11 +390,11 @@ class BeckhoffAdsClient(BaseClient):
         相邻变量);其余类型按 PLCTYPE 编码并先做范围校验。
         """
         if data_type not in _PLCTYPE_NAMES:
-            raise ValueError(f"ADS 不支持的数据类型:{data_type}")
+            raise ValueError(_("ADS 不支持的数据类型:{}").format(data_type))
         if data_type is DataType.STRING:
             if not isinstance(value, str):
                 raise ValueError(
-                    "字符串必须是 str,收到:{}".format(type(value).__name__)
+                    _("字符串必须是 str,收到:{}").format(type(value).__name__)
                 )
             self._write_string(address, value, "utf-8")
             return
@@ -413,7 +414,7 @@ class BeckhoffAdsClient(BaseClient):
         value = self._session().read_by_name(text, _PLCTYPE_NAMES[DataType.STRING])
         if not isinstance(value, str):
             raise ValueError(
-                f"ADS 变量返回类型不符(期望字符串):{text} ← {value!r}"
+                _("ADS 变量返回类型不符(期望字符串):{} ← {!r}").format(text, value)
             )
         return value[:length]
 
@@ -425,14 +426,14 @@ class BeckhoffAdsClient(BaseClient):
         ``len=80 <= 80`` 绕过检查,溢出污染相邻变量。
         """
         if not isinstance(value, str):
-            raise ValueError("字符串必须是 str,收到:{}".format(type(value).__name__))
+            raise ValueError(_("字符串必须是 str,收到:{}").format(type(value).__name__))
         text = _check_address(address)
         declared = _declared_string_chars(self._session().symbol_type(text))
         byte_len = len(value.encode("utf-8"))
         if declared is not None and byte_len > declared:
             raise ValueError(
-                "ADS STRING 写入值超 PLC 侧声明长度(按 UTF-8 字节计):{} 字节 > {} 字符({!r})"
-                ";若含非 ASCII 字符请按字节预算或改用 ASCII 内容".format(
+                _("ADS STRING 写入值超 PLC 侧声明长度(按 UTF-8 字节计):{} 字节 > {} 字符({!r})"
+                ";若含非 ASCII 字符请按字节预算或改用 ASCII 内容").format(
                     byte_len, declared, text
                 )
             )
@@ -462,13 +463,13 @@ def _build_net_id(ip_address: str, net_id: str) -> str:
         host = ip_address.strip()
         if not _is_dotted_number(host, 4):
             raise ValueError(
-                "ADS 自动 NetId 需 IPv4 字面量 IP:{!r}——ADS 经本机 AMS 路由器按 "
-                "NetId 路由(主机名不解析),请改用 IP 或显式传 net_id".format(host)
+                _("ADS 自动 NetId 需 IPv4 字面量 IP:{!r}——ADS 经本机 AMS 路由器按 "
+                "NetId 路由(主机名不解析),请改用 IP 或显式传 net_id").format(host)
             )
         return "{}{}".format(host, ADS_NET_ID_SUFFIX)
     if not _is_dotted_number(text, 6):
         raise ValueError(
-            "AMS NetId 非法(应为 6 段 0~255 数字):{!r}(示例:192.168.0.10.1.1)".format(
+            _("AMS NetId 非法(应为 6 段 0~255 数字):{!r}(示例:192.168.0.10.1.1)").format(
                 net_id
             )
         )
@@ -490,7 +491,7 @@ def _check_address(address: str) -> str:
     """
     text = address.strip() if isinstance(address, str) else ""
     if not text:
-        raise ValueError("ADS 变量名不能为空")
+        raise ValueError(_("ADS 变量名不能为空"))
     return text
 
 
@@ -501,29 +502,29 @@ def _coerce_read(value: Any, data_type: DataType, address: str) -> PrimitiveValu
         与 OPC-UA"返回类型不符"同口径,直接抛出,不断线)
     """
     if value is None:
-        raise DeviceError(f"ADS 变量值为空:{address}", 0)
+        raise DeviceError(_("ADS 变量值为空:{}").format(address), 0)
     if data_type is DataType.BOOL:
         if not isinstance(value, bool):
             raise ValueError(
-                f"ADS 变量返回类型不符(期望布尔):{address} ← {value!r}"
+                _("ADS 变量返回类型不符(期望布尔):{} ← {!r}").format(address, value)
             )
         return value
     if data_type in (DataType.SHORT, DataType.USHORT, DataType.INT, DataType.UINT,
                      DataType.LONG, DataType.ULONG):
         if isinstance(value, bool) or not isinstance(value, int):
             raise ValueError(
-                f"ADS 变量返回类型不符(期望整数):{address} ← {value!r}"
+                _("ADS 变量返回类型不符(期望整数):{} ← {!r}").format(address, value)
             )
         return value
     if data_type in (DataType.FLOAT, DataType.DOUBLE):
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError(
-                f"ADS 变量返回类型不符(期望数值):{address} ← {value!r}"
+                _("ADS 变量返回类型不符(期望数值):{} ← {!r}").format(address, value)
             )
         return float(value)
     if not isinstance(value, str):
         raise ValueError(
-            f"ADS 变量返回类型不符(期望字符串):{address} ← {value!r}"
+            _("ADS 变量返回类型不符(期望字符串):{} ← {!r}").format(address, value)
         )
     return value
 
@@ -545,10 +546,10 @@ def _coerce_write(value: PrimitiveValue, data_type: DataType) -> Any:
         try:
             struct.pack("<f", number_f)
         except (OverflowError, ValueError) as exc:
-            raise ValueError(f"float 超出 float32 范围:{value}") from exc
+            raise ValueError(_("float 超出 float32 范围:{}").format(value)) from exc
         return number_f
     if data_type is DataType.DOUBLE:
         return require_float(value)
     if not isinstance(value, str):
-        raise ValueError("字符串必须是 str,收到:{}".format(type(value).__name__))
+        raise ValueError(_("字符串必须是 str,收到:{}").format(type(value).__name__))
     return value

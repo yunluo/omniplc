@@ -50,6 +50,7 @@ from functools import lru_cache
 from typing import Dict, NamedTuple, Tuple
 
 from ...core.constants import ADDRESS_CACHE_MAXSIZE, TOYOPUC_BIT_DEVICES, TOYOPUC_WORD_DEVICES
+from ...core.i18n import _
 
 _TOYOPUC_ADDRESS_RE = re.compile(r"^([A-Z]{1,2})([0-9A-F]+)(L|H|W)?$")
 
@@ -130,26 +131,26 @@ def parse_toyopuc_address(address: str) -> ToyopucAddress:
     :raises ValueError: 语法错误、软元件不支持或编号越界
     """
     if not address or not address.strip():
-        raise ValueError("TOYOPUC 地址不能为空")
+        raise ValueError(_("TOYOPUC 地址不能为空"))
     match = _TOYOPUC_ADDRESS_RE.match(address.strip().upper())
     if match is None:
         raise ValueError(
-            f"无法解析 TOYOPUC 地址:{address!r}(示例:D0100 / M0201 / X0010H / M0201W)"
+            _("无法解析 TOYOPUC 地址:{!r}(示例:D0100 / M0201 / X0010H / M0201W)").format(address)
         )
     area = match.group(1)
     if area not in _WORD_BASE:
         raise ValueError(
-            "不支持的 TOYOPUC 软元件:{!r}(支持:{})".format(
+            _("不支持的 TOYOPUC 软元件:{!r}(支持:{})").format(
                 address, " ".join(TOYOPUC_WORD_DEVICES + TOYOPUC_BIT_DEVICES)
             )
         )
     number_text = match.group(2)
     number = int(number_text, 16)
     if number > 0xFFFF:
-        raise ValueError(f"TOYOPUC 软元件编号超出 16 位范围:{address!r}")
+        raise ValueError(_("TOYOPUC 软元件编号超出 16 位范围:{!r}").format(address))
     suffix = match.group(3) or ""
     if suffix == "W" and area not in TOYOPUC_BIT_DEVICES:
-        raise ValueError(f"W 后缀仅支持位软元件打包字访问:{address!r}")
+        raise ValueError(_("W 后缀仅支持位软元件打包字访问:{!r}").format(address))
     if suffix == "" and area in TOYOPUC_BIT_DEVICES:
         _require_in_segments(address, number, _BIT_SEGMENTS[area])
     if suffix in ("L", "H", "W") and area in TOYOPUC_BIT_DEVICES:
@@ -167,7 +168,7 @@ def encode_word_address(parsed: ToyopucAddress) -> int:
     (与参考实现 plc-comm-toyopuc 4.2.0 一致;见模块 docstring)。
     """
     if parsed.unit != "word":
-        raise ValueError(f"期望字访问地址,收到:{parsed!r}")
+        raise ValueError(_("期望字访问地址,收到:{!r}").format(parsed))
     return _WORD_BASE[parsed.area] + parsed.number
 
 
@@ -178,18 +179,18 @@ def encode_byte_address(parsed: ToyopucAddress) -> int:
     编号*2 + (H?1:0)``(与参考实现 plc-comm-toyopuc 4.2.0 一致)。
     """
     if parsed.unit != "byte":
-        raise ValueError(f"期望字节访问地址,收到:{parsed!r}")
+        raise ValueError(_("期望字节访问地址,收到:{!r}").format(parsed))
     return _BYTE_BASE[parsed.area] + parsed.number * 2 + (1 if parsed.high else 0)
 
 
 def encode_bit_address(parsed: ToyopucAddress) -> int:
     """把位访问地址编码为协议地址(CMD=20/21,内部函数)。"""
     if parsed.unit != "bit":
-        raise ValueError(f"期望位访问地址,收到:{parsed!r}")
+        raise ValueError(_("期望位访问地址,收到:{!r}").format(parsed))
     return _BIT_BASE[parsed.area] + parsed.number
 
 
 def _require_in_segments(address: str, index: int, segments: Tuple[Tuple[int, int], ...]) -> None:
     """校验编号落在任一合法段内(内部函数)。"""
     if not any(start <= index <= end for start, end in segments):
-        raise ValueError(f"TOYOPUC 软元件编号越界:{address!r}")
+        raise ValueError(_("TOYOPUC 软元件编号越界:{!r}").format(address))

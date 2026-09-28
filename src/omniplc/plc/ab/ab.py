@@ -51,6 +51,7 @@ from ...core.errors import DeviceError, OmniPLCInternalError, ProtocolFrameError
 from ...core.validation import require_bool
 from ...transport import BaseTransport, TcpTransport
 from ...core.types import DataType, PrimitiveValue
+from ...core.i18n import _
 
 
 class AllenBradleyEthIpClient(BaseClient):
@@ -88,10 +89,10 @@ class AllenBradleyEthIpClient(BaseClient):
         slot = int(slot)
         if not 0 <= slot <= AB_EIP_SLOT_MAX:
             raise ValueError(
-                f"槽号超出范围 0~{AB_EIP_SLOT_MAX}:{slot}"
+                _("槽号超出范围 0~{}:{}").format(AB_EIP_SLOT_MAX, slot)
             )
         if int(rpi_us) <= 0:
-            raise ValueError(f"rpi_us 必须大于 0,收到:{rpi_us}")
+            raise ValueError(_("rpi_us 必须大于 0,收到:{}").format(rpi_us))
         self._slot = slot
         self._connected_messaging = bool(connected_messaging)
         self._session_handle = 0
@@ -189,7 +190,7 @@ class AllenBradleyEthIpClient(BaseClient):
                 self._sequence = 0
                 return
         raise ProtocolFrameError(
-            "Forward Open 失败:CIP 状态 0x{:02X}({})".format(
+            _("Forward Open 失败:CIP 状态 0x{:02X}({})").format(
                 status, codec_cip.status_text(status)
             )
         )
@@ -256,7 +257,7 @@ class AllenBradleyEthIpClient(BaseClient):
         length = int.from_bytes(head[2:4], "little")
         if length > AB_EIP_MAX_FRAME:
             raise ProtocolFrameError(
-                "ENIP 长度域超限:{} > {}(收到的原始帧头:{})".format(
+                _("ENIP 长度域超限:{} > {}(收到的原始帧头:{})").format(
                     length, AB_EIP_MAX_FRAME, format_hex(head)
                 )
             )
@@ -312,7 +313,7 @@ class AllenBradleyEthIpClient(BaseClient):
                 # 断开,下次事务惰性重连并重新 Forward Open;其余 CIP 状态
                 # (真实标签错误如只读)保持 DeviceError 不断线
                 raise ProtocolFrameError(
-                    f"connected 连接失效(CIP 状态 0x{exc.code:02X}):{exc}"
+                    _("connected 连接失效(CIP 状态 0x{:02X}):{}").format(exc.code, exc)
                 ) from exc
             raise
 
@@ -380,7 +381,7 @@ class AllenBradleyEthIpClient(BaseClient):
             return True, codec_cip.parse_module_identity_payload(payload)
         except Exception as exc:
             with self._lock:
-                self._set_error(f"GetAttributesAll 解码失败:{exc}", _categorize(exc), _extract_code(exc))
+                self._set_error(_("GetAttributesAll 解码失败:{}").format(exc), _categorize(exc), _extract_code(exc))
             return False, None
 
     def get_attribute_all(
@@ -432,7 +433,7 @@ class AllenBradleyEthIpClient(BaseClient):
                 )
             except Exception as exc:
                 with self._lock:
-                    self._set_error(f"GetAttributeList 解码失败:{exc}", _categorize(exc), _extract_code(exc))
+                    self._set_error(_("GetAttributeList 解码失败:{}").format(exc), _categorize(exc), _extract_code(exc))
                 return False, None
         # 非 Identity 对象:返回原始项区(属性号+状态+值 逐项),调用方自解
         return True, [(a, payload) for a in attrs]
@@ -456,7 +457,7 @@ class AllenBradleyEthIpClient(BaseClient):
         request = codec_cip.build_tag_read(
             codec_cip.tag_type_path(parsed, zero_last_index=True), 1
         )
-        cip_type, _ = codec_cip.parse_tag_read_payload(
+        cip_type, _unused = codec_cip.parse_tag_read_payload(
             self._transact(request, codec_cip.CIP_SERVICE_READ_TAG)
         )
         self._known_types[base] = cip_type
@@ -470,7 +471,7 @@ class AllenBradleyEthIpClient(BaseClient):
         """
         if actual != expected:
             raise ValueError(
-                "标签 {!r} 实际类型 {}(0x{:02X})与请求 {}(0x{:02X})不符".format(
+                _("标签 {!r} 实际类型 {}(0x{:02X})与请求 {}(0x{:02X})不符").format(
                     address,
                     codec_cip.type_name(actual),
                     actual,
@@ -501,7 +502,7 @@ class AllenBradleyEthIpClient(BaseClient):
         """AB 读原语:标签名 → Tag Read → 按实际类型解码并校验请求类型。"""
         parsed = parse_ab_tag(address)
         if parsed.bit is not None and data_type is not DataType.BOOL:
-            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+            raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         if data_type is DataType.STRING:
             return self._read_string(address, INT32_MAX, "utf-8")
         if data_type is DataType.BOOL:
@@ -517,17 +518,17 @@ class AllenBradleyEthIpClient(BaseClient):
             cip_type = self._ensure_type(parsed)
             if cip_type == codec_cip.CIP_TYPE_BOOL:
                 raise ValueError(
-                    f"BOOL 标签不支持位号后缀:{parsed.name!r}"
+                    _("BOOL 标签不支持位号后缀:{!r}").format(parsed.name)
                 )
             return self._read_bit_of_word(parsed, cip_type)
         cip_type = self._ensure_type(parsed)
         if cip_type == codec_cip.CIP_TYPE_BOOL:
-            _, data = self._read_tag_values(parsed, 1)
+            _unused, data = self._read_tag_values(parsed, 1)
             return bool(codec_cip.decode_values(data, cip_type, 1)[0])
         if cip_type == codec_cip.CIP_TYPE_DWORD:
             return self._read_bool_array_element(parsed)
         raise ValueError(
-            "标签 {!r} 实际类型 {} 不是 BOOL".format(
+            _("标签 {!r} 实际类型 {} 不是 BOOL").format(
                 parsed.name, codec_cip.type_name(cip_type)
             )
         )
@@ -536,14 +537,14 @@ class AllenBradleyEthIpClient(BaseClient):
         """整型标签位读:读元素后按位号提取(内部方法)。"""
         bit = parsed.bit or 0
         _check_bit_range(parsed, cip_type, bit)
-        _, data = self._read_tag_values(_strip_bit(parsed), 1)
+        _unused, data = self._read_tag_values(_strip_bit(parsed), 1)
         return bool((codec_cip.decode_word(data, cip_type) >> bit) & 1)
 
     def _read_bool_array_element(self, parsed: AbTag) -> bool:
         """BOOL 数组元素读:DWORD 字按 32 位打包,``下标//32`` 定词(内部)。"""
         index = _single_array_index(parsed)
         word_path = _word_index_path(parsed, index)
-        _, data = self._read_tag_values(word_path, 1)
+        _unused, data = self._read_tag_values(word_path, 1)
         return bool((codec_cip.decode_word(data, codec_cip.CIP_TYPE_DWORD) >> (index % 32)) & 1)
 
     def _batch_bool_array_address(self, parsed: AbTag, index: int) -> Tuple[AbTag, int]:
@@ -561,11 +562,11 @@ class AllenBradleyEthIpClient(BaseClient):
         """读 STRING 标签:结构体应答 ``len(u32) + 字符``。"""
         parsed = parse_ab_tag(address)
         if parsed.bit is not None:
-            raise ValueError(f"字符串标签不支持位访问:{address!r}")
+            raise ValueError(_("字符串标签不支持位访问:{!r}").format(address))
         cip_type, data = self._read_tag_values(parsed, 1)
         if cip_type != codec_cip.CIP_TYPE_STRUCT:
             raise ValueError(
-                "标签 {!r} 实际类型 {},字符串读取需要 STRING".format(
+                _("标签 {!r} 实际类型 {},字符串读取需要 STRING").format(
                     address, codec_cip.type_name(cip_type)
                 )
             )
@@ -608,7 +609,7 @@ class AllenBradleyEthIpClient(BaseClient):
         :raises ValueError: 列表为空/地址或类型非法
         """
         if not items:
-            raise ValueError("read_batch 至少需要一个 (标签, 数据类型) 项")
+            raise ValueError(_("read_batch 至少需要一个 (标签, 数据类型) 项"))
 
         def operation() -> List[PrimitiveValue]:
             requests: List[bytes] = []
@@ -622,7 +623,7 @@ class AllenBradleyEthIpClient(BaseClient):
                     if parsed.bit is not None:
                         if cip_type == codec_cip.CIP_TYPE_BOOL:
                             raise ValueError(
-                                f"BOOL 标签不支持位号后缀:{parsed.name!r}"
+                                _("BOOL 标签不支持位号后缀:{!r}").format(parsed.name)
                             )
                         bit = parsed.bit or 0
                         _check_bit_range(parsed, cip_type, bit)
@@ -644,7 +645,7 @@ class AllenBradleyEthIpClient(BaseClient):
                         plan.append(("booltag", address, 0, data_type_enum))
                     continue
                 if parsed.bit is not None:
-                    raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+                    raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
                 requests.append(codec_cip.build_tag_read(
                     codec_cip.tag_type_path(parsed), 1
                 ))
@@ -672,7 +673,7 @@ class AllenBradleyEthIpClient(BaseClient):
                 elif kind == "string":
                     if cip_type != codec_cip.CIP_TYPE_STRUCT:
                         raise ValueError(
-                            "标签 {!r} 实际类型 {},字符串读取需要 STRING".format(
+                            _("标签 {!r} 实际类型 {},字符串读取需要 STRING").format(
                                 address, codec_cip.type_name(cip_type)
                             )
                         )
@@ -680,7 +681,7 @@ class AllenBradleyEthIpClient(BaseClient):
                 elif kind == "booltag":
                     if cip_type != codec_cip.CIP_TYPE_BOOL:
                         raise ValueError(
-                            "标签 {!r} 实际类型 {} 不是 BOOL".format(
+                            _("标签 {!r} 实际类型 {} 不是 BOOL").format(
                                 address, codec_cip.type_name(cip_type)
                             )
                         )
@@ -697,7 +698,7 @@ class AllenBradleyEthIpClient(BaseClient):
                         values.append(bool(codec_cip.decode_values(data, cip_type, 1)[0]))
                     else:
                         raise ValueError(
-                            "标签 {!r} 实际类型 {} 不是 BOOL".format(
+                            _("标签 {!r} 实际类型 {} 不是 BOOL").format(
                                 address, codec_cip.type_name(cip_type)
                             )
                         )
@@ -713,7 +714,7 @@ class AllenBradleyEthIpClient(BaseClient):
         """AB 写原语:写请求携带类型码,故先确认实际类型再组写帧。"""
         parsed = parse_ab_tag(address)
         if parsed.bit is not None and data_type is not DataType.BOOL:
-            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+            raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         if data_type is DataType.STRING:
             self._write_string(address, str(value), "utf-8")
             return
@@ -735,7 +736,7 @@ class AllenBradleyEthIpClient(BaseClient):
             cip_type = self._ensure_type(parsed)
             if cip_type == codec_cip.CIP_TYPE_BOOL:
                 raise ValueError(
-                    f"BOOL 标签不支持位号后缀:{parsed.name!r}"
+                    _("BOOL 标签不支持位号后缀:{!r}").format(parsed.name)
                 )
             bit = parsed.bit or 0
             _check_bit_range(parsed, cip_type, bit)
@@ -757,7 +758,7 @@ class AllenBradleyEthIpClient(BaseClient):
             self._modify_word(_word_index_path(parsed, index), cip_type, index % 32, flag)
             return
         raise ValueError(
-            "标签 {!r} 实际类型 {} 不是 BOOL".format(
+            _("标签 {!r} 实际类型 {} 不是 BOOL").format(
                 parsed.name, codec_cip.type_name(cip_type)
             )
         )
@@ -778,11 +779,11 @@ class AllenBradleyEthIpClient(BaseClient):
         """写 STRING 标签:结构体类型域(0xA0 + 模板 0x0FCE)+ 88 字节布局。"""
         parsed = parse_ab_tag(address)
         if parsed.bit is not None:
-            raise ValueError(f"字符串标签不支持位访问:{address!r}")
+            raise ValueError(_("字符串标签不支持位访问:{!r}").format(address))
         cip_type = self._ensure_type(parsed)
         if cip_type != codec_cip.CIP_TYPE_STRUCT:
             raise ValueError(
-                "标签 {!r} 实际类型 {},字符串写入需要 STRING".format(
+                _("标签 {!r} 实际类型 {},字符串写入需要 STRING").format(
                     address, codec_cip.type_name(cip_type)
                 )
             )
@@ -808,21 +809,21 @@ _BATCH_ENVELOPE_MARGIN: int = 24
 def _identity_uint16(data: bytes) -> Tuple[int, int]:
     """Identity UINT 属性值(2 字节)(内部函数)。"""
     if len(data) < 2:
-        raise ProtocolFrameError("Identity 属性值截断(UINT)")
+        raise ProtocolFrameError(_("Identity 属性值截断(UINT)"))
     return struct.unpack_from("<H", data, 0)[0], 2
 
 
 def _identity_uint32(data: bytes) -> Tuple[int, int]:
     """Identity UDINT 属性值(4 字节)(内部函数)。"""
     if len(data) < 4:
-        raise ProtocolFrameError("Identity 属性值截断(UDINT)")
+        raise ProtocolFrameError(_("Identity 属性值截断(UDINT)"))
     return struct.unpack_from("<I", data, 0)[0], 4
 
 
 def _identity_revision(data: bytes) -> Tuple[Tuple[int, int], int]:
     """Identity Revision 属性值(2 字节:主/次)(内部函数)。"""
     if len(data) < 2:
-        raise ProtocolFrameError("Identity 属性值截断(Revision)")
+        raise ProtocolFrameError(_("Identity 属性值截断(Revision)"))
     return (data[0], data[1]), 2
 
 
@@ -877,7 +878,7 @@ def _single_array_index(parsed: AbTag) -> int:
     indices = parsed.indices[-1] if parsed.indices else ()
     if len(indices) != 1:
         raise ValueError(
-            f"BOOL 数组元素访问需要单一下标:{parsed.name!r}(示例 Bits[12])"
+            _("BOOL 数组元素访问需要单一下标:{!r}(示例 Bits[12])").format(parsed.name)
         )
     return indices[0]
 
@@ -896,14 +897,14 @@ def _check_bit_range(parsed: AbTag, cip_type: int, bit: int) -> None:
     """
     if not codec_cip.is_bit_access_type(cip_type):
         raise ValueError(
-            "标签 {!r} 实际类型 {} 不支持位访问".format(
+            _("标签 {!r} 实际类型 {} 不支持位访问").format(
                 parsed.name, codec_cip.type_name(cip_type)
             )
         )
     width = codec_cip.type_size(cip_type) * 8
     if bit >= width:
         raise ValueError(
-            "位号 {} 超出 {} 位宽 {}:{!r}".format(
+            _("位号 {} 超出 {} 位宽 {}:{!r}").format(
                 bit, codec_cip.type_name(cip_type), width, parsed.name
             )
         )

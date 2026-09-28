@@ -40,6 +40,7 @@ from ..core.constants import (
 from ..core.errors import DeviceError, ErrorCategory, OmniPLCInternalError, TransportTimeoutError
 from ..transport import BaseTransport, TcpTransport
 from ..core.types import DataType, PrimitiveValue
+from ..core.i18n import _
 
 
 class KeyenceSrClient(BaseClient):
@@ -78,12 +79,12 @@ class KeyenceSrClient(BaseClient):
         self._ip_address = ip_address
         self._port = int(port)
         if scan_dwell <= 0:
-            raise ValueError(f"scan_dwell 必须大于 0,收到:{scan_dwell}")
+            raise ValueError(_("scan_dwell 必须大于 0,收到:{}").format(scan_dwell))
         self._scan_dwell = float(scan_dwell)
         try:
             "".encode(encoding)
         except LookupError as exc:
-            raise ValueError(f"encoding 非法:{encoding!r}") from exc
+            raise ValueError(_("encoding 非法:{!r}").format(encoding)) from exc
         self._encoding = encoding
         self._encoding_errors = encoding_errors
 
@@ -112,11 +113,11 @@ class KeyenceSrClient(BaseClient):
         """
         if bank is not None and not SR_BANK_MIN <= int(bank) <= SR_BANK_MAX:
             raise ValueError(
-                f"bank 必须在 {SR_BANK_MIN}~{SR_BANK_MAX} 之间,收到:{bank}"
+                _("bank 必须在 {}~{} 之间,收到:{}").format(SR_BANK_MIN, SR_BANK_MAX, bank)
             )
         read_timeout = self._receive_timeout if timeout is None else float(timeout)
         if read_timeout <= 0:
-            raise ValueError(f"timeout 必须大于 0,收到:{read_timeout}")
+            raise ValueError(_("timeout 必须大于 0,收到:{}").format(read_timeout))
         ok, text = self._execute(
             lambda: self._scan_once(bank, read_timeout), is_write=True
         )
@@ -127,9 +128,9 @@ class KeyenceSrClient(BaseClient):
             # 链路成功但无读出:记错误分类但不计入 device_error_count
             # (扫码枪正常应答,不算设备返回错误码)
             message = (
-                "扫码枪返回 ERROR(未读到条码或距离过远)"
+                _("扫码枪返回 ERROR(未读到条码或距离过远)")
                 if text == SR_RESP_ERROR
-                else "扫码枪无读出(OK)"
+                else _("扫码枪无读出(OK)")
             )
             with self._lock:
                 self._set_error(message, ErrorCategory.DEVICE, None)
@@ -161,8 +162,8 @@ class KeyenceSrClient(BaseClient):
                 code_text = fields[2].strip() if len(fields) >= 3 else ""
                 code = int(code_text) if code_text.isdigit() else 0
                 raise DeviceError(
-                    "SR 命令错误应答:{}(错误代码 {})".format(
-                        text.strip(), code_text or "未知"
+                    _("SR 命令错误应答:{}(错误代码 {})").format(
+                        text.strip(), code_text or _("未知")
                     ),
                     code,
                 )
@@ -171,7 +172,7 @@ class KeyenceSrClient(BaseClient):
             # 读码窗口内无应答:链路仍然完好,不断线
             self._drain_line(transport)
             raise TransportTimeoutError(
-                f"扫码读超时({read_timeout}s),未收到应答", 0
+                _("扫码读超时({}s),未收到应答").format(read_timeout), 0
             )
         finally:
             transport.receive_timeout = previous_timeout
@@ -188,7 +189,7 @@ class KeyenceSrClient(BaseClient):
             self._command_expect_ok(transport, SR_CMD_RESET)
             return True
 
-        ok, _ = self._execute(operation, is_write=True)
+        ok, _unused = self._execute(operation, is_write=True)
         return ok
 
     # ------------------------------------------------------------------
@@ -206,7 +207,7 @@ class KeyenceSrClient(BaseClient):
             while True:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise socket.timeout(f"SR 收行超时({read_timeout}s)")
+                    raise socket.timeout(_("SR 收行超时({}s)").format(read_timeout))
                 transport.receive_timeout = remaining
                 byte = transport.recv(1)
                 if byte == b"\r" or byte == b"\n":
@@ -216,7 +217,7 @@ class KeyenceSrClient(BaseClient):
                 started = True
                 chunks.append(byte)
                 if len(chunks) > SR_RECV_MAX:
-                    raise OmniPLCInternalError(f"SR 应答超过 {SR_RECV_MAX} 字节上限")
+                    raise OmniPLCInternalError(_("SR 应答超过 {} 字节上限").format(SR_RECV_MAX))
         finally:
             transport.receive_timeout = previous_timeout
         return b"".join(chunks)
@@ -258,7 +259,7 @@ class KeyenceSrClient(BaseClient):
         ).strip()
         if text != SR_RESP_OK:
             # code 0 = 无具体错误码(设备应答异常但链路正常,不断线)
-            raise DeviceError("SR 命令 {} 应答异常:期望 OK,收到 {!r}".format(
+            raise DeviceError(_("SR 命令 {} 应答异常:期望 OK,收到 {!r}").format(
                 command.decode("ascii").rstrip("\r"), text
             ), 0)
 
@@ -275,8 +276,8 @@ class KeyenceSrClient(BaseClient):
         能力缺失按基类约定抛 :class:`DeviceError`(``code=0`` 无具体错误码),
         链路正常不断线——与 :meth:`_read_string` 的缺省实现同语义。
         """
-        raise DeviceError("SR 扫码枪不支持数据读取,请使用 scan()", 0)
+        raise DeviceError(_("SR 扫码枪不支持数据读取,请使用 scan()"), 0)
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """SR 为触发式设备,不支持 PLC 数据写入(内部方法),语义同 :meth:`_read`。"""
-        raise DeviceError("SR 扫码枪不支持数据写入", 0)
+        raise DeviceError(_("SR 扫码枪不支持数据写入"), 0)

@@ -32,6 +32,7 @@ import re
 from typing import NamedTuple, Optional
 
 from ...core.constants import S7_BYTE_INDEX_MAX, S7_DB_NUMBER_MAX
+from ...core.i18n import _
 
 _DB_RE = re.compile(r"^DB(\d+)\.DB([XBWDS])(\d+)(?:\.(\d+))?$", re.IGNORECASE)
 _AREA_RE = re.compile(r"^([IQM])(?:(?:([BWD])(\d+))|(\d+)(?:\.(\d+))?)$", re.IGNORECASE)
@@ -71,20 +72,20 @@ def parse_s7_address(address: str) -> S7Address:
         bit_text = match.group(4)
         if not 1 <= db_number <= S7_DB_NUMBER_MAX:
             raise ValueError(
-                f"S7 DB 编号必须在 1~{S7_DB_NUMBER_MAX} 之间,收到:{address!r}"
+                _("S7 DB 编号必须在 1~{} 之间,收到:{!r}").format(S7_DB_NUMBER_MAX, address)
             )
         _check_byte_index(byte_index, address)
         if kind == "X":
             if bit_text is None:
                 raise ValueError(
-                    f"DB 位地址需要位号:{address!r}(示例:DB1.DBX0.3)"
+                    _("DB 位地址需要位号:{!r}(示例:DB1.DBX0.3)").format(address)
                 )
             bit = int(bit_text)
             _check_bit(bit, address)
         else:
             if bit_text is not None:
                 raise ValueError(
-                    f"字节起点地址不带位号:{address!r}(位访问用 DBX,如 DB1.DBX0.3)"
+                    _("字节起点地址不带位号:{!r}(位访问用 DBX,如 DB1.DBX0.3)").format(address)
                 )
             bit = None
         return S7Address("DB", db_number, byte_index, bit)
@@ -106,19 +107,19 @@ def parse_s7_address(address: str) -> S7Address:
         return S7Address(area, 0, byte_index, bit)
 
     raise ValueError(
-        f"S7 地址非法:{address!r}(示例:DB1.DBX0.3 / DB1.DBD6 / M10.2 / MW10 / IW64)"
+        _("S7 地址非法:{!r}(示例:DB1.DBX0.3 / DB1.DBD6 / M10.2 / MW10 / IW64)").format(address)
     )
 
 
 def _check_bit(bit: int, address: str) -> None:
     """位号范围校验 0~7(内部函数)。"""
     if not 0 <= bit <= 7:
-        raise ValueError(f"S7 位号必须在 0~7 之间,收到:{address!r} 的 {bit}")
+        raise ValueError(_("S7 位号必须在 0~7 之间,收到:{!r} 的 {}").format(address, bit))
 
 
 def _check_byte_index(byte_index: int, address: str) -> None:
     """字节起点范围校验 0~24 位上限(内部函数)。"""
     if not 0 <= byte_index <= S7_BYTE_INDEX_MAX:
         raise ValueError(
-            f"S7 字节起点必须在 0~{S7_BYTE_INDEX_MAX} 之间,收到:{address!r}"
+            _("S7 字节起点必须在 0~{} 之间,收到:{!r}").format(S7_BYTE_INDEX_MAX, address)
         )
