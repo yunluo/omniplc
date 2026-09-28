@@ -156,7 +156,7 @@ def check_response(
             detail = data[-1] if data else cmd
             raise DeviceError(
                 _("TOYOPUC 出错 0x{:02X}:{}").format(
-                    detail, TOYOPUC_ERROR_TEXT.get(detail, _("未知错误,请查阅 TOYOPUC 手册"))
+                    detail, _(TOYOPUC_ERROR_TEXT.get(detail, _("未知错误,请查阅 TOYOPUC 手册")))
                 ),
                 detail,
             )
