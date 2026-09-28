@@ -986,7 +986,7 @@ def _narrow_float(
 
 def _narrow(
     result: Tuple[bool, Optional[PrimitiveValue]],
-    expected_type: type,
+    expected_type: Type[PrimitiveValue],
     type_name: str,
 ) -> Tuple[bool, Optional[PrimitiveValue]]:
     """类型收窄的统一实现(内部函数)。
