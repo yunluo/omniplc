@@ -35,6 +35,12 @@ CNC 机床数采(MTConnect Agent,HTTP/XML 只读)、
     import omniplc
 
     omniplc.set_debug(True)
+
+报错语言(全局开关,默认中文)::
+
+    import omniplc
+
+    omniplc.set_language("en")  # 之后报错文案输出英文
 """
 from __future__ import annotations
 
@@ -42,6 +48,7 @@ from .core import convert
 from .core.base_client import BaseClient, ClientStats
 from .core.debug import set_debug
 from .core.errors import ErrorCategory
+from .core.i18n import set_language
 from .core.tag import Tag, TagTable
 from .core.types import ByteOrder, DataType, McFrame, SerialParity, WordOrder
 from .cnc import MTConnectClient
@@ -145,6 +152,8 @@ __all__ = [
     "convert",
     # ---- 全局调试 ----
     "set_debug",
+    # ---- 报错文案语言 ----
+    "set_language",
     # ---- 元数据 ----
     "__version__",
     "__author__",
