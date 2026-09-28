@@ -27,6 +27,7 @@ from functools import lru_cache
 from typing import NamedTuple, Optional
 
 from ...core.constants import ADDRESS_CACHE_MAXSIZE, MODBUS_REGISTER_BIT_MAX
+from ...core.i18n import _
 
 _MC_ADDRESS_RE = re.compile(r"^([A-Za-z]{1,4})([0-9A-Fa-f]+)(?:\.(\d+))?$")
 
@@ -54,11 +55,11 @@ def parse_mc_address(address: str) -> McAddress:
     :raises ValueError: 语法错误或位号越界
     """
     if not address or not address.strip():
-        raise ValueError("MC 地址不能为空")
+        raise ValueError(_("MC 地址不能为空"))
     match = _MC_ADDRESS_RE.match(address.strip())
     if match is None:
         raise ValueError(
-            f"无法解析 MC 地址:{address!r}(示例:D100 / M10 / X1F / D100.3)"
+            _("无法解析 MC 地址:{!r}(示例:D100 / M10 / X1F / D100.3)").format(address)
         )
     bit = _parse_bit(match.group(3))
     return McAddress(device=match.group(1).upper(), number=match.group(2), bit=bit)
@@ -70,5 +71,5 @@ def _parse_bit(text: Optional[str]) -> Optional[int]:
         return None
     bit = int(text)
     if not 0 <= bit <= MODBUS_REGISTER_BIT_MAX:
-        raise ValueError(f"字软元件位号必须在 0~15 之间,收到:{bit}")
+        raise ValueError(_("字软元件位号必须在 0~15 之间,收到:{}").format(bit))
     return bit

@@ -30,6 +30,7 @@ from enum import Enum
 from typing import Optional
 
 from ..core.constants import ADDRESS_CACHE_MAXSIZE, MODBUS_REGISTER_BIT_MAX
+from ..core.i18n import _
 
 # 前缀语法:c0 / di10 / hr100.3 / ir5
 _PREFIX_RE = re.compile(r"^(c|di|hr|ir)(\d+)(?:\.(\d+))?$")
@@ -80,7 +81,7 @@ class ModbusAddress:
             return _FC_WRITE_SINGLE[self.area]
         except KeyError:
             raise ValueError(
-                f"区域 {self.area.value!r} 不可写(仅线圈/保持寄存器可写)"
+                _("区域 {!r} 不可写(仅线圈/保持寄存器可写)").format(self.area.value)
             )
 
     @property
@@ -90,7 +91,7 @@ class ModbusAddress:
             return _FC_WRITE_MULTI[self.area]
         except KeyError:
             raise ValueError(
-                f"区域 {self.area.value!r} 不可写(仅线圈/保持寄存器可写)"
+                _("区域 {!r} 不可写(仅线圈/保持寄存器可写)").format(self.area.value)
             )
 
 
@@ -104,7 +105,7 @@ def parse_address(address: str) -> ModbusAddress:
     :raises ValueError: 语法错误、位号越界或区域不可写
     """
     if not address or not address.strip():
-        raise ValueError("Modbus 地址不能为空")
+        raise ValueError(_("Modbus 地址不能为空"))
     text = address.strip().lower()
 
     if text.isdigit():
@@ -112,17 +113,17 @@ def parse_address(address: str) -> ModbusAddress:
 
     match = _PREFIX_RE.match(text)
     if match is None:
-        raise ValueError(f"无法解析 Modbus 地址:{address!r}(示例:hr0 / c0 / di10 / 40001)")
+        raise ValueError(_("无法解析 Modbus 地址:{!r}(示例:hr0 / c0 / di10 / 40001)").format(address))
     area = ModbusArea(match.group(1))
     offset = int(match.group(2))
     bit: Optional[int] = None
     if match.group(3) is not None:
         bit = int(match.group(3))
         if area in (ModbusArea.COIL, ModbusArea.DISCRETE_INPUT):
-            raise ValueError(f"区域 {area.value!r} 本身就是位地址,不支持位访问:{address!r}")
+            raise ValueError(_("区域 {!r} 本身就是位地址,不支持位访问:{!r}").format(area.value, address))
         if not 0 <= bit <= MODBUS_REGISTER_BIT_MAX:
             raise ValueError(
-                f"寄存器位号必须在 0~{MODBUS_REGISTER_BIT_MAX} 之间,收到:{bit}"
+                _("寄存器位号必须在 0~{} 之间,收到:{}").format(MODBUS_REGISTER_BIT_MAX, bit)
             )
     return ModbusAddress(area=area, offset=offset, bit=bit)
 
@@ -160,4 +161,4 @@ def _parse_modicon(text: str) -> ModbusAddress:
     for start, end, area in ranges:
         if start <= number <= end:
             return ModbusAddress(area=area, offset=number - start)
-    raise ValueError(f"Modicon 地址超出区段:{number},支持 {hint}")
+    raise ValueError(_("Modicon 地址超出区段:{},支持 {}").format(number, hint))

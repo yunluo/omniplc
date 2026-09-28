@@ -28,6 +28,7 @@ from ...core.constants import (
     MC_1E_WRITE_WORD,
 )
 from ...core.errors import DeviceError, ProtocolFrameError
+from ...core.i18n import _
 
 
 def device_info(device: str) -> Tuple[int, bool, int]:
@@ -40,7 +41,7 @@ def device_info(device: str) -> Tuple[int, bool, int]:
         code, is_bit, base = MC_1E_DEVICE_CODES[device]
     except KeyError:
         raise ValueError(
-            "1E 帧不支持的软元件:{!r},支持:{}".format(
+            _("1E 帧不支持的软元件:{!r},支持:{}").format(
                 device, "/".join(sorted(MC_1E_DEVICE_CODES))
             )
         )
@@ -56,10 +57,10 @@ def device_number(device: str, number: str, base: int) -> int:
         value = int(number, base)
     except ValueError:
         raise ValueError(
-            f"软元件 {device} 编号按 {base} 进制解析失败:{number!r}"
+            _("软元件 {} 编号按 {} 进制解析失败:{!r}").format(device, base, number)
         )
     if value > 0xFFFF:
-        raise ValueError(f"1E 软元件编号超出 2 字节范围:{value}")
+        raise ValueError(_("1E 软元件编号超出 2 字节范围:{}").format(value))
     return value
 
 
@@ -86,16 +87,16 @@ def build_request(
     code, is_bit_device, base = device_info(address.device)
     if is_bit and not is_bit_device:
         raise ValueError(
-            f"字软元件 {address.device} 不支持位单位成批访问,请按字访问后提取位"
+            _("字软元件 {} 不支持位单位成批访问,请按字访问后提取位").format(address.device)
         )
     if is_bit and is_bit_device:
         reject_bit_suffix_on_bit_device(address)
     if not 1 <= points <= MC_1E_MAX_POINTS:
-        raise ValueError(f"1E 访问点数超出范围 1~{MC_1E_MAX_POINTS}:{points}")
+        raise ValueError(_("1E 访问点数超出范围 1~{}:{}").format(MC_1E_MAX_POINTS, points))
     number = device_number(address.device, address.number, base)
     if not is_bit and is_bit_device and number % 16 != 0:
         raise ValueError(
-            "1E 字单位访问位软元件要求首编号为 16 的倍数:{}{}".format(
+            _("1E 字单位访问位软元件要求首编号为 16 的倍数:{}{}").format(
                 address.device, address.number
             )
         )
@@ -126,7 +127,7 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
     """
     if len(frame) < MC_1E_RESPONSE_HEAD_SIZE:
         raise ProtocolFrameError(
-            "1E 响应头不足 {} 字节:{}".format(MC_1E_RESPONSE_HEAD_SIZE, len(frame))
+            _("1E 响应头不足 {} 字节:{}").format(MC_1E_RESPONSE_HEAD_SIZE, len(frame))
         )
     expected_head = (
         (MC_1E_READ_BIT if is_bit else MC_1E_READ_WORD)
@@ -135,20 +136,20 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
     ) + 0x80
     if frame[0] != expected_head:
         raise ProtocolFrameError(
-            "1E 响应副头部不符:期望 0x{:02X},收到 0x{:02X}".format(expected_head, frame[0])
+            _("1E 响应副头部不符:期望 0x{:02X},收到 0x{:02X}").format(expected_head, frame[0])
         )
     end_code = frame[1]
     if end_code != 0:
         if end_code == MC_1E_ERROR_EXTRA and len(frame) < MC_1E_RESPONSE_HEAD_SIZE + MC_1E_ERROR_EXTRA_SIZE:
-            raise ProtocolFrameError("1E 错误响应缺少扩展信息字节")
-        raise DeviceError(f"MC(1E) 结束代码 0x{end_code:02X},详见 A 系列手册", end_code)
+            raise ProtocolFrameError(_("1E 错误响应缺少扩展信息字节"))
+        raise DeviceError(_("MC(1E) 结束代码 0x{:02X},详见 A 系列手册").format(end_code), end_code)
     if not is_read:
         if len(frame) != MC_1E_RESPONSE_HEAD_SIZE:
             # 1E 帧无长度域,写响应成功时应答恰为 2 字节头;多余字节滞留
             # TCP 缓冲会被下一事务当响应头消费(串帧),UDP 整包路径下
             # 属数据报边界异常——统一按坏帧拒绝
             raise ProtocolFrameError(
-                "1E 写响应尾部有冗余字节:期望 {} 字节,实际 {}".format(
+                _("1E 写响应尾部有冗余字节:期望 {} 字节,实际 {}").format(
                     MC_1E_RESPONSE_HEAD_SIZE, len(frame)
                 )
             )
@@ -157,11 +158,11 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
     data = frame[2:2 + expected]
     if len(data) != expected:
         raise ProtocolFrameError(
-            "1E 响应数据不足:期望 {} 字节,实际 {}".format(expected, len(data))
+            _("1E 响应数据不足:期望 {} 字节,实际 {}").format(expected, len(data))
         )
     if len(frame) != MC_1E_RESPONSE_HEAD_SIZE + expected:
         raise ProtocolFrameError(
-            "1E 响应尾部有冗余字节:期望 {} 字节,实际 {}".format(
+            _("1E 响应尾部有冗余字节:期望 {} 字节,实际 {}").format(
                 MC_1E_RESPONSE_HEAD_SIZE + expected, len(frame)
             )
         )
@@ -176,7 +177,7 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
 def _write_payload(points: int, is_bit: bool, data: List[int]) -> bytes:
     """写数据编码:位按"每字节 2 位、高位在前"打包;字逐字小端(内部函数)。"""
     if len(data) != points:
-        raise ValueError("写数据个数 {} 与点数 {} 不符".format(len(data), points))
+        raise ValueError(_("写数据个数 {} 与点数 {} 不符").format(len(data), points))
     if is_bit:
         packed = bytearray((points + 1) // 2)
         for index, flag in enumerate(data):
@@ -185,5 +186,5 @@ def _write_payload(points: int, is_bit: bool, data: List[int]) -> bytes:
         return bytes(packed)
     for word in data:
         if not 0 <= word <= 0xFFFF:
-            raise ValueError(f"字写数据超出范围 0~65535:{word}")
+            raise ValueError(_("字写数据超出范围 0~65535:{}").format(word))
     return b"".join(word.to_bytes(2, "little") for word in data)

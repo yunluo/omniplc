@@ -47,6 +47,7 @@ from ...core.constants import (
 from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
 from ...core.validation import check_byte_field
+from ...core.i18n import _
 
 ENQ: int = 0x05
 """控制码:ENQ(询问,请求帧起始)。"""
@@ -80,7 +81,7 @@ def check_station_number(station: int) -> int:
     """校验站号(0~31),非法抛 :class:`ValueError`。"""
     if not 0 <= int(station) <= MC_SERIAL_STATION_MAX:
         raise ValueError(
-            f"站号必须在 0~{MC_SERIAL_STATION_MAX} 之间,收到:{station}"
+            _("站号必须在 0~{} 之间,收到:{}").format(MC_SERIAL_STATION_MAX, station)
         )
     return int(station)
 
@@ -94,7 +95,7 @@ def check_pc_number(pc_number: int) -> int:
     """
     value = int(pc_number)
     if value != 0xFF and not 0 <= value <= 120:
-        raise ValueError(f"PC 编号必须是 0~120 或 0xFF,收到:{pc_number}")
+        raise ValueError(_("PC 编号必须是 0~120 或 0xFF,收到:{}").format(pc_number))
     return value
 
 
@@ -163,7 +164,7 @@ def parse_3c_response(
         (消息带**收到的原始帧**十六进制转储,便于现场与抓包比对)
     """
     if not response:
-        raise ProtocolFrameError("3C 响应为空(未收到任何字节)")
+        raise ProtocolFrameError(_("3C 响应为空(未收到任何字节)"))
     route = _route_text_3c(
         station_number, network_number, pc_number, self_station_number
     ).encode("ascii")
@@ -171,7 +172,7 @@ def parse_3c_response(
     if head == NAK:
         if len(response) < 17:
             raise ProtocolFrameError(
-                "3C 异常响应不完整:期望 17 字节,实际 {}(收到的原始帧:{})".format(
+                _("3C 异常响应不完整:期望 17 字节,实际 {}(收到的原始帧:{})").format(
                     len(response), format_hex(response)
                 )
             )
@@ -179,11 +180,11 @@ def parse_3c_response(
         _check_3c_frame_id(response[1:3], response)
         _check_crlf(response[15:17], "3C 异常响应", response)
         status = _hex_int(response[11:15], response)
-        raise DeviceError(f"MC 错误代码 0x{status:04X},详见 MELSEC 手册", status)
+        raise DeviceError(_("MC 错误代码 0x{:04X},详见 MELSEC 手册").format(status), status)
     if head == ACK:
         if len(response) != 13:
             raise ProtocolFrameError(
-                "3C 写响应长度不符:期望 13 字节,实际 {}(收到的原始帧:{})".format(
+                _("3C 写响应长度不符:期望 13 字节,实际 {}(收到的原始帧:{})").format(
                     len(response), format_hex(response)
                 )
             )
@@ -193,7 +194,7 @@ def parse_3c_response(
         return []
     if head != STX:
         raise ProtocolFrameError(
-            "3C 响应控制码非法:0x{:02X}(收到的原始帧:{})".format(
+            _("3C 响应控制码非法:0x{:02X}(收到的原始帧:{})").format(
                 head, format_hex(response)
             )
         )
@@ -201,7 +202,7 @@ def parse_3c_response(
     total = 1 + 2 + 8 + expected + 1 + 2 + 2
     if len(response) != total:
         raise ProtocolFrameError(
-            "3C 读响应长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+            _("3C 读响应长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})").format(
                 total, len(response), format_hex(response)
             )
         )
@@ -209,14 +210,14 @@ def parse_3c_response(
     _check_3c_frame_id(response[1:3], response)
     if response[11 + expected] != ETX:
         raise ProtocolFrameError(
-            "3C 响应数据后必须是 ETX(收到的原始帧:{})".format(format_hex(response))
+            _("3C 响应数据后必须是 ETX(收到的原始帧:{})").format(format_hex(response))
         )
     _check_crlf(response[14 + expected:16 + expected], "3C 读响应", response)
     # 和校验范围 = 帧识别码 + 路由 + 数据 + ETX(手册 Appendix 7 小计:22BH + 18FH)
     wanted = "{:02X}".format(checksum(response[1:12 + expected])).encode("ascii")
     if response[12 + expected:14 + expected] != wanted:
         raise ProtocolFrameError(
-            "3C 和校验码不符:期望 {},收到 {!r}(收到的原始帧:{})".format(
+            _("3C 和校验码不符:期望 {},收到 {!r}(收到的原始帧:{})").format(
                 wanted.decode("ascii"),
                 response[12 + expected:14 + expected].decode("ascii", "replace"),
                 format_hex(response),
@@ -227,7 +228,7 @@ def parse_3c_response(
     data_text = response[11:11 + expected].decode("ascii")
     if is_bit:
         if not set(data_text) <= {"0", "1"}:
-            raise ProtocolFrameError(f"3C 位读数据含非 0/1 字符:{data_text!r}")
+            raise ProtocolFrameError(_("3C 位读数据含非 0/1 字符:{!r}").format(data_text))
         return [1 if char == "1" else 0 for char in data_text]
     return [_hex_int(data_text[i:i + 4].encode("ascii")) for i in range(0, expected, 4)]
 
@@ -318,27 +319,27 @@ def parse_4c_response(
     """
     if len(frame) < 18:
         raise ProtocolFrameError(
-            "4C 响应不完整:至少 18 字节(写响应),实际 {}(收到的原始帧:{})".format(
+            _("4C 响应不完整:至少 18 字节(写响应),实际 {}(收到的原始帧:{})").format(
                 len(frame), format_hex(frame)
             )
         )
     length = int.from_bytes(frame[0:2], "little")
     if length < 12:
         raise ProtocolFrameError(
-            "4C 应答数据长非法(至少含帧识别码+路由+应答识别码+结束代码):{}(收到的原始帧:{})".format(
+            _("4C 应答数据长非法(至少含帧识别码+路由+应答识别码+结束代码):{}(收到的原始帧:{})").format(
                 length, format_hex(frame)
             )
         )
     body_size = length - 1
     if len(frame) != 2 + length + 4:
         raise ProtocolFrameError(
-            "4C 响应长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+            _("4C 响应长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})").format(
                 2 + length + 4, len(frame), format_hex(frame)
             )
         )
     if frame[2] != MC_SERIAL_FRAME_ID_4C:
         raise ProtocolFrameError(
-            "4C 帧识别码不符:期望 F8H,收到 0x{:02X}(收到的原始帧:{})".format(
+            _("4C 帧识别码不符:期望 F8H,收到 0x{:02X}(收到的原始帧:{})").format(
                 frame[2], format_hex(frame)
             )
         )
@@ -355,14 +356,14 @@ def parse_4c_response(
     trailer = frame[3 + body_size:]
     if trailer[0] != DLE or trailer[1] != ETX:
         raise ProtocolFrameError(
-            "4C 响应和校验前必须是 DLE ETX,收到 0x{:02X} 0x{:02X}(收到的原始帧:{})".format(
+            _("4C 响应和校验前必须是 DLE ETX,收到 0x{:02X} 0x{:02X}(收到的原始帧:{})").format(
                 trailer[0], trailer[1], format_hex(frame)
             )
         )
     wanted = "{:02X}".format(checksum(frame[:3 + body_size])).encode("ascii")
     if trailer[2:4] != wanted:
         raise ProtocolFrameError(
-            "4C 和校验码不符:期望 {},收到 {!r}(收到的原始帧:{})".format(
+            _("4C 和校验码不符:期望 {},收到 {!r}(收到的原始帧:{})").format(
                 wanted.decode("ascii"),
                 trailer[2:4].decode("ascii", "replace"),
                 format_hex(frame),
@@ -370,20 +371,20 @@ def parse_4c_response(
         )
     if body[7:9] != b"\xff\xff":
         raise ProtocolFrameError(
-            "4C 应答识别码非 FFFFH:0x{:02X} 0x{:02X}(收到的原始帧:{})".format(
+            _("4C 应答识别码非 FFFFH:0x{:02X} 0x{:02X}(收到的原始帧:{})").format(
                 body[7], body[8], format_hex(frame)
             )
         )
     status = int.from_bytes(body[9:11], "little")
     if status != 0:
-        raise DeviceError(f"MC 结束代码 0x{status:04X},详见 MELSEC 手册", status)
+        raise DeviceError(_("MC 结束代码 0x{:04X},详见 MELSEC 手册").format(status), status)
     if not is_read:
         return []
     data = body[11:]
     expected = (points + 1) // 2 if is_bit else points * 2
     if len(data) != expected:
         raise ProtocolFrameError(
-            "4C 响应数据不足:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+            _("4C 响应数据不足:期望 {} 字节,实际 {}(收到的原始帧:{})").format(
                 expected, len(data), format_hex(frame)
             )
         )
@@ -413,7 +414,7 @@ def _check_3c_frame_id(raw: bytes, whole: bytes) -> None:
     """
     if raw != _ID_3C_TEXT:
         raise ProtocolFrameError(
-            "3C 帧识别码不符:期望 {!r},收到 {!r}(收到的原始帧:{})".format(
+            _("3C 帧识别码不符:期望 {!r},收到 {!r}(收到的原始帧:{})").format(
                 _ID_3C_TEXT.decode("ascii"),
                 raw.decode("ascii", "replace"),
                 format_hex(whole),
@@ -425,7 +426,7 @@ def _check_crlf(raw: bytes, label: str, whole: bytes) -> None:
     """校验帧尾 CR LF(内部函数);``whole`` 为完整响应帧,失败时随消息转储。"""
     if raw != _CRLF:
         raise ProtocolFrameError(
-            f"{label}必须以 CR LF 结尾(收到的原始帧:{format_hex(whole)})"
+            _("{}必须以 CR LF 结尾(收到的原始帧:{})").format(label, format_hex(whole))
         )
 
 
@@ -475,7 +476,7 @@ def _check_route(raw: bytes, wanted: bytes, label: str, whole: bytes) -> None:
     """校验响应路由回显(内部函数);``whole`` 为完整响应帧,失败时随消息转储。"""
     if raw != wanted:
         raise ProtocolFrameError(
-            "{}路由回显不符:期望 {!r},收到 {!r}(收到的原始帧:{})".format(
+            _("{}路由回显不符:期望 {!r},收到 {!r}(收到的原始帧:{})").format(
                 label,
                 wanted.decode("ascii", "replace"),
                 raw.decode("ascii", "replace"),
@@ -495,7 +496,7 @@ def _hex_int(raw: bytes, whole: bytes = b"") -> int:
     except (UnicodeDecodeError, ValueError):
         detail = "(收到的原始帧:{})".format(format_hex(whole)) if whole else ""
         raise ProtocolFrameError(
-            "十六进制域非法:{!r}{}".format(raw.decode("ascii", "replace"), detail)
+            _("十六进制域非法:{!r}{}").format(raw.decode("ascii", "replace"), detail)
         )
 
 
@@ -515,18 +516,18 @@ def _ascii_core(
     code, is_bit_device, base = codec_qna.device_info(address.device, codes)
     if is_bit and not is_bit_device:
         raise ValueError(
-            f"字软元件 {address.device} 不支持位单位成批访问,请按字访问后提取位"
+            _("字软元件 {} 不支持位单位成批访问,请按字访问后提取位").format(address.device)
         )
     if is_bit and is_bit_device:
         codec_qna.reject_bit_suffix_on_bit_device(address)
     if not 1 <= points <= MC_MAX_TRANSFER_POINTS:
         raise ValueError(
-            f"MC 访问点数超出范围 1~{MC_MAX_TRANSFER_POINTS}:{points}"
+            _("MC 访问点数超出范围 1~{}:{}").format(MC_MAX_TRANSFER_POINTS, points)
         )
     number = codec_qna.device_number(address.device, address.number, base)
     if base == 16 and number > 0xFFFFFF or base == 10 and number > _MAX_DEC_NUMBER:
         raise ValueError(
-            f"MC 软元件 {address.device} 编号超出 6 位表示范围:{number}"
+            _("MC 软元件 {} 编号超出 6 位表示范围:{}").format(address.device, number)
         )
     command = _COMMAND_WRITE_TEXT if is_write else _COMMAND_READ_TEXT
     subcommand = "{:04X}".format(
@@ -539,13 +540,13 @@ def _ascii_core(
         return core
     values = data or []
     if len(values) != points:
-        raise ValueError("写数据个数 {} 与点数 {} 不符".format(len(values), points))
+        raise ValueError(_("写数据个数 {} 与点数 {} 不符").format(len(values), points))
     if is_bit:
         for flag in values:
             if flag not in (0, 1):
-                raise ValueError(f"位写数据只能是 0/1,收到:{flag}")
+                raise ValueError(_("位写数据只能是 0/1,收到:{}").format(flag))
         return core + "".join(str(flag) for flag in values)
     for word in values:
         if not 0 <= word <= 0xFFFF:
-            raise ValueError(f"字写数据超出范围 0~65535:{word}")
+            raise ValueError(_("字写数据超出范围 0~65535:{}").format(word))
     return core + "".join(f"{word:04X}" for word in values)

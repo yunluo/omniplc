@@ -42,6 +42,7 @@ from ...core.constants import (
     KV_WORD_DEVICES,
     MODBUS_REGISTER_BIT_MAX,
 )
+from ...core.i18n import _
 
 _TYPE_PATTERN = "|".join(
     sorted(list(KV_BIT_DEVICES) + list(KV_WORD_DEVICES), key=len, reverse=True)
@@ -76,11 +77,11 @@ def parse_kv_address(address: str) -> KvAddress:
     :raises ValueError: 语法错误、软元件不支持或位号越界
     """
     if not address or not address.strip():
-        raise ValueError("KV 地址不能为空")
+        raise ValueError(_("KV 地址不能为空"))
     match = _KV_ADDRESS_RE.match(address.strip().upper())
     if match is None:
         raise ValueError(
-            f"无法解析 KV 地址:{address!r}(示例:DM100 / R515 / B1F / X0F / DM100.5)"
+            _("无法解析 KV 地址:{!r}(示例:DM100 / R515 / B1F / X0F / DM100.5)").format(address)
         )
     device = match.group(1)
     number_text = match.group(2)
@@ -88,18 +89,18 @@ def parse_kv_address(address: str) -> KvAddress:
     if device in KV_BIT_BANK_DEVICES:
         number = int(number_text, 10)
         if number % KV_BIT_BANK_PACK > MODBUS_REGISTER_BIT_MAX:
-            raise ValueError(f"位组软元件编号低两位必须在 00~{MODBUS_REGISTER_BIT_MAX},收到:{address!r}")
+            raise ValueError(_("位组软元件编号低两位必须在 00~{},收到:{!r}").format(MODBUS_REGISTER_BIT_MAX, address))
     elif device in KV_HEX_NUMBER_DEVICES:
         number = int(number_text, 16)
     elif device in ("X", "Y"):
         bank_text = "0" if len(number_text) == 1 else number_text[:-1]
         if not bank_text.isdigit():
-            raise ValueError(f"X/Y 组号必须为十进制数字,收到:{address!r}")
+            raise ValueError(_("X/Y 组号必须为十进制数字,收到:{!r}").format(address))
         number = int(bank_text, 10) * KV_BITS_PER_GROUP + int(number_text[-1], 16)
     else:
         number = int(number_text, 10)
     if bit is not None and device in KV_BIT_DEVICES:
-        raise ValueError(f"位软元件不支持位号后缀:{address!r}(示例:R515 或 DM100.5)")
+        raise ValueError(_("位软元件不支持位号后缀:{!r}(示例:R515 或 DM100.5)").format(address))
     return KvAddress(device=device, number=number, bit=bit)
 
 
@@ -125,5 +126,5 @@ def _parse_bit(text: Optional[str]) -> Optional[int]:
         return None
     bit = int(text)
     if not 0 <= bit <= MODBUS_REGISTER_BIT_MAX:
-        raise ValueError(f"字软元件位号必须在 0~{MODBUS_REGISTER_BIT_MAX} 之间,收到:{bit}")
+        raise ValueError(_("字软元件位号必须在 0~{} 之间,收到:{}").format(MODBUS_REGISTER_BIT_MAX, bit))
     return bit

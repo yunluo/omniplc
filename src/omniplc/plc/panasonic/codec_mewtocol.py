@@ -24,6 +24,7 @@ from typing import List
 from ...core.constants import MEWTOCOL_STATION_DIRECT
 from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
+from ...core.i18n import _
 
 # 响应头偏移:%(1) + 站号(2) + $(1) = 4;命令名回显 2 字节至下标 6
 _RESPONSE_DATA_OFFSET = 6
@@ -68,7 +69,7 @@ def station_text(station: int) -> str:
     if station == MEWTOCOL_STATION_DIRECT:
         return "EE"
     if not 1 <= station <= 99:
-        raise ValueError(f"MEWTOCOL 站号必须在 1~99 或 0xEE(直连):{station}")
+        raise ValueError(_("MEWTOCOL 站号必须在 1~99 或 0xEE(直连):{}").format(station))
     return f"{station:02d}"
 
 
@@ -86,9 +87,9 @@ def _check_contact_field(word: int, bit: int) -> None:
     :raises ValueError: 超出字段宽度
     """
     if not 0 <= word <= 999:
-        raise ValueError(f"MEWTOCOL 字号超出 3 位字段(0~999),收到:{word}")
+        raise ValueError(_("MEWTOCOL 字号超出 3 位字段(0~999),收到:{}").format(word))
     if not 0 <= bit <= 0xF:
-        raise ValueError(f"MEWTOCOL 位号超出 1 位字段(0~F),收到:{bit}")
+        raise ValueError(_("MEWTOCOL 位号超出 1 位字段(0~F),收到:{}").format(bit))
 
 
 def _check_word_field(start: int, count: int, words: "List[int]") -> int:
@@ -97,17 +98,17 @@ def _check_word_field(start: int, count: int, words: "List[int]") -> int:
     :raises ValueError: 数量非法 / 起止越界 / 字值超出 16 位
     """
     if count < 1:
-        raise ValueError(f"MEWTOCOL 字数必须大于 0,收到:{count}")
+        raise ValueError(_("MEWTOCOL 字数必须大于 0,收到:{}").format(count))
     end = start + count - 1
     if start < 0 or end > 99999:
         raise ValueError(
-            "MEWTOCOL 数据区编号超出 5 位字段(0~99999):start={} end={}".format(
+            _("MEWTOCOL 数据区编号超出 5 位字段(0~99999):start={} end={}").format(
                 start, end
             )
         )
     for word in words:
         if not 0 <= word <= 0xFFFF:
-            raise ValueError(f"MEWTOCOL 字值超出 16 位范围:0x{word:X}")
+            raise ValueError(_("MEWTOCOL 字值超出 16 位范围:0x{:X}").format(word))
     return end
 
 
@@ -148,26 +149,26 @@ def parse_response(response: bytes, station: str, command: str) -> str:
     """
     if len(response) < _RESPONSE_MIN_SIZE:
         raise ProtocolFrameError(
-            "MEWTOCOL 响应过短(至少 {} 字节),实收 {}(收到的原始帧:{})".format(
+            _("MEWTOCOL 响应过短(至少 {} 字节),实收 {}(收到的原始帧:{})").format(
                 _RESPONSE_MIN_SIZE, len(response), format_hex(response)
             )
         )
     text = response.decode("ascii", errors="replace")
     if text[-1] != "\r":
         raise ProtocolFrameError(
-            "MEWTOCOL 响应未以 CR 结束:{!r}(收到的原始帧:{})".format(
+            _("MEWTOCOL 响应未以 CR 结束:{!r}(收到的原始帧:{})").format(
                 text[-8:], format_hex(response)
             )
         )
     if text[0] != "%" or text[3] not in ("$", "!"):
         raise ProtocolFrameError(
-            "MEWTOCOL 响应帧头非法:{!r}(应为 %HH$ 或 %HH!)(收到的原始帧:{})".format(
+            _("MEWTOCOL 响应帧头非法:{!r}(应为 %HH$ 或 %HH!)(收到的原始帧:{})").format(
                 text[:4], format_hex(response)
             )
         )
     if text[1:3] != station and text[1:3] != "EE":
         raise ProtocolFrameError(
-            "MEWTOCOL 站号不匹配:期望 {},收到 {}(收到的原始帧:{})".format(
+            _("MEWTOCOL 站号不匹配:期望 {},收到 {}(收到的原始帧:{})").format(
                 station, text[1:3], format_hex(response)
             )
         )
@@ -175,7 +176,7 @@ def parse_response(response: bytes, station: str, command: str) -> str:
     expected_bcc = text[-3:-1]
     if bcc(body) != expected_bcc:
         raise ProtocolFrameError(
-            "MEWTOCOL BCC 校验失败:期望 {},收到 {}(收到的原始帧:{})".format(
+            _("MEWTOCOL BCC 校验失败:期望 {},收到 {}(收到的原始帧:{})").format(
                 bcc(body), expected_bcc, format_hex(response)
             )
         )
@@ -183,12 +184,12 @@ def parse_response(response: bytes, station: str, command: str) -> str:
         code = text[4:6]
         message = _ERROR_MESSAGES.get(code, "未知错误")
         raise DeviceError(
-            f"MEWTOCOL 错误码 {code}:{message}", _error_code_value(code)
+            _("MEWTOCOL 错误码 {}:{}").format(code, message), _error_code_value(code)
         )
     echo = text[4:6]
     if echo != command:
         raise ProtocolFrameError(
-            "MEWTOCOL 命令回显不匹配:期望 {},收到 {}(收到的原始帧:{})".format(
+            _("MEWTOCOL 命令回显不匹配:期望 {},收到 {}(收到的原始帧:{})").format(
                 command, echo, format_hex(response)
             )
         )

@@ -50,6 +50,7 @@ from ...transport import BaseTransport, TcpTransport, UdpTransport
 from ...core.types import DataType, PrimitiveValue
 from . import codec
 from .address import KvAddress, is_bit_device, parse_kv_address
+from ...core.i18n import _
 
 
 class _KeyenceHostLinkBase(BaseClient):
@@ -78,7 +79,7 @@ class _KeyenceHostLinkBase(BaseClient):
             raw = transport.recv(KV_MAX_DATAGRAM)
             if not raw or raw[-1] not in (10, 13):
                 raise ProtocolFrameError(
-                    "UDP 响应缺少 CR/LF 结束符(收到的原始数据:{})".format(
+                    _("UDP 响应缺少 CR/LF 结束符(收到的原始数据:{})").format(
                         _truncate_hex(raw)
                     )
                 )
@@ -94,7 +95,7 @@ class _KeyenceHostLinkBase(BaseClient):
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         raise socket.timeout(
-                            f"KV Host Link 收行超时({previous_timeout}s)"
+                            _("KV Host Link 收行超时({}s)").format(previous_timeout)
                         )
                     transport.receive_timeout = remaining
                     byte = transport.recv(1)
@@ -107,7 +108,7 @@ class _KeyenceHostLinkBase(BaseClient):
                     received += 1
                     if received > KV_MAX_LINE:
                         raise ProtocolFrameError(
-                            "KV Host Link 响应行超过 {} 字节上限(头部字节:{})".format(
+                            _("KV Host Link 响应行超过 {} 字节上限(头部字节:{})").format(
                                 KV_MAX_LINE,
                                 _truncate_hex(b"".join(chunks)),
                             )
@@ -129,7 +130,7 @@ class _KeyenceHostLinkBase(BaseClient):
         if data_type is DataType.BOOL:
             return self._read_bool_impl(parsed)
         if parsed.bit is not None:
-            raise ValueError(f"仅布尔类型支持字软元件位访问:{address!r}")
+            raise ValueError(_("仅布尔类型支持字软元件位访问:{!r}").format(address))
         if not is_bit_device(parsed.device) and data_type in (
             DataType.SHORT,
             DataType.USHORT,
@@ -141,7 +142,7 @@ class _KeyenceHostLinkBase(BaseClient):
             DataType.DOUBLE,
         ):
             return self._read_word(parsed, data_type)
-        raise ValueError(f"KV Host Link 不支持的数据类型或软元件:{address!r}({data_type})")
+        raise ValueError(_("KV Host Link 不支持的数据类型或软元件:{!r}({})").format(address, data_type))
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """按数据类型分发到位/字写入原语。"""
@@ -150,7 +151,7 @@ class _KeyenceHostLinkBase(BaseClient):
             self._write_bool_impl(parsed, require_bool(value))
             return
         if parsed.bit is not None:
-            raise ValueError(f"仅布尔类型支持字软元件位访问:{address!r}")
+            raise ValueError(_("仅布尔类型支持字软元件位访问:{!r}").format(address))
         if not is_bit_device(parsed.device) and data_type in (
             DataType.SHORT,
             DataType.USHORT,
@@ -163,7 +164,7 @@ class _KeyenceHostLinkBase(BaseClient):
         ):
             self._write_word(parsed, data_type, value)
             return
-        raise ValueError(f"KV Host Link 不支持的数据类型或软元件:{address!r}({data_type})")
+        raise ValueError(_("KV Host Link 不支持的数据类型或软元件:{!r}({})").format(address, data_type))
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """读字符串:连续 .U 字 → 小端拼字节 → 解码。"""
@@ -189,13 +190,13 @@ class _KeyenceHostLinkBase(BaseClient):
             tokens = codec.split_tokens(response)
             if len(tokens) != 1:
                 raise ProtocolFrameError(
-                    "位读响应应为 1 个令牌,收到 {}:{}(收到的原始响应:{!r})".format(
+                    _("位读响应应为 1 个令牌,收到 {}:{}(收到的原始响应:{!r})").format(
                         len(tokens), response, response
                     )
                 )
             return codec.parse_bit_token(tokens[0])
         if parsed.bit is None:
-            raise ValueError("位软元件布尔读取需要位软元件或字软元件位访问,如 DM100.5")
+            raise ValueError(_("位软元件布尔读取需要位软元件或字软元件位访问,如 DM100.5"))
         word = self._read_word_token(parsed, ".U")
         return bool((word >> parsed.bit) & 1)
 
@@ -205,7 +206,7 @@ class _KeyenceHostLinkBase(BaseClient):
             self._write_single(parsed, "", "1" if value else "0")
             return
         if parsed.bit is None:
-            raise ValueError("位软元件布尔写入需要位软元件或字软元件位访问,如 DM100.5")
+            raise ValueError(_("位软元件布尔写入需要位软元件或字软元件位访问,如 DM100.5"))
         word = self._read_word_token(parsed, ".U")
         updated = (word | (1 << parsed.bit)) if value else (word & ~(1 << parsed.bit))
         self._write_single(parsed, ".U", codec.format_value(updated & 0xFFFF, ".U"))
@@ -259,7 +260,7 @@ class _KeyenceHostLinkBase(BaseClient):
             try:
                 raw = struct.pack("<f", number_f)
             except (OverflowError, ValueError) as exc:
-                raise ValueError(f"float 超出 float32 范围:{value}") from exc
+                raise ValueError(_("float 超出 float32 范围:{}").format(value)) from exc
             self._write_consecutive_words(parsed, convert.bytes_to_words(raw))
             return
         if data_type in (DataType.LONG, DataType.ULONG):
@@ -289,7 +290,7 @@ class _KeyenceHostLinkBase(BaseClient):
         tokens = codec.split_tokens(response)
         if len(tokens) != 1:
             raise ProtocolFrameError(
-                "字读响应应为 1 个令牌,收到 {}:{}(收到的原始响应:{!r})".format(
+                _("字读响应应为 1 个令牌,收到 {}:{}(收到的原始响应:{!r})").format(
                     len(tokens), response, response
                 )
             )
@@ -307,7 +308,7 @@ class _KeyenceHostLinkBase(BaseClient):
         tokens = codec.split_tokens(response)
         if len(tokens) != count:
             raise ProtocolFrameError(
-                "连续读响应令牌数不符:期望 {},收到 {}:{}(收到的原始响应:{!r})".format(
+                _("连续读响应令牌数不符:期望 {},收到 {}:{}(收到的原始响应:{!r})").format(
                     count, len(tokens), response, response
                 )
             )
@@ -384,7 +385,7 @@ def _require_word(address: str) -> KvAddress:
     """字符串存取只允许无位号的字软元件(内部函数)。"""
     parsed = parse_kv_address(address)
     if parsed.bit is not None or is_bit_device(parsed.device):
-        raise ValueError(f"字符串只能从字软元件存取,收到:{address!r}")
+        raise ValueError(_("字符串只能从字软元件存取,收到:{!r}").format(address))
     return parsed
 
 
@@ -397,7 +398,7 @@ def _expect_ok(response: str) -> None:
     """
     if response.strip().upper() != "OK":
         raise ProtocolFrameError(
-            f"写命令应答异常:期望 OK,收到 {response!r}"
+            _("写命令应答异常:期望 OK,收到 {!r}").format(response)
         )
 
 

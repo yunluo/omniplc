@@ -42,6 +42,7 @@ from ...core.constants import (
     PANASONIC_MC_SM_LINEAR_BASE,
 )
 from ...core.types import McFrame
+from ...core.i18n import _
 
 # "字号 + 位号"组织的位软元件(帧内编号 = 字号×16 + 位号)
 _WORD_BIT_DEVICES = ("X", "Y", "L", "R")
@@ -77,21 +78,21 @@ def _linearize(device: str, number_text: str, bit: Optional[int]) -> Tuple[int, 
     else:
         if not number_text:
             raise ValueError(
-                "松下位软元件 {} 需要字号+位号(如 {}000F)或点号形式(如 {}.15)".format(
+                _("松下位软元件 {} 需要字号+位号(如 {}000F)或点号形式(如 {}.15)").format(
                     device, device, device
                 )
             )
         word_text, bit_value = number_text[:-1], int(number_text[-1], 16)
     if not word_text:
         raise ValueError(
-            "松下位软元件 {} 地址缺少字号:{!r}"
-            "(字号+位号形式如 {}000F,点号形式如 {}.15)".format(device, number_text, device, device)
+            _("松下位软元件 {} 地址缺少字号:{!r}"
+            "(字号+位号形式如 {}000F,点号形式如 {}.15)").format(device, number_text, device, device)
         )
     try:
         word = int(word_text, 10)
     except ValueError:
         raise ValueError(
-            f"松下位软元件 {device} 字号为十进制,解析失败:{word_text!r}"
+            _("松下位软元件 {} 字号为十进制,解析失败:{!r}").format(device, word_text)
         )
     return word * 16 + bit_value, bit_value
 

@@ -55,6 +55,7 @@ from ...transport import BaseTransport
 from ...core.types import DataType, PrimitiveValue
 from .address import McAddress, parse_mc_address
 from .melsec import _decode_32, _decode_64, _encode_32, _encode_64
+from ...core.i18n import _
 
 
 # ----------------------------------------------------------------------
@@ -113,7 +114,7 @@ def _return_code(result: Any) -> int:
     for item in items:
         if isinstance(item, int):
             return item
-    raise OmniPLCInternalError(f"MX Component 返回码缺失:{result!r}")
+    raise OmniPLCInternalError(_("MX Component 返回码缺失:{!r}").format(result))
 
 
 def _raw_com_method(com: Any, method: str) -> Any:
@@ -135,8 +136,7 @@ def _raw_com_method(com: Any, method: str) -> Any:
             if key.lower().endswith(suffix):
                 return getattr(com, key)
     raise OmniPLCInternalError(
-        f"MX Component 接口缺少原始方法 {method}"
-        "(COM 控件未按类型库绑定,块读写无法走原始 vtable 通道)"
+        _("MX Component 接口缺少原始方法 {}(COM 控件未按类型库绑定,块读写无法走原始 vtable 通道)").format(method)
     )
 
 
@@ -148,7 +148,7 @@ def _check_rc(code: int, method: str) -> None:
     """
     if code != 0:
         raise OmniPLCInternalError(
-            "MX Component {} 失败:返回码 {}".format(method, _format_code(code))
+            _("MX Component {} 失败:返回码 {}").format(method, _format_code(code))
         )
 
 
@@ -163,7 +163,7 @@ def _com_get_device(com: Any, device_text: str) -> int:
         result = com.GetDevice(device_text)
     except _com_error() as exc:
         raise OmniPLCInternalError(
-            "MX Component GetDevice 失败:{}".format(exc)
+            _("MX Component GetDevice 失败:{}").format(exc)
         ) from exc
     return int(_first(result)) & 0xFFFF
 
@@ -174,7 +174,7 @@ def _com_set_device(com: Any, device_text: str, value: int) -> None:
         code = com.SetDevice(device_text, int(value))
     except _com_error() as exc:
         raise OmniPLCInternalError(
-            "MX Component SetDevice 失败:{}".format(exc)
+            _("MX Component SetDevice 失败:{}").format(exc)
         ) from exc
     _check_rc(int(code), "SetDevice")
 
@@ -189,7 +189,7 @@ def _check_com_call(result: Any, retcode: int, method: str) -> None:
     hresult = _return_code(result)  # tuple 防御:取首个 int
     if hresult != 0:
         raise OmniPLCInternalError(
-            "MX Component {} COM 调用失败:HRESULT 0x{:08X}".format(
+            _("MX Component {} COM 调用失败:HRESULT 0x{:08X}").format(
                 method, hresult & 0xFFFFFFFF
             )
         )
@@ -211,7 +211,7 @@ def _com_read_words(com: Any, device_text: str, count: int) -> List[int]:
         result = raw(device_text, count, buffer, retcode)
     except _com_error() as exc:
         raise OmniPLCInternalError(
-            "MX Component ReadDeviceBlock 失败:{}".format(exc)
+            _("MX Component ReadDeviceBlock 失败:{}").format(exc)
         ) from exc
     _check_com_call(result, retcode.value, "ReadDeviceBlock")
     return [int(word) & 0xFFFF for word in buffer]
@@ -226,7 +226,7 @@ def _com_write_words(com: Any, device_text: str, words: Sequence[int]) -> None:
         result = raw(device_text, len(words), buffer, retcode)
     except _com_error() as exc:
         raise OmniPLCInternalError(
-            "MX Component WriteDeviceBlock 失败:{}".format(exc)
+            _("MX Component WriteDeviceBlock 失败:{}").format(exc)
         ) from exc
     _check_com_call(result, retcode.value, "WriteDeviceBlock")
 
@@ -245,7 +245,7 @@ def _com_read_random(com: Any, device_list: str, count: int) -> List[int]:
         result = raw(device_list, count, buffer, retcode)
     except _com_error() as exc:
         raise OmniPLCInternalError(
-            "MX Component ReadDeviceRandom 失败:{}".format(exc)
+            _("MX Component ReadDeviceRandom 失败:{}").format(exc)
         ) from exc
     _check_com_call(result, retcode.value, "ReadDeviceRandom")
     return [int(word) & 0xFFFF for word in buffer]
@@ -263,7 +263,7 @@ def _com_write_random(com: Any, device_list: str, count: int, words: Sequence[in
         result = raw(device_list, count, buffer, retcode)
     except _com_error() as exc:
         raise OmniPLCInternalError(
-            "MX Component WriteDeviceRandom 失败:{}".format(exc)
+            _("MX Component WriteDeviceRandom 失败:{}").format(exc)
         ) from exc
     _check_com_call(result, retcode.value, "WriteDeviceRandom")
 
@@ -287,13 +287,13 @@ def _com_get_cpu_type(com: Any) -> Tuple[str, int]:
             raw = com.GetCpuType(ctypes.byref(name), ctypes.byref(code))
         except _com_error() as exc:
             raise OmniPLCInternalError(
-                "MX Component GetCpuType 失败:{}".format(exc)
+                _("MX Component GetCpuType 失败:{}").format(exc)
             ) from exc
         _check_rc(_return_code(raw), "GetCpuType")
         return str(name.value), int(code.value)
     except _com_error() as exc:
         raise OmniPLCInternalError(
-            "MX Component GetCpuType 失败:{}".format(exc)
+            _("MX Component GetCpuType 失败:{}").format(exc)
         ) from exc
     values = result if isinstance(result, tuple) else (result,)
     texts = [value for value in values if isinstance(value, str)]
@@ -304,7 +304,7 @@ def _com_get_cpu_type(com: Any) -> Tuple[str, int]:
     ]
     if not texts:
         raise OmniPLCInternalError(
-            f"MX Component GetCpuType 返回形态未识别:{result!r}"
+            _("MX Component GetCpuType 返回形态未识别:{!r}").format(result)
         )
     return texts[0], codes[0] if codes else 0
 
@@ -326,19 +326,19 @@ def _com_get_clock_data(com: Any) -> Dict[str, int]:
             raw = com.GetClockData(*[ctypes.byref(variant) for variant in variants])
         except _com_error() as exc:
             raise OmniPLCInternalError(
-                "MX Component GetClockData 失败:{}".format(exc)
+                _("MX Component GetClockData 失败:{}").format(exc)
             ) from exc
         _check_rc(_return_code(raw), "GetClockData")
         values = [variant.value for variant in variants]
     except _com_error() as exc:
         raise OmniPLCInternalError(
-            "MX Component GetClockData 失败:{}".format(exc)
+            _("MX Component GetClockData 失败:{}").format(exc)
         ) from exc
     else:
         listed = list(result if isinstance(result, tuple) else (result,))
         if len(listed) < len(_CLOCK_FIELDS):
             raise OmniPLCInternalError(
-                f"MX Component GetClockData 返回形态未识别:{result!r}"
+                _("MX Component GetClockData 返回形态未识别:{!r}").format(result)
             )
         values = listed[: len(_CLOCK_FIELDS)]
     return {
@@ -363,7 +363,7 @@ def _com_set_clock_data(
         result = com.SetClockData(*[int(value) for value in fields])
     except _com_error() as exc:
         raise OmniPLCInternalError(
-            "MX Component SetClockData 失败:{}".format(exc)
+            _("MX Component SetClockData 失败:{}").format(exc)
         ) from exc
     _check_rc(_return_code(result), "SetClockData")
 
@@ -381,8 +381,8 @@ def _new_support_msg_com(logical_station_number: int) -> Any:
         com = comtypes.client.CreateObject(MX_SUPPORT_MSG_PROG_ID)
     except Exception as exc:
         raise OmniPLCInternalError(
-            "MX Component ActSupportMsg 控件创建失败:{}(请确认已安装 MX Component "
-            "运行时并执行 pip install omniplc[mx])".format(exc)
+            _("MX Component ActSupportMsg 控件创建失败:{}(请确认已安装 MX Component "
+            "运行时并执行 pip install omniplc[mx])").format(exc)
         ) from exc
     try:
         com.ActLogicalStationNumber = logical_station_number
@@ -413,7 +413,7 @@ def _com_get_error_message(com: Any, code: int) -> str:
             probe_failed = True  # 形态探测:单参形态不成立,走 byref 回退
         except _com_error() as exc:
             raise OmniPLCInternalError(
-                "MX Component GetErrorMessage 失败:{}".format(exc)
+                _("MX Component GetErrorMessage 失败:{}").format(exc)
             ) from exc
         if not probe_failed:
             return str(_first(result))
@@ -422,7 +422,7 @@ def _com_get_error_message(com: Any, code: int) -> str:
             raw = com.GetErrorMessage(int(code), ctypes.byref(message))
         except _com_error() as exc:
             raise OmniPLCInternalError(
-                "MX Component GetErrorMessage 失败:{}".format(exc)
+                _("MX Component GetErrorMessage 失败:{}").format(exc)
             ) from exc
         _check_rc(_return_code(raw), "GetErrorMessage")
         return str(message.value)
@@ -458,8 +458,8 @@ class _MxComLink(BaseTransport):
             _com_initialize()
         except Exception as exc:
             raise OSError(
-                "MX Component COM 初始化失败:{}(请确认已安装 MX Component 运行时,"
-                "并执行 pip install omniplc[mx])".format(exc)
+                _("MX Component COM 初始化失败:{}(请确认已安装 MX Component 运行时,"
+                "并执行 pip install omniplc[mx])").format(exc)
             )
         try:
             com = _new_com_object(self._logical_station_number)
@@ -468,14 +468,14 @@ class _MxComLink(BaseTransport):
             # 每次在线程上累积一个 CoInitialize 引用计数
             _com_uninitialize()
             raise OSError(
-                "MX Component 控件创建失败:{}(请确认已安装 MX Component 运行时,"
-                "并执行 pip install omniplc[mx])".format(exc)
+                _("MX Component 控件创建失败:{}(请确认已安装 MX Component 运行时,"
+                "并执行 pip install omniplc[mx])").format(exc)
             )
         code = int(com.Open())
         if code != 0:
             _com_uninitialize()
             raise OSError(
-                "MX Component Open 失败(逻辑站号 {}):返回码 {}".format(
+                _("MX Component Open 失败(逻辑站号 {}):返回码 {}").format(
                     self._logical_station_number, _format_code(code)
                 )
             )
@@ -499,22 +499,22 @@ class _MxComLink(BaseTransport):
         self._com = None
         _com_uninitialize()
         if code != 0:
-            raise OSError("MX Component Close 失败:返回码 {}".format(_format_code(code)))
+            raise OSError(_("MX Component Close 失败:返回码 {}").format(_format_code(code)))
         log_op(self._debug_label, "会话已断开")
 
     def send(self, data: bytes) -> None:
         """MX 通道无字节流收发(不调用)。"""
-        raise TransportClosedError("MX Component 走 COM 通道,无字节流收发")
+        raise TransportClosedError(_("MX Component 走 COM 通道,无字节流收发"))
 
     def recv(self, size: int) -> bytes:
         """MX 通道无字节流收发(不调用)。"""
-        raise TransportClosedError("MX Component 走 COM 通道,无字节流收发")
+        raise TransportClosedError(_("MX Component 走 COM 通道,无字节流收发"))
 
     @property
     def com(self) -> Any:
         """当前 COM 控件实例(仅连接成功后可用,内部属性)。"""
         if self._com is None:
-            raise TransportClosedError("MX Component 通信线路未打开")
+            raise TransportClosedError(_("MX Component 通信线路未打开"))
         return self._com
 
 
@@ -541,7 +541,7 @@ class MelsecMxClient(BaseClient):
         super().__init__()
         if not 0 <= int(logical_station_number) <= MX_LOGICAL_STATION_MAX:
             raise ValueError(
-                "逻辑站号必须在 0~{} 之间,收到:{}".format(
+                _("逻辑站号必须在 0~{} 之间,收到:{}").format(
                     MX_LOGICAL_STATION_MAX, logical_station_number
                 )
             )
@@ -561,14 +561,14 @@ class MelsecMxClient(BaseClient):
         """取当前 COM 控件(仅事务锁内调用,内部方法)。"""
         link = self._require_transport()
         if not isinstance(link, _MxComLink):
-            raise TransportClosedError("内部错误:传输对象不是 MX COM 会话")
+            raise TransportClosedError(_("内部错误:传输对象不是 MX COM 会话"))
         return link.com
 
     def _read_words(self, device_text: str, count: int) -> List[int]:
         """批量读字软元件(ReadDeviceBlock),返回 0~65535 原始字列表。"""
         if count > MX_MAX_BLOCK_WORDS:
             raise ValueError(
-                f"批量读取字数超过上限 {MX_MAX_BLOCK_WORDS}:{count}"
+                _("批量读取字数超过上限 {}:{}").format(MX_MAX_BLOCK_WORDS, count)
             )
         words = _com_read_words(self._com(), device_text, count)
         log_op(self._debug_label, "ReadDeviceBlock %s×%d → %s", device_text, count, words)
@@ -578,7 +578,7 @@ class MelsecMxClient(BaseClient):
         """批量写字软元件(WriteDeviceBlock)。"""
         if len(words) > MX_MAX_BLOCK_WORDS:
             raise ValueError(
-                "批量写入字数超过上限 {}:{}".format(MX_MAX_BLOCK_WORDS, len(words))
+                _("批量写入字数超过上限 {}:{}").format(MX_MAX_BLOCK_WORDS, len(words))
             )
         _com_write_words(self._com(), device_text, words)
         log_op(self._debug_label, "WriteDeviceBlock %s×%d ← %s", device_text, len(words), words)
@@ -598,7 +598,7 @@ class MelsecMxClient(BaseClient):
         """随机读(ReadDeviceRandom),软元件列表换行分隔,返回原始字列表。"""
         if len(device_texts) > MX_MAX_BLOCK_WORDS:
             raise ValueError(
-                "随机读取点数超过上限 {}:{}".format(MX_MAX_BLOCK_WORDS, len(device_texts))
+                _("随机读取点数超过上限 {}:{}").format(MX_MAX_BLOCK_WORDS, len(device_texts))
             )
         words = _com_read_random(self._com(), "\n".join(device_texts), len(device_texts))
         log_op(self._debug_label, "ReadDeviceRandom %d 点 → %s", len(device_texts), words)
@@ -662,7 +662,7 @@ class MelsecMxClient(BaseClient):
             return _decode_32(self._read_words(_device_text(parsed), 2), data_type)
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             return _decode_64(self._read_words(_device_text(parsed), 4), data_type)
-        raise ValueError(f"MX Component 不支持的数据类型:{data_type}")
+        raise ValueError(_("MX Component 不支持的数据类型:{}").format(data_type))
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """按数据类型分发到单点/块写入原语。"""
@@ -683,7 +683,7 @@ class MelsecMxClient(BaseClient):
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             self._write_words(_device_text(parsed), _encode_64(value, data_type))
             return
-        raise ValueError(f"MX Component 不支持的数据类型:{data_type}")
+        raise ValueError(_("MX Component 不支持的数据类型:{}").format(data_type))
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """读字符串:批量读字 → 小端拼字节 → 解码。"""
@@ -741,10 +741,10 @@ class MelsecMxClient(BaseClient):
         :raises ValueError: 列表为空/类型不支持/条数超限
         """
         if not items:
-            raise ValueError("read_batch 至少需要一个 (地址, 数据类型) 项")
+            raise ValueError(_("read_batch 至少需要一个 (地址, 数据类型) 项"))
         if len(items) > MX_MAX_BLOCK_WORDS:
             raise ValueError(
-                "read_batch 条目数超出上限 {}:{}".format(MX_MAX_BLOCK_WORDS, len(items))
+                _("read_batch 条目数超出上限 {}:{}").format(MX_MAX_BLOCK_WORDS, len(items))
             )
         random_texts: List[str] = []
         # 解码计划:(类别, 地址, 位号, 数据类型, 字数);类别 random/block
@@ -771,7 +771,7 @@ class MelsecMxClient(BaseClient):
                 words = 4
             else:
                 raise ValueError(
-                    f"MX 批量读取不支持的数据类型:{data_type_enum}"
+                    _("MX 批量读取不支持的数据类型:{}").format(data_type_enum)
                 )
             plan.append(("block", address, 0, data_type_enum, words))
 
@@ -819,10 +819,10 @@ class MelsecMxClient(BaseClient):
         :raises ValueError: 列表为空/值类型不支持/条数超限
         """
         if not items:
-            raise ValueError("write_batch 至少需要一个 (地址, 值) 项")
+            raise ValueError(_("write_batch 至少需要一个 (地址, 值) 项"))
         if len(items) > MX_MAX_BLOCK_WORDS:
             raise ValueError(
-                "write_batch 条目数超出上限 {}:{}".format(MX_MAX_BLOCK_WORDS, len(items))
+                _("write_batch 条目数超出上限 {}:{}").format(MX_MAX_BLOCK_WORDS, len(items))
             )
         texts: List[str] = []
         words: List[int] = []
@@ -830,13 +830,12 @@ class MelsecMxClient(BaseClient):
             parsed = _check_address(address)
             if parsed.bit is not None:
                 raise ValueError(
-                    f"write_batch 不支持字软元件位号 {address!r}"
-                    "(位写入需读-改-写语义,请逐点 write_bool)"
+                    _("write_batch 不支持字软元件位号 {!r}(位写入需读-改-写语义,请逐点 write_bool)").format(address)
                 )
             if isinstance(value, bool):
                 if not _is_bit_device(parsed.device):
                     raise ValueError(
-                        f"write_batch 的 bool 值仅支持位软元件:{address!r} ← {value!r}"
+                        _("write_batch 的 bool 值仅支持位软元件:{!r} ← {!r}").format(address, value)
                     )
                 texts.append(_device_text(parsed))
                 words.append(1 if value else 0)
@@ -845,24 +844,24 @@ class MelsecMxClient(BaseClient):
                 if _is_bit_device(parsed.device):
                     if value not in (0, 1):
                         raise ValueError(
-                            f"write_batch 位软元件 {address!r} 的值必须为 0/1:{value!r}"
+                            _("write_batch 位软元件 {!r} 的值必须为 0/1:{!r}").format(address, value)
                         )
                 elif not INT16_MIN <= value <= UINT16_MAX:
                     raise ValueError(
-                        f"write_batch 整数值超出 16 位范围(-32768~65535):{value!r}"
+                        _("write_batch 整数值超出 16 位范围(-32768~65535):{!r}").format(value)
                     )
                 texts.append(_device_text(parsed))
                 words.append(value & 0xFFFF)
                 continue
             raise ValueError(
-                "write_batch 仅支持 16 位量(bool/int),{} 收到:{!r}"
-                "(32/64 位请逐点写入)".format(type(value).__name__, value)
+                _("write_batch 仅支持 16 位量(bool/int),{} 收到:{!r}"
+                "(32/64 位请逐点写入)").format(type(value).__name__, value)
             )
 
         def operation() -> None:
             self._write_random(texts, words)
 
-        ok, _ = self._execute(operation, is_write=True)
+        ok, _unused = self._execute(operation, is_write=True)
         return ok
 
     # ------------------------------------------------------------------
@@ -918,7 +917,7 @@ class MelsecMxClient(BaseClient):
         def operation() -> None:
             self._set_clock_data(year, month, day, day_of_week, hour, minute, second)
 
-        ok, _ = self._execute(operation, is_write=True)
+        ok, _unused = self._execute(operation, is_write=True)
         return ok
 
     def get_error_message(self, code: int) -> Tuple[bool, Optional[str]]:
@@ -978,7 +977,7 @@ def _check_address(address: str) -> McAddress:
     parsed = parse_mc_address(address)
     if parsed.bit is not None and _is_bit_device(parsed.device):
         raise ValueError(
-            f"位软元件不支持位号后缀:{address!r}(示例:M10 或 D100.3)"
+            _("位软元件不支持位号后缀:{!r}(示例:M10 或 D100.3)").format(address)
         )
     return parsed
 
@@ -1004,7 +1003,7 @@ def _require_word_device(address: str) -> McAddress:
     """字符串存取只允许字软元件(内部函数)。"""
     parsed = _check_address(address)
     if parsed.bit is not None or _is_bit_device(parsed.device):
-        raise ValueError(f"字符串只能从字软元件存取,收到:{address!r}")
+        raise ValueError(_("字符串只能从字软元件存取,收到:{!r}").format(address))
     return parsed
 
 
@@ -1022,10 +1021,10 @@ def _reject_non_bool_access(
     if data_type is DataType.BOOL:
         return
     if parsed.bit is not None:
-        raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+        raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
     if _is_bit_device(parsed.device):
         raise ValueError(
-            "位软元件 {}{} 只支持 BOOL,字/数值请改用字软元件(如 D)".format(
+            _("位软元件 {}{} 只支持 BOOL,字/数值请改用字软元件(如 D)").format(
                 parsed.device, parsed.number
             )
         )

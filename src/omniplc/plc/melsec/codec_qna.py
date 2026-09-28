@@ -57,6 +57,7 @@ from ...core.constants import (
 )
 from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
+from ...core.i18n import _
 
 _FRAME_NAMES = ("3E", "4E")
 
@@ -77,7 +78,7 @@ def device_info(
         code, is_bit, base = table[device]
     except KeyError:
         raise ValueError(
-            "不支持的 MC 软元件:{!r},支持:{}".format(device, "/".join(sorted(table)))
+            _("不支持的 MC 软元件:{!r},支持:{}").format(device, "/".join(sorted(table)))
         )
     return code, bool(is_bit), base
 
@@ -91,7 +92,7 @@ def device_number(device: str, number: str, base: int) -> int:
         return int(number, base)
     except ValueError:
         raise ValueError(
-            f"软元件 {device} 编号按 {base} 进制解析失败:{number!r}"
+            _("软元件 {} 编号按 {} 进制解析失败:{!r}").format(device, base, number)
         )
 
 
@@ -105,8 +106,8 @@ def reject_bit_suffix_on_bit_device(address: McAddress) -> None:
     """
     if address.bit is not None:
         raise ValueError(
-            "位软元件不支持位号后缀:{}{}.{}(位软元件直接用编号,"
-            "如 M10;字软元件位访问用 D100.3)".format(
+            _("位软元件不支持位号后缀:{}{}.{}(位软元件直接用编号,"
+            "如 M10;字软元件位访问用 D100.3)").format(
                 address.device, address.number, address.bit
             )
         )
@@ -137,14 +138,14 @@ def build_core(
     code, is_bit_device, base = device_info(address.device, codes)
     if is_bit and not is_bit_device:
         raise ValueError(
-            f"字软元件 {address.device} 不支持位单位成批访问,请按字访问后提取位"
+            _("字软元件 {} 不支持位单位成批访问,请按字访问后提取位").format(address.device)
         )
     if is_bit and is_bit_device:
         reject_bit_suffix_on_bit_device(address)
     _check_points(points, MC_MAX_TRANSFER_POINTS)
     number = device_number(address.device, address.number, base)
     if number > 0xFFFFFF:
-        raise ValueError(f"MC 软元件编号超出 3 字节范围:{number}")
+        raise ValueError(_("MC 软元件编号超出 3 字节范围:{}").format(number))
 
     command = MC_COMMAND_BATCH_WRITE if is_write else MC_COMMAND_BATCH_READ
     subcommand = MC_SUBCOMMAND_BIT_UNITS if is_bit else MC_SUBCOMMAND_WORD_UNITS
@@ -235,10 +236,10 @@ def build_random_read(
     frame_name = _check_frame(frame)
     total_blocks = len(word_blocks) + len(bit_blocks)
     if total_blocks == 0:
-        raise ValueError("多块批量读至少需要一个字块或位块")
+        raise ValueError(_("多块批量读至少需要一个字块或位块"))
     if total_blocks > MC_MAX_RANDOM_BLOCKS:
         raise ValueError(
-            f"多块批量读总块数超出上限 {MC_MAX_RANDOM_BLOCKS}:{total_blocks}"
+            _("多块批量读总块数超出上限 {}:{}").format(MC_MAX_RANDOM_BLOCKS, total_blocks)
         )
     word_points = sum(points for _code, _number, points in word_blocks)
     bit_points = sum(points for _code, _number, points in bit_blocks)
@@ -249,8 +250,8 @@ def build_random_read(
         # "库自己允许的请求,自己的传输层收不回来"。TCP 帧可分段收不受此限,
         # 统一按保守值拦截(差值 <0.2%,拆分一笔即可)。
         raise ValueError(
-            "多块批量读响应过大:{} 字节(结束码 2 + 数据 {},上限 {}),"
-            "请拆分为多笔请求".format(
+            _("多块批量读响应过大:{} 字节(结束码 2 + 数据 {},上限 {}),"
+            "请拆分为多笔请求").format(
                 response_bytes,
                 (word_points + bit_points) * 2,
                 MC_MAX_RESPONSE_CONTENT_DATAGRAM,
@@ -281,14 +282,14 @@ def parse_response_head(head: bytes, frame: str) -> int:
     expected_size = MC_4E_RESPONSE_HEAD_SIZE if frame_name == "4E" else MC_RESPONSE_HEAD_SIZE
     if len(head) < expected_size:
         raise ProtocolFrameError(
-            "MC 响应头不足 {} 字节,实收 {}(收到的原始数据:{})".format(
+            _("MC 响应头不足 {} 字节,实收 {}(收到的原始数据:{})").format(
                 expected_size, len(head), format_hex(head)
             )
         )
     wanted = MC_RESPONSE_SUBHEADER_4E if frame_name == "4E" else MC_RESPONSE_SUBHEADER_3E
     if head[0] != wanted or head[1] != 0x00:
         raise ProtocolFrameError(
-            "MC 响应副头部非法:0x{:02X} 0x{:02X}(收到的原始数据:{})".format(
+            _("MC 响应副头部非法:0x{:02X} 0x{:02X}(收到的原始数据:{})").format(
                 head[0], head[1], format_hex(head)
             )
         )
@@ -296,13 +297,13 @@ def parse_response_head(head: bytes, frame: str) -> int:
     length = int.from_bytes(head[offset:offset + 2], "little")
     if length < 2:
         raise ProtocolFrameError(
-            "MC 应答数据长非法(至少含结束码 2 字节):{}(收到的原始数据:{})".format(
+            _("MC 应答数据长非法(至少含结束码 2 字节):{}(收到的原始数据:{})").format(
                 length, format_hex(head)
             )
         )
     if length > MC_MAX_RESPONSE_CONTENT:
         raise ProtocolFrameError(
-            "MC 应答数据长超限:{} > {}(收到的原始数据:{})".format(
+            _("MC 应答数据长超限:{} > {}(收到的原始数据:{})").format(
                 length, MC_MAX_RESPONSE_CONTENT, format_hex(head)
             )
         )
@@ -338,7 +339,7 @@ def parse_response(
     data = frame[data_offset:]
     if len(data) != expected:
         raise ProtocolFrameError(
-            "MC 响应数据长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+            _("MC 响应数据长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})").format(
                 expected, len(data), format_hex(frame)
             )
         )
@@ -371,7 +372,7 @@ def parse_random_read_response(
     data = frame[data_offset:]
     if len(data) != expected:
         raise ProtocolFrameError(
-            "MC 多块批量读响应数据长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+            _("MC 多块批量读响应数据长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})").format(
                 expected, len(data), format_hex(frame)
             )
         )
@@ -411,10 +412,10 @@ def build_random_read_devices(
     frame_name = _check_frame(frame)
     total = len(word_devices) + len(double_word_devices)
     if total == 0:
-        raise ValueError("随机读至少需要一个字访问或双字访问软元件")
+        raise ValueError(_("随机读至少需要一个字访问或双字访问软元件"))
     if total > MC_RANDOM_READ_MAX_POINTS:
         raise ValueError(
-            "随机读总点数(字 {} + 双字 {})超出上限 {}:{}".format(
+            _("随机读总点数(字 {} + 双字 {})超出上限 {}:{}").format(
                 len(word_devices),
                 len(double_word_devices),
                 MC_RANDOM_READ_MAX_POINTS,
@@ -458,7 +459,7 @@ def parse_random_read_devices_response(
     data = frame[data_offset:]
     if len(data) != word_bytes + dword_bytes:
         raise ProtocolFrameError(
-            "MC 随机读响应数据长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+            _("MC 随机读响应数据长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})").format(
                 word_bytes + dword_bytes, len(data), format_hex(frame)
             )
         )
@@ -492,10 +493,10 @@ def build_random_write_devices(
     frame_name = _check_frame(frame)
     weight = len(word_items) * 12 + len(double_word_items) * 14
     if weight == 0:
-        raise ValueError("随机写至少需要一个字访问或双字访问软元件")
+        raise ValueError(_("随机写至少需要一个字访问或双字访问软元件"))
     if weight > MC_RANDOM_WRITE_MAX_POINTS:
         raise ValueError(
-            "随机写加权点数(字 {}×12 + 双字 {}×14 = {})超出上限 {}:{}".format(
+            _("随机写加权点数(字 {}×12 + 双字 {}×14 = {})超出上限 {}:{}").format(
                 len(word_items),
                 len(double_word_items),
                 weight,
@@ -558,7 +559,7 @@ def parse_read_cpu_model_response(
     data = frame[data_offset:]
     if len(data) != MC_CPU_MODEL_RESPONSE_SIZE:
         raise ProtocolFrameError(
-            "MC CPU 型号响应数据长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+            _("MC CPU 型号响应数据长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})").format(
                 MC_CPU_MODEL_RESPONSE_SIZE, len(data), format_hex(frame)
             )
         )
@@ -566,7 +567,7 @@ def parse_read_cpu_model_response(
         name = data[:16].decode("ascii").rstrip(" ")
     except UnicodeDecodeError as exc:
         raise ProtocolFrameError(
-            "MC CPU 型号名含非 ASCII 字节:{}(收到的原始帧:{})".format(
+            _("MC CPU 型号名含非 ASCII 字节:{}(收到的原始帧:{})").format(
                 exc, format_hex(frame)
             )
         ) from exc
@@ -577,7 +578,7 @@ def parse_read_cpu_model_response(
 def _random_device(code: int, number: int) -> bytes:
     """随机读/写软元件条目:码 1 字节 + 编号 3 字节小端(内部函数)。"""
     if not 0 <= number <= 0xFFFFFF:
-        raise ValueError(f"MC 软元件编号超出 3 字节范围:{number}")
+        raise ValueError(_("MC 软元件编号超出 3 字节范围:{}").format(number))
     return bytes((code,)) + number.to_bytes(3, "little")
 
 
@@ -585,7 +586,7 @@ def _random_word_value(value: int, byte_count: int = 2) -> bytes:
     """随机写数值:字 2 字节 / 双字 4 字节,小端,无符号(内部函数)。"""
     if not 0 <= value <= (1 << (byte_count * 8)) - 1:
         raise ValueError(
-            "随机写数值超出 {} 字节无符号范围:{}".format(byte_count, value)
+            _("随机写数值超出 {} 字节无符号范围:{}").format(byte_count, value)
         )
     return value.to_bytes(byte_count, "little")
 
@@ -603,14 +604,14 @@ def _locate_data(
     head_size = MC_4E_RESPONSE_HEAD_SIZE if is_4e else MC_RESPONSE_HEAD_SIZE
     if len(frame) < head_size + content_length:
         raise ProtocolFrameError(
-            "MC 响应帧不完整:期望 {} 字节,实际 {}(收到的原始帧:{})".format(
+            _("MC 响应帧不完整:期望 {} 字节,实际 {}(收到的原始帧:{})").format(
                 head_size + content_length, len(frame), format_hex(frame)
             )
         )
     if len(frame) > head_size + content_length:
         raise ProtocolFrameError(
-            "MC 响应帧尾部有多余字节(数据报边界异常):期望 {} 字节,"
-            "实际 {}(收到的原始帧:{})".format(
+            _("MC 响应帧尾部有多余字节(数据报边界异常):期望 {} 字节,"
+            "实际 {}(收到的原始帧:{})").format(
                 head_size + content_length, len(frame), format_hex(frame)
             )
         )
@@ -618,14 +619,14 @@ def _locate_data(
         serial = int.from_bytes(frame[2:4], "little")
         if serial != expected_serial:
             raise ProtocolFrameError(
-                "MC 序列号不匹配:期望 {},收到 {}(收到的原始帧:{})".format(
+                _("MC 序列号不匹配:期望 {},收到 {}(收到的原始帧:{})").format(
                     expected_serial, serial, format_hex(frame)
                 )
             )
     end_offset = 13 if is_4e else 9
     end_code = int.from_bytes(frame[end_offset:end_offset + 2], "little")
     if end_code != 0:
-        raise DeviceError(f"MC 结束代码 0x{end_code:04X},详见 MELSEC 手册", end_code)
+        raise DeviceError(_("MC 结束代码 0x{:04X},详见 MELSEC 手册").format(end_code), end_code)
     return end_offset + 2
 
 
@@ -633,7 +634,7 @@ def _check_frame(frame: str) -> str:
     """帧型归一化与校验(内部函数)。"""
     frame_name = str(frame).strip().upper()
     if frame_name not in _FRAME_NAMES:
-        raise ValueError(f"QnA 兼容帧型必须是 3E/4E,收到:{frame!r}")
+        raise ValueError(_("QnA 兼容帧型必须是 3E/4E,收到:{!r}").format(frame))
     return frame_name
 
 
@@ -667,26 +668,26 @@ def _random_block(code: int, number: int, points: int) -> bytes:
     """多块批量读块条目:码 1 字节 + 编号 3 字节小端 + 点数 2 字节小端(内部函数)。"""
     _check_points(points, MC_MAX_TRANSFER_POINTS)
     if not 0 <= number <= 0xFFFFFF:
-        raise ValueError(f"MC 软元件编号超出 3 字节范围:{number}")
+        raise ValueError(_("MC 软元件编号超出 3 字节范围:{}").format(number))
     return bytes((code,)) + number.to_bytes(3, "little") + points.to_bytes(2, "little")
 
 
 def _check_points(points: int, limit: int) -> None:
     """点数范围校验(内部函数)。"""
     if not 1 <= points <= limit:
-        raise ValueError(f"MC 访问点数超出范围 1~{limit}:{points}")
+        raise ValueError(_("MC 访问点数超出范围 1~{}:{}").format(limit, points))
 
 
 def _check_timer(monitoring_timer: int) -> None:
     """监视定时器范围校验(内部函数)。"""
     if not 0 <= monitoring_timer <= 0xFFFF:
-        raise ValueError(f"监视定时器超出范围 0~65535:{monitoring_timer}")
+        raise ValueError(_("监视定时器超出范围 0~65535:{}").format(monitoring_timer))
 
 
 def _write_payload(points: int, is_bit: bool, data: List[int]) -> bytes:
     """写数据编码:位按"每字节 2 位、高位在前"打包;字逐字小端(内部函数)。"""
     if len(data) != points:
-        raise ValueError("写数据个数 {} 与点数 {} 不符".format(len(data), points))
+        raise ValueError(_("写数据个数 {} 与点数 {} 不符").format(len(data), points))
     if is_bit:
         packed = bytearray((points + 1) // 2)
         for index, flag in enumerate(data):
@@ -695,5 +696,5 @@ def _write_payload(points: int, is_bit: bool, data: List[int]) -> bytes:
         return bytes(packed)
     for word in data:
         if not 0 <= word <= 0xFFFF:
-            raise ValueError(f"字写数据超出范围 0~65535:{word}")
+            raise ValueError(_("字写数据超出范围 0~65535:{}").format(word))
     return b"".join(word.to_bytes(2, "little") for word in data)

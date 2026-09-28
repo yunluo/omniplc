@@ -34,6 +34,7 @@ from ...core.errors import ProtocolFrameError
 from ...core.validation import check_int16, check_uint16, require_bool
 from ...transport import BaseTransport, TcpTransport, UdpTransport
 from ...core.types import ByteOrder, DataType, PrimitiveValue
+from ...core.i18n import _
 
 
 class _MewtocolBase(BaseClient):
@@ -70,7 +71,7 @@ class _MewtocolBase(BaseClient):
         """MEWTOCOL 读原语:接点走 RCS,数据区走 RD。"""
         parsed = parse_mewtocol_address(address, data_type is DataType.BOOL)
         if data_type is not DataType.BOOL and parsed.bit is not None:
-            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+            raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         if data_type is DataType.BOOL:
             return self._read_bool_impl(parsed)
         if data_type in (DataType.SHORT, DataType.USHORT):
@@ -82,13 +83,13 @@ class _MewtocolBase(BaseClient):
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             data = self._read_words(parsed, 4)
             return _decode_64(data, data_type)
-        raise ValueError(f"MEWTOCOL 不支持的数据类型:{data_type}")
+        raise ValueError(_("MEWTOCOL 不支持的数据类型:{}").format(data_type))
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """MEWTOCOL 写原语:接点走 WCS,数据区走 WD(位写用读-改-写)。"""
         parsed = parse_mewtocol_address(address, data_type is DataType.BOOL)
         if data_type is not DataType.BOOL and parsed.bit is not None:
-            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+            raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         if data_type is DataType.BOOL:
             flag = require_bool(value)
             if parsed.area in MEWTOCOL_CONTACT_AREAS:
@@ -117,13 +118,13 @@ class _MewtocolBase(BaseClient):
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             self._write_words(parsed, _encode_64(value, data_type))
             return
-        raise ValueError(f"MEWTOCOL 不支持的数据类型:{data_type}")
+        raise ValueError(_("MEWTOCOL 不支持的数据类型:{}").format(data_type))
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """从数据区读字符串:逐字高字节在前拼字节后解码(MEWTOCOL 字内字节序)。"""
         parsed = parse_mewtocol_address(address, False)
         if parsed.bit is not None:
-            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+            raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         words = self._read_words(parsed, (length + 1) // 2)
         data = b"".join(word.to_bytes(2, "big") for word in words)[:length]
         return convert.decode_string(data, encoding)
@@ -132,7 +133,7 @@ class _MewtocolBase(BaseClient):
         """向数据区写字符串:编码 → 补齐偶数字节 → 逐字高字节在前。"""
         parsed = parse_mewtocol_address(address, False)
         if parsed.bit is not None:
-            raise ValueError(f"仅布尔类型支持位访问:{address!r}")
+            raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         raw = convert.encode_string(
             value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
         )
@@ -156,7 +157,7 @@ class _MewtocolBase(BaseClient):
             )
             if data_text not in ("0", "1"):
                 raise ProtocolFrameError(
-                    f"MEWTOCOL 接点读响应非法:{data_text!r}"
+                    _("MEWTOCOL 接点读响应非法:{!r}").format(data_text)
                 )
             return data_text == "1"
         words = self._read_words(parsed, 1)
@@ -171,7 +172,7 @@ class _MewtocolBase(BaseClient):
         )
         if len(data_text) != word_count * 4:
             raise ProtocolFrameError(
-                "MEWTOCOL 读响应数据不足:期望 {} 字符,实际 {}".format(
+                _("MEWTOCOL 读响应数据不足:期望 {} 字符,实际 {}").format(
                     word_count * 4, len(data_text)
                 )
             )
@@ -179,7 +180,7 @@ class _MewtocolBase(BaseClient):
             return [int(data_text[i:i + 4], 16) for i in range(0, len(data_text), 4)]
         except ValueError as exc:
             raise ProtocolFrameError(
-                f"MEWTOCOL 读响应含非十六进制数据:{data_text!r}"
+                _("MEWTOCOL 读响应含非十六进制数据:{!r}").format(data_text)
             ) from exc
 
     def _write_words(self, parsed: MewtocolAddress, words: List[int]) -> None:
@@ -203,8 +204,8 @@ class _MewtocolBase(BaseClient):
             expected = codec_mewtocol.parse_expected_size(data_chars)
             if expected > MEWTOCOL_MAX_DATAGRAM:
                 raise ValueError(
-                    "MEWTOCOL UDP 长读超出整包缓冲:预算响应 {} 字节 > {}"
-                    "(UDP 侧请减小单次字数或改 TCP 走线)".format(
+                    _("MEWTOCOL UDP 长读超出整包缓冲:预算响应 {} 字节 > {}"
+                    "(UDP 侧请减小单次字数或改 TCP 走线)").format(
                         expected, MEWTOCOL_MAX_DATAGRAM
                     )
                 )
