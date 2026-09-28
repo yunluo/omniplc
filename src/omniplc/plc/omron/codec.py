@@ -468,7 +468,7 @@ def _end_code_text(end_code: int) -> str:
         text = _("{} [{}]").format(text, _("、").join(flags))
     hint = FINS_END_CODE_HINT.get(base)
     if hint:
-        text = _("{};现场排查:{}").format(text, hint)
+        text = _("{};现场排查:{}").format(text, _(hint))
     return text
 
 

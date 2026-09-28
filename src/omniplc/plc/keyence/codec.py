@@ -113,7 +113,7 @@ def check_error_code(text: str) -> None:
     if _ERROR_RE.match(text):
         raise DeviceError(
             _("KV Host Link 出错 {}:{}").format(
-                text, KV_ERROR_TEXT.get(text, "未知错误,请查阅 KEYENCE 手册")
+                text, _(KV_ERROR_TEXT.get(text, _("未知错误,请查阅 KEYENCE 手册")))
             ),
             int(text[1]),
         )

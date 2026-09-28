@@ -323,7 +323,7 @@ def _check_enip_reply(
             )
         )
     if status != 0:
-        text = AB_EIP_STATUS_TEXT.get(status, "未知状态")
+        text = _(AB_EIP_STATUS_TEXT.get(status, _("未知状态")))
         raise ProtocolFrameError(
             _("ENIP 封装状态 0x{:08X}({})(收到的原始帧:{})").format(
                 status, text, format_hex(reply)
@@ -966,7 +966,7 @@ def _parse_service_payload(cip: bytes, request_service: int) -> bytes:
 
 def status_text(status: int) -> str:
     """CIP 通用状态码 → 可读描述(未知码返回"未知错误")。"""
-    return AB_CIP_STATUS_TEXT.get(status, "未知错误")
+    return _(AB_CIP_STATUS_TEXT.get(status, _("未知错误")))
 
 
 def _service_data_offset(cip: bytes) -> int:

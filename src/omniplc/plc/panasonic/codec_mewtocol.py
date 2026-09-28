@@ -182,7 +182,7 @@ def parse_response(response: bytes, station: str, command: str) -> str:
         )
     if text[3] == "!":
         code = text[4:6]
-        message = _ERROR_MESSAGES.get(code, "未知错误")
+        message = _(_ERROR_MESSAGES.get(code, _("未知错误")))
         raise DeviceError(
             _("MEWTOCOL 错误码 {}:{}").format(code, message), _error_code_value(code)
         )
