@@ -539,7 +539,7 @@ def dump(s: ClientStats) -> None:
 dump(client.stats)   # 键名拼错、字段用错类型在 mypy/pyright 阶段即报
 ```
 
-#### 真机联测待做(v0.44.0 更新)
+#### 真机联测待做(v0.45.0 更新)
 
 下表汇总散落各处的真机核证项(实现已完成,缺真机条件或排队中):
 
@@ -560,6 +560,8 @@ dump(client.stats)   # 键名拼错、字段用错类型在 mypy/pyright 阶段�
 | MX Component     | 三菱 MX            | 读写/批量/CPU 型号/时钟已真机核证;get_error_message(ActSupportMsg)待核证 |
 | Modbus FC22/23/24/43·14 | Modbus TCP/RTU | FC22 掩码写(可配字节序)、FC23 读写多寄存器、FC24 FIFO、FC43·14 设备标识均需设备支持,待真机核证 |
 | Modbus FC07/08/11/12/17/20/21 | Modbus TCP/RTU | 异常状态(FC07)/诊断/事件计数·日志/报告从站 ID(FC17)/文件记录(FC20/21)按规范实现,设备支持情况待真机核证 |
+| MC 1E 点数码表       | 三菱 A 系列 1E      | 字单位成批读上限按 255 放行(手册 1E 章节点数表未就地核证),真机按住机型分命令复核 |
+| TOYOPUC X/Y 与 T/C 同址 | 丰田 TOYOPUC      | X/Y、T/C 基址表取自参考实现(官方手册缺),若实为分址则读写互踩,真机第一优先复核 |
 
 实际真机联测通过项的核验记录见 [`docs/real-machine-checklist.md`](docs/real-machine-checklist.md)(按厂商/协议/读写独立勾选)。
 
@@ -590,7 +592,7 @@ dump(client.stats)   # 键名拼错、字段用错类型在 mypy/pyright 阶段�
 
 #### 变更历史
 
-按版本号降序的完整变更日志已迁出至 [`CHANGELOG.md`](CHANGELOG.md)(从 v0.44.0 到 v0.1 的详细说明);当前发布版本以 Git 标签为准(`git tag -l 'v*'`)。
+按版本号降序的完整变更日志已迁出至 [`CHANGELOG.md`](CHANGELOG.md)(从 v0.45.0 到 v0.1 的详细说明);当前发布版本以 Git 标签为准(`git tag -l 'v*'`)。
 
 #### 开发
 
