@@ -221,7 +221,7 @@ def check_response_exception(pdu: bytes, request_function_code: int) -> None:
                 )
             )
         code = pdu[1]
-        text = MODBUS_EXCEPTION_TEXT.get(code, _("未知异常码(厂商自定义/保留码)"))
+        text = _(MODBUS_EXCEPTION_TEXT.get(code, _("未知异常码(厂商自定义/保留码)")))
         raise DeviceError(
             _("Modbus 异常码 0x{:02X}({})(请求功能码 0x{:02X})").format(
                 code, text, request_function_code

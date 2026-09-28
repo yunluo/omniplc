@@ -221,7 +221,7 @@ def parse_multiple_area_read(
         )
     end_code = int.from_bytes(frame[12:14], "big")
     if not _is_normal_end_code(end_code):
-        text = _end_code_text(end_code)
+        text = _(_end_code_text(end_code))
         raise DeviceError(_("FINS 结束码 0x{:04X}({})").format(end_code, text), end_code)
     expected = len(codes) * 3
     total = prefix + FINS_END_CODE_SIZE + expected
@@ -282,7 +282,7 @@ def parse_response(
         )
     end_code = int.from_bytes(frame[12:14], "big")
     if not _is_normal_end_code(end_code):
-        text = _end_code_text(end_code)
+        text = _(_end_code_text(end_code))
         raise DeviceError(_("FINS 结束码 0x{:04X}({})").format(end_code, text), end_code)
     if not is_read:
         total = prefix + FINS_END_CODE_SIZE
