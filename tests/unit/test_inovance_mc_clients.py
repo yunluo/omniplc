@@ -238,7 +238,7 @@ def test_async_mirror_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_read_batch_translates_addresses(monkeypatch: pytest.MonkeyPatch) -> None:
     """批量读经地址换算钩子:R n → D(8000+n)、X 八进制命名 → 帧内十六进制。"""
     client = InovanceMcTcpClient("127.0.0.1", 2000)
-    data = (5).to_bytes(2, "little") + (0x8000).to_bytes(2, "little")
+    data = (5).to_bytes(2, "little") + (0x0001).to_bytes(2, "little")
     frame = _frame_tail(data)
     scripted = ScriptedTransport([frame[:9], frame[9:]])
     _mount(monkeypatch, client, scripted)
