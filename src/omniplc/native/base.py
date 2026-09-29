@@ -29,6 +29,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import random
 import time
 from abc import ABC, abstractmethod
@@ -645,6 +646,14 @@ class AsyncBaseClient(ABC):
         """
         resolved = self._resolve_tag(tag)
         if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if not math.isfinite(resolved.scale) or not math.isfinite(resolved.offset):
+                # TagTable 构造校验拦不住直传 Tag 实例:scale=inf 时逆缩放
+                # 结果恒 0(静默写 0 触发设备动作)、NaN 写 nan(与同步层同守卫)
+                raise ValueError(
+                    _("点位 {!r} 的 scale/offset 必须为有限数:scale={!r}, offset={!r}").format(
+                        resolved.tag_id, resolved.scale, resolved.offset
+                    )
+                )
             if resolved.scale == 0:
                 raise ValueError(_("点位 {!r} 的 scale 不能为 0,无法逆缩放").format(resolved.tag_id))
             if resolved.scale == 1.0 and resolved.offset == 0.0:

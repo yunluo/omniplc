@@ -379,6 +379,29 @@ def test_backoff_exponent_is_capped() -> None:
     asyncio.run(client.close())
 
 
+def test_write_tag_rejects_nonfinite_scale_offset() -> None:
+    """native write_tag 拒绝 inf/NaN scale/offset(直传 Tag 绕过 TagTable 校验)。
+
+    与同步层同守卫:scale=inf 时逆缩放 ``(值-offset)/inf = 0.0 →
+    is_integer() → int 0`` 会静默写 0(触发设备动作),NaN 写 nan。
+    """
+    from omniplc.core.tag import Tag
+
+    transport = FakeTransport([b"\x00\x00\x00\x00\x00\x06\x01\x06\x00\x00\x00\x05"])
+    client = _client(transport)
+    asyncio.run(client.connect())
+    try:
+        tag = Tag(tag_id="t", address="hr0", data_type="short", scale=float("inf"))
+        with pytest.raises(ValueError, match="必须为有限数"):
+            asyncio.run(client.write_tag(tag, 100))
+        nan_tag = Tag(tag_id="t", address="hr0", data_type="short", offset=float("nan"))
+        with pytest.raises(ValueError, match="必须为有限数"):
+            asyncio.run(client.write_tag(nan_tag, 100))
+        assert transport.sent == []  # 校验失败零字节发送
+    finally:
+        asyncio.run(client.close())
+
+
 def test_async_with_exit_gates_the_client_like_close() -> None:
     """``async with`` 退出 = ``close()``(关闸),不是 ``disconnect()``。
 

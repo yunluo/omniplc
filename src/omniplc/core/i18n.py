@@ -384,6 +384,7 @@ _TRANSLATIONS: Dict[str, str] = {
     '未绑定 TagTable,无法按点位标识读写:{!r}': 'No TagTable bound; cannot read/write by tag id: {!r}',
     '连接退避中:{:.1f} 秒后允许重连': 'Connection backoff: reconnect allowed in {:.1f} s',
     '点位 {!r} 的 scale 不能为 0,无法逆缩放': 'scale of tag {!r} must not be 0; cannot invert the scaling',
+    '点位 {!r} 的 scale/offset 必须为有限数:scale={!r}, offset={!r}': 'scale/offset of tag {0!r} must be finite: scale={1!r}, offset={2!r}',
     '点位表中不存在:{!r}': 'Not found in the tag table: {!r}',
     '连接 {}:{} 失败:{}': 'Failed to connect to {0}:{1}: {2}',
     '连接初始化失败:{}': 'Connection initialization failed: {}',
