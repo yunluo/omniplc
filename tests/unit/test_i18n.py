@@ -80,6 +80,42 @@ def test_format_zh_autonumber_matches_en_explicit() -> None:
     assert template.format("ja", "zh / en") == "Unsupported language: 'ja', supported: zh / en"
 
 
+def test_no_mixed_auto_manual_numbering_in_any_translation() -> None:
+    """全表扫描:单条模板禁止自动编号({}/{!r})与手动编号({0}/{1!r})混用。
+
+    ``str.format`` 同串混用两套编号必抛
+    ``ValueError: cannot switch from automatic field numbering to manual
+    field specification``——en 模式下该错误路径被格式化异常吞掉(真实报错
+    反而出不来)。zh 键以 ``{}`` 自动编号书写,en 值如需重排语序必须**整条**
+    改手动编号({0}/{1}/…)。
+    """
+    import re
+
+    auto_spec = re.compile(r"\{\D[^}]*\}|\{\}")  # {} / {!r} / {:02X}(无编号)
+    manual_spec = re.compile(r"\{\d")  # {0} / {1!r} / {2:02X}
+    mixed = [
+        key
+        for key, value in i18n._TRANSLATIONS.items()
+        if auto_spec.search(value) and manual_spec.search(value)
+    ]
+    assert mixed == [], "自动/手动编号混用的模板:{}".format(mixed)
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "随机写值超出 {} 字节无符号范围:{}={}",
+        "C{}(32 位计数器)不支持位号后缀:{!r}(接点位访问请用 BOOL 读)",
+    ],
+)
+def test_regressed_mixed_numbering_entries_format_in_en(key: str) -> None:
+    """回归:曾混用编号的两条 en 模板在 en 模式下 format 正常(不再抛 ValueError)。"""
+    set_lang("en")
+    text = _(key).format("2", 5, "X10")  # noqa: F841 — 不抛即通过
+    assert isinstance(text, str)
+    set_lang("zh")
+
+
 # ----------------------------------------------------------------------
 # en 端到端:真实 codec 解析路径的报错语言切换
 # ----------------------------------------------------------------------
