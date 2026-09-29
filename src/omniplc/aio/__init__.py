@@ -689,6 +689,15 @@ class AModbusRtuClient(AModbusBaseClient):
     def inter_frame_delay(self, value: float) -> None:
         self._typed(ModbusRtuClient).inter_frame_delay = value
 
+    @property
+    def broadcast_turnaround(self) -> float:
+        """广播写后 Turnaround delay(秒,转发同步实例;默认 0.2)。"""
+        return self._typed(ModbusRtuClient).broadcast_turnaround
+
+    @broadcast_turnaround.setter
+    def broadcast_turnaround(self, value: float) -> None:
+        self._typed(ModbusRtuClient).broadcast_turnaround = value
+
 
 class AInovanceTcpClient(AModbusBaseClient):
     """汇川 H3U/H5U Modbus TCP 异步客户端。
@@ -745,6 +754,15 @@ class AInovanceRtuClient(AModbusBaseClient):
     @inter_frame_delay.setter
     def inter_frame_delay(self, value: float) -> None:
         self._typed(InovanceRtuClient).inter_frame_delay = value
+
+    @property
+    def broadcast_turnaround(self) -> float:
+        """广播写后 Turnaround delay(秒,转发同步实例;默认 0.2)。"""
+        return self._typed(InovanceRtuClient).broadcast_turnaround
+
+    @broadcast_turnaround.setter
+    def broadcast_turnaround(self, value: float) -> None:
+        self._typed(InovanceRtuClient).broadcast_turnaround = value
 
 
 class APanasonicMewtocolTcpClient(ABaseClient):
