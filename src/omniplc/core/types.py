@@ -53,11 +53,13 @@ class DataType(Enum):
         :return: 对应的 :class:`DataType` 成员
         :raises ValueError: 名称未知时抛出
         """
+        from .i18n import _
+
         try:
             return cls(name.strip().lower())
         except ValueError:
             valid = ", ".join(member.value for member in cls)
-            raise ValueError(f"未知的数据类型 {name!r},支持:{valid}")
+            raise ValueError(_("未知的数据类型 {0!r},支持:{1}").format(name, valid))
 
     @property
     def byte_size(self) -> int:

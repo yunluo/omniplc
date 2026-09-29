@@ -399,6 +399,7 @@ _TRANSLATIONS: Dict[str, str] = {
     '{} 需要 {} 个寄存器,收到 {}': '{0} requires {1} registers, got {2}',
     '字符串编码后 {} 字节,超出目标长度 {}': 'The string encodes to {} bytes, exceeding the target length of {}',
     '不支持的数据类型:{!r}': 'Unsupported data type: {!r}',
+    '未知的数据类型 {0!r},支持:{1}': 'Unknown data type {0!r}; supported: {1}',
     '{} 需要 {} 个字,收到 {} 个': '{0} requires {1} words, got {2}',
     '字值超出 0~65535 范围:{}': 'Word value out of the 0~65535 range: {}',
     '寄存器值超出 0~65535 范围:{}': 'Register value out of the 0~65535 range: {}',

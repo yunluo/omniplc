@@ -694,8 +694,9 @@ class BaseClient(ABC):
                 # TagTable 校验只覆盖表构造路径;直接传 Tag 实例可绕过——
                 # scale=inf 时逆缩放结果恒 0(静默写 0 触发设备动作)、NaN 写 nan
                 raise ValueError(
-                    f"点位 {resolved.tag_id!r} 的 scale/offset 必须为有限数:"
-                    "scale={!r}, offset={!r}".format(resolved.scale, resolved.offset)
+                    _("点位 {!r} 的 scale/offset 必须为有限数:scale={!r}, offset={!r}").format(
+                        resolved.tag_id, resolved.scale, resolved.offset
+                    )
                 )
             if resolved.scale == 0:
                 raise ValueError(_("点位 {!r} 的 scale 不能为 0,无法逆缩放").format(resolved.tag_id))

@@ -116,6 +116,52 @@ def test_regressed_mixed_numbering_entries_format_in_en(key: str) -> None:
     set_lang("zh")
 
 
+def test_no_chinese_fstring_raises_in_src() -> None:
+    """扫描 src:含中文的裸 f-string raise 必须为 0(f-string 无法过 _() 取词)。
+
+    f-string 在字符串拼好后才进入 raise,取词函数无从介入 → en 模式该报错
+    恒为中文(v0.47.0 i18n 改造时漏网两处即此形态,见 review-0929 P2-9)。
+    调用点须写"中文模板字面量包 `_()` + .format 填参"。近似口径:逐行匹配
+    ``raise X(f"…"`` 且行内含中文字符(多行 f-string 由本门禁历史版本逐批
+    补漏,新增代码以 CI 本门禁拦截)。
+    """
+    import re
+    from pathlib import Path
+
+    src_root = Path(__file__).resolve().parents[2] / "src" / "omniplc"
+    fstring_raise = re.compile(r"raise \w+\(f('|\")")
+    chinese = re.compile(r"[\u4e00-\u9fff]")
+    offenders = []
+    for path in sorted(src_root.rglob("*.py")):
+        with open(path, encoding="utf-8") as fp:
+            for number, line in enumerate(fp, 1):
+                if fstring_raise.search(line) and chinese.search(line):
+                    offenders.append("{}:{}".format(path.name, number))
+    assert offenders == [], "含中文的 f-string raise(无法过 _()):{}".format(offenders)
+
+
+def test_en_mode_core_error_paths_output_english() -> None:
+    """en 端到端抽查:core 两处曾裸文案的错误路径在 en 模式输出英文。"""
+    from omniplc.core.types import DataType
+
+    set_lang("en")
+    try:
+        with pytest.raises(ValueError) as exc_info:
+            DataType.from_name("nope")
+        assert exc_info.value.args[0].startswith("Unknown data type")
+
+        # write_tag 的 scale/offset 守卫(与 sync 同一模板键)须在表内且 en 可格式化
+        from omniplc.core import i18n as i18n_module
+
+        zh_template = "点位 {!r} 的 scale/offset 必须为有限数:scale={!r}, offset={!r}"
+        assert zh_template in i18n_module._TRANSLATIONS
+        en_text = i18n_module._TRANSLATIONS[zh_template].format("t", float("inf"), 0.0)
+        assert en_text.startswith("scale/offset of tag")
+        assert "finite" in en_text
+    finally:
+        set_lang("zh")
+
+
 # ----------------------------------------------------------------------
 # en 端到端:真实 codec 解析路径的报错语言切换
 # ----------------------------------------------------------------------
