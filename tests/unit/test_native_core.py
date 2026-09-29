@@ -478,6 +478,57 @@ def test_connect_on_another_loop_of_connected_client_raises() -> None:
         asyncio.run(client.connect())
 
 
+def test_close_wins_gate_race_and_queued_connect_cannot_revive() -> None:
+    """回归:close() 先拿锁的时序下,排队中的 ``connect()`` 进锁后不得复活建连。
+
+    与事务版(_execute 锁内复查,第五轮修)同款窗口:connect 在锁外过完
+    ``_ensure_open`` 后挂起等锁,``close()`` 插队先拿锁置 ``_closed`` 并断开;
+    connect 随后进锁,若锁内复查缺失会照常 ``_connect_locked`` 真建连——
+    已关闸客户端向 PLC 发出新请求且新传输无人回收。修复后 connect 应在
+    锁内复查处抛 ``RuntimeError``。
+    """
+
+    async def scenario() -> None:
+        transport = FakeTransport([_RESP_TID1])
+        client = _client(transport)
+        gate = asyncio.Event()
+        armed = [False]
+        original_guard = client._guard
+
+        class _InterposedLock:
+            """代理锁:__aenter__ 时先跑完 close(),再放行 connect 拿真锁。"""
+
+            async def __aenter__(self):
+                armed[0] = False
+                gate.set()
+                await client.close()
+                return await original_guard().__aenter__()
+
+            async def __aexit__(self, *exc):
+                return await original_guard().__aexit__(*exc)
+
+        class _InterposedGuard:
+            def __call__(self):
+                if armed[0]:
+                    armed[0] = False
+                    return _InterposedLock()
+                return original_guard()
+
+        client._guard = _InterposedGuard()  # type: ignore[method-assign]
+
+        armed[0] = True
+        connect_task = asyncio.ensure_future(client.connect())
+        for _ in range(8):
+            await asyncio.sleep(0)
+        assert gate.is_set(), "close 未插队到 connect 拿锁之前"
+        with pytest.raises(RuntimeError):
+            await connect_task
+        assert client.connected is False
+        assert client._transport is None, "close 已关闸,connect 不得建连"
+
+    asyncio.run(scenario())
+
+
 def test_close_from_another_loop_still_closes() -> None:
     """跨循环 ``close()`` 不拦(收尾路径):换锁后照常断开,不把清理机会也堵死。"""
     client = AsyncModbusTcpClient("127.0.0.1", 502, 1)

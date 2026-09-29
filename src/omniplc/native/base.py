@@ -160,6 +160,9 @@ class AsyncBaseClient(ABC):
         # 洗掉——之后在新循环上对旧循环的传输收发(静默失败/串帧)永远放行
         self._check_loop_affinity()
         async with self._guard():
+            # 关闸复查:close() 在等锁期间已置 _closed,排队的 connect
+            # 不得复活建连(与 _execute 的锁内复查同款窗口)
+            self._ensure_open()
             return await self._connect_locked()
 
     async def _connect_locked(self) -> bool:
