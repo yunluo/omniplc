@@ -665,11 +665,16 @@ def _wrap_request(
 
 
 def _random_block(code: int, number: int, points: int) -> bytes:
-    """多块批量读块条目:码 1 字节 + 编号 3 字节小端 + 点数 2 字节小端(内部函数)。"""
+    """多块批量读块条目:编号 3 字节小端 + 码 1 字节 + 点数 2 字节小端(内部函数)。
+
+    字段序依 SH-080008 §8.4 印刷页 114 通信例列头
+    (Device number → code → Number of device points,如 D0 4 点 =
+    ``00H 00H 00H A8H 04H 00H``),与 0401/0114 核心命令的编号在前同序。
+    """
     _check_points(points, MC_MAX_TRANSFER_POINTS)
     if not 0 <= number <= 0xFFFFFF:
         raise ValueError(_("MC 软元件编号超出 3 字节范围:{}").format(number))
-    return bytes((code,)) + number.to_bytes(3, "little") + points.to_bytes(2, "little")
+    return number.to_bytes(3, "little") + bytes((code,)) + points.to_bytes(2, "little")
 
 
 def _check_points(points: int, limit: int) -> None:
