@@ -463,7 +463,8 @@ def _end_code_text(end_code: int) -> str:
     if end_code & FINS_END_CODE_CPU_ERROR_FLAGS:
         flags.append(_("目标 CPU 单元出错"))
     base = end_code & ~(FINS_END_CODE_RELAY_ERROR_FLAG | FINS_END_CODE_CPU_ERROR_FLAGS)
-    text = FINS_END_CODE_TEXT.get(base, _("详见 Omron FINS 手册"))
+    # 表值查表结果过 _(表值全为无占位符的纯文案,en 模式全表可译;fallback 一并过 _)
+    text = _(FINS_END_CODE_TEXT.get(base, _("详见 Omron FINS 手册")))
     if flags:
         text = _("{} [{}]").format(text, _("、").join(flags))
     hint = FINS_END_CODE_HINT.get(base)
