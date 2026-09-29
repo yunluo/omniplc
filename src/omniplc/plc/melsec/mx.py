@@ -49,7 +49,7 @@ from ...core.constants import (
     UINT16_MAX,
 )
 from ...core.debug import log_op
-from ...core.errors import OmniPLCInternalError, TransportClosedError
+from ...core.errors import DeviceError, OmniPLCInternalError, TransportClosedError
 from ...core.validation import check_int16, check_uint16, require_bool
 from ...transport import BaseTransport
 from ...core.types import DataType, PrimitiveValue
@@ -380,9 +380,13 @@ def _new_support_msg_com(logical_station_number: int) -> Any:
     try:
         com = comtypes.client.CreateObject(MX_SUPPORT_MSG_PROG_ID)
     except Exception as exc:
-        raise OmniPLCInternalError(
+        # DeviceError(code=0):SupportMsg 是**独立控件**,其缺失不代表
+        # ActUtlType 会话损坏——按内部异常抛会被基类拆线,上层轮询预翻译
+        # 时反复重连抖动
+        raise DeviceError(
             _("MX Component ActSupportMsg 控件创建失败:{}(请确认已安装 MX Component "
-            "运行时并执行 pip install omniplc[mx])").format(exc)
+            "运行时并执行 pip install omniplc[mx])").format(exc),
+            0,
         ) from exc
     try:
         com.ActLogicalStationNumber = logical_station_number
@@ -412,8 +416,11 @@ def _com_get_error_message(com: Any, code: int) -> str:
         except TypeError:
             probe_failed = True  # 形态探测:单参形态不成立,走 byref 回退
         except _com_error() as exc:
-            raise OmniPLCInternalError(
-                _("MX Component GetErrorMessage 失败:{}").format(exc)
+            # DeviceError(code=0):能力/文本查询失败属"设备侧条件",链路
+            # (ActUtlType 会话)完好——按 OmniPLCInternalError 抛会被基类
+            # 按传输级失败拆线,上层轮询预翻译时反复重连抖动
+            raise DeviceError(
+                _("MX Component GetErrorMessage 失败:{}").format(exc), 0
             ) from exc
         if not probe_failed:
             return str(_first(result))
@@ -421,10 +428,14 @@ def _com_get_error_message(com: Any, code: int) -> str:
         try:
             raw = com.GetErrorMessage(int(code), ctypes.byref(message))
         except _com_error() as exc:
-            raise OmniPLCInternalError(
-                _("MX Component GetErrorMessage 失败:{}").format(exc)
+            raise DeviceError(
+                _("MX Component GetErrorMessage 失败:{}").format(exc), 0
             ) from exc
-        _check_rc(_return_code(raw), "GetErrorMessage")
+        try:
+            _check_rc(_return_code(raw), "GetErrorMessage")
+        except OmniPLCInternalError as exc:
+            # SupportMsg 返回码非 0 同为文本查询失败(不断线),转码口径同上
+            raise DeviceError(str(exc), 0) from exc
         return str(message.value)
     finally:
         com = None
