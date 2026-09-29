@@ -23,11 +23,34 @@
 
 ## 关联
 
-- 实现完成但缺真机条件/排队中的项:`README.md`「真机联测待做」表
 - 协议帧级实现引用:`docs/architecture.md` §11 路线图与版本履历表
 - 第三方审查参考:`docs/review.md`(现场 PLC 视角评审,**复核 v2,2026-09-26**,含修复记录与"实锤/文档化限制/待核证"分档)
 - **原生异步层(omniplc.native)**:首批 5 个客户端(Modbus TCP / MC 1E·3E over TCP·UDP / FINS TCP·UDP)是**独立于同步层的代码路径**——帧级已由"同步 × 异步对拍"测试锁死,但**真机尚未联测**,需与对应同步行一并核证(见 `docs/architecture.md` §12)
 - 提交新真机记录:PR 模板「测试」节勾选"真机联测",并在 `CHANGELOG.md` 加条目
+
+## 待真机核证项(v0.45.0 更新,自 README 迁入)
+
+下表汇总散落各处的真机核证项(实现已完成,缺真机条件或排队中):
+
+| 项                | 驱动               | 现状态                            |
+|------------------|------------------|--------------------------------|
+| Modbus FC24/22    | Modbus TCP/RTU   | FC24 FIFO、FC22 掩码字节序可配,需设备支持,待真机核证 |
+| AB 0x0A 多服务包批量读  | AB Logix         | 已实现(超 32 条/480B 自动拆包),通用模拟器不支持,待真机核证 |
+| AB connected RPI  | AB Logix         | RPI 默认 100ms(`rpi_us` 可配)、CIP 0x01/0x07 重连,待真机核证 |
+| NJ CIP 0x0A 多服务包 | 欧姆龙 NJ/NX CIP    | 继承 AB,理论同,待真机核证                |
+| 倍福 ADS           | TwinCAT          | 封装 pyads,需 TwinCAT 运行时;transport 通断码依 TE1000 §8 修正(0x06/0x07/0x0D/0x12/0x1B/0x1D + Router 0x0500~0x050D)、`set_timeout` 告警待真机核证 |
+| 西门子 S7           | S7-300/1200/1500 | 封装 python-snap7,需 PLC 或 PLCSIM;STRING/WSTRING 读截断·写保留声明长、优化块访问错误提示待真机核证 |
+| NJ STRING / BOOL 数组 | 欧姆龙 NJ/NX CIP    | 已实现(STRING 按 `len(u32)+字符`、BOOL 按元素自描述,回 DWORD 时 `//32` 回退),待真机核证 |
+| MC 新设备码          | 三菱 Q/L/R         | L/F/SB/V/DX/DY/TS/TC/TN/CS/CC/CN/SM/SD/SW 已实现,待真机核证(TN=0xC3/CN=0xC6 为推定) |
+| KV MC 0406 批量读   | 基恩士 KV MC        | 继承 MelsecMc,码表已覆写,待真机          |
+| 基恩士 Host Link UDP | 基恩士 KV          | 收包缓冲余量、hex 转储截断、SR 残行读净判定,待真机核证 |
+| OPC-UA           | opc.tcp          | 封装 asyncua,需 OPC-UA 服务器        |
+| MTConnect        | MTConnect Agent  | 标准库 HTTP/XML,需 CNC 端 Agent     |
+| MX Component     | 三菱 MX            | 读写/批量/CPU 型号/时钟已真机核证;get_error_message(ActSupportMsg)待核证 |
+| Modbus FC22/23/24/43·14 | Modbus TCP/RTU | FC22 掩码写(可配字节序)、FC23 读写多寄存器、FC24 FIFO、FC43·14 设备标识均需设备支持,待真机核证 |
+| Modbus FC07/08/11/12/17/20/21 | Modbus TCP/RTU | 异常状态(FC07)/诊断/事件计数·日志/报告从站 ID(FC17)/文件记录(FC20/21)按规范实现,设备支持情况待真机核证 |
+| MC 1E 点数码表       | 三菱 A 系列 1E      | 字单位成批读上限按 255 放行(手册 1E 章节点数表未就地核证),真机按住机型分命令复核 |
+| TOYOPUC X/Y 与 T/C 同址 | 丰田 TOYOPUC      | X/Y、T/C 基址表取自参考实现(官方手册缺),若实为分址则读写互踩,真机第一优先复核 |
 
 ---
 

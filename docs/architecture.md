@@ -1170,3 +1170,55 @@ selector 的读注册(要等该 fd 下次可读才自清理),期间若关闭套�
 
 **实例绑定一个事件循环**:跨循环/跨线程共享同一实例不支持(事务锁按首次使用时
 的循环创建,这是刻意的:跨循环使用会得到"锁在前一个循环上"的隐晦错误)。
+
+
+## 附录:类继承图
+
+```text
+BaseClient(ABC,模板方法:连接状态机 / 事务锁 / 惰性重连 / 类型化读写只写一次)
+│
+├── ModbusBaseClient —— 寄存器级公共逻辑:字序 / 类型分发 / 范围校验
+│   ├── ModbusTcpClient —— MBAP over TCP(502)
+│   │   └── InovanceTcpClient —— 汇川 H3U/H5U,继承 Modbus 只换软元件地址映射
+│   └── ModbusRtuClient —— 站号+PDU+CRC16 over 串口(需 pyserial)
+│       └── InovanceRtuClient —— 汇川 H3U/H5U RTU(9600-8N2),继承 Modbus 只换地址映射
+│
+├── MelsecMcTcpClient —— 三菱 MC 3E/4E/1E 帧 over TCP(2000)
+│   ├── KeyenceMcTcpClient —— 基恩士 KV MC 兼容 / SLMP 3E(5000),只换码表
+│   ├── InovanceMcTcpClient —— 汇川 MC 兼容 3E,换码表 + 记号换算(S→L、R=D+8000、X/Y 八进制)
+│   └── PanasonicMcTcpClient —— 松下 FP0H/FP7 MC 兼容 3E,换码表 + 记号换算(字号×16+位号、R9000+→SM、D90000+→SD)
+├── MelsecMcUdpClient —— 三菱 MC 同帧型 over UDP(2000)
+│   └── KeyenceMcUdpClient —— 基恩士 KV MC 兼容 SLMP 3E over UDP(5000),与 TCP 版共用码表覆写
+├── MelsecMcSerialClient —— 三菱 MC 串口帧(C24):1C A 兼容 ASCII 格式 4 / 3C ASCII 格式 4 / 4C 二进制格式 5,需 pyserial
+├── MelsecMxClient —— 三菱 MX Component(Windows,comtypes,逻辑站号)
+│
+├── OmronFinsTcpClient —— 欧姆龙 FINS + TCP 握手(9600)
+├── OmronFinsUdpClient —— 欧姆龙 FINS over UDP(9600)
+├── AllenBradleyEthIpClient —— 罗克韦尔 AB EtherNet/IP(44818):Logix 标签自描述,unconnected/connected 双通道
+│   └── OmronCipClient —— 欧姆龙 NJ/NX CIP(44818):unconnected 直发无背板路由,NJ 变量读写
+├── BeckhoffAdsClient —— 倍福 TwinCAT ADS(AMS 851,封装 pyads):变量名即地址,ADSError 不断线
+├── KeyenceHostLinkTcpClient —— 基恩士 KV Host Link over TCP(8000)
+├── KeyenceHostLinkUdpClient —— 基恩士 KV Host Link over UDP(8000)
+├── KeyenceSrClient —— 基恩士 SR 扫码枪 TCP(9004,LON/LOFF 触发扫码)
+├── PanasonicMewtocolTcpClient —— 松下 MEWTOCOL over TCP(1024):ASCII 帧 + BCC,RCS/WCS 单接点、RD/WD 数据区
+├── PanasonicMewtocolUdpClient —— 松下 MEWTOCOL over UDP(1024)
+├── ToyopucTcpClient —— 丰田 TOYOPUC 计算机链接 over TCP(1025)
+├── ToyopucUdpClient —— TOYOPUC 同帧 over UDP(1025)
+├── OpcUaClient —— OPC-UA opc.tcp 会话(4840,封装 asyncua)
+├── MTConnectClient —— CNC 机床数采(HTTP/XML 只读,Agent 默认 5000)
+└── SiemensS7Client —— 西门子 S7(102,rack/slot 路由,封装 python-snap7)
+
+异步镜像(omniplc.aio):类名 = 同步类名前加 A,签名同名同型,共 27 个
+AModbusTcpClient / AModbusRtuClient / AInovanceTcpClient / AInovanceRtuClient / AInovanceMcTcpClient
+AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient / AOmronFinsTcpClient
+AOmronFinsUdpClient / AOmronCipClient / ABeckhoffAdsClient / AAllenBradleyEthIpClient / AKeyenceHostLinkTcpClient
+AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient / APanasonicMcTcpClient / APanasonicMewtocolTcpClient
+APanasonicMewtocolUdpClient / AKeyenceSrClient / AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient
+AMTConnectClient / ASiemensS7Client
+
+原生异步(omniplc.native):独立层,类名 = 同步类名前加 Async,覆盖三协议 5 个
+AsyncBaseClient(异步基类,事务模板与同步层同口径)
+AsyncModbusTcpClient
+AsyncMelsecMcTcpClient / AsyncMelsecMcUdpClient(1E/3E/4E)
+AsyncOmronFinsTcpClient / AsyncOmronFinsUdpClient
+```
