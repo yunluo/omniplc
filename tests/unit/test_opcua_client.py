@@ -833,6 +833,59 @@ def test_subscribe_event_receives_notification(_opcua_server_module) -> None:
         evgen.trigger()
         assert done.wait(timeout=3.0), "Event 回调未触发, received={}".format(received)
         assert received, "Event 回调数据为空"
+        # 字段提取必须是真实字段字典(回归:原实现对 Event 调 keys()/
+        # __getitem__,其纯属性对象并无此接口 → 恒走 {"raw": repr} 兜底)
+        fields, node_id, ts = received[0]
+        assert "raw" not in fields, "字段提取仍走兜底:{}".format(fields)
+        assert isinstance(fields, dict)
+    finally:
+        client.disconnect()
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_subscribe_event_fields_contain_standard_fields(_opcua_server_module) -> None:
+    """事件字段为真实字段字典且 node_id/时间戳有值(vars 口径修复的完整验证)。
+
+    回归:原实现对 Event 调 keys()/__getitem__,其纯属性对象并无此接口 →
+    恒走 {"raw": repr} 兜底,node_id 恒空串、时间戳恒 None。修复后按
+    vars(event) 排除 internal_properties 提取;asyncua 默认 SelectClauses
+    聚合 BaseEventType 全部属性(含 SourceNode/Time),故两者均有真值。
+    """
+    server, idx = _opcua_server_module
+    import asyncua.ua as _asyncua_ua
+    from asyncua.common.event_objects import BaseEvent as _BaseEvent
+
+    evgen = server.get_event_generator(_BaseEvent())
+    evgen.event.Message = _asyncua_ua.LocalizedText(Text="hello-omniplc")
+
+    received: list = []
+    done = _threading.Event()
+
+    def on_event(fields, node_id, ts):
+        received.append((fields, node_id, ts))
+        done.set()
+
+    client = OpcUaClient("127.0.0.1", _OPCUA_TEST_PORT, endpoint=_TEST_ENDPOINT)
+    client.connect()
+    try:
+        ok, _ = client.subscribe_event("i=2253", on_event)
+        assert ok is True
+        _time.sleep(0.2)
+        evgen.trigger()
+        assert done.wait(timeout=3.0), "Event 回调未触发"
+        assert received, "Event 回调数据为空"
+        fields, node_id, ts = received[0]
+        assert "raw" not in fields, "字段提取仍走兜底:{}".format(sorted(fields))
+        # 标准字段(BaseEventType 属性)在字段字典中,Message 值透传
+        for key in ("EventId", "EventType", "SourceName", "Message", "Severity"):
+            assert key in fields, "缺标准字段 {}:{}".format(key, sorted(fields))
+        message = fields["Message"]
+        if hasattr(message, "Text"):
+            message = message.Text
+        assert message == "hello-omniplc"
+        # SourceNode/Time 被 SelectClauses 选中 → node_id/时间戳为真值
+        assert node_id != "", "node_id 仍为空串(字段提取未修复)"
+        assert ts is not None, "时间戳仍为 None(字段提取未修复)"
     finally:
         client.disconnect()
 

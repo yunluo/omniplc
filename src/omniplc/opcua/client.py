@@ -350,9 +350,17 @@ class _EventHandler:
         # aio Subscription._call_event 按此方法名派发(方法名必须一致,
         # 拼错会被 asyncua 内部 except 吞掉,事件订阅静默失效)
         try:
-            # asyncua event 对象:dict-like via _fields;安全兜底 dict()
+            # asyncua 1.1.5 的 Event 是**纯属性对象**(events.py:无 keys()/
+            # __getitem__),按 server 端 get_event_props_as_fields_dict 同款
+            # 口径取字段:vars(event) 排除构造期 internal_properties;
+            # 字段集合 = 订阅时 SelectClauses 选中的项
             try:
-                fields = {key: event[key] for key in event.keys()}
+                internal = set(getattr(event, "internal_properties", ()))
+                fields = {
+                    key: value
+                    for key, value in vars(event).items()
+                    if not key.startswith("__") and key not in internal
+                }
             except Exception:
                 fields = {"raw": str(event)}
             node_id = ""
@@ -897,7 +905,12 @@ class OpcUaClient(BaseClient):
 
         :param node_text: 节点 NodeId 字符串(节点须 EventNotifier = SubscribeToEvents;
             否则服务端拒订阅)
-        :param on_event: 回调签名 ``(event_fields_dict, node_id_str, source_timestamp)``
+        :param on_event: 回调签名 ``(event_fields_dict, node_id_str, source_timestamp)``;
+            ``event_fields_dict`` 键集 = 订阅时 SelectClauses 选中的字段——asyncua
+            默认过滤器只选事件类型的 Property/Variable 子节点,**不含
+            SourceNode/Time**(故 ``node_id_str`` 为空串、时间戳为 None);
+            需要这两项请传自定义 ``event_filter``(SelectClauses 显式加入
+            SourceNode 与 Time)
         :param event_filter: 透传 asyncua 的 EventFilter(``None`` = 不过滤)
         :return: ``(成功, 订阅句柄)``
         :raises ValueError: 参数非法
