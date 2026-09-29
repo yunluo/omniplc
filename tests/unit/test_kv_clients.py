@@ -124,6 +124,27 @@ def test_tcp_read_hex_data_e5_not_error_code(monkeypatch: pytest.MonkeyPatch) ->
     parsed = parse_kv_address("DM100")
     assert client._read_word_token(parsed, ".H") == 0xE5
 
+
+def test_tcp_read_error_code_becomes_device_error_keeps_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """回归:公开读路径(.U/.S/.L/.D)PLC 回 E0~E9 → DeviceError 不断线。
+
+    原实现 _read_word_token 对全部格式 check_errors=False(第五轮为 .H
+    十六进制歧义加的豁免被放大),PLC 真实出错响应被当坏帧拆连且丢错误码。
+    现豁免收窄为仅 .H:.U 读回 "E0" 按错误码上抛(code=0,链路完好),
+    与写路径同口径。
+    """
+    client = KeyenceHostLinkTcpClient("127.0.0.1", 8000)
+    scripted = ScriptedTransport(_chunks(b"E0\r\n"))
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, value = client.read_ushort("DM100")
+    assert (ok, value) == (False, None)
+    assert client.last_error is not None and "E0" in client.last_error
+    assert client.last_error_code is None  # E0 → code=0,按基类契约归 None
+    assert client.connected is True  # 链路完好,不拆连
+
 def test_tcp_read_bit_device(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP:位软元件 RD 无后缀,ON/OFF 令牌解析。"""
     client = KeyenceHostLinkTcpClient("127.0.0.1", 8000)
