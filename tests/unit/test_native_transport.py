@@ -231,6 +231,44 @@ def test_udp_oversize_datagram_maps_to_device_error() -> None:
         loop.close()
 
 
+def test_udp_exactly_full_buffer_logs_truncation_hint(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """恰满缓冲(received == size)→ 记截断嫌疑 WARNING,数据照常返回。
+
+    Proactor/POSIX 对超长报文静默截断且无异常可探测(实测:3.12 Proactor
+    回环 5050B 报文 / 1024B 缓冲成功返回 1024);恰满时无法区分"恰好等长"
+    与"被截断",记 WARNING 提示现场核对,正确性由协议层长度校验兜底。
+    """
+    loop = make_loop("SelectorEventLoop")
+
+    class _FullBufferSocket:
+        """``recv_into`` 返回恰好缓冲字节数的假 UDP socket。"""
+
+        def recv_into(self, buffer: Any) -> int:
+            for index in range(len(buffer)):
+                buffer[index] = 0xA5
+            return len(buffer)
+
+        def close(self) -> None:
+            pass
+
+    async def scenario() -> None:
+        transport = AsyncUdpTransport("127.0.0.1", 1)
+        transport._socket = _FullBufferSocket()  # type: ignore[assignment]
+        frame = await transport.recv(64)
+        assert frame == b"\xa5" * 64
+        assert transport.pending is False
+        transport.close()
+
+    try:
+        with caplog.at_level(logging.WARNING, logger="omniplc.debug"):
+            loop.run_until_complete(scenario())
+        assert any("恰满缓冲" in record.message for record in caplog.records)
+    finally:
+        loop.close()
+
+
 def test_udp_hostname_resolves_to_ipv4_like_sync(loop: Any) -> None:
     """主机名解析按 AF_INET(与同步层同族):IPv4-only 对端用 ``localhost`` 也要通。
 

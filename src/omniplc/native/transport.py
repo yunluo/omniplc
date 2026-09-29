@@ -19,9 +19,13 @@
   UDP 传输一致(一次收发一条数据报)。
 
 与同步层的**能力差异**(asyncio 数据报路径所致,与解释器版本无关):拿不到
-``MSG_TRUNC`` 真长,POSIX 下超长数据报的"静默截断"无法在传输层探测(同步层
-会打一条 WARNING);Windows 的 ``WSAEMSGSIZE``(10040)照旧映射为
-``DeviceError``。超长/长度不符由协议层自身的长度域校验兜底。
+``MSG_TRUNC`` 真长,超长数据报的"静默截断"无法在传输层探测——POSIX 内核
+如此,**Windows 的 Proactor 循环(3.8+ ``asyncio.run`` 默认)同样如此**
+(IOCP 完成回调丢弃 MSG_TRUNC,对超长报文"成功返回缓冲字节数";已由
+3.7.9/3.12.10 双解释器回环实测坐实)。仅 Windows **Selector** 循环的
+``sock_recv_into`` 保留内核 WSAEMSGSIZE 异常(10040 → ``DeviceError``
+code=-10040,与同步层契约统一)。``received == size`` 时记一条 WARNING
+提示截断嫌疑,超长/长度不符由协议层自身的长度域校验兜底。
 
 :meth:`AsyncBaseTransport.close` 是**同步方法**(不等底层完成):取消路径无法
 ``await``(任务已处于取消态,再 await 立即抛 ``CancelledError``),而拆连必须
@@ -474,16 +478,19 @@ class AsyncUdpTransport(AsyncBaseTransport):
     async def recv(self, size: int) -> bytes:
         """接收一条数据报。
 
-        Windows 上 ``recv`` 对超长报文抛 ``WSAEMSGSIZE``(errno 10040),捕获后
-        转 :class:`DeviceError`(与同步 UDP 传输同口径:DEVICE 分类、不重试、
-        不断线——UDP 报文超长是协议帧问题,链路完好)。POSIX 上内核静默截断,
-        传输层无法探测(见模块 docstring),由协议层长度校验兜底。
+        Windows **Selector** 循环上 ``recv`` 对超长报文抛 ``WSAEMSGSIZE``
+        (errno 10040),捕获后转 :class:`DeviceError`(与同步 UDP 传输同
+        口径:DEVICE 分类、不重试、不断线——UDP 报文超长是协议帧问题,
+        链路完好)。**3.8+ Windows 默认的 Proactor 循环**(IOCP 完成回调)
+        不抛 10040、对超长报文"成功返回缓冲字节数"——即**静默截断**,与
+        POSIX 内核行为一致,传输层无法探测;``received == size`` 时记一条
+        WARNING 提示截断嫌疑,正确性由协议层长度校验兜底。
 
         :param size: 缓冲上限(超出部分截断)
         :raises TransportClosedError: 未初始化
         :raises TransportTimeoutError: 接收超时(不断线语义)
-        :raises DeviceError: Windows 上报文超过缓冲时抛(code=-10040,负码
-            与同步层契约统一,不计 ``device_error_count``)
+        :raises DeviceError: Windows Selector 循环上报文超过缓冲时抛
+            (code=-10040,负码与同步层契约统一,不计 ``device_error_count``)
         :raises OSError: 其他 OS 层错误
         """
         sock = self._require_socket()
@@ -508,6 +515,16 @@ class AsyncUdpTransport(AsyncBaseTransport):
         if not done or received is None:
             self._clear_stale_selector(sock)
             raise TransportTimeoutError(_("UDP 接收超时({}s)").format(self._receive_timeout), 0)
+        if received >= size:
+            # 恰满缓冲:可能是截断(Proactor/POSIX 对超长报文静默截断,传输层
+            # 无法探测真长),也可能是报文恰好等长。记 WARNING 提示现场核对
+            # 协议层 size 与对端报文长,正确性由协议层长度校验兜底。
+            log_warning(
+                self._debug_label,
+                "UDP 数据报恰满缓冲 %dB(超长报文在该循环形态下被静默截断,无异常可探测):"
+                "若协议层长度校验报帧不符,检查对端报文长或调大 size",
+                size,
+            )
         frame = bytes(buffer[:received])
         log_frame(self._debug_label, RECV_MARK, frame)
         return frame
