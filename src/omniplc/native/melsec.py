@@ -518,7 +518,9 @@ class AsyncMelsecMcBase(AsyncBaseClient):
                 word_devices,
                 dword_devices,
             )
-            await self._transact(request)
+            # 1402 应答无数据,但结束码必须校验(与同步层 _parse_write 同口径):
+            # 原 native 丢弃响应,PLC 拒绝被误判为写成功
+            self._parse_write(await self._transact(request), False)
 
         ok, _unused = await self._execute(operation, is_write=True)
         return ok

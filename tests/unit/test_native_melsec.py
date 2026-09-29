@@ -481,6 +481,12 @@ _EXT_CASES = [
         ((("D0", 1234),), (("D100", 0xDEADBEEF),)),
         _split_3e(_qna_write_response()), ("0214",),
     ),
+    # 1402 随机写:结束码非 0 → 两侧都必须失败(原 native 丢弃响应误判成功)
+    ExtCase(
+        "random_write_3e_end_code_error", "3E", False, "random_write",
+        ((("D0", 1234),),),
+        _split_3e(_qna_read_response([], end_code=0xC059)), ("0214",),
+    ),
     # 0101 CPU 型号
     ExtCase(
         "get_cpu_type_3e", "3E", False, "get_cpu_type", (),
