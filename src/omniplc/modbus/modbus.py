@@ -1081,6 +1081,7 @@ class ModbusRtuClient(ModbusBaseClient):
         self._station = self._check_station(station)
         self._serial_config: Optional[SerialConfig] = None
         self._inter_frame_delay = 0.0
+        self._broadcast_turnaround = self._BROADCAST_TURNAROUND_DEFAULT
 
     @property
     def inter_frame_delay(self) -> float:
@@ -1103,19 +1104,48 @@ class ModbusRtuClient(ModbusBaseClient):
     # 3.5 字符时间(T3.5)的位宽口径:1 起始位 + 8 数据位 + 1 校验位 + 1 停止位
     _BITS_PER_CHARACTER: int = 11
 
-    def _broadcast_silence(self) -> float:
-        """广播写后应保持的帧间静默秒数(内部方法)。
+    _BROADCAST_TURNAROUND_DEFAULT: float = 0.2
+    """广播后 Turnaround delay 缺省值(秒,Modbus 串口规范 §2.4.1:广播后的
+    静默必须足够**所有**从站处理完该请求——含写 EEPROM/闩锁等慢速动作,
+    行业典型 100~200ms,取保守上限;只作用于广播路径,单播不受影响)。"""
 
-        规范 §2.5.1.1:帧间至少 T3.5(= 3.5 字符时间);每字符按 11 位计,
-        波特率取当前串口配置(未经 :meth:`configure_serial` 配置时用默认
-        9600)。显式设置的 ``inter_frame_delay`` 更大时取其值。
+    def _broadcast_silence(self) -> float:
+        """广播写后应保持的静默秒数(内部方法)。
+
+        三者取大:① 显式 ``inter_frame_delay``;② T3.5 帧界定静默
+        (§2.5.1.1 = 3.5 字符时间,每字符 11 位,波特率取当前串口配置——
+        **>19200bps 按规范用固定 1.750ms**);③ ``broadcast_turnaround``
+        (§2.4.1 广播 Turnaround delay,默认 200ms——T3.5 只保证帧界定,
+        不保证从站处理完,写 EEPROM/闩锁类广播后 4ms@9600 发下一帧会被
+        从站丢帧)。只作用于广播路径,单播事务不受影响。
         """
         baud = SERIAL_DEFAULT_BAUD_RATE
         config = self._serial_config
         if config is not None:
             baud = config.baud_rate
-        t3_5 = 3.5 * self._BITS_PER_CHARACTER / float(baud)
-        return max(self._inter_frame_delay, t3_5)
+        if baud > 19200:
+            t3_5 = 1.750 / 1000.0
+        else:
+            t3_5 = 3.5 * self._BITS_PER_CHARACTER / float(baud)
+        return max(self._inter_frame_delay, t3_5, self._broadcast_turnaround)
+
+    @property
+    def broadcast_turnaround(self) -> float:
+        """广播写后的 Turnaround delay(秒,默认 0.2 = 200ms,只作用于广播)。
+
+        Modbus 串口规范 §2.4.1:广播后的静默须足够**所有**从站处理完请求
+        (典型 100~200ms,依从站最慢动作定);T3.5(约 4ms@9600)只满足帧
+        界定。从站全部为快速动作(线圈/寄存器直写)时可调小;现场含慢速
+        动作从站请保持或调大。
+        """
+        return self._broadcast_turnaround
+
+    @broadcast_turnaround.setter
+    def broadcast_turnaround(self, value: float) -> None:
+        seconds = float(value)
+        if seconds < 0:
+            raise ValueError(_("broadcast_turnaround 不能为负:{}").format(value))
+        self._broadcast_turnaround = seconds
 
     def configure_serial(
         self,
@@ -1168,8 +1198,8 @@ class ModbusRtuClient(ModbusBaseClient):
         transport.send(codec.build_rtu_frame(station, pdu))
         if not expect_response:
             # 广播写:无响应回包,靠"读满整帧"自然产生的帧间隔在这里不成立
-            # ——显式按 3.5 字符时间静默,防从站把紧跟的下一帧当作广播延续
-            # 而整帧作废(T3.5 = 3.5 × 11 位 / 波特率,见 _broadcast_silence)
+            # ——显式静默:Turnaround delay(从站处理完广播,§2.4.1)与
+            # T3.5(帧界定,§2.5.1.1)取大,见 _broadcast_silence
             silence = self._broadcast_silence()
             if silence > 0:
                 time.sleep(silence)

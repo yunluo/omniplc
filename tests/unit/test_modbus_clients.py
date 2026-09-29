@@ -246,6 +246,35 @@ def test_rtu_broadcast_write_skips_response(monkeypatch: pytest.MonkeyPatch) -> 
     assert bytes(scripted.sent) == codec.build_rtu_frame(0, codec.build_write_single_pdu(6, 100, 1234))
 
 
+def test_rtu_broadcast_silence_turnaround_and_t35() -> None:
+    """广播静默 = max(inter_frame_delay, T3.5, turnaround) 三者取大(内部口径)。
+
+    §2.4.1 广播后 Turnaround delay 须足够**所有**从站处理完请求(默认
+    200ms;T3.5@9600 ≈ 4ms 只满足帧界定);T3.5 在 >19200bps 按规范用
+    固定 1.750ms;可配属性负值拒绝。
+    """
+    client = ModbusRtuClient(station=0)
+    client.configure_serial("COM3", baud_rate=9600)
+    # 默认:turnaround 200ms > T3.5(≈4.017ms@9600)→ 取 0.2
+    assert abs(client._broadcast_silence() - 0.2) < 1e-9
+    # >19200bps:T3.5 按规范固定 1.750ms,仍小于 turnaround
+    client.configure_serial("COM3", baud_rate=115200)
+    assert abs(client._broadcast_silence() - 0.2) < 1e-9
+    # ≤19200bps 按 3.5 字符时间:38400 属 >19200 分支,9600 属算式分支
+    client.configure_serial("COM3", baud_rate=19200)
+    t35_19200 = 3.5 * 11 / 19200.0
+    assert abs(client._broadcast_silence() - 0.2) < 1e-9
+    assert t35_19200 < 0.2
+    # 显式调小 turnaround → T3.5 与其取大
+    client.broadcast_turnaround = 0.001
+    assert abs(client._broadcast_silence() - t35_19200) < 1e-9
+    # inter_frame_delay 更大时取其值
+    client.inter_frame_delay = 0.5
+    assert abs(client._broadcast_silence() - 0.5) < 1e-9
+    with pytest.raises(ValueError):
+        client.broadcast_turnaround = -1
+
+
 def test_rtu_broadcast_read_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     """RTU 广播:站号 0 读操作直接拒绝(设备不回包,等待只会超时)。"""
     client = ModbusRtuClient(station=0)
