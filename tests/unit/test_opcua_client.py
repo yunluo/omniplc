@@ -706,6 +706,43 @@ def test_subscribe_data_change_receives_update(_opcua_server_module) -> None:
 
 
 @pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_subscribe_data_change_deadband_filter(_opcua_server_module) -> None:
+    """死区订阅(deadband_value → DataChangeFilter 底层路径)建立成功且回调触发。
+
+    回归:死区分支经 tloop.post 取 aio _subscribe 结果,原实现对返回值再调
+    ``.result()``(asyncua 1.1.5 post 已直接返回结果)→ AttributeError 被吞 →
+    订阅被删 + 整条会话被拆(每次死区订阅必打死连接)。
+    """
+    server, idx = _opcua_server_module
+    name = "SubDeadband_{}".format(_time.time_ns())
+    node, node_id = _make_variable(server, idx, name, 0)
+
+    received: list = []
+    event = _threading.Event()
+
+    def on_change(value, nid, ts):
+        received.append((value, nid, ts))
+        if value == 99:
+            event.set()
+
+    client = OpcUaClient("127.0.0.1", _OPCUA_TEST_PORT, endpoint=_TEST_ENDPOINT)
+    client.connect()
+    try:
+        ok, sub = client.subscribe_data_change(
+            node_id, on_change, sampling_interval_ms=50, deadband_value=0.5
+        )
+        # 修复前:ok=False 且整条连接被 _execute 拆掉
+        assert ok is True and sub is not None
+        assert client.connected is True
+        _time.sleep(0.2)
+        node.write_value(99)  # 超出死区 → 应触发回调
+        assert event.wait(timeout=3.0), "死区订阅回调未触发, received={}".format(received)
+        assert any(v == 99 for v, _, _ in received)
+    finally:
+        client.disconnect()
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
 def test_subscribe_data_change_unsubscribe_idempotent(_opcua_server_module) -> None:
     """unsubscribe 幂等:二次返回 False。"""
     server, idx = _opcua_server_module

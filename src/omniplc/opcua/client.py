@@ -810,7 +810,11 @@ class OpcUaClient(BaseClient):
                     # 传底层 aio 节点(node.aio_obj):_subscribe 是 aio 层
                     # 方法,期望 Node;直接传 sync 包装只能靠其 .nodeid
                     # 属性转发侥幸工作,依赖实现巧合
-                    fut = ua_sub.tloop.post(
+                    # 注意:asyncua 1.1.5 sync.ThreadLoop.post **直接返回
+                    # 协程结果**(内部 run_coroutine_threadsafe(...).result()
+                    # 已等待),不是 future——不能再调 .result()(对 list
+                    # 抛 AttributeError,曾被外层吞掉导致订阅被删 + 拆线)
+                    mids = ua_sub.tloop.post(
                         ua_sub.aio_obj._subscribe(
                             [node.aio_obj],
                             asyncua.ua.AttributeIds.Value,
@@ -820,7 +824,6 @@ class OpcUaClient(BaseClient):
                             float(sampling_interval_ms),
                         )
                     )
-                    mids = fut.result()
                 else:
                     handles = ua_sub.subscribe_data_change(
                         [ua_client.get_node(parse_opcua_nodeid(node_text).text)],
