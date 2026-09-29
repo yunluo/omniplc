@@ -576,10 +576,14 @@ def parse_read_cpu_model_response(
 
 
 def _random_device(code: int, number: int) -> bytes:
-    """随机读/写软元件条目:码 1 字节 + 编号 3 字节小端(内部函数)。"""
+    """随机读/写软元件条目:编号 3 字节小端 + 码 1 字节(内部函数)。
+
+    字段序依 SH-080008 §8.3 印刷页 101(0403)/107(1402)通信例列头
+    (Device number → code),与 0401/0114 核心命令的编号在前同序。
+    """
     if not 0 <= number <= 0xFFFFFF:
         raise ValueError(_("MC 软元件编号超出 3 字节范围:{}").format(number))
-    return bytes((code,)) + number.to_bytes(3, "little")
+    return number.to_bytes(3, "little") + bytes((code,))
 
 
 def _random_word_value(value: int, byte_count: int = 2) -> bytes:
