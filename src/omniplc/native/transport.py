@@ -54,8 +54,10 @@ from ..core.errors import (
 from ..transport.tcp import _enable_keepalive
 from ..core.i18n import _
 
-# Windows ``recv`` 对超长 UDP 报文抛 ``WSAEMSGSIZE``(errno 10040),与同步
-# 传输层同一常量含义:协议帧问题而非链路问题。
+# Windows ``recv`` 对超长 UDP 报文抛 ``WSAEMSGSIZE``(errno 10040)。诊断码
+# 取**负值**与同步层(transport/udp.py)契约统一:负码避开真实协议错误码
+# 空间,基类据 code < 0 不计入 device_error_count(本地缓冲配置问题非 PLC
+# 报错);正码会与 16 位 PLC 结束码空间撞码并污染统计。
 _WSAEMSGSIZE_ERRNO = 10040
 
 # 摘 selector 注册时"句柄已不可用"的 errno:摘不到不影响关句柄,但会掩盖
@@ -480,7 +482,8 @@ class AsyncUdpTransport(AsyncBaseTransport):
         :param size: 缓冲上限(超出部分截断)
         :raises TransportClosedError: 未初始化
         :raises TransportTimeoutError: 接收超时(不断线语义)
-        :raises DeviceError: Windows 上报文超过缓冲时抛(code=10040)
+        :raises DeviceError: Windows 上报文超过缓冲时抛(code=-10040,负码
+            与同步层契约统一,不计 ``device_error_count``)
         :raises OSError: 其他 OS 层错误
         """
         sock = self._require_socket()
@@ -499,7 +502,7 @@ class AsyncUdpTransport(AsyncBaseTransport):
                 )
                 raise DeviceError(
                     _("UDP 报文超过缓冲({}B),链路正常(对端报文超长)").format(size),
-                    code=_WSAEMSGSIZE_ERRNO,
+                    code=-_WSAEMSGSIZE_ERRNO,
                 ) from exc
             raise
         if not done or received is None:

@@ -7,7 +7,7 @@
 - UDP 回环收发(``loop.sock_recv_into`` / ``sock_sendall``,两种事件循环都跑)
 - UDP 主机名解析按 IPv4(与同步层同族)与**发送**超时的 OSError 口径
 - UDP 静默对端 → ``TransportTimeoutError``(不断线语义)
-- UDP 超长报文(WSAEMSGSIZE 10040)→ ``DeviceError(code=10040)``(假 socket)
+- UDP 超长报文(WSAEMSGSIZE 10040)→ ``DeviceError(code=-10040)``(假 socket)
 """
 from __future__ import annotations
 
@@ -198,11 +198,12 @@ def test_udp_cancel_then_close_keeps_loop_alive() -> None:
 
 
 def test_udp_oversize_datagram_maps_to_device_error() -> None:
-    """超长数据报(WSAEMSGSIZE 10040)→ ``DeviceError(code=10040)``,与同步层同口径。
+    """超长数据报(WSAEMSGSIZE 10040)→ ``DeviceError(code=-10040)``,与同步层同口径。
 
     用假 socket 强制该分支(Windows 内核才抛 10040,POSIX 静默截断);
     假 socket 只在 Selector 循环下有意义(Proactor 走 IOCP 需要真句柄),
-    故本用例显式指定 Selector 循环。
+    故本用例显式指定 Selector 循环。诊断码取负值与同步层契约统一:避开
+    真实协议错误码空间、基类不计 ``device_error_count``。
     """
     loop = make_loop("SelectorEventLoop")
 
@@ -220,7 +221,7 @@ def test_udp_oversize_datagram_maps_to_device_error() -> None:
         transport._socket = _OversizeDatagramSocket()  # type: ignore[assignment]
         with pytest.raises(DeviceError) as excinfo:
             await transport.recv(64)
-        assert excinfo.value.code == 10040
+        assert excinfo.value.code == -10040
         assert "超过缓冲" in str(excinfo.value)
         transport.close()
 
