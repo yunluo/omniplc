@@ -1016,7 +1016,8 @@ def _extended_status_text(status: int, cip: bytes) -> Optional[str]:
     table = AB_CIP_EXTENDED_STATUS_TEXT.get(status)
     if not table:
         return None
-    text = table.get(extended)
+    # 表值查表结果过 _(与主表/EIP 表取词点同口径;表值为无占位符纯文案)
+    text = _(table.get(extended))
     if text is None:
         return None
     return _("{}  ({:0>2X}, {:0>4X})").format(text, status, extended)
