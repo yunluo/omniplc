@@ -230,7 +230,7 @@ def test_build_random_read_validation() -> None:
 
 
 def test_parse_random_read_response() -> None:
-    """多块批量读响应:字块扁平列表;位块逐点 16 位字(点内首软元件 bit15)。"""
+    """多块批量读响应:字块扁平列表;位块逐点 16 位字(点内首软元件 bit0)。"""
     data = bytes.fromhex("0100" "ffff" "3412" "0080" "0100")
     frame = (
         b"\xd0\x00"

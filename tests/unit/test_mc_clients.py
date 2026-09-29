@@ -224,7 +224,7 @@ def _qna_random_read_response(words: list, bits: list) -> bytes:
 def test_tcp_3e_read_batch_mixed(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP 3E read_batch:混类型单事务,字块/位块分节,值与 items 顺序对应。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000)
-    frame = _qna_random_read_response([0xFFFE, 0x0000, 0x3F80, 0x0008], [0x8000, 0x0000])
+    frame = _qna_random_read_response([0xFFFE, 0x0000, 0x3F80, 0x0008], [0x0001, 0x0000])
     scripted = ScriptedTransport([frame[:9], frame[9:]])
     _mount(monkeypatch, client, scripted)
     client.connect()
@@ -425,7 +425,7 @@ def test_async_mirror_read_batch() -> None:
 
     async def scenario() -> None:
         client = AMelsecMcTcpClient("127.0.0.1", 2000)
-        frame = _qna_random_read_response([7], [0x8000])
+        frame = _qna_random_read_response([7], [0x0001])
         scripted = ScriptedTransport([frame[:9], frame[9:]])
         scripted.receive_timeout = 5.0
         client._sync._transport = scripted
@@ -562,7 +562,7 @@ def test_tcp_3e_read_batch_merges_adjacent_bit_blocks(
 ) -> None:
     """相邻同软元件位请求合并为一个 0406 位块(1 点=16 位),按位位置解码。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000)
-    frame = _qna_random_read_response([], [0xA000])  # M0=1 / M1=0 / M2=1(bit15/14/13)
+    frame = _qna_random_read_response([], [0x0005])  # M0=1 / M1=0 / M2=1(bit0/1/2)
     scripted = ScriptedTransport([frame[:9], frame[9:]])
     _mount(monkeypatch, client, scripted)
     client.connect()
@@ -579,9 +579,9 @@ def test_tcp_3e_read_batch_merges_adjacent_bit_blocks(
 def test_tcp_3e_read_batch_noncontiguous_bits_not_merged(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """非连续位请求各自成块(M0 / M2 不合并,两处各取 bit15)。"""
+    """非连续位请求各自成块(M0 / M2 不合并,两处各取 bit0)。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000)
-    frame = _qna_random_read_response([], [0x8000, 0x0000])  # M0=1;M2=0
+    frame = _qna_random_read_response([], [0x0001, 0x0000])  # M0=1;M2=0
     scripted = ScriptedTransport([frame[:9], frame[9:]])
     _mount(monkeypatch, client, scripted)
     client.connect()
