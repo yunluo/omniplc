@@ -435,6 +435,26 @@ def test_reuse_of_connected_client_across_loops_raises() -> None:
         asyncio.run(client.read_ushort("hr0"))
 
 
+def test_connect_on_another_loop_of_connected_client_raises() -> None:
+    """已连接后换循环调 ``connect()`` → 显式 ``RuntimeError``。
+
+    回归:connect 原无亲和检查,而 _guard 换锁分支会静默改写 ``_lock_loop``
+    ——已连接(旧循环锁空闲)时 connect() 把锁换到新循环并把 ``_connected``
+    短路返回,事务入口亲和检查的比对基准被洗掉,后续跨循环收发永远放行
+    (静默失败/串帧)。
+    """
+    client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+
+    async def connect_in_first_loop() -> None:
+        client._create_transport = lambda: FakeTransport(["hang"])  # type: ignore[method-assign]
+        assert await client.connect() is True
+
+    asyncio.run(connect_in_first_loop())
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(client.connect())
+
+
 def test_close_from_another_loop_still_closes() -> None:
     """跨循环 ``close()`` 不拦(收尾路径):换锁后照常断开,不把清理机会也堵死。"""
     client = AsyncModbusTcpClient("127.0.0.1", 502, 1)

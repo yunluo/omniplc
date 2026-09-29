@@ -154,6 +154,10 @@ class AsyncBaseClient(ABC):
         :return: 是否成功
         """
         self._ensure_open()
+        # 已连接时 connect() 同样受跨循环检查:下方 _guard 的换锁分支会
+        # 静默改写 _lock_loop,把事务入口 _check_loop_affinity 的比对基准
+        # 洗掉——之后在新循环上对旧循环的传输收发(静默失败/串帧)永远放行
+        self._check_loop_affinity()
         async with self._guard():
             return await self._connect_locked()
 
