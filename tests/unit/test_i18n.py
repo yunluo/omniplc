@@ -116,6 +116,49 @@ def test_regressed_mixed_numbering_entries_format_in_en(key: str) -> None:
     set_lang("zh")
 
 
+def test_error_code_tables_fully_translated_in_en() -> None:
+    """9 张错误码→文案表逐条断言 en 可译(键在 ``_TRANSLATIONS`` 内)。
+
+    取词 fallback 查不到键时静默返回中文原文(v0.47.2 刚修过 FINS/CIP 两处
+    漏包,用户无感知)——本门禁把全部 9 张表 import 遍历,新增码表行忘加
+    翻译立即失败。``AB_CIP_EXTENDED_STATUS_TEXT`` 为嵌套表(status →
+    {扩展码: 文案}),按值类型递归统一处理。
+    """
+    from omniplc.core import constants
+    from omniplc.plc.panasonic import codec_mewtocol
+
+    tables = [
+        ("MODBUS_EXCEPTION_TEXT", constants.MODBUS_EXCEPTION_TEXT),
+        ("FINS_END_CODE_TEXT", constants.FINS_END_CODE_TEXT),
+        ("FINS_END_CODE_HINT", constants.FINS_END_CODE_HINT),
+        ("AB_EIP_STATUS_TEXT", constants.AB_EIP_STATUS_TEXT),
+        ("AB_CIP_STATUS_TEXT", constants.AB_CIP_STATUS_TEXT),
+        ("AB_CIP_EXTENDED_STATUS_TEXT", constants.AB_CIP_EXTENDED_STATUS_TEXT),
+        ("KV_ERROR_TEXT", constants.KV_ERROR_TEXT),
+        ("TOYOPUC_ERROR_TEXT", constants.TOYOPUC_ERROR_TEXT),
+        ("MEWTOCOL_ERROR_MESSAGES", codec_mewtocol._ERROR_MESSAGES),
+    ]
+
+    def texts_of(value: object) -> "list[str]":
+        if isinstance(value, dict):
+            out: list = []
+            for item in value.values():
+                out.extend(texts_of(item))
+            return out
+        return [value]
+
+    set_lang("en")
+    try:
+        missing = []
+        for name, table in tables:
+            for text in texts_of(table):
+                if _(text) == text:
+                    missing.append("{}:{}".format(name, text[:40]))
+    finally:
+        set_lang("zh")
+    assert missing == [], "码表 en 漏翻(键不在 _TRANSLATIONS):{}".format(missing)
+
+
 def test_no_chinese_fstring_raises_in_src() -> None:
     """扫描 src:含中文的裸 f-string raise 必须为 0(f-string 无法过 _() 取词)。
 
