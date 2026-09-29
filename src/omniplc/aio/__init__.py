@@ -825,6 +825,7 @@ class AMelsecMcTcpClient(ABaseClient):
         frame: Union[McFrame, str] = McFrame.FRAME_3E,
         network_number: int = MC_DEFAULT_NETWORK_NUMBER,
         pc_number: int = MC_DEFAULT_PC_NUMBER,
+        xy_octal: bool = False,
     ) -> None:
         """初始化 MC TCP 异步客户端。
 
@@ -835,9 +836,16 @@ class AMelsecMcTcpClient(ABaseClient):
             ``FRAME_1E`` 为 A 兼容);也兼容 ``"3E"``/``"4E"``/``"1E"`` 字符串
         :param network_number: 网络编号(仅 3E/4E 使用)
         :param pc_number: PC 编号(仅 3E/4E 使用;1E 帧语义为站号)
+        :param xy_octal: X/Y 编号按八进制解释(iQ-F/FX5U 口径;默认 False =
+            Q/L/R 十六进制)。不透传时 FX5U 现场 ``X10`` 按十六进制解析,
+            静默读错软元件
         :raises ValueError: 参数非法
         """
-        super().__init__(MelsecMcTcpClient(ip_address, port, frame, network_number, pc_number))
+        super().__init__(
+            MelsecMcTcpClient(
+                ip_address, port, frame, network_number, pc_number, xy_octal
+            )
+        )
 
     @property
     def frame(self) -> McFrame:
@@ -895,6 +903,7 @@ class AMelsecMcUdpClient(ABaseClient):
         frame: Union[McFrame, str] = McFrame.FRAME_3E,
         network_number: int = MC_DEFAULT_NETWORK_NUMBER,
         pc_number: int = MC_DEFAULT_PC_NUMBER,
+        xy_octal: bool = False,
     ) -> None:
         """初始化 MC UDP 异步客户端。
 
@@ -905,9 +914,15 @@ class AMelsecMcUdpClient(ABaseClient):
             ``FRAME_1E`` 为 A 兼容);也兼容 ``"3E"``/``"4E"``/``"1E"`` 字符串
         :param network_number: 网络编号(仅 3E/4E 使用)
         :param pc_number: PC 编号(仅 3E/4E 使用;1E 帧语义为站号)
+        :param xy_octal: X/Y 编号按八进制解释(iQ-F/FX5U 口径;默认 False =
+            Q/L/R 十六进制)
         :raises ValueError: 参数非法
         """
-        super().__init__(MelsecMcUdpClient(ip_address, port, frame, network_number, pc_number))
+        super().__init__(
+            MelsecMcUdpClient(
+                ip_address, port, frame, network_number, pc_number, xy_octal
+            )
+        )
 
     @property
     def frame(self) -> McFrame:
@@ -1319,15 +1334,21 @@ class AKeyenceSrClient(ABaseClient):
         ip_address: str = "192.168.0.10",
         port: int = SR_DEFAULT_PORT,
         scan_dwell: float = SR_DEFAULT_SCAN_DWELL,
+        encoding: str = "utf-8",
+        encoding_errors: str = "strict",
     ) -> None:
         """初始化 SR 扫码枪异步客户端。
 
         :param ip_address: 扫码枪 IP 或主机名
         :param port: TCP 端口,默认 9004
         :param scan_dwell: 扫码窗口时长(秒),LON 到 LOFF 的等待时间
+        :param encoding: 条码文本解码编码(默认 utf-8;GBK 码制现场按需指定)
+        :param encoding_errors: 解码错误策略(strict/replace/ignore)
         :raises ValueError: 参数非法
         """
-        super().__init__(KeyenceSrClient(ip_address, port, scan_dwell))
+        super().__init__(
+            KeyenceSrClient(ip_address, port, scan_dwell, encoding, encoding_errors)
+        )
 
     def _scanner(self) -> KeyenceSrClient:
         """取扫码枪同步实例(内部属性)。"""
@@ -1563,17 +1584,40 @@ class AOmronFinsTcpClient(_AFinsRoutingClient):
         self,
         ip_address: str = "192.168.250.1",
         port: int = FINS_DEFAULT_PORT,
-        local_node: int = 0,
+        local_node: Optional[int] = None,
+        destination_network: int = 0,
+        destination_node: Optional[int] = None,
+        destination_unit: int = 0,
+        source_network: int = 0,
+        source_node: Optional[int] = None,
+        source_unit: int = 0,
     ) -> None:
         """初始化 FINS/TCP 异步客户端。
 
         :param ip_address: PLC 的 IP
         :param port: 端口,默认 9600
-        :param local_node: 本地节点号;``None``/``0`` = 由 PLC 自动分配
-            (握手时获取)
+        :param local_node: 本地节点号;``None`` = 由 PLC 自动分配(握手时获取)
+        :param destination_network: 目标网络号(跨网访问他站时按现场配置)
+        :param destination_node: 目标节点号;``None`` = 从 PLC IP 末段自动推导
+        :param destination_unit: 目标单元号(CPU 单元 0)
+        :param source_network: 源网络号
+        :param source_node: 源节点号;``None`` = 取本机出口 IP 末段
+        :param source_unit: 源单元号
         :raises ValueError: 参数非法
         """
-        super().__init__(OmronFinsTcpClient(ip_address, port, local_node))
+        super().__init__(
+            OmronFinsTcpClient(
+                ip_address,
+                port,
+                local_node,
+                destination_network,
+                destination_node,
+                destination_unit,
+                source_network,
+                source_node,
+                source_unit,
+            )
+        )
 
     @property
     def local_node(self) -> int:
@@ -1592,14 +1636,41 @@ class AOmronFinsTcpClient(_AFinsRoutingClient):
 class AOmronFinsUdpClient(_AFinsRoutingClient):
     """欧姆龙 FINS/UDP 异步客户端。"""
 
-    def __init__(self, ip_address: str = "192.168.250.1", port: int = FINS_DEFAULT_PORT) -> None:
+    def __init__(
+        self,
+        ip_address: str = "192.168.250.1",
+        port: int = FINS_DEFAULT_PORT,
+        destination_network: int = 0,
+        destination_node: Optional[int] = None,
+        destination_unit: int = 0,
+        source_network: int = 0,
+        source_node: Optional[int] = None,
+        source_unit: int = 0,
+    ) -> None:
         """初始化 FINS/UDP 异步客户端。
 
         :param ip_address: PLC 的 IP 或主机名
         :param port: 端口,FINS 默认 9600
+        :param destination_network: 目标网络号(跨网访问他站时按现场配置)
+        :param destination_node: 目标节点号;``None`` = 从 PLC IP 末段自动推导
+        :param destination_unit: 目标单元号(CPU 单元 0)
+        :param source_network: 源网络号
+        :param source_node: 源节点号;``None`` = 取本机出口 IP 末段
+        :param source_unit: 源单元号
         :raises ValueError: 参数非法
         """
-        super().__init__(OmronFinsUdpClient(ip_address, port))
+        super().__init__(
+            OmronFinsUdpClient(
+                ip_address,
+                port,
+                destination_network,
+                destination_node,
+                destination_unit,
+                source_network,
+                source_node,
+                source_unit,
+            )
+        )
 
     async def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
