@@ -111,6 +111,7 @@ ok, value = client.read_tag("furnace_temp")   # 点位标识 → 地址+类型,�
 | [docs/async.md](docs/async.md) | 异步两套的选型、示例与边界 |
 | [docs/architecture.md](docs/architecture.md) | 架构设计、类继承图、版本履历 |
 | [docs/real-machine-checklist.md](docs/real-machine-checklist.md) | 真机联测记录与待核证项 |
+| [docs/protocol-features.md](docs/protocol-features.md) | 协议功能实现矩阵(已实现/未实现逐协议对照) |
 | [docs/protocol/README.md](docs/protocol/README.md) | 协议官方手册索引 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 开发约定、门禁、双版本测试 |
 | [CHANGELOG.md](CHANGELOG.md) | 完整变更历史 |
