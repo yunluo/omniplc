@@ -503,8 +503,13 @@ def build_client(conn):
         return BeckhoffAdsClient(ip, _p(conn, "ads_port", 851),
                                  _p(conn, "net_id", ""))
     if d == "siemens_s7":
-        return SiemensS7Client(ip, _p(conn, "rack", 0), _p(conn, "slot", 1),
-                               port or 102, _p(conn, "dll_path", ""))
+        # 全关键字传参:v0.32.0 起签名按全库惯例调整为
+        # (ip_address, port, rack, slot, dll_path),位置参数曾错位为
+        # port=0/rack=1/slot=102(S7 驱动完全不可用),关键字写法免疫再漂移
+        return SiemensS7Client(ip_address=ip, port=port or 102,
+                               rack=_p(conn, "rack", 0),
+                               slot=_p(conn, "slot", 1),
+                               dll_path=_p(conn, "dll_path", ""))
     if d == "opcua":
         return OpcUaClient(ip, port or 4840, _p(conn, "path", ""),
                            _p(conn, "endpoint", ""))
