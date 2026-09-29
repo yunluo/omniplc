@@ -101,29 +101,44 @@ _SNAP7_TRANSPORT_ERROR_CODES: Tuple[int, ...] = (
 半开连接(拔线/断电)下 ``get_connected()`` 本地标志不翻转,这些码是
 判"真断连"的第一依据,命中即 OSError(惰性重连),不看连接标志。"""
 
-
-def _is_snap7_transport_error(exc: BaseException) -> bool:
-    """判断 snap7 异常是否携带传输类错误码(内部函数)。
-
-    错误码藏在异常文本里(1.3 的 RuntimeError 文本含 ``err*`` 名或
-    十六进制码,3.x ``S7Error`` 同样透传),按文本与已知码表匹配;
-    匹配不上返回 False(回退连接标志判据)。
-    """
-    text = str(exc)
-    for code in _SNAP7_TRANSPORT_ERROR_CODES:
-        hex_text = "0x{:08X}".format(code)
-        name = _SNAP7_ERROR_CODE_NAMES.get(code, "")
-        if hex_text.lower() in text.lower() or (name and name in text):
-            return True
-    return False
-
-
 _SNAP7_ERROR_CODE_NAMES: Dict[int, str] = {
     0x00090000: "errIsoSendPacket",
     0x000A0000: "errIsoRecvPacket",
     0x02000000: "errCliJobTimeout",
 }
 """传输类错误码 → snap7 官方名称(异常文本通常携带该名称)。"""
+
+_SNAP7_TRANSPORT_TEXT_PATTERNS: Tuple[str, ...] = (
+    "an error occurred during send",  # 1.x C 库 errIsoSendPacket 描述文本
+    "an error occurred during recv",  # 1.x C 库 errIsoRecvPacket 描述文本
+    "job timeout",  # 1.x C 库 errCliJobTimeout 描述文本
+)
+"""1.x(≤2.x)C 库 ``Cli_ErrorText`` 对上述传输码返回的**人类描述文本**
+小写子串(snap7 C 源 Cli_ErrorText 表;已知码不走 "Unknown error" 回退分支,
+故十六进制码与 err* 名在该线文本中恒不出现)。1.3 ``check_error`` 抛
+``RuntimeError(bytes)``,``str()`` 后即 bytes repr(如
+``b' ISO : An error occurred during recv'``),子串匹配不受影响。"""
+
+
+def _is_snap7_transport_error(exc: BaseException) -> bool:
+    """判断 snap7 异常是否携带传输类错误码(内部函数)。
+
+    错误码藏在异常文本里:1.x 的 ``RuntimeError`` 文本来自 **C 库
+    ``Cli_ErrorText`` 的人类描述**(形如 ``b' ISO : An error occurred
+    during recv'``,不含 err* 名与十六进制码);3.x ``S7Error`` 文本则
+    携带 err* 名或十六进制码。按码表(hex/名称/描述文本)三线匹配;
+    匹配不上返回 False(回退连接标志判据)。
+    """
+    text = str(exc).lower()
+    for code in _SNAP7_TRANSPORT_ERROR_CODES:
+        hex_text = "0x{:08X}".format(code)
+        name = _SNAP7_ERROR_CODE_NAMES.get(code, "")
+        if hex_text.lower() in text or (name and name.lower() in text):
+            return True
+    for pattern in _SNAP7_TRANSPORT_TEXT_PATTERNS:
+        if pattern in text:
+            return True
+    return False
 
 _AREAS_ENUM: Any = False
 """snap7 ``Areas`` 枚举类缓存:False = 未探测,None = 探测失败(裸 int

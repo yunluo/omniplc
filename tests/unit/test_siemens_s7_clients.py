@@ -508,6 +508,41 @@ def test_link_down_lazy_reconnect(monkeypatch: pytest.MonkeyPatch) -> None:
     assert first.destroyed is True
 
 
+def test_snap7_1x_transport_error_text_patterns() -> None:
+    """1.x C 库文本判据:Cli_ErrorText 人类描述(bytes repr)命中传输判据。
+
+    snap7 1.3 ``check_error`` 抛 ``RuntimeError(bytes)``,文本为 C 库
+    ``Cli_ErrorText`` 的人类描述(形如 ``b' ISO : An error occurred during
+    recv'``)——已知码不走 "Unknown error (0x…)" 回退分支,十六进制码与
+    err* 名恒不出现,原判据(仅匹配这两者)在 1.x 线恒 False → 半开
+    (拔线/断电)被判 DeviceError 永不重连。3.x 语义名/hex 判据保留。
+    """
+    # 1.3 真实文本形态(bytes repr,含引号与 b 前缀)
+    assert s7_module._is_snap7_transport_error(
+        RuntimeError(b" ISO : An error occurred during recv TCP")
+    ) is True
+    assert s7_module._is_snap7_transport_error(
+        RuntimeError(b" ISO : An error occurred during send TCP")
+    ) is True
+    assert s7_module._is_snap7_transport_error(
+        RuntimeError(b"Job Timeout")
+    ) is True
+    # 非传输码的人类描述不误判
+    assert s7_module._is_snap7_transport_error(
+        RuntimeError(b"Unknown error")
+    ) is False
+    assert s7_module._is_snap7_transport_error(
+        RuntimeError(b"Function refused by CPU (Unknown error)")
+    ) is False
+    # 3.x 线:err* 语义名与十六进制码(原有判据保留)
+    assert s7_module._is_snap7_transport_error(
+        RuntimeError("errIsoRecvPacket")
+    ) is True
+    assert s7_module._is_snap7_transport_error(
+        RuntimeError("0x000A0000")
+    ) is True
+
+
 # ----------------------------------------------------------------------
 # 异步镜像
 # ----------------------------------------------------------------------
