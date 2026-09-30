@@ -433,15 +433,22 @@ def build_client(conn):
             c.word_order = _coerce_word_order(_p(conn, "word_order", "ABCD"))
         return c
     if d == "modbus_rtu":
-        return ModbusRtuClient(_p(conn, "station", 1))
+        c = ModbusRtuClient(_p(conn, "station", 1))
+        if _p(conn, "inter_frame_delay", "") != "":
+            c.inter_frame_delay = float(_p(conn, "inter_frame_delay", 0))
+        if _p(conn, "broadcast_turnaround", "") != "":
+            c.broadcast_turnaround = float(_p(conn, "broadcast_turnaround", 0))
+        return c
     if d == "melsec_mc_tcp":
         return MelsecMcTcpClient(ip, port or 2000, _p(conn, "frame", "3E"),
                                  _p(conn, "network_number", 0),
-                                 _p(conn, "pc_number", 255))
+                                 _p(conn, "pc_number", 255),
+                                 xy_octal=_p(conn, "xy_octal", False))
     if d == "melsec_mc_udp":
         return MelsecMcUdpClient(ip, port or 2000, _p(conn, "frame", "3E"),
                                  _p(conn, "network_number", 0),
-                                 _p(conn, "pc_number", 255))
+                                 _p(conn, "pc_number", 255),
+                                 xy_octal=_p(conn, "xy_octal", False))
     if d == "melsec_mc_serial":
         return MelsecMcSerialClient(_p(conn, "frame", "3C"),
                                     _p(conn, "station_number", 0),
@@ -449,11 +456,13 @@ def build_client(conn):
                                     _p(conn, "pc_number", 255),
                                     _p(conn, "self_station_number", 0),
                                     _p(conn, "module_io", 0x03FF),
-                                    _p(conn, "module_station", 0))
+                                    _p(conn, "module_station", 0),
+                                    message_wait=_p(conn, "message_wait", 0))
     if d == "melsec_mx":
         return MelsecMxClient(_p(conn, "logical_station_number", 0))
     if d == "omron_fins_tcp":
-        return OmronFinsTcpClient(ip, port or 9600, _p(conn, "local_node", 0))
+        # local_node 缺省 None = 握手自动推导(库默认);传 0 会禁用自动
+        return OmronFinsTcpClient(ip, port or 9600, _p(conn, "local_node", None))
     if d == "omron_fins_udp":
         return OmronFinsUdpClient(ip, port or 9600)
     if d == "omron_cip":
@@ -472,11 +481,18 @@ def build_client(conn):
                                   _p(conn, "network_number", 0),
                                   _p(conn, "pc_number", 255))
     if d == "keyence_sr":
-        return KeyenceSrClient(ip, port or 9004, _p(conn, "scan_dwell", 1.0))
+        return KeyenceSrClient(ip, port or 9004, _p(conn, "scan_dwell", 1.0),
+                               encoding=_p(conn, "encoding", "utf-8"),
+                               encoding_errors=_p(conn, "encoding_errors", "replace"))
     if d == "inovance_tcp":
         return InovanceTcpClient(ip, port or 502, _p(conn, "station", 1))
     if d == "inovance_rtu":
-        return InovanceRtuClient(_p(conn, "station", 1))
+        c = InovanceRtuClient(_p(conn, "station", 1))
+        if _p(conn, "inter_frame_delay", "") != "":
+            c.inter_frame_delay = float(_p(conn, "inter_frame_delay", 0))
+        if _p(conn, "broadcast_turnaround", "") != "":
+            c.broadcast_turnaround = float(_p(conn, "broadcast_turnaround", 0))
+        return c
     if d == "inovance_mc_tcp":
         return InovanceMcTcpClient(ip, port or 2000,
                                    _p(conn, "network_number", 0),
@@ -652,7 +668,8 @@ def run_connection(conn, rounds, rng):
     except Exception as exc:
         log("  [FAIL] 构造客户端失败:{}:{}".format(type(exc).__name__, exc))
         return 0, 0, False
-    for key in ("connect_timeout", "receive_timeout", "retries", "write_retries"):
+    for key in ("connect_timeout", "receive_timeout", "retries", "write_retries",
+                "broadcast_turnaround"):
         if key in conn:
             setattr(client, key, conn[key])
     try:

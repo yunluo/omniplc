@@ -1453,11 +1453,17 @@ class AOpcUaClient(ABaseClient):
         *,
         recursive: bool = True,
         max_depth: Optional[int] = None,
+        reference_type_id: Optional[str] = None,
     ) -> Tuple[bool, Optional[dict]]:
         """枚举节点树(语义同同步版 :meth:`OpcUaClient.browse`)。"""
         sync = self._typed(OpcUaClient)
         return await self._run(
-            lambda: sync.browse(node_text, recursive=recursive, max_depth=max_depth)
+            lambda: sync.browse(
+                node_text,
+                recursive=recursive,
+                max_depth=max_depth,
+                reference_type_id=reference_type_id,
+            )
         )
 
     async def read_batch(
@@ -1473,6 +1479,8 @@ class AOpcUaClient(ABaseClient):
         on_change: Callable[[Any, str, Optional[float]], None],
         *,
         sampling_interval_ms: int = OPCUA_DEFAULT_SAMPLING_INTERVAL_MS,
+        deadband_value: Optional[float] = None,
+        deadband_type: Optional[str] = None,
     ) -> Tuple[bool, Optional[OpcUaSubscription]]:
         """订阅节点值变化(DataChange)。
 
@@ -1495,7 +1503,11 @@ class AOpcUaClient(ABaseClient):
 
         return await self._run(
             lambda: sync.subscribe_data_change(
-                node_text, _bridge, sampling_interval_ms=sampling_interval_ms
+                node_text,
+                _bridge,
+                sampling_interval_ms=sampling_interval_ms,
+                deadband_value=deadband_value,
+                deadband_type=deadband_type,
             )
         )
 

@@ -534,6 +534,29 @@ def test_tcp_3e_word_device_bit_suffix_still_works(monkeypatch: pytest.MonkeyPat
     assert client.write_bool("D100.2", True) is True
 
 
+def test_tcp_3e_bit_device_word_access_gated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """位软元件按字单位单点读受门控(第八轮 P2-14:原单点路径绕过门控)。
+
+    ``read("M16", SHORT)`` 组出字单位读、编号非 16 对齐会被 PLC 拒或按
+    16 点/字错读——与 read_batch 的 0406 字块同防线;``bit_device_word_
+    access=True`` 放行(兼容子类口径);未知软元件的报错时机不变。
+    """
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    scripted = ScriptedTransport([])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    with pytest.raises(ValueError, match="只支持 BOOL"):
+        client.read("M16", "short")
+    assert len(scripted.sent) == 0  # 参数错误不发报文
+    # 字软元件读 BOOL(D100 无位号 → bit0)不受门控影响
+    client.disconnect()
+    read = _qna_read_response([0b0000_0000_0000_0001])
+    scripted2 = ScriptedTransport([read[:9], read[9:]])
+    _mount(monkeypatch, client, scripted2)
+    client.connect()
+    assert client.read_bool("D100") == (True, True)
+
+
 def test_tcp_3e_fx5u_xy_octal(monkeypatch: pytest.MonkeyPatch) -> None:
     """xy_octal=True:iQ-F 口径,X/Y 编号按八进制换算组帧。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000, xy_octal=True)

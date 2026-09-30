@@ -370,7 +370,12 @@ class _OmronFinsBase(BaseClient):
     def _write_bit_impl(self, parsed: FinsAddress, flag: bool) -> None:
         """位写:位存储区码直写;老固件不支持 D/EM 位区码(0x1101)时回退
         读-改-写(与位读回退对称)。D/EM 位直写依手册 §5-3-3 可写表
-        (DM Bit 02 / EM Bit 20~2F,CS/CJ/CP/NSJ)。"""
+        (DM Bit 02 / EM Bit 20~2F,CS/CJ/CP/NSJ)。
+
+        **非原子披露**(第八轮 P2-20):0x1101 回退是「字读 → 字写」
+        两笔事务——若 PLC 在两笔之间改写同字其他位,该改动会随字写回
+        被覆盖(扫描周期内丢更新)。CP1E/部分 CS1 才会触发回退;对原子性
+        敏感的点位请避开这类机型的 D/EM 位写,或改用整字写入。"""
         value = 1 if flag else 0
         try:
             self._write_bits(parsed, [value])

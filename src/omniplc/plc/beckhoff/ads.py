@@ -429,12 +429,12 @@ class BeckhoffAdsClient(BaseClient):
         self._session().write_by_name(text, coerced, _PLCTYPE_NAMES[data_type])
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
-        """读字符串变量(编码由 pyads 固定,length 仅截断)。
+        """读字符串变量(编码由 pyads 固定,length 仅库侧再截断)。
 
-        pyads 的 PLCTYPE_STRING 读取缓冲按默认 ``STRING(80)`` 实现——
-        PLC 侧声明 ``STRING(120)`` 等更长变量时**读回静默截断到 80 字符**;
-        长变量请用 :meth:`read_by_name` 底层通道或调大 pyads 侧常量
-        (本库无独立 API 前先在此披露)。
+        pyads 读缓冲 ``STRING_BUFFER = 1024`` 字节(2026-09-30 订正:原
+        docstring 误称"按 STRING(80) 静默截断到 80 字符"——pyads 3.5.1
+        常量即 1024,``STRING(120)`` 等可完整读回);>1023 字符才会截。
+        ``length`` 是本库读出后的再截断,不影响传输。
         """
         text = _check_address(address)
         value = self._session().read_by_name(text, _PLCTYPE_NAMES[DataType.STRING])

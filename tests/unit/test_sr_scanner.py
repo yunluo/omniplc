@@ -299,7 +299,12 @@ class _TrickleTransport(ScriptedTransport):
 def test_scan_line_deadline_bounds_dribble(
     monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient
 ) -> None:
-    """滴流对端不能逐字节重置超时:scan 在 read_timeout 预算内超时返回。"""
+    """滴流对端不能逐字节重置超时:scan 在 read_timeout 预算内超时返回。
+
+    第八轮 P2-13 起:滴流 = drain 后仍留半行(`_drain_line` 返回 False),
+    按断线处理防旧条码文本拼进下一事务——"读超时不断线"语义仅保留给
+    **已读净**的超时(见 test_scan_timeout_keeps_connection)。
+    """
     transport = _TrickleTransport()
     _mount(monkeypatch, client, transport)
     client.connect()
@@ -307,4 +312,4 @@ def test_scan_line_deadline_bounds_dribble(
     ok, code = client.scan(timeout=0.05)
     assert ok is False and code is None
     assert time.monotonic() - started < 1.5
-    assert client.connected is True  # 读超时不断线语义保留
+    assert client.connected is False  # 滴流残留风险 → 断线(P2-13)

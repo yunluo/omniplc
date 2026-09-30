@@ -364,7 +364,10 @@ class AsyncOmronFinsBase(AsyncBaseClient):
 
     async def _write_bit_impl(self, parsed: FinsAddress, flag: bool) -> None:
         """位写:位存储区码直写;老固件不支持 D/EM 位区码(0x1101)时回退
-        读-改-写(镜像同步侧;D/EM 位直写依手册 §5-3-3 可写表)。"""
+        读-改-写(镜像同步侧;D/EM 位直写依手册 §5-3-3 可写表)。
+
+        **非原子披露**(第八轮 P2-20,与同步侧同口径):0x1101 回退是
+        「字读 → 字写」两笔事务,扫描周期内同字其他位可能被覆盖。"""
         value = 1 if flag else 0
         try:
             await self._write_bits(parsed, [value])

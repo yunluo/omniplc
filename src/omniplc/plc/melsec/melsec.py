@@ -156,12 +156,31 @@ class _MelsecMcBase(BaseClient):
     # ------------------------------------------------------------------
 
     def _read(self, address: str, data_type: DataType) -> PrimitiveValue:
-        """MC 读原语:软元件地址 → 成批读请求 → 按类型解码(MC 字序小端)。"""
+        """MC 读原语:软元件地址 → 成批读请求 → 按类型解码(MC 字序小端)。
+
+        位软元件按**字单位**访问(``read("M16", SHORT)``)受
+        :attr:`_bit_device_word_access_allowed` 门控(第八轮 P2-14:单点
+        路径原绕过门控,与 read_batch 的 0406 字块同防线);字软元件读
+        BOOL 不受影响。"""
         parsed = parse_mc_address(address)
         if data_type is not DataType.BOOL and parsed.bit is not None:
             raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         if data_type is DataType.BOOL:
             return self._read_bool_impl(parsed)
+        # 位软元件按字单位访问受门控(第八轮 P2-14):_device_info 对未知
+        # 软元件的报错时机与旧实现一致(事务组帧路径),此处兜底不前移——
+        # 故仅捕获已知名(未知名抛 ValueError 由 _device_info 原样上抛)
+        try:
+            _code, is_bit_device, _base = self._device_info(parsed.device)
+        except ValueError:
+            is_bit_device = False
+        else:
+            if is_bit_device and not self._bit_device_word_access_allowed:
+                # 位软元件塞进字单位请求会被 PLC 拒绝或按 16 点/字错读
+                raise ValueError(
+                    _("MC 位软元件 {}{} 只支持 BOOL,字单位请改用字软元件"
+                    "(如 D)或逐点位读").format(parsed.device, parsed.number)
+                )
         if data_type in (DataType.SHORT, DataType.USHORT):
             data = self._read_words(parsed, 1)
             return data[0] if data_type is DataType.USHORT else convert.to_signed(data[0], 16)
@@ -586,8 +605,15 @@ class _MelsecMcBase(BaseClient):
         return self._execute(operation)
 
     def _read_bool_impl(self, parsed: McAddress) -> bool:
-        """位软元件按点位成批读;字软元件读 1 字后按位提取。"""
-        _unused, is_bit_device, _unused = self._device_info(parsed.device)
+        """位软元件按点位成批读;字软元件读 1 字后按位提取(合法路径)。
+
+        位软元件按**字单位**访问(如 ``read("M16", SHORT)`` 走 0401 字
+        单位)受 :attr:`_bit_device_word_access_allowed` 门控——与
+        read_batch 的 0406 字块同防线(第八轮 P2-14:单点路径原绕过门控,
+        组出的字单位读编号非 16 对齐会被 PLC 拒或按 16 点/字错读);
+        字软元件读 BOOL(``D100`` 无位号)按字提取 bit0,不在门控范围。
+        """
+        _code, is_bit_device, _base = self._device_info(parsed.device)
         if is_bit_device:
             return bool(self._read_bits(parsed, 1)[0])
         words = self._read_words(parsed, 1)
