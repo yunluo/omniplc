@@ -1097,9 +1097,11 @@ def parse_list_identity_reply(reply: bytes) -> Dict[str, object]:
         )
     body = payload[6:body_offset]
     # Item 数据 = 封装协议版本(2)+ Socket Address(16)+ Identity Object
-    if len(body) < 18 + 14:
+    # (Identity 至少 15 字节:name_len 本身 + name + state;下限 18+15 防
+    #  Item Length 恰好 32 时读 name_len 越界——第八轮 P2-2)
+    if len(body) < 18 + 15:
         raise ProtocolFrameError(
-            _("ListIdentity Item 数据不足(应有版本 2 + SocketAddr 16 + Identity):{} 字节").format(
+            _("ListIdentity Item 数据不足(应有版本 2 + SocketAddr 16 + Identity ≥15):{} 字节").format(
                 len(body)
             )
         )
@@ -1137,9 +1139,11 @@ def parse_module_identity_payload(payload: bytes) -> Dict[str, object]:
 
     :raises ProtocolFrameError: 长度不足
     """
-    if len(payload) < 14:
+    if len(payload) < 15:
+        # 至少 15 字节:name_len 本身(下标 14)+ name + state——<14 时读
+        # name_len 越界(第八轮 P2-2 同型)
         raise ProtocolFrameError(
-            _("Identity Object 应答载荷不足:{} 字节").format(len(payload))
+            _("Identity Object 应答载荷不足(至少 15 字节):{} 字节").format(len(payload))
         )
     vendor = struct.unpack_from("<H", payload, 0)[0]
     product_type = struct.unpack_from("<H", payload, 2)[0]
