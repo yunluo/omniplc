@@ -14,6 +14,10 @@
 
 帧格式见 :mod:`.codec_mewtocol`(ASCII 文本帧,BCC 异或校验,无 ETX)。
 TCP 按响应头(4 字节)判断正常/错误后精确收齐;UDP 一次收整包校验。
+**待核**(2026-09-30):MEWTOCOL 手册未收录(docs/protocol/README.md
+「待补」),帧面/错误码宽度/字符串字节序三条终裁项见 codec_mewtocol
+模块 docstring;32/64 位"低字在前、字内高字节在前"与 TOYOPUC 同族日系
+惯例一致(库内旁证)。
 """
 from __future__ import annotations
 

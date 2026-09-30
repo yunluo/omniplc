@@ -1,7 +1,8 @@
 """松下 FP 系列 MC 协议兼容客户端——继承三菱 MC 实现。
 
 FP0H/FP7 系列以太网口提供三菱 MC 协议兼容模式(QnA 兼容 3E 帧,
-仅二进制、成批读/写,松下 FP0H《以太网通信手册》),帧格式与三菱
+仅二进制、成批读/写,松下 FP0H《以太网通信手册》——**待核**:该手册未收录,
+见 docs/protocol/README.md「待补」,引用暂无页码级出处),帧格式与三菱
 QnA 兼容 3E 完全一致,因此本模块继承
 :class:`~omniplc.plc.melsec.MelsecMcTcpClient`,只做两件事:
 

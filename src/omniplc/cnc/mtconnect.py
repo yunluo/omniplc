@@ -1,8 +1,13 @@
 """CNC MTConnect 客户端(HTTP/XML 只读数采,Agent 默认端口 5000)。
 
-依据:MTConnect Part1 Overview and Fundamentals v1.5——§8.2 `/probe` p.13-14、
-§8.3.1 `/current`、§8.3.3 Sample Request p.106-111、§8.3.4 Asset Request
-p.114-115、§6.5.2.2 Streams Header p.77-78(`nextSequence` 等)。
+依据:MTConnect Part1 Overview and Fundamentals v1.5(印刷页码)——
+§8.3.1 `/probe` p.98-100(原误记 §8.2 p.13-14;p.13-14 为术语表区)、
+§8.3.2 `/current` p.101-105、§8.3.3 `/sample` p.106-112(at 参数在
+§8.3.3.2/§8.3.3.3 p.111)、§8.3.4 `/assets` p.114-116、
+§6.5.2.2 Streams Header p.77-78(`nextSequence` 等)。
+**待核**:布尔 ``YES``/``NO`` 与 Condition 三层级(Fault/Warning/Normal)
+的值域定义在 Part 3(可用性/条件,Catalog 之外,本目录未收录)——
+Part1 仅给出数据类型目录,拿到 Part 3 后按铁律补页码级引用。
 
 MTConnect 是机床数控领域开放的互联标准:机器侧运行 MTConnect **Agent**
 (HTTP 服务,由 FANUC/三菱等控制器的适配器喂数),客户端以普通 HTTP GET
@@ -76,11 +81,13 @@ _STALE_CONNECTION_ERRORS = (ConnectionResetError, BrokenPipeError)
 
 _BOOL_TRUE = ("true", "1", "yes")
 _BOOL_FALSE = ("false", "0", "no")
-"""MTConnect 布尔值域:Part1 数据类型定义 Boolean 表示为 ``YES``/``NO``,
+"""MTConnect 布尔值域:Part 3 数据类型定义 Boolean 表示为 ``YES``/``NO``
+(**待核**:Part 3 未收录,拿到后补页码;Part1 仅数据类型目录),
 Agent 亦广泛输出 true/false(小写比较),双口径并收。"""
 
 _CONDITION_LEVELS = ("Fault", "Warning", "Normal")
-"""条件项层级(Part1 §6.2 Condition):带 dataItemId 但语义属报警,
+"""条件项层级(Part 3 Condition 定义,**待核**:Part 3 未收录,拿到后补页码;
+Part1 仅数据类型目录):带 dataItemId 但语义属报警,
 不进 ``/current`` 数据项映射(走 :meth:`MTConnectClient.read_conditions`)。"""
 
 _SUPPORTED_TYPES = (
@@ -615,7 +622,7 @@ class MTConnectClient(BaseClient):
         return self._execute(self._fetch_probe)
 
     def probe_all(self) -> Tuple[bool, Optional[List[Dict[str, str]]]]:
-        """读取 ``/probe`` 全部 Device 的属性(多设备 Agent;Part1 §8.2)。
+        """读取 ``/probe`` 全部 Device 的属性(多设备 Agent;Part1 §8.3.1 p.98-100)。
 
         :return: ``(是否成功, [{属性: 值}, ...])``;无 Device 时为空列表,
             失败为 ``(False, None)``
@@ -630,7 +637,7 @@ class MTConnectClient(BaseClient):
         path: Optional[str] = None,
         at: Optional[int] = None,
     ) -> Tuple[bool, Optional[Dict[str, object]]]:
-        """读取 ``/sample`` 历史流(Part1 §8.3.3 p.106-111)。
+        """读取 ``/sample`` 历史流(Part1 §8.3.3 p.106-112)。
 
         单次拉取样本序列;游标续拉:取返回值 ``next_sequence`` 作为下一次
         ``from_sequence``。``count`` 缺省 100(手册默认);``at`` 与
@@ -668,7 +675,7 @@ class MTConnectClient(BaseClient):
     def read_assets(
         self, asset_ids: Optional[List[str]] = None
     ) -> Tuple[bool, Optional[List[Dict[str, object]]]]:
-        """读取 ``/assets``(全量)或 ``/asset/{id;id}``(指定,Part1 §8.3.4)。
+        """读取 ``/assets``(全量)或 ``/asset/{id;id}``(指定,Part1 §8.3.4 p.114-116)。
 
         :param asset_ids: 指定资产 id 列表;``None``/空 = 全量 ``/assets``
         :return: ``(是否成功, [{type, id, attributes, text}, ...])``;

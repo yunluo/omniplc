@@ -492,7 +492,7 @@ def test_build_random_write_devices_validation() -> None:
 
 
 def test_read_cpu_model_golden() -> None:
-    """CPU 型号请求/响应(§11.2 印刷页 178:Q02UCPU → 名 + 码 0x6302 大端)。"""
+    """CPU 型号请求/响应(§11.2 印刷页 178:Q02UCPU → 名 + 码 0x0263,线上小端 63 02)。"""
     request = codec_qna.build_read_cpu_model("3E")
     assert request == bytes.fromhex("5000" "00" "ff" "ff03" "00" "0600" "0a00" "01010000")
     data = b"Q02UCPU".ljust(16) + bytes.fromhex("6302")

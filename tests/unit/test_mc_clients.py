@@ -457,6 +457,32 @@ def test_tcp_1e_read_error_keeps_connection() -> None:
     assert client.last_error is not None and "0xC0" in client.last_error
 
 
+def test_tcp_1e_end_code_5b_reads_one_extra_byte() -> None:
+    """1E 结束码 5B 后跟 1 字节异常细分码(SH-080008 §18.2 印刷页 395 算例 5BH 10H)。
+
+    回归(第八轮 P2-1):曾按 2 字节收扩展信息——TCP 部分已读超时拆连、
+    UDP 整包路径把合法 5B 错误当坏帧拒(真实细分码 10H = PC 号错被吞)。
+    """
+    client = MelsecMcTcpClient("127.0.0.1", 2000, frame="1E")
+    # 副头部 0x80|0x01=0x81 + 结束码 5B + 细分码 10H,共 3 字节
+    mount_real_tcp(client, [bytes([0x81, 0x5B, 0x10])])
+    ok, value = client.read_ushort("D100")
+    assert ok is False and value is None
+    assert client.connected is True
+    assert client.last_error is not None and "0x5B" in client.last_error
+
+
+def test_udp_1e_end_code_5b_not_rejected_as_bad_frame(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1E over UDP:5B 错误响应(3 字节)不得因长度 <4 被当坏帧拒。"""
+    client = MelsecMcUdpClient("127.0.0.1", 2000, frame="1E")
+    scripted = ScriptedTransport([bytes([0x81, 0x5B, 0x10])], datagram=True)
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, value = client.read_ushort("D100")
+    assert ok is False and value is None
+    assert client.connected is True
+
+
 def test_tcp_3e_read_real_transport_semantics() -> None:
     """真 TcpTransport 凑满循环:响应小片到达仍能完整收包。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000)

@@ -490,11 +490,11 @@ _EXT_CASES = [
     # 0101 CPU 型号
     ExtCase(
         "get_cpu_type_3e", "3E", False, "get_cpu_type", (),
-        _split_3e(_cpu_model_response("Q02UCPU", 0x6302)), ("0101",),
+        _split_3e(_cpu_model_response("Q02UCPU", 0x0263)), ("0101",),
     ),
     ExtCase(
         "get_cpu_type_4e", "4E", False, "get_cpu_type", (),
-        _split_4e(_cpu_model_response("Q02UCPU", 0x6302, frame="4E")), ("0101",),
+        _split_4e(_cpu_model_response("Q02UCPU", 0x0263, frame="4E")), ("0101",),
     ),
     # 帧型不支持:1E 下扩展命令入参期拒绝(零字节发送)
     ExtCase("random_read_1e_rejected", "1E", False, "random_read",

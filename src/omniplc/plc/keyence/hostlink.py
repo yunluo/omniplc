@@ -2,6 +2,10 @@
 
 ASCII 行式协议:命令帧以 CR 结束,响应为一行以 CR/LF 结束的 ASCII 文本。
 TCP 走线按行收包(流式),UDP 走线一问一答一数据报。
+**帧面待核**(2026-09-30 降级):KV Host Link 通信命令手册待补
+(docs/protocol/README.md「待补」);端口 8000 与无 ``##`` 帧头/无 FCS 的
+帧形态须真机抓包核证(公开参照实现为 8001 + ``##`` + BCC,互斥),
+判据见 docs/real-machine-checklist.md 的 KV Host Link 条目。
 
 数据类型映射:
 

@@ -248,8 +248,8 @@ QnA 为 960,取 0000 子命令口径)。"""
 MC_CPU_MODEL_RESPONSE_SIZE: int = 18
 """读 CPU 型号响应数据长:模型名 16 字节(空格填充)+ 模型代码 2 字节
 (SH-080008 §11.2 通信例印刷页 178:Q02UCPU 的代码 ASCII 记法 "0263" ↔
-二进制字节 `63H 02H`,按低字节在前解析 = 0x6302,与其他 16 位数值域同序;
-模型代码对照表见手册 §11.1 印刷页 166)。"""
+二进制字节 `63H 02H`,按低字节在前解析 = **0x0263**(原注 0x6302 系字节序
+误读,2026-09-30 订正);模型代码对照表见手册 §11.1 印刷页 166)。"""
 MC_MAX_RANDOM_BLOCKS: int = 120
 """多块批量读总块数上限(字块+位块,子命令 0000 口径;iQ-R/L 扩展子命令为 60)。"""
 MC_SUBCOMMAND_WORD_UNITS: int = 0x0000
@@ -280,10 +280,15 @@ MC_4E_RESPONSE_HEAD_SIZE: int = 13
 MC_1E_RESPONSE_HEAD_SIZE: int = 2
 """1E 响应头:副头部(1) + 结束代码(1)。"""
 MC_1E_MAX_POINTS: int = 255
-"""1E 单事务点数上限(保守取 255;手册位单位/字设备上限 256,点数域为 2 字节小端)。"""
+"""1E 单事务点数上限(保守取 255;手册位单位/字设备上限 256,点数域为
+1 字节点数 + 固定值 1 字节共 2 字节,255 点点数域恰为 ``FF 01``;2026-09-30
+订正:原注"2 字节小端"不准确,256 点按手册应发 00 01)。"""
 MC_1E_ERROR_EXTRA: int = 0x5B
-"""1E 该结束码的响应附带 2 字节扩展信息(TCP 需多读,防止字节流错位)。"""
-MC_1E_ERROR_EXTRA_SIZE: int = 2
+"""1E 该结束码的响应后跟**1 字节**异常细分码(SH-080008 §18.2 印刷页 395:
+二进制结束代码为 1 字节,算例 ``5BH 10H`` = 5B 后跟 PC 号错 10H;
+「2 字节」是 ASCII 记法的字符数。TCP 需多读 1 字节,防止字节流错位;
+2026-09-30 订正:原按 2 字节收,合法 5B 错误在 UDP 整包路径会被当坏帧拒)。"""
+MC_1E_ERROR_EXTRA_SIZE: int = 1
 MC_1E_READ_BIT: int = 0x00
 """1E 副头部:位单位成批读。"""
 MC_1E_READ_WORD: int = 0x01
@@ -307,6 +312,9 @@ MC_DEVICE_CODES: Dict[str, Tuple[int, int, int]] = {
     "TS": (0xC1, 1, 10),
     "TC": (0xC0, 1, 10),
     "TN": (0xC2, 0, 10),
+    "SS": (0xC7, 1, 10),
+    "SC": (0xC6, 1, 10),
+    "SN": (0xC8, 0, 10),
     "CS": (0xC4, 1, 10),
     "CC": (0xC3, 1, 10),
     "CN": (0xC5, 0, 10),
@@ -322,11 +330,14 @@ MC_DEVICE_CODES: Dict[str, Tuple[int, int, int]] = {
 """3E/4E 软元件码表:软元件 → (二进制码, 位软元件?, 地址进制)。
 
 来源:SH-080008 §8.1 手册二进制码列:X/Y/W/B/SB/SW/DX/DY **与 ZR** 十六进制,
-L/F/S/V/TS/TC/TN/CS/CC/CN/SM/SD/R/Z 十进制;TS/TC/CS/CC 为定时器
-计数器接点/线圈(位,TS=C1H/TC=C0H/CS=C4H/CC=C3H),TN/CN 为当前值
-(字,TN=C2H/CN=C5H——注意接点/线圈码非连续)。
+L/F/S/V/TS/TC/TN/SS/SC/SN/CS/CC/CN/SM/SD/R/Z 十进制;TS/TC/SS/SC/CS/CC 为
+定时器计数器接点/线圈(位,TS=C1H/TC=C0H/SS=C7H/SC=C6H/CS=C4H/CC=C3H,
+印刷页 68),TN/SN/CN 为当前值(字,TN=C2H/SN=C8H/CN=C5H——注意接点/线圈
+码非连续;SS/SC/SN 为累计定时器三件,2026-09-30 按同页补表)。
 仅 iQ-F(FX5U)的 X/Y 为八进制,v1 按 Q/L/R 口径处理(可用
-:class:`~omniplc.plc.melsec` 以太网客户端的 ``xy_octal=True`` 切换)。
+:class:`~omniplc.plc.melsec` 以太网客户端的 ``xy_octal=True`` 切换;
+**待核**:八进制出处应在 iQ-F 用户手册——SH-080008 的 FX5U X/Y 记法为
+十六进制,原引该手册证成八进制不成立,拿到 iQ-F 手册后补页码)。
 智能功能模块缓冲存储器不在本表(SLMP 走专用命令,非软元件寻址)。
 """
 MC_1E_DEVICE_CODES: Dict[str, Tuple[int, int, int]] = {
@@ -789,7 +800,8 @@ MX_BIT_DEVICES: Tuple[str, ...] = (
 
 # ---------------------------------------------------------------- 基恩士 KV Host Link
 KV_DEFAULT_PORT: int = 8000
-"""KV Host Link TCP/UDP 默认端口(KEYENCE 惯例值,可在 PLC 侧修改)。"""
+"""KV Host Link TCP/UDP 默认端口(**待核**:手册待补,公开参照实现为 8001;
+KEYENCE 惯例值,可在 PLC 侧修改,真机抓包核证判据见 docs/real-machine-checklist.md)。"""
 KV_MAX_LINE: int = 4096
 """ASCII 响应行长度上限(驱动单次最多读 8 个字,远小于该上限)。"""
 KV_MAX_DATAGRAM: int = KV_MAX_LINE + 16

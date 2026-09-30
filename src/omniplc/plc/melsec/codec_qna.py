@@ -548,8 +548,8 @@ def parse_read_cpu_model_response(
 
     模型名 16 字节 ASCII(右补空格,去尾部空格);模型代码 2 字节**小端**
     (手册通信例印刷页 178:Q02UCPU 的代码 ASCII 记法 "0263" ↔ 二进制
-    字节 `63H 02H`,即按低字节在前解析 = 0x6302,与其他 16 位数值域
-    同序;模型代码对照表见手册 §11.1 印刷页 166)。
+    字节 `63H 02H`,即按低字节在前解析 = **0x0263**(0x6302 为原注释的
+    字节序误读,2026-09-30 订正);模型代码对照表见手册 §11.1 印刷页 166)。
 
     :raises omniplc.core.errors.DeviceError: 结束代码非 0
     :raises omniplc.core.errors.ProtocolFrameError: 长度不符/模型名含非 ASCII

@@ -1,6 +1,9 @@
 """基恩士 KV Host Link ASCII 帧编解码。
 
-帧格式(KEYENCE KV Host Link 协议,与官方手册一致):
+帧格式(**待核**,2026-09-30 降级:KV-8000/7500 Host Link 通信命令手册待补,
+见 docs/protocol/README.md「待补」;原"与官方手册一致"断言撤下——公开参照
+实现(pykeyence 等)为 TCP 8001 + ``##`` 帧头 + BCC/FCS,与本库 8000 + 裸
+``RD …\\r`` 互斥,须真机抓包核证,见 docs/real-machine-checklist.md):
 
 - 命令帧:``"<命令> <参数...>\\r"``,纯 ASCII 可打印字符
 - 响应帧:一行 ASCII 文本,以 CR/LF 结束
