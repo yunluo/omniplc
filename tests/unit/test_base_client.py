@@ -367,6 +367,22 @@ class TestTagScaling:
         assert client.last_written == 3
         assert isinstance(client.last_written, int)
 
+    def test_typed_writes_reject_non_int(self) -> None:
+        """类型化写非 int 显式拒绝(第八轮 P2-6):基类 int() 静默截断已废止。
+
+        ``write_short(addr, 1.9)`` 曾静默写 1;``int(0.3*100)`` 意图 3 写 2;
+        numpy.float64 高发。与 :meth:`write_bool` 的显式拒绝哲学对齐。
+        """
+        client = _ScriptedClient()
+        with pytest.raises(ValueError):
+            client.write_short("hr0", 1.9)
+        with pytest.raises(ValueError):
+            client.write_int("hr0", 3.0)  # 整数值 float 也拒——写整数请传 int
+        with pytest.raises(ValueError):
+            client.retries = 2.5
+        with pytest.raises(ValueError):
+            client.write_retries = 1.5
+
 
 class TestCategorizeOrder:
     """_categorize 判断顺序覆盖测试。

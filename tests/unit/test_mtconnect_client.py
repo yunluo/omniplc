@@ -12,6 +12,7 @@ import pytest
 
 from omniplc import MTConnectClient
 from omniplc.aio import AMTConnectClient
+from omniplc.core.errors import ErrorCategory
 from omniplc.cnc import mtconnect as mtc_module
 from omniplc.cnc.mtconnect import _MtConnectSession
 
@@ -175,6 +176,35 @@ def _client(monkeypatch: pytest.MonkeyPatch) -> MTConnectClient:
 # 快照与类型化读
 # ----------------------------------------------------------------------
 
+def test_connect_uses_connect_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """建连用 connect_timeout(HTTPConnection timeout = TCP 握手)(第八轮 P2-5)。
+
+    每请求收发超时仍按 receive_timeout 在 _exchange 对活动 socket 生效。
+    """
+    captured: dict = {}
+    conn = FakeHTTPConnection("127.0.0.1", 5000)
+
+    def fake_new_connection(ip: str, port: int, timeout: float) -> FakeHTTPConnection:
+        captured["timeout"] = timeout
+        return conn
+
+    monkeypatch.setattr(mtc_module, "_new_connection", fake_new_connection)
+    client = MTConnectClient("127.0.0.1", 5000)
+    client.connect_timeout = 7.5
+    client.receive_timeout = 2.0
+    assert client.connect() is True
+    assert captured["timeout"] == 7.5
+    client.disconnect()
+
+
+def test_coerce_non_numeric_text_is_device_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Agent 文本与声明类型不符 → DeviceError(0) 走 (False, None) 契约(第八轮 P2-7)。"""
+    client = _client(monkeypatch)
+    assert client.read_short("exec") == (False, None)  # "ACTIVE" 非数值文本
+    assert client.last_error_category is ErrorCategory.DEVICE
+    assert client.last_error_code is None  # code=0 按基类契约映射 None
+
+
 def test_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
     """/current 全量快照:数据项 id 与 name 均入表,非数据项不入。"""
     client = _client(monkeypatch)
@@ -199,17 +229,18 @@ def test_typed_reads(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_bool_read(monkeypatch: pytest.MonkeyPatch) -> None:
-    """布尔量:true/false/YES/NO 与大小写兼容;非布尔文本抛 ValueError。
+    """布尔量:true/false/YES/NO 与大小写兼容;非布尔文本走 (False, None) 契约。
 
     YES/NO 是 MTConnect Part1 布尔数据类型的规范表示(标准 Agent 布尔
     事件项输出该形态),原实现缺该值域导致标准点位永远读不到。
+    非布尔文本第八轮 P2-7 起转 DeviceError(0)(设备侧数据形态,不逃逸)。
     """
     client = _client(monkeypatch)
     assert client.read_bool("clamp") == (True, True)
     assert client.read_bool("aux") == (True, False)
     assert client.read_bool("workholder") == (True, True)
-    with pytest.raises(ValueError):
-        client.read_bool("exec")  # ACTIVE 不是布尔文本
+    assert client.read_bool("exec") == (False, None)  # ACTIVE 不是布尔文本
+    assert client.last_error_category is ErrorCategory.DEVICE
 
 
 def test_read_by_name(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -239,12 +270,15 @@ def test_missing_item_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_type_mismatch_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """类型不符 → ValueError(参数错误,直接抛出)。"""
+    """类型不符:文本形态走 (False, None) 契约;参数错误仍 ValueError。
+
+    第八轮 P2-7:Agent 文本与声明类型不符属设备侧数据形态,统一
+    DeviceError(0);调用方参数错误(非法类型名/空地址)维持 ValueError。
+    """
     client = _client(monkeypatch)
-    with pytest.raises(ValueError):
-        client.read_int("Xact")  # 123.456 不是整数文本
-    with pytest.raises(ValueError):
-        client.read_float("exec")  # ACTIVE 不是数值
+    assert client.read_int("Xact") == (False, None)  # 123.456 不是整数文本
+    assert client.last_error_category is ErrorCategory.DEVICE
+    assert client.read_float("exec") == (False, None)  # ACTIVE 不是数值
     with pytest.raises(ValueError):
         client.read("Xact", "not-a-type")  # 非法类型名
     with pytest.raises(ValueError):
@@ -499,8 +533,8 @@ def test_overlong_numeric_text_rejected(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(mtc_module, "_new_connection", lambda ip, port, timeout: conn)
     client = MTConnectClient("127.0.0.1", 5000)
     assert client.connect() is True
-    with pytest.raises(ValueError):
-        client.read_float("Xact")
+    assert client.read_float("Xact") == (False, None)  # 第八轮 P2-7:设备侧数据形态
+    assert client.last_error_category is ErrorCategory.DEVICE
 
 
 # ----------------------------------------------------------------------

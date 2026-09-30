@@ -779,3 +779,28 @@ def test_write_batch_bit_device_value_must_be_0_or_1(fake: FakeActUtlType) -> No
     with pytest.raises(ValueError):
         client.write_batch([("M20", 2)])
     assert client.write_batch([("M20", 1)]) is True
+
+
+def test_connect_comerror_releases_com_initialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Open 抛 COMError 时必须配对释放 CoInitialize(第八轮 P2-16)。
+
+    Open 在 try 外时 COMError 直接逃逸且 ``_com=None`` 使 close 短路,
+    惰性重连每轮累积一个 CoInitialize 引用计数。
+    """
+    released: list = []
+
+    class FakeCom:
+        @staticmethod
+        def Open() -> int:
+            raise ValueError("模拟 COMError(经 _com_error 假冒)")
+
+    monkeypatch.setattr(mx_module, "_com_error", lambda: ValueError)
+    monkeypatch.setattr(mx_module, "_com_initialize", lambda: None)
+    monkeypatch.setattr(mx_module, "_com_uninitialize", lambda: released.append(1))
+    monkeypatch.setattr(mx_module, "_new_com_object", lambda station: FakeCom())
+    client = MelsecMxClient(0)
+    # 基类 connect 吞建连异常记 last_error(契约:连接失败不抛),断言 False + 释放
+    assert client.connect() is False
+    assert released, "COM 初始化计数未配对释放"

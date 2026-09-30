@@ -203,9 +203,15 @@ class _MtConnectSession(BaseTransport):
     def connect(self) -> None:
         """创建 HTTP 会话(每次连接新建连接对象)。
 
+        建连超时用 :attr:`connect_timeout`(HTTPConnection timeout = TCP
+        握手);每请求收发超时在 :meth:`_exchange` 按 ``receive_timeout``
+        对活动 socket 生效(第八轮 P2-5:原实现建连误用 receive_timeout)。
+
         :raises OSError: 连接对象创建失败
         """
-        self._conn = _new_connection(self._ip_address, self._port, self._receive_timeout)
+        self._conn = _new_connection(
+            self._ip_address, self._port, self._connect_timeout
+        )
         log_op(self._debug_label, "会话已建立")
 
     def close(self) -> None:
@@ -698,34 +704,38 @@ def _coerce(value: str, data_type: DataType, address: str) -> PrimitiveValue:
             return True
         if lowered in _BOOL_FALSE:
             return False
-        raise ValueError(_("MTConnect 数据项不是布尔量:{} ← {!r}").format(address, value))
+        # Agent 返回文本与声明类型不符属设备侧数据形态(第八轮 P2-7):
+        # 统一 DeviceError(0) 走 (False, None) 契约,不逃逸公共 API
+        raise DeviceError(
+            _("MTConnect 数据项不是布尔量:{} ← {!r}").format(address, value), 0
+        )
     if data_type is DataType.STRING:
         return value
     if len(value) > MTCONNECT_MAX_NUMERIC_TEXT:
         # 3.11 之前的 int/float 对超长数字串是超线性开销,先按长度快拒
-        raise ValueError(
-            _("MTConnect 数据项数值文本过长:{} ← {} 字符").format(address, len(value))
+        raise DeviceError(
+            _("MTConnect 数据项数值文本过长:{} ← {} 字符").format(address, len(value)), 0
         )
     if data_type in (DataType.FLOAT, DataType.DOUBLE):
         try:
             number_f = float(value)
         except ValueError:
-            raise ValueError(
-                _("MTConnect 数据项不是数值:{} ← {!r}").format(address, value)
+            raise DeviceError(
+                _("MTConnect 数据项不是数值:{} ← {!r}").format(address, value), 0
             )
         if not math.isfinite(number_f):
             # "nan"/"inf"/"1e999" 文本 float() 接受成功——非有限值进数据链
             # 会把下游报警比较恒短路为 False,与 UNAVAILABLE 同类无效值,
             # 按设备侧条件拒绝
-            raise ValueError(
-                _("MTConnect 数据项不是有限数值:{} ← {!r}").format(address, value)
+            raise DeviceError(
+                _("MTConnect 数据项不是有限数值:{} ← {!r}").format(address, value), 0
             )
         return number_f
     try:
         number = int(value)
     except ValueError:
-        raise ValueError(
-            _("MTConnect 数据项不是整数:{} ← {!r}").format(address, value)
+        raise DeviceError(
+            _("MTConnect 数据项不是整数:{} ← {!r}").format(address, value), 0
         )
     # 按声明类型收窄范围:Agent 文本超出该类型属设备侧条件(不断线)
     bounds = _INT_RANGES.get(data_type)

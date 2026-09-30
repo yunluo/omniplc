@@ -223,19 +223,13 @@ class _AdsSession(BaseTransport):
             )
         self._connection = connection
         try:
-            applied = connection.set_timeout(int(self._receive_timeout * 1000))
+            connection.set_timeout(int(self._receive_timeout * 1000))
         except Exception as exc:
             log_warning(
                 self._debug_label,
                 "set_timeout 下发异常(该路由/固件可能不支持,按 pyads 默认超时):%s",
                 exc,
             )
-        else:
-            if applied is False:
-                log_warning(
-                    self._debug_label,
-                    "set_timeout 未被接受(部分路由器固件无效),实际按 pyads 默认超时",
-                )
         log_op(self._debug_label, "会话已建立")
 
     def close(self) -> None:
@@ -359,6 +353,38 @@ class BeckhoffAdsClient(BaseClient):
     def ads_port(self) -> int:
         """目标 AMS 端口。"""
         return self._ads_port
+
+    @property
+    def receive_timeout(self) -> float:
+        """单次收发超时(秒)。"""
+        return self._receive_timeout
+
+    @receive_timeout.setter
+    def receive_timeout(self, seconds: float) -> None:
+        """单次收发超时(秒):存储并对**已建立会话**重发 pyads set_timeout。
+
+        ADS 为会话型走线(pyads 连接对象持有 socket 超时),基类只写
+        传输属性不动 pyads——此处补重发,会话期修改即时生效(第八轮 P2-5)。
+        未连接时仅存储,connect 时统一下发。
+        """
+        if seconds <= 0:
+            raise ValueError(_("receive_timeout 必须大于 0,收到:{}").format(seconds))
+        with self._lock:
+            self._receive_timeout = float(seconds)
+            transport = self._transport
+            if transport is None:
+                return
+            transport.receive_timeout = self._receive_timeout
+            connection = getattr(transport, "_connection", None)
+            if connection is not None:
+                try:
+                    connection.set_timeout(int(self._receive_timeout * 1000))
+                except Exception as exc:
+                    log_warning(
+                        "ads://",
+                        "set_timeout 重发异常(按 pyads 当前超时继续):%s",
+                        exc,
+                    )
 
     # ------------------------------------------------------------------
     # 会话访问(仅事务锁内)

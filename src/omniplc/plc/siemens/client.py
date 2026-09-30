@@ -56,7 +56,7 @@ from ...core.constants import (
     S7_SLOT_MAX,
     S7_WSTRING_DEFAULT_LENGTH,
 )
-from ...core.debug import log_op
+from ...core.debug import log_op, log_warning
 from ...core.errors import DeviceError, OmniPLCInternalError, TransportClosedError
 from ...core.validation import require_bool, require_float, require_int
 from ...core.types import DataType, PrimitiveValue
@@ -145,6 +145,35 @@ _AREAS_ENUM: Any = False
 透传),否则为枚举类。1.x 在 ``snap7.types``、2.x/3.x 在 ``snap7.type``。"""
 
 
+_SNAP7_RECV_TIMEOUT_PARAM: Any = False
+"""snap7 RecvTimeout 参数号缓存:False = 未探测,None = 探测失败(跳过下发),
+否则为参数号。1.x 为 ``snap7.types.RecvTimeout = 5``(模块级 int),3.x 为
+``snap7.type.Parameter.RecvTimeout = 5``(枚举成员);数值同源 snap7 C 库
+``P_U16_RCV_TIMEOUT``,双轨键型不同必须分别取号(3.x ``set_param`` 按
+Parameter 枚举键存取 ``_params``,裸 int 不命中)。"""
+
+
+def _snap7_recv_timeout_param() -> Any:
+    """探测当前 snap7 轨道的 RecvTimeout 参数号(内部函数)。"""
+    global _SNAP7_RECV_TIMEOUT_PARAM
+    if _SNAP7_RECV_TIMEOUT_PARAM is False:
+        _SNAP7_RECV_TIMEOUT_PARAM = None
+        for module_name in ("snap7.types", "snap7.type"):
+            try:
+                module = __import__(module_name, fromlist=["Parameter"])
+            except ImportError:
+                continue
+            candidate = getattr(module, "RecvTimeout", None)
+            if candidate is not None:
+                _SNAP7_RECV_TIMEOUT_PARAM = candidate
+                break
+            parameter = getattr(module, "Parameter", None)
+            if parameter is not None and getattr(parameter, "RecvTimeout", None) is not None:
+                _SNAP7_RECV_TIMEOUT_PARAM = parameter.RecvTimeout
+                break
+    return _SNAP7_RECV_TIMEOUT_PARAM
+
+
 def _snap7_area(area: int) -> Any:
     """协议区码 int → snap7 ``Areas`` 枚举成员(内部函数)。
 
@@ -209,6 +238,10 @@ class _S7Session(BaseTransport):
     :meth:`read_area` / :meth:`write_area` 完成,snap7 错误(1.x/2.x
     RuntimeError、3.x S7Error 谱系)在此边界按连接态翻译
     (在线→DeviceError 不断线,断连→OSError 惰性重连)。
+
+    ``receive_timeout`` 经 snap7 ``SetParam(RecvTimeout)`` 下发(秒×1000,
+    C 库默认 5000 ms / 3.x 默认 3000 ms),连接建立时与属性修改时都生效
+    (第八轮 P2-4:原实现完全未接线)。
     """
 
     def __init__(
@@ -238,6 +271,40 @@ class _S7Session(BaseTransport):
             ip_address, port, rack, slot
         )
 
+    @property
+    def receive_timeout(self) -> float:
+        """单次收发超时(秒)。"""
+        return self._receive_timeout
+
+    @receive_timeout.setter
+    def receive_timeout(self, seconds: float) -> None:
+        """单次收发超时(秒):存储并热下发 snap7 RecvTimeout(毫秒)。"""
+        if seconds <= 0:
+            raise ValueError(_("receive_timeout 必须大于 0,收到:{}").format(seconds))
+        self._receive_timeout = float(seconds)
+        self._apply_recv_timeout()
+
+    def _apply_recv_timeout(self) -> None:
+        """把当前 receive_timeout 下发为 snap7 RecvTimeout(内部方法)。
+
+        参数号按轨道探测(1.x int / 3.x Parameter 枚举);探测失败或
+        set_param 异常按告警降级(snap7 默认超时),不影响连接。
+        """
+        client = self._client
+        if client is None:
+            return
+        param = _snap7_recv_timeout_param()
+        if param is None:
+            return
+        try:
+            client.set_param(param, int(self._receive_timeout * 1000))
+        except Exception as exc:
+            log_warning(
+                self._debug_label,
+                "RecvTimeout 下发失败(按 snap7 默认超时):%s",
+                exc,
+            )
+
     def connect(self) -> None:
         """加载 snap7 库并连接 CPU(每次连接新建 Client)。
 
@@ -252,6 +319,7 @@ class _S7Session(BaseTransport):
                 "ISO-on-TCP 102;③ 1200/1500 未开启 PUT/GET 访问授权)").format(exc)
             ) from exc
         self._client = client
+        self._apply_recv_timeout()
         log_op(self._debug_label, "会话已建立")
 
     def close(self) -> None:

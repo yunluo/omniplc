@@ -44,6 +44,7 @@ from .errors import (
     TransportTimeoutError,
 )
 from .tag import Tag, TagTable
+from .validation import require_int
 from ..transport import BaseTransport
 from .types import DataType, PrimitiveValue
 from .i18n import _
@@ -274,7 +275,12 @@ class BaseClient(ABC):
 
     @property
     def connect_timeout(self) -> float:
-        """连接超时(秒)。可在连接建立后修改,立即生效。"""
+        """连接超时(秒)。可在连接建立后修改,立即生效。
+
+        **作用域分类**(第八轮 P2-5):走线型(TCP/UDP/串口)立即生效;
+        会话型驱动(S7/ADS/OPC-UA/MX/MTConnect)由各驱动声明实际作用范围
+        (基类只保证把新值写到传输/会话对象)。
+        """
         return self._connect_timeout
 
     @connect_timeout.setter
@@ -294,6 +300,10 @@ class BaseClient(ABC):
         aio 层**不要**在事件循环线程写本属性(同步 setter 取事务锁,慢事务
         期间会阻塞循环),经 :meth:`~omniplc.aio.ABaseClient.configure`
         或事务路径设置。
+
+        **作用域分类**(第八轮 P2-5):走线型(TCP/UDP/串口)立即生效;
+        会话型驱动见各驱动 docstring(S7 经 snap7 RecvTimeout 热生效、
+        ADS 经 pyads set_timeout 重发;OPC-UA/MX 不作用于已建立会话)。
         """
         return self._receive_timeout
 
@@ -320,7 +330,7 @@ class BaseClient(ABC):
     def retries(self, count: int) -> None:
         if count < 0:
             raise ValueError(_("retries 不能为负数,收到:{}").format(count))
-        self._retries = int(count)
+        self._retries = require_int(count)
 
     @property
     def write_retries(self) -> int:
@@ -337,7 +347,7 @@ class BaseClient(ABC):
     def write_retries(self, count: int) -> None:
         if count < 0:
             raise ValueError(_("write_retries 不能为负数,收到:{}").format(count))
-        self._write_retries = int(count)
+        self._write_retries = require_int(count)
 
     @property
     def reconnect_backoff(self) -> bool:
@@ -591,28 +601,28 @@ class BaseClient(ABC):
         return self.write(address, DataType.BOOL, bool(value))
 
     def write_short(self, address: str, value: int) -> bool:
-        """写入 16 位有符号整数。"""
-        return self.write(address, DataType.SHORT, int(value))
+        """写入 16 位有符号整数(非 int 显式拒绝,不做静默截断——第八轮 P2-6)。"""
+        return self.write(address, DataType.SHORT, require_int(value))
 
     def write_ushort(self, address: str, value: int) -> bool:
-        """写入 16 位无符号整数。"""
-        return self.write(address, DataType.USHORT, int(value))
+        """写入 16 位无符号整数(非 int 显式拒绝,不做静默截断)。"""
+        return self.write(address, DataType.USHORT, require_int(value))
 
     def write_int(self, address: str, value: int) -> bool:
-        """写入 32 位有符号整数。"""
-        return self.write(address, DataType.INT, int(value))
+        """写入 32 位有符号整数(非 int 显式拒绝,不做静默截断)。"""
+        return self.write(address, DataType.INT, require_int(value))
 
     def write_uint(self, address: str, value: int) -> bool:
-        """写入 32 位无符号整数。"""
-        return self.write(address, DataType.UINT, int(value))
+        """写入 32 位无符号整数(非 int 显式拒绝,不做静默截断)。"""
+        return self.write(address, DataType.UINT, require_int(value))
 
     def write_long(self, address: str, value: int) -> bool:
-        """写入 64 位有符号整数。"""
-        return self.write(address, DataType.LONG, int(value))
+        """写入 64 位有符号整数(非 int 显式拒绝,不做静默截断)。"""
+        return self.write(address, DataType.LONG, require_int(value))
 
     def write_ulong(self, address: str, value: int) -> bool:
-        """写入 64 位无符号整数。"""
-        return self.write(address, DataType.ULONG, int(value))
+        """写入 64 位无符号整数(非 int 显式拒绝,不做静默截断)。"""
+        return self.write(address, DataType.ULONG, require_int(value))
 
     def write_float(self, address: str, value: float) -> bool:
         """写入 32 位浮点数(float32)。"""

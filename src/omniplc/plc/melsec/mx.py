@@ -482,7 +482,18 @@ class _MxComLink(BaseTransport):
                 _("MX Component 控件创建失败:{}(请确认已安装 MX Component 运行时,"
                 "并执行 pip install omniplc[mx])").format(exc)
             )
-        code = int(com.Open())
+        try:
+            code = int(com.Open())
+        except _com_error() as exc:
+            # Open 抛 COMError 也必须配对释放(第八轮 P2-16):否则
+            # self._com 保持 None 使 close 短路,惰性重连每轮累积一个
+            # CoInitialize 引用计数
+            _com_uninitialize()
+            raise OSError(
+                _("MX Component Open 失败(逻辑站号 {}):{}").format(
+                    self._logical_station_number, exc
+                )
+            ) from exc
         if code != 0:
             _com_uninitialize()
             raise OSError(
@@ -535,6 +546,10 @@ class MelsecMxClient(BaseClient):
     地址语法与 MC 驱动一致(``D100``/``M10``/``X1F``),软元件可用
     范围与进制由通信设置实用程序中配置的 CPU 决定,非法软元件由
     MX Component 返回出错代码并记入 :attr:`last_error`。
+
+    **超时口径**(第八轮 P2-5):COM 通道无独立超时接线——
+    ``receive_timeout`` / ``connect_timeout`` 不作用于 COM 调用
+    (块/随机读写的等待与超时由 MX Component 运行时按逻辑站号配置管理)。
 
     :example::
 

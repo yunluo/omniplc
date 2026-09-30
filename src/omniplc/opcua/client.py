@@ -456,6 +456,11 @@ class OpcUaClient(BaseClient):
     ``path`` 对应 URL 路径(如 ``"UA/Server"``);服务器发现得到的
     完整 URL 可用 ``endpoint`` 显式覆盖(高级用法)。
 
+    **超时口径**(第八轮 P2-5):会话型驱动——``receive_timeout`` 修改
+    不作用于已建立的 asyncua 会话(asyncua 自身管理请求超时与断线判定),
+    ``connect_timeout`` 暂未用于端点建链;两者在下次重连时经传输属性
+    传递。需要精细超时请用 asyncua 原生参数(经 :attr:`client` 访问)。
+
     :example::
 
         client = OpcUaClient("192.168.0.10", 4840)

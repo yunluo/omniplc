@@ -498,8 +498,14 @@ class ABaseClient:
                 raise
 
     async def __aenter__(self: _A) -> _A:
-        """进入 async with 时自动连接,失败抛 ConnectionError。"""
+        """进入 async with 时自动连接,失败抛 ConnectionError。
+
+        失败分支先 :meth:`close` 再抛(第八轮 P2-9):``async with`` 语义
+        在 ``__aenter__`` 抛出时**不会**调 ``__aexit__``,不主动收尾则
+        executor 线程永不释放,``async with`` 循环重试会线性积累常驻线程。
+        """
         if not await self.connect():
+            await self.close()
             raise ConnectionError(_("连接失败:{}").format(self._sync.last_error))
         return self
 

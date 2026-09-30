@@ -368,10 +368,10 @@ def test_session_connect_failure_translated(monkeypatch: pytest.MonkeyPatch) -> 
     assert session._connection is None
 
 
-def test_set_timeout_false_warns_but_connects(
+def test_set_timeout_return_value_ignored(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """set_timeout 返回 False(固件不支持)时告警但不影响连接建立。"""
+    """set_timeout 返回值忽略(pyads 3.5.1 恒返 None,"返回 False" 判据是死代码)。"""
     import logging
 
     pkg = types.ModuleType("pyads")
@@ -395,7 +395,24 @@ def test_set_timeout_false_warns_but_connects(
     with caplog.at_level(logging.WARNING):
         session.connect()
     assert session._connection is not None
-    assert "set_timeout" in caplog.text
+    assert "set_timeout" not in caplog.text
+
+
+def test_receive_timeout_setter_reapplies_to_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """receive_timeout 会话期修改重发 pyads set_timeout(第八轮 P2-5)。"""
+    client = BeckhoffAdsClient("127.0.0.1")
+    fake = FakeAdsSession()
+    applied: list = []
+    fake.set_timeout = lambda ms: applied.append(ms)  # type: ignore[method-assign]
+    monkeypatch.setattr(client, "_create_transport", lambda: fake)
+    client.connect()
+    fake._connection = fake  # 假会话不建真连接,手动挂上
+    client.receive_timeout = 2.0
+    assert applied == [2000]
+    with pytest.raises(ValueError):
+        client.receive_timeout = 0
 
 
 # ----------------------------------------------------------------------

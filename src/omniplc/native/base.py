@@ -259,6 +259,10 @@ class AsyncBaseClient(ABC):
 
         :return: 是否成功
         """
+        # 亲和检查先于取锁(第八轮 P2-15):跨循环 disconnect 会在错误
+        # 循环上触发 transport.close() 的 call_soon(非线程安全,debug
+        # 模式必炸),不能靠 _guard 静默换锁兜底
+        self._check_loop_affinity()
         self._ensure_open()
         async with self._guard():
             return self._disconnect_locked()

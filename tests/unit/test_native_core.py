@@ -609,3 +609,22 @@ def test_concurrent_cross_loop_use_raises_runtime_error() -> None:
     finally:
         release.set()
         thread.join(5.0)
+
+
+def test_disconnect_rejects_cross_loop() -> None:
+    """跨循环 disconnect 显式拒绝(第八轮 P2-15):亲和检查先于取锁。
+
+    跨循环 disconnect 会在错误循环上触发 ``transport.close()`` 的
+    ``call_soon``(非线程安全,debug 模式必炸),不能靠 ``_guard`` 静默
+    换锁兜底。close 无亲和门槛(兜底清理通道),收尾用它。
+    """
+    transport = FakeTransport(_chunks(_RESP_TID1))
+    client = _client(transport)
+
+    async def connect_only() -> None:
+        await client.connect()
+
+    asyncio.run(connect_only())
+    with pytest.raises(RuntimeError, match="另一个事件循环"):
+        asyncio.run(client.disconnect())
+    asyncio.run(client.close())

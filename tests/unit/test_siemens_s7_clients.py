@@ -34,6 +34,12 @@ class FakeS7Client:
         self.destroyed = False
         self.multi_calls = 0
         self.fail_item_index = -1
+        self.params: list = []
+
+    def set_param(self, number: Any, value: int) -> int:
+        """记录 SetParam 调用(RecvTimeout 接线测试用)。"""
+        self.params.append((number, int(value)))
+        return 0
 
     def connect(self, address: str, rack: int, slot: int, tcpport: int = 102) -> None:
         if self.connect_error is not None:
@@ -113,6 +119,7 @@ def _restore_s7_module_globals() -> Iterator[None]:
     yield
     s7_module._AREAS_ENUM = False
     s7_module._SNAP7_ERRORS = (RuntimeError,)
+    s7_module._SNAP7_RECV_TIMEOUT_PARAM = False
 
 
 def _client(monkeypatch: pytest.MonkeyPatch) -> tuple:
@@ -131,6 +138,20 @@ def _client_with(monkeypatch: pytest.MonkeyPatch, fake: FakeS7Client) -> tuple:
     client = SiemensS7Client("127.0.0.1", rack=0, slot=1)
     assert client.connect() is True
     return client, fake
+
+
+def test_receive_timeout_flows_to_snap7(monkeypatch: pytest.MonkeyPatch) -> None:
+    """receive_timeout 经 snap7 RecvTimeout 下发,连接时与属性修改时都生效(第八轮 P2-4)。"""
+    from omniplc.core.constants import DEFAULT_RECEIVE_TIMEOUT
+
+    client, fake = _client(monkeypatch)
+    param = s7_module._snap7_recv_timeout_param()
+    if param is None:
+        pytest.skip("当前环境探测不到 snap7 RecvTimeout 参数号")
+    assert fake.params, "连接建立时必须已下发 RecvTimeout"
+    assert fake.params[0] == (param, int(DEFAULT_RECEIVE_TIMEOUT * 1000))
+    client.receive_timeout = 2.5
+    assert fake.params[-1] == (param, 2500)
 
 
 # ----------------------------------------------------------------------

@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import inspect
 
+import pytest
+
 import omniplc as pkg
 import omniplc.aio as aio
 
@@ -97,3 +99,23 @@ def test_constructors_match_sync_twin() -> None:
         ]:
             problems.append("{} 构造默认值不符".format(name))
     assert not problems, "异步构造签名缺口:{}".format("; ".join(problems))
+
+
+def test_aenter_failure_closes_executor() -> None:
+    """``__aenter__`` 失败先 close 再抛(第八轮 P2-9):executor 线程必须释放。
+
+    ``async with`` 语义在 ``__aenter__`` 抛出时不调 ``__aexit__``——
+    不主动收尾则线程池永不释放,``async with`` 循环重试线性积累常驻线程。
+    """
+    import asyncio
+
+    from omniplc.aio import AModbusTcpClient
+
+    async def scenario() -> None:
+        client = AModbusTcpClient("127.0.0.1", 502)
+        client._sync.connect = lambda: False  # type: ignore[method-assign]
+        with pytest.raises(ConnectionError):
+            await client.__aenter__()
+        assert client._executor is None, "失败分支必须收尾释放 executor"
+
+    asyncio.run(scenario())
