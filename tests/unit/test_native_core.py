@@ -402,6 +402,33 @@ def test_write_tag_rejects_nonfinite_scale_offset() -> None:
         asyncio.run(client.close())
 
 
+def test_write_tag_inverse_scale_rounds_float_noise() -> None:
+    """native write_tag 整数点位逆缩放取整(与同步层同口径,第八轮 P1-5)。
+
+    回归:非恒等逆缩放 ``(0.3-0)/0.1 = 2.9999…`` 原样透传 →
+    ``require_int`` 拒收 float,ValueError 逃出公共 API、语义污染成
+    "参数非法"(同步层有 ``int(round())`` 分支,native 曾漏镜像)。
+    """
+    from omniplc.core.tag import Tag, TagTable
+
+    transport = FakeTransport(
+        _chunks(b"\x00\x01\x00\x00\x00\x06\x01\x06\x00\x00\x00\x03")
+    )
+
+    async def scenario() -> None:
+        client = _client(transport)
+        await client.connect()
+        try:
+            client.bind_tags(TagTable([Tag("设定", "hr0", "short", scale=0.1)]))
+            assert await client.write_tag("设定", 0.3) is True
+            # FC06 写单寄存器请求:ADU 末 2 字节 = 寄存器值 3(而非 2.9999… 被拒)
+            assert transport.sent[0][-2:] == (3).to_bytes(2, "big")
+        finally:
+            await client.close()
+
+    asyncio.run(scenario())
+
+
 def test_async_with_exit_gates_the_client_like_close() -> None:
     """``async with`` 退出 = ``close()``(关闸),不是 ``disconnect()``。
 

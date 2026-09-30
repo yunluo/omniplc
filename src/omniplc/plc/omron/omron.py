@@ -8,7 +8,8 @@
 
 两走线共享同一套 FINS 帧编解码(:mod:`.codec`),区别仅在 TCP 需要
 先做 FINS/TCP 节点分配握手,且每帧外层多一个 FINS/TCP 头。
-FINS 多字数据为大端字序。
+FINS 多字值(32/64 位)字内大端、**低字存低地址**(2026-09-30 修正,原
+误作整体大端;依据与待补说明见 :func:`_words_to_value` docstring)。
 """
 from __future__ import annotations
 
@@ -630,10 +631,19 @@ class OmronFinsUdpClient(_OmronFinsBase):
 # ----------------------------------------------------------------------
 
 def _words_to_value(words: List[int], data_type: DataType) -> PrimitiveValue:
-    """大端字序列 → 按类型解码(FINS 为大端字序,内部函数)。"""
-    return convert.words_to_value(words, data_type, ByteOrder.BIG)
+    """FINS 字序列 → 按类型解码(字内大端、低字在前,内部函数)。
+
+    欧姆龙 CS/CJ/CP 的 32/64 位值**低字存低地址**(线上 = ``[低字高, 低字低,
+    高字高, 高字低]``),故解码先反转子序再按字内大端拼接。
+    依据:W342 §5-2-1(元素 = 字、按地址序返回,未规定多字值字序);
+    多字值字序经参考实现双向裁决——aphyt/omron-fins ``reverse_word_order``
+    与 omron-fins-rust ``swap_words_32/64`` 均先反转字序;同库 MEWTOCOL/
+    TOYOPUC 对同款日系低字在前约定同口径。欧姆龙编程手册的官方表述待补
+    (见 docs/protocol/README.md「待补」)。
+    """
+    return convert.words_to_value(words, data_type, ByteOrder.BIG, reverse_words=True)
 
 
 def _value_to_words(value: PrimitiveValue, data_type: DataType) -> List[int]:
-    """按类型把值编码为大端字序列(内部函数)。"""
-    return convert.value_to_words(value, data_type, ByteOrder.BIG)
+    """按类型把值编码为 FINS 字序列(字内大端、低字在前,内部函数)。"""
+    return convert.value_to_words(value, data_type, ByteOrder.BIG, reverse_words=True)

@@ -68,7 +68,7 @@
 | 三菱 | MC 4C(串口) | | | |
 | 三菱 | MX Component | 三菱 FX3U ✓ | 三菱 FX3U ✓ | get_error_message(ActSupportMsg) 待核证 |
 | 欧姆龙 | FINS TCP | | | |
-| 欧姆龙 | FINS UDP | 欧姆龙 CP1H ✓ | 欧姆龙 CP1H ✓ | |
+| 欧姆龙 | FINS UDP | 欧姆龙 CP1H ✓ | 欧姆龙 CP1H ✓ | 32/64 位值(REAL/DINT/LINT/LREAL/UDINT)**读回核证**:2026-09-30 修正多字值字序为"低字在前、字内大端"(原误作整体大端),既往真机只核过位/单字;请以 CX-Programmer 写入 REAL(如 100.5 → D100=0/D101=0x42C9)后经库读回比对 |
 | 欧姆龙 | NJ/NX CIP(unconnected) | | | BOOL 数组按元素访问(应答类型自描述,回 DWORD 时按 Logix `//32` 回退)与 STRING(`len(u32)+字符`,写入回带模板号)待真机核证 |
 | 欧姆龙 | NJ/NX CIP(connected, Forward Open) | | | |
 | 罗克韦尔 | EtherNet/IP(unconnected) | | | 0x0A 多服务包自动拆包预算(≤32 条 / ≤480B)待真机核证(connected Large 4002 下 480B 偏保守,仅影响拆包次数) |

@@ -57,6 +57,7 @@ from ..core.base_client import (
     _narrow_float,
     _narrow_int,
 )
+from ..core.debug import log_warning
 from ..core.constants import (
     DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_RECEIVE_TIMEOUT,
@@ -635,6 +636,15 @@ class AsyncBaseClient(ABC):
             return True, value
         if resolved.scale == 1.0 and resolved.offset == 0.0:
             return True, value
+        if isinstance(value, int) and not isinstance(value, bool) and abs(value) > 2 ** 53:
+            # 非恒等缩放必经 float64:|值| > 2^53 时低位静默丢失,至少告警
+            # (与同步层 read_tag 同口径,第八轮 P1-5)
+            log_warning(
+                getattr(self, "_debug_label", "omniplc"),
+                "read_tag 点位 %s 为 64 位整数且 |值|>2^53,非恒等缩放将丢精度:%d",
+                resolved.tag_id,
+                value,
+            )
         return True, value * resolved.scale + resolved.offset
 
     async def write_tag(self, tag: Union[str, Tag], value: PrimitiveValue) -> bool:
@@ -665,10 +675,21 @@ class AsyncBaseClient(ABC):
                 if isinstance(value, float) and value.is_integer():
                     value = int(value)
             else:
-                value = (value - resolved.offset) / resolved.scale
-                if isinstance(value, float) and value.is_integer():
-                    # 真除法恒为 float,还原整数,否则底层整数类型校验拒收
-                    value = int(value)
+                scaled = (value - resolved.offset) / resolved.scale
+                if DataType.coerce(resolved.data_type) in (
+                    DataType.SHORT,
+                    DataType.USHORT,
+                    DataType.INT,
+                    DataType.UINT,
+                    DataType.LONG,
+                    DataType.ULONG,
+                ):
+                    # 整数点位:工程量按 scale 逆算后取最近整数,避免
+                    # (0.3-0)/0.1=2.9999… 这类浮点误差被底层整数校验拒收
+                    # (与同步层 write_tag 同口径,第八轮 P1-5)
+                    value = int(round(scaled))
+                else:
+                    value = scaled
         return await self.write(resolved.address, resolved.data_type, value)
 
     def _resolve_tag(self, tag: Union[str, Tag]) -> Tag:

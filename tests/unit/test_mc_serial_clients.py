@@ -160,6 +160,24 @@ def test_3c_read_request_golden_vector() -> None:
     )
 
 
+def test_3c_points_field_is_hex() -> None:
+    """3C 点数域 = 4 位 ASCII 十六进制(SH-080008 §8.1 印刷页 70 算例:20 点 → "0014")。
+
+    曾误作十进制(20 点会发 "0020" → PLC 按 0x20 = 32 点取数,读响应长度
+    错位、写侧 NAK);1~9 点两种进制字面一致,须用 ≥10 点向量锁死(第八轮 P1-1)。
+    """
+    request = codec_serial.build_3c_request(
+        0, 0, 0xFF, 0, parse_mc_address("M100"), 20, False, False
+    )
+    assert request[27:31] == b"0014"
+    # 写侧同口径(20 字数据)
+    write_request = codec_serial.build_3c_request(
+        0, 0, 0xFF, 0, parse_mc_address("M100"), 20, False, True,
+        [0x0000] * 20,
+    )
+    assert write_request[27:31] == b"0014"
+
+
 def test_3c_write_request_golden_vector() -> None:
     """3C 帧:写 M100 起 2 字(2347H/AB96H),与手册设置示例逐字节一致。"""
     request = codec_serial.build_3c_request(

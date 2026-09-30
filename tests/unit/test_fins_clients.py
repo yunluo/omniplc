@@ -356,11 +356,11 @@ def _fins_multiple_read_response(entries: list) -> bytes:
 def test_udp_read_batch_mixed(monkeypatch: pytest.MonkeyPatch) -> None:
     """UDP read_batch:混类型混软元件单事务,0104 逐条字读后按计划解码。"""
     client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
-    # D100=0xFFFE(short -2)、D102-D103=float 1.0(大端 3F80 0000)、CIO0 bit3=1
+    # D100=0xFFFE(short -2)、D102-D103=float 1.0(低字在前:0000 3F80)、CIO0 bit3=1
     scripted = ScriptedTransport(
         [
             _fins_multiple_read_response(
-                [(0x82, 0xFFFE), (0x82, 0x3F80), (0x82, 0x0000), (0xB0, 0x0008)]
+                [(0x82, 0xFFFE), (0x82, 0x0000), (0x82, 0x3F80), (0xB0, 0x0008)]
             )
         ]
     )
@@ -377,6 +377,30 @@ def test_udp_read_batch_mixed(monkeypatch: pytest.MonkeyPatch) -> None:
     sent = bytes(scripted.sent)
     assert sent[10:12] == b"\x01\x04"
     assert sent[12:] == bytes.fromhex("82006400" "82006600" "82006700" "b0000000")
+
+
+def test_fins_multiword_value_word_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    """32/64 位多字值字序回归:字内大端、低字在前(第八轮 P0-1)。
+
+    REAL 100.5(0x42C90000)按欧姆龙约定存 D100=0x0000 / D101=0x42C9,
+    线上 4 字节 = ``00 00 42 C9``——曾误作整体大端解成 ≈5.9e-39。
+    依据:W342 §5-2-1(元素 = 字按地址序)+ 参考实现双向裁决
+    (aphyt/omron-fins、omron-fins-rust 均先反转字序),官方编程手册表述待补。
+    """
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    # 读:00 00 42 C9 → 100.5;写:100.5 → 线上低字在前 00 00 42 C9
+    read_resp = _FINS_ECHO_HEAD + b"\x01" + b"\x01\x01" + b"\x00\x00" + bytes.fromhex(
+        "000042c9"
+    )
+    write_resp = _fins_write_response()
+    scripted = ScriptedTransport([read_resp, write_resp])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read("D100", "float") == (True, 100.5)
+    assert client.write("D100", "float", 100.5) is True
+    sent = bytes(scripted.sent)
+    # 第二帧 = 写请求:数据段(末 4 字节)必须为低字在前
+    assert sent[-4:] == bytes.fromhex("000042c9")
 
 
 def test_udp_read_many_single_transaction(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -412,7 +436,7 @@ def test_async_mirror_read_batch() -> None:
     async def scenario() -> None:
         client = AOmronFinsUdpClient("127.0.0.1")
         scripted = ScriptedTransport(
-            [_fins_multiple_read_response([(0x82, 0xFFFE), (0x82, 0x3F80), (0x82, 0x0000)])]
+            [_fins_multiple_read_response([(0x82, 0xFFFE), (0x82, 0x0000), (0x82, 0x3F80)])]
         )
         client._sync._transport = scripted
         client._sync._connected = True

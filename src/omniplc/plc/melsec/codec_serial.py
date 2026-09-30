@@ -535,7 +535,9 @@ def _ascii_core(
     )
     device_code = f"{address.device:*<2}"
     number_text = f"{number:06X}" if base == 16 else f"{number:06d}"
-    core = command + subcommand + device_code + number_text + f"{points:04d}"
+    # 点数 = 4 位 ASCII 十六进制(SH-080008 §8.1 印刷页 70,算例 20 点 → "0014";
+    # 与 1C 帧的 2 位十六进制点数同口径——曾误作十进制,1~9 点进制巧合一致掩盖)
+    core = command + subcommand + device_code + number_text + f"{points:04X}"
     if not is_write:
         return core
     values = data or []

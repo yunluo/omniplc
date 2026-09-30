@@ -95,13 +95,13 @@ _BIT_READ_RESP = _fins_response(1, 0x0101, data=b"\x01")  # 1 点 ON
 _WRITE_RESP = _fins_response(1, 0x0102)
 _ERROR_RESP = _fins_response(1, 0x0101, end_code=0x0001)
 _SID_MISMATCH_RESP = _fins_response(99, 0x0101, data=_words_be([20]))
-_INT_RESP = _fins_response(1, 0x0101, data=_words_be([0xFFFF, 0xFFFE]))  # -2(补码)
+_INT_RESP = _fins_response(1, 0x0101, data=_words_be([0xFFFE, 0xFFFF]))  # -2(补码,低字在前)
 _LONG_RESP = _fins_response(
-    1, 0x0101, data=_words_be([0xFFFF, 0xFFFF, 0xFFFF, 0xFFFE])
+    1, 0x0101, data=_words_be([0xFFFE, 0xFFFF, 0xFFFF, 0xFFFF])
 )
-_FLOAT_RESP = _fins_response(1, 0x0101, data=_words_be([0x3FC0, 0x0000]))  # 1.5f
+_FLOAT_RESP = _fins_response(1, 0x0101, data=_words_be([0x0000, 0x3FC0]))  # 1.5f
 _DOUBLE_RESP = _fins_response(
-    1, 0x0101, data=_words_be([0x3FF8, 0x0000, 0x0000, 0x0000])
+    1, 0x0101, data=_words_be([0x0000, 0x0000, 0x0000, 0x3FF8])
 )  # 1.5d
 _STRING_RESP = _fins_response(1, 0x0101, data=_words_be([0x4F4D, 0x4E49]))  # "OMNI"
 
@@ -454,7 +454,7 @@ def test_expected_request_frame_matches_codec(
 # 批量读(0104 多存储区读):与同步层同帧同解析
 # ----------------------------------------------------------------------
 
-_F32_1_5_BE = [0x3FC0, 0x0000]  # 1.5f 的 FINS 大端字序
+_F32_1_5_BE = [0x0000, 0x3FC0]  # 1.5f:FINS 字内大端、低字在前(D100=0000/D101=3FC0)
 
 
 class ExtCase(NamedTuple):
@@ -483,7 +483,7 @@ _EXT_CASES = [
     ExtCase(
         "tcp_read_batch", False, "read_batch",
         ((("D100", "long"),),),
-        tuple(_tcp_chunks(_fins_response(1, 0x0104, data=_words_be([0xFFFF, 0xFFFF, 0xFFFF, 0xFFFE])))),
+        tuple(_tcp_chunks(_fins_response(1, 0x0104, data=_words_be([0xFFFE, 0xFFFF, 0xFFFF, 0xFFFF])))),
         ("0104",),
     ),
     # T/C 完成标志是位区,0104 只有字码 → 入参期拒绝(零字节发送)
