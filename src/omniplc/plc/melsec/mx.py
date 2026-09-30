@@ -157,7 +157,15 @@ def _com_get_device(com: Any, device_text: str) -> int:
 
     comtypes 生成的包装把 ``[out]`` 参数收进返回值(真机核证):
     ``GetDevice(软元件)`` 直接返回数据,传 byref 缓冲会报参数个数
-    TypeError;出错以 COMError 形态出现。
+    TypeError;FAILED(HRESULT 高位 1)以 COMError 形态出现。
+
+    **已知盲区(第八轮 P1-2,未修)**:MX Component 的高位 0 出错码
+    (如 0x010A42A0 访问口令不符)经 comtypes **不抛 COMError**,本路径
+    无法拿到返回码——出错时静默返回出参缓冲残留值。彻底修法 = 三路径
+    改走 :func:`_raw_com_method` 原始 vtable 通道(自备出参缓冲 +
+    ``lplRetCode`` 显式校验),但 raw 参数布局须真机逐方法核证
+    (块读写通道的"勿外推"教训),留待真机批;设了访问口令等场景请
+    先用 :meth:`get_error_message` 或块读写路径交叉验证。
     """
     try:
         result = com.GetDevice(device_text)
@@ -275,6 +283,10 @@ def _com_get_cpu_type(com: Any) -> Tuple[str, int]:
     证明):先按"出参收进返回值"零参调用(同 GetDevice);包装保留出参
     时报参数个数 TypeError,退回 byref VARIANT 形态(手册 5.2.13:
     szCpuName、lCpuType 均 Output)。
+
+    **已知盲区(第八轮 P1-2,未修)**:零参路径同 GetDevice——高位 0
+    出错码不抛 COMError、无法感知返回码(byref 退回路径有
+    :func:`_check_rc` 校验);处置见 :func:`_com_get_device` docstring。
     """
     from comtypes.automation import VARIANT
 
@@ -315,6 +327,10 @@ def _com_get_clock_data(com: Any) -> Dict[str, int]:
     手册 5.2.11:七字段全出参,顺序为年/月/日/星期/时/分/秒。
     comtypes 口径真机待核证:零参调用(出参收进返回值)优先,
     TypeError 时退回 byref VARIANT×7 形态。
+
+    **已知盲区(第八轮 P1-2,未修)**:零参路径同 GetDevice——高位 0
+    出错码不抛 COMError、无法感知返回码(byref 退回路径有
+    :func:`_check_rc` 校验);处置见 :func:`_com_get_device` docstring。
     """
     from comtypes.automation import VARIANT
 
