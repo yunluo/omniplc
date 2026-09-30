@@ -143,7 +143,8 @@ class UdpTransport(BaseTransport):
             log_frame(self._debug_label, RECV_MARK, frame)
             return frame
         # Windows:recv 对超长报文抛 WSAEMSGSIZE(无静默截断);捕获并
-        # 转协议帧错,这样基类 last_error_category = PROTOCOL,与真断线区分
+        # 转 DeviceError,这样基类 last_error_category = DEVICE(链路正常、
+        # 对端报文超长,不断线),与真断线区分
         try:
             frame = sock.recv(size)
         except socket.timeout as exc:

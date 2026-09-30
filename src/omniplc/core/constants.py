@@ -737,7 +737,10 @@ FINS_END_CODE_TEXT: Dict[int, str] = {
 FINS_MAX_DATAGRAM: int = 8192
 """UDP 整包接收缓冲上限(8192 覆盖长字符串/大批量响应;UDP 单包上限 65507)。"""
 FINS_MAX_TCP_FRAME: int = 8192
-"""FINS/TCP 长度域上限(8 字节头之后的字节数;合法最大约 500B,防恶意声明拖长收包)。"""
+"""FINS/TCP 长度域上限(8 字节头之后的字节数;握手响应 24B,常规数据帧
+约 2KB 上限——2026-09-30 订正:原注"合法最大约 500B"与 0104 批量读的
+上限不符,FINS_MAX_MULTIPLE_ELEMENTS 条目即可到 ≈2022B;8192 为防恶意
+声明的裕量上限)。"""
 FINS_TCP_MAGIC: bytes = b"FINS"
 """FINS/TCP 帧头魔数。"""
 FINS_TCP_HEADER_SIZE: int = 8
@@ -815,11 +818,17 @@ KV_ERROR_TEXT: Dict[str, str] = {
     "E0": "软元件编号异常",
     "E1": "命令异常",
     "E2": "程序未登记",
+    "E3": "命令不能执行(运行模式/保护等)",
     "E4": "禁止写入",
     "E5": "单元异常",
     "E6": "无注释",
+    "E7": "文件名异常",
+    "E8": "无文件",
+    "E9": "文件已存在",
 }
-"""KV Host Link 出错代码文本;未收录的提示查阅 KEYENCE 手册。"""
+"""KV Host Link 出错代码文本;E3/E7/E8/E9 于 2026-09-30 按 KV Host Link
+命令公开口径补齐(**待核**:命令手册待补,拿到后逐条复核);未收录的
+提示查阅 KEYENCE 手册。"""
 KV_BIT_DEVICES: Tuple[str, ...] = ("R", "B", "MR", "LR", "CR", "VB", "X", "Y", "M", "L")
 """位软元件(R/MR/CR 为位组十进制,B/VB 十六进制,X/Y 组十进制+位 1 位十六进制,M/L 十进制)。"""
 KV_WORD_DEVICES: Tuple[str, ...] = ("DM", "EM", "FM", "ZF", "W", "TM", "Z", "CM", "VM", "D", "E", "F")
@@ -838,7 +847,6 @@ SR_BANK_MAX: int = 16
 """SR 预设库(bank)编号上限;手册「读取开始(指定库)LON,b」为 **b:01~16**。"""
 SR_BANK_MIN: int = 1
 """SR 预设库编号下限(手册 b:01~16;无 bank 用不带参的 LON)。"""
-"""预设 bank 号上限(LON,{bank:02d},0~15)。"""
 SR_RECV_MAX: int = 1024
 """单次响应读取字节上限。"""
 SR_DRAIN_TIMEOUT: float = 0.5

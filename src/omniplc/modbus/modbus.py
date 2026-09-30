@@ -694,9 +694,12 @@ class ModbusBaseClient(BaseClient):
                 )
             except DeviceError as exc:
                 if exc.code == 0x02:
+                    # 异常码 02 优先含义是"地址越界"(V1.1b3 §6.17 服务端
+                    # 校验项);跨段网关只是次要可能,提示措辞据此摆正
+                    # (第八轮 P3)
                     raise DeviceError(
-                        _("{};部分网关/老设备不支持跨段 FC23(读、写地址分属不同网段)"
-                        ",可改用 write_many + read_many").format(exc),
+                        _("{};若读/写地址均在设备合法范围内,可能是部分网关"
+                        "不支持跨段 FC23,可改用 write_many + read_many").format(exc),
                         exc.code,
                     ) from exc
                 raise

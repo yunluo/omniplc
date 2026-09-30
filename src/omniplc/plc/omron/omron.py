@@ -297,8 +297,11 @@ class _OmronFinsBase(BaseClient):
                 raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
             if data_type_enum is DataType.BOOL:
                 if parsed.area in FINS_TIMER_COUNTER_AREAS:
+                    # 是本库未实现(0104 仅字区,T/C 位码 09 不入 0104 条目),
+                    # 非协议限制——措辞按第八轮 P3 摆正
                     raise ValueError(
-                        _("T/C 完成标志不支持批量读取(0104 仅字区):{!r}").format(address)
+                        _("本库批量读取未实现 T/C 完成标志(0104 多区读仅字区)"
+                        ",请逐点读取:{!r}").format(address)
                     )
                 _unused, word_code = codec.memory_codes(parsed.area, parsed.bank)
                 plan.append(("wordbit", len(entries), parsed.bit or 0, data_type_enum))
