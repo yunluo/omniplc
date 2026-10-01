@@ -51,6 +51,7 @@
 | Modbus FC07/08/11/12/17/20/21 | Modbus TCP/RTU | 异常状态(FC07)/诊断/事件计数·日志/报告从站 ID(FC17)/文件记录(FC20/21)按规范实现,设备支持情况待真机核证 |
 | MC 1E 点数码表       | 三菱 A 系列 1E      | 字单位成批读上限按 255 放行(手册 1E 章节点数表未就地核证),真机按住机型分命令复核 |
 | TOYOPUC X/Y 与 T/C 同址 | 丰田 TOYOPUC      | X/Y、T/C 基址表取自参考实现(官方手册缺),若实为分址则读写互踩,真机第一优先复核 |
+| 海康 ID 读码器 Modbus 模式 | HikrobotIdModbusClient | 按工业协议手册 V1.0.4 实现(握手/结果区/字节交换/站号),待真机核证(要点见核验记录表该行备注) |
 
 ---
 
@@ -86,6 +87,7 @@
 | 基恩士 | KV 的 MC 兼容走**三菱**客户端(`MelsecMcTcpClient` / `MelsecMcUdpClient`) | 基恩士 KV 系列 ✓ | —(本次未在 Y 上写) | 2026-09-28 真机:该 KV 的 SLMP 兼容**接受标准三菱记号与软元件码**(至少 D/M/Y 已验),现场三色灯输出点 `Y90` 经 `MelsecMcUdpClient`(3E/UDP)读通。**同一地址**用 `KeyenceMcUdpClient` 时在**组帧期被本库码表拒**(`Y` 不在 `R/B/W/DM/ZR` 五设备内,报 `不支持的 MC 软元件`,一帧未发出)——读 KV 的 X/Y 等设备请走三菱客户端。编号按三菱表为**十六进制**(`Y90` = 0x90 = 第 144 点;若该灯实为第 90 点须写 `Y5A`)。`KeyenceMc*` 的 X/Y 直读支持待手册或真机定论(未入库探针 `tools/_probe_kv_slmp.py`) |
 | 基恩士 | SR 扫码枪 | — | — | SR 扫码枪为读码设备,读=扫码触发,写=不适用 |
 | 丰田 | TOYOPUC 计算机链接 TCP/UDP | | | |
+| 海康机器人 | ID 系列读码器 Modbus TCP | | | `HikrobotIdModbusClient`,按工业协议手册 V1.0.4 §3.5/§3.6 实现;真机核证要点:①握手全流程(使能→Ready→触发→OK/NG→Ack→OK/NG 清零,时序 §3.6 印刷页 41-42);②结果区 `result_words` 与读码器「结果模块大小」一致;③从机地址(读码器默认 255 或 0,本库 0~247,不一致先改读码器侧);④「结果字节交换」开关与 `byte_swap` 对应;⑤General Fault→clear_error 闭环 |
 | Modbus | Modbus TCP | 汇川 H5U 系列 ✓ | 汇川 H5U 系列 ✓ | 2026-09-28 基础读写通过(`ModbusTcpClient`,同机汇川 H5U);FC22 掩码写(字节序可配) / FC23 读写多寄存器 / FC24 FIFO / FC43·14 设备标识待真机核证 |
 | Modbus | Modbus RTU | | | FC22 掩码写 / FC23 读写多寄存器 / FC24 FIFO(按 byte count 增量收包) / FC43·14 设备标识(按对象头增量收包) / `inter_frame_delay` 帧间静默待真机核证 |
 | OPC-UA | opc.tcp | | | 订阅/Browse 为 v0.35 新增,待真机验证 |

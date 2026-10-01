@@ -293,6 +293,35 @@
 
 ---
 
+## 15A. 海康机器人 ID 系列智能读码器(工业协议手册 V1.0.4)
+
+客户端:`HikrobotIdModbusClient`(继承 `ModbusTcpClient`,读码器即 Modbus TCP 从站)
+
+依据:《海康机器人智能读码器工业协议操作手册》V1.0.4(`docs/protocol/hikrobot/`);
+适用 ID2000/ID3000/ID5000 系列、IDH 手持终端、SC2000A 导航传感器(固件要求见同目录 txt)。
+
+**协议角色裁决**(手册全文研读结论,决定库内可落地范围):五种工业协议中读码器侧角色不同——
+Modbus TCP 服务端模式读码器为**从站**(本库主站对接 ✅);MELSEC-SLMP(轮询 PLC D 区)/
+FINS(轮询 PLC DM 区)读码器为**主站**、对接方须为被动服务器,读码器↔PLC 点对点,上位库无角色 ❌;
+EtherNet/IP 为 **Class 1 隐式 I/O 适配器**(EDS 仅声明 Class 1 周期连接,无显式报文通路文档)❌;
+PROFINET 为设备侧,需 RT 控制器,库无 PROFINET ❌。
+
+| 功能 | 状态 | 备注 |
+|---|---|---|
+| 触发读码全握手(scan) | ✅ | §3.6 印刷页 41-42:使能→Ready→Trigger 上升沿→Ack 后回落→轮询 OK/NG→Ack 应答→等 OK/NG 清零(闭环防陈旧结果) |
+| 结果区解码(长度字 + ASCII) | ✅ | §3.5 印刷页 41;NoRead 使能时 OK+"NoRead" 原样透传 |
+| 结果字节交换解码 | ✅ | `byte_swap` 参数,对应读码器侧「ModBus 结果字节交换」开关(§3.6 印刷页 44) |
+| Results NG 三态区分 | ✅ | NG(未读到码)→ `(False, None)`;General Fault / 超时 → 抛异常(细分自动化处置) |
+| 状态区快照(read_status) | ✅ | §3.5 状态区 REG1:Ready/Ack/Acquiring/Decoding/OK/NG/General Fault |
+| 错误清除(clear_error) | ✅ | 控制字 bit15 置位→轮询故障清零→复位控制字 |
+| 状态+结果同笔 FC03 快照读 | ✅ | REG1..REG2+N 连续,read_batch 合并,防"状态 OK 而结果区仍旧值"错配 |
+| 结果区大小匹配(4~500 字) | ✅ | `result_words` 须与 IDMVS「结果模块大小」一致(默认 100,§3.5 印刷页 41) |
+| 元数据(质量/码制/位置等) | ⭕ | 经 IDMVS「数据处理」配置并入输出串随结果区透传;**结构化元数据**(多码列表/质量分/位置)需读码器原生 TCP 命令协议,手册待取,另行驱动 |
+| 站号 0~247 | ✅ | 读码器默认 255 或 0(§3.2 印刷页 31);本库按 Modbus 规范钉 0~247,缺省取 0,现场配 255 需改 |
+| MELSEC-SLMP / FINS / EIP / PROFINET 模式 | ❌ | 读码器侧为主站/适配器/设备,见上方角色裁决——库不实现被动服务器、Class 1 I/O 扫描器与 RT 控制器 |
+
+---
+
 ## 16. 丰田 TOYOPUC(手册待补,同源参考实现双向裁决)
 
 客户端:`ToyopucTcpClient` / `ToyopucUdpClient`

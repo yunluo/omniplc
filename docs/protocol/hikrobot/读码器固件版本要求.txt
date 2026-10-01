@@ -1,0 +1,22 @@
+使用工业协议时，各系列设备最低固件版本要求及对应使用的EthernetIP、Profinet配置文件如下：
+
+| 型号                     | 固件版本号         | EthernetIP配置文件               | Profinet配置文件                              |
+|--------------------------|--------------------|----------------------------------|-----------------------------------------------|
+| ID800系列(含IDA**X)      | V3.0.0及以上版本   | smart_camera_id800.eds           | GSDML-V2.34-Hikvision-MV-20220314.xml         |
+| ID2000系列(含IDB**X)     | V3.0.0及以上版本   | smart_camera_id2000.eds          | GSDML-V2.34-Hikvision-MV-20220314.xml         |
+| ID3000系列(含IDC**X)     | V2.4.0及以上版本   | smart_camera_id3000.eds          | GSDML-V2.34-Hikvision-MV-20220314.xml         |
+| ID3000X系列(含IDCX**X)   | V3.0.0及以上版本   | smart_camera_id3000.eds          | GSDML-V2.34-Hikvision-MV-20220314.xml         |
+| ID5000系列(含IDE**X)     | V2.4.0及以上版本   | smart_camera_id5000.eds          | GSDML-V2.34-Hikvision-MV-20220314.xml         |
+| ID5000X系列              | V3.2.2及以上版本   | smart_camera_id5000.eds          | GSDML-V2.34-Hikvision-MV-20220314.xml         |
+| IDH5000系列              | V1.0.4及以上版本   | smart_camera_idh5000.eds         | GSDML-V2.34-Hikvision-MV-20220314.xml         |
+| IDH7000P系列             | V1.0.4及以上版本   | smart_camera_idh.eds             | GSDML-V2.34-Hikvision-MV-20220314.xml         |
+| IDH7000B系列             | V1.0.0及以上版本   | smart_camera_idh.eds             | GSDML-V2.34-Hikvision-MV-20220314.xml         |
+| SC2000A系列导航传感器    | V2.8.0及以上版本   | smart_camera_sc2000a.eds         | GSDML-V2.34-Hikvision-MV-20220314.xml         |
+
+
+Note:
+-配置文件请在本文档同级文件夹中获取
+-IDH7000智能手持终端读码器V2.0.0、V2.0.1版本固件使用smart_camera_idh5000.eds配置文件，V2.0.2及以上版本固件使用smart_camera_idh.eds配置文件
+
+
+

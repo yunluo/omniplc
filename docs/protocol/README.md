@@ -17,6 +17,7 @@ omniplc 实现的各品牌 / 协议族对应的**厂商手册与公开规范**,�
 ```
 docs/protocol/
 ├── beckhoff/      倍福 — TwinCAT 3 ADS 基础 + TwinCAT 2 ADS
+├── hikrobot/      海康机器人 — 智能读码器工业协议操作手册(覆盖 Modbus/MELSEC/FINS/EIP/PROFINET 五种从站模式)+ 固件版本要求
 ├── inovance/      汇川 — H3U/H3S + H5U/Easy 编程手册
 ├── keyence/       基恩士 — SR-2000 1D/2D 扫码枪用户手册(中文)
 ├── mitsubishi/    三菱 — MC 协议参考手册 + MX Component 操作手册 + SLMP 参考手册
@@ -41,6 +42,8 @@ docs/protocol/
 | 汇川 | H3U / H3S 系列编程手册 | [inovance/Inovance_H3U_H3S_Programming_Manual.pdf](./inovance/Inovance_H3U_H3S_Programming_Manual.pdf) | 19010394-SC_A20 |
 | 汇川 | H5U / Easy 系列编程手册(中文) | [inovance/Inovance_H5U_Easy_Programming_Manual_CN.pdf](./inovance/Inovance_H5U_Easy_Programming_Manual_CN.pdf) | 19011157-SC_A21 |
 | 基恩士 | SR-2000 1D/2D 扫码枪用户手册(中文) | [keyence/Keyence_SR-2000_1D2D_CodeReader_UserManual_Rev6.0_CN.pdf](./keyence/Keyence_SR-2000_1D2D_CodeReader_UserManual_Rev6.0_CN.pdf) | AS_103000 843CN Rev.6.0 |
+| 海康机器人 | 智能读码器工业协议操作手册(覆盖 Modbus TCP / MELSEC-SLMP / FINS / EtherNet/IP / PROFINET 五种从站模式) | [hikrobot/Hikrobot_Smart_Code_Reader_Industrial_Protocol_Manual_V1.0.4.pdf](./hikrobot/Hikrobot_Smart_Code_Reader_Industrial_Protocol_Manual_V1.0.4.pdf) | V1.0.4(2025/7/17,随「智能读码器工业协议20250922.zip」发布) |
+| 海康机器人 | 智能读码器工业协议固件版本要求 | [hikrobot/读码器固件版本要求.txt](./hikrobot/读码器固件版本要求.txt) | 随上包发布 |
 | 欧姆龙 | FINS | [omron/Omron_FINS_W342_Communications_Commands_Reference_Manual.pdf](./omron/Omron_FINS_W342_Communications_Commands_Reference_Manual.pdf) | W342 |
 | 欧姆龙 | NJ/NX CPU 内置 EtherNet/IP 端口 | [omron/Omron_NJ_NX_CPU_EtherNetIP_Port_UsersManual_W506.pdf](./omron/Omron_NJ_NX_CPU_EtherNetIP_Port_UsersManual_W506.pdf) | W506 |
 | 欧姆龙 | NX EtherNet/IP 单元 | [omron/Omron_NX_EtherNetIP_Unit_UsersManual_W627.pdf](./omron/Omron_NX_EtherNetIP_Unit_UsersManual_W627.pdf) | W627 |
