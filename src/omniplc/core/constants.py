@@ -943,6 +943,23 @@ HIKROBOT_RESULT_SETTLE_INTERVAL: float = 0.05
 HIKROBOT_NOREAD_TEXT: str = "NoRead"
 """未读到码的默认输出文本(用户手册「输出无读」参数默认值,极小型手册印刷页
 150 / 超小型手册印刷页 55);现场若改过该参数,构造时传 :attr:`noread_text`。"""
+HIKROBOT_SERIAL_TRIGGER_TEXT: str = "start"
+"""串口开始触发文本默认值(超小型手册印刷页 45:「串口开始触发文本……默认
+为 start」;极小型手册印刷页 122 同)。可配 1~31 字符(通信指令手册
+TriSeriStart,印刷页 9),与停止文本**长度不可相等**(印刷页 9 备注)。"""
+HIKROBOT_SERIAL_STOP_TEXT: str = "stop"
+"""串口停止触发文本默认值(超小型手册印刷页 47:「串口停止触发的命令字符串……
+默认为 stop」)。"""
+HIKROBOT_SERIAL_TRIGGER_MAX_LEN: int = 31
+"""串口触发/停止文本长度上限(通信指令手册 TriSeriStart/TriSeriStop:1~31,
+印刷页 9)。"""
+HIKROBOT_SERIAL_RECV_MAX: int = 65536
+"""串口结果行字节上限(结果为「输出格式化」模板输出,可含多码长文本)。"""
+HIKROBOT_SERIAL_DRAIN_TIMEOUT: float = 0.5
+"""串口读码超时后清理残留行的尽力读取超时(秒,SR 同口径)。"""
+HIKROBOT_SERIAL_BAUD_DEFAULT: int = 115200
+"""串口默认波特率(手册未记载出厂默认值,以读码器 IDMVS「串口通讯协议/
+串口触发」配置为准;可选项 4800~115200,通信指令手册 TriSeriBaud 印刷页 8)。"""
 
 # ---------------------------------------------------------------- 丰田 TOYOPUC
 TOYOPUC_DEFAULT_PORT: int = 1025

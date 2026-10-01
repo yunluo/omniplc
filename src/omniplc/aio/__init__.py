@@ -70,6 +70,9 @@ from ..core.constants import (
     HIKROBOT_NOREAD_TEXT,
     HIKROBOT_RESULT_MAX_FRAME,
     HIKROBOT_RESULT_SETTLE_INTERVAL,
+    HIKROBOT_SERIAL_BAUD_DEFAULT,
+    HIKROBOT_SERIAL_STOP_TEXT,
+    HIKROBOT_SERIAL_TRIGGER_TEXT,
     SERIAL_DEFAULT_BAUD_RATE,
     SERIAL_DEFAULT_DATA_BITS,
     SERIAL_DEFAULT_PARITY,
@@ -104,6 +107,7 @@ from ..plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
 from ..scanner import (
     HikrobotIdModbusClient,
     HikrobotIdSdkClient,
+    HikrobotIdSerialClient,
     HikrobotIdTcpClient,
     HikrobotStatus,
     KeyenceSrClient,
@@ -145,6 +149,8 @@ __all__ = [
     "AHikrobotIdTcpClient",
     # ---- 海康机器人 ID 系列智能读码器(SDK) ----
     "AHikrobotIdSdkClient",
+    # ---- 海康机器人 ID 系列读码器(串口) ----
+    "AHikrobotIdSerialClient",
     # ---- 欧姆龙 FINS / CIP 客户端 ----
     "AOmronFinsTcpClient",
     "AOmronFinsUdpClient",
@@ -1612,6 +1618,79 @@ class AHikrobotIdSdkClient(ABaseClient):
     async def set_string_value(self, key: str, value: str) -> bool:
         """设置字符串参数。"""
         return await self._run(lambda: self._reader().set_string_value(key, value))
+
+
+class AHikrobotIdSerialClient(ABaseClient):
+    """海康机器人 ID 系列读码器异步客户端(RS-232 串口)。"""
+
+    def __init__(
+        self,
+        trigger_text: str = HIKROBOT_SERIAL_TRIGGER_TEXT,
+        stop_text: str = HIKROBOT_SERIAL_STOP_TEXT,
+        *,
+        encoding: str = "utf-8",
+        encoding_errors: str = "strict",
+        noread_text: str = HIKROBOT_NOREAD_TEXT,
+    ) -> None:
+        """初始化串口读码器异步客户端(参数语义同同步版)。
+
+        :param trigger_text: 串口开始触发文本,默认 ``start``
+        :param stop_text: 串口停止触发文本,默认 ``stop``
+        :param encoding: 条码内容解码编码,默认 utf-8
+        :param encoding_errors: 解码失败策略,默认 ``strict``
+        :param noread_text: 未读到码的输出文本,默认 ``NoRead``
+        :raises ValueError: 参数非法
+        """
+        super().__init__(
+            HikrobotIdSerialClient(
+                trigger_text,
+                stop_text,
+                encoding=encoding,
+                encoding_errors=encoding_errors,
+                noread_text=noread_text,
+            )
+        )
+
+    def _reader(self) -> HikrobotIdSerialClient:
+        """取读码器同步实例(内部属性)。"""
+        return self._typed(HikrobotIdSerialClient)
+
+    def configure_serial(
+        self,
+        port_name: str,
+        baud_rate: int = HIKROBOT_SERIAL_BAUD_DEFAULT,
+        data_bits: int = SERIAL_DEFAULT_DATA_BITS,
+        stop_bits: float = SERIAL_DEFAULT_STOP_BITS,
+        parity: Union[SerialParity, str] = SERIAL_DEFAULT_PARITY,
+    ) -> None:
+        """配置串口参数(转发同步实例,推荐 :class:`~omniplc.types.SerialParity` 枚举)。"""
+        self._reader().configure_serial(port_name, baud_rate, data_bits, stop_bits, parity)
+
+    async def scan(self, timeout: float = 10.0) -> Tuple[bool, Optional[str]]:
+        """串口触发一次读码并读取结果行(语义同同步版 :meth:`HikrobotIdSerialClient.scan`)。"""
+        return await self._run(lambda: self._reader().scan(timeout))
+
+    async def read_result(self, timeout: float = 10.0) -> Tuple[bool, Optional[str]]:
+        """被动读取一行结果(语义同同步版)。"""
+        return await self._run(lambda: self._reader().read_result(timeout))
+
+    async def trigger(self) -> bool:
+        """发送开始触发文本。"""
+        return await self._run(self._reader().trigger)
+
+    async def stop(self) -> bool:
+        """发送停止触发文本。"""
+        return await self._run(self._reader().stop)
+
+    @property
+    def trigger_text(self) -> str:
+        """串口开始触发文本(构造期定,转发同步实例)。"""
+        return self._reader().trigger_text
+
+    @property
+    def stop_text(self) -> str:
+        """串口停止触发文本(构造期定,转发同步实例)。"""
+        return self._reader().stop_text
 
 
 class AToyopucTcpClient(ABaseClient):

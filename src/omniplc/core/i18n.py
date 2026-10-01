@@ -1166,6 +1166,12 @@ _TRANSLATIONS: Dict[str, str] = {
     '传输对象不是 SDK 会话:{!r}': 'The transport object is not an SDK session: {!r}',
     '读码器不支持 PLC 点位读取,请使用 scan()': 'The code reader does not support PLC data reads; use scan()',
     '读码器不支持 PLC 点位写入': 'The code reader does not support PLC data writes',
+    # ---- 海康机器人 ID 系列读码器(串口) ----
+    '触发文本与停止文本长度不可相等(通信指令手册印刷页 9),收到:{!r}/{!r}': 'The trigger text and stop text must not have equal lengths (communication command manual p.9), got: {0!r}/{1!r}',
+    '{} 长度必须在 1~{} 之间,收到:{!r}': '{0} length must be 1~{1}, got: {2!r}',
+    '读码结果等待超时({}s),串口无应答': 'Waiting for the decode result timed out ({} s) with no response on the serial port',
+    '串口收行超时({}s)': 'The serial line read timed out ({} s)',
+    '串口应答超过 {} 字节上限': 'The serial response exceeds the {}-byte limit',
 }
 # <<<I18N_END>>>
 
