@@ -1,7 +1,7 @@
 # Omniplc
 ![](docs/assets/omniplc_banner.png)
 
-面向多品牌、多协议 PLC 的 Python 统一通信库:三菱 / 欧姆龙 / 基恩士 / 汇川 / 松下 / 丰田 / 罗克韦尔(AB)/ 倍福(TwinCAT)/ 西门子(S7)/ SR 扫码枪 / 海康读码器 / OPC-UA / CNC(MTConnect),共 17 族协议、28 个同步客户端。**一次编写,同一套 API。**
+面向多品牌、多协议 PLC 的 Python 统一通信库:三菱 / 欧姆龙 / 基恩士 / 汇川 / 松下 / 丰田 / 罗克韦尔(AB)/ 倍福(TwinCAT)/ 西门子(S7)/ SR 扫码枪 / 海康读码器 / OPC-UA / CNC(MTConnect),共 17 族协议、29 个同步客户端。**一次编写,同一套 API。**
 
 - **Python 3.7.9+**,核心零第三方依赖;全量类型标注(PEP 484 + py.typed)
 - 命名与使用习惯对齐各厂商 SDK,迁移成本极低
@@ -43,7 +43,7 @@ with ModbusTcpClient(ip_address="192.168.0.10", port=502, station=1) as client:
 - 连接失败自动进入指数退避门控(默认开,`reconnect_backoff = False` 关闭);
   `client.stats` 提供连接健康统计(`ClientStats` TypedDict)。
 
-各协议全部 28 个客户端的用法示例(构造参数 / 地址语法 / 协议特有能力)见
+各协议全部 29 个客户端的用法示例(构造参数 / 地址语法 / 协议特有能力)见
 **[docs/examples.md](docs/examples.md)**。
 
 #### 客户端一览
@@ -64,6 +64,7 @@ with ModbusTcpClient(ip_address="192.168.0.10", port=502, station=1) as client:
 | 松下 MEWTOCOL | ✅ 1024 | ✅ 1024 | — | — |
 | 基恩士 SR 扫码枪 | ✅ 9004 | — | — | — |
 | 海康机器人 ID 智能读码器(Modbus 模式) | ✅ 502 | — | — | — |
+| 海康机器人 ID 读码器(TCP 命令协议) | ✅ 可配 | — | — | — |
 | 丰田 TOYOPUC 计算机链接 | ✅ 1025 | ✅ 1025 | — | — |
 | OPC-UA | ✅ 4840 | — | — | — |
 | CNC MTConnect | ✅ 5000 | — | — | — |

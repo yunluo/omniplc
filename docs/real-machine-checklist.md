@@ -52,6 +52,7 @@
 | MC 1E 点数码表       | 三菱 A 系列 1E      | 字单位成批读上限按 255 放行(手册 1E 章节点数表未就地核证),真机按住机型分命令复核 |
 | TOYOPUC X/Y 与 T/C 同址 | 丰田 TOYOPUC      | X/Y、T/C 基址表取自参考实现(官方手册缺),若实为分址则读写互踩,真机第一优先复核 |
 | 海康 ID 读码器 Modbus 模式 | HikrobotIdModbusClient | 按工业协议手册 V1.0.4 实现(握手/结果区/字节交换/站号),待真机核证(要点见核验记录表该行备注) |
+| 海康 ID 读码器 TCP 命令协议 | HikrobotIdTcpClient | 按通信指令手册 V1.0.3 + ID2000/ID3000 用户手册实现(命令应答/结果推送双通道),待真机核证(要点见核验记录表该行备注) |
 
 ---
 
@@ -88,6 +89,7 @@
 | 基恩士 | SR 扫码枪 | — | — | SR 扫码枪为读码设备,读=扫码触发,写=不适用 |
 | 丰田 | TOYOPUC 计算机链接 TCP/UDP | | | |
 | 海康机器人 | ID 系列读码器 Modbus TCP | | | `HikrobotIdModbusClient`,按工业协议手册 V1.0.4 §3.5/§3.6 实现;真机核证要点:①握手全流程(使能→Ready→触发→OK/NG→Ack→OK/NG 清零,时序 §3.6 印刷页 41-42);②结果区 `result_words` 与读码器「结果模块大小」一致;③从机地址(读码器默认 255 或 0,本库 0~247,不一致先改读码器侧);④「结果字节交换」开关与 `byte_swap` 对应;⑤General Fault→clear_error 闭环 |
+| 海康机器人 | ID 系列读码器 TCP 命令协议 | | | `HikrobotIdTcpClient`,按通信指令手册 V1.0.3 + ID2000/ID3000 用户手册实现;真机核证要点:①命令通道端口/结果通道端口与 IDMVS「通信命令控制」「通信配置>TCP服务器」配置一致且互不相同;②前置状态:触发模式开启+触发源=软触发+已开始采集(IDMVS 或 `<Set,Acq,1>`);③`<Exec,TriSoft>` 应答形态(OK/0/errno)与结果推送时序;④结果成帧(静默间隔 0.05s)与多码/前后缀模板输出匹配;⑤NoRead 文本与 `noread_text` 一致 |
 | Modbus | Modbus TCP | 汇川 H5U 系列 ✓ | 汇川 H5U 系列 ✓ | 2026-09-28 基础读写通过(`ModbusTcpClient`,同机汇川 H5U);FC22 掩码写(字节序可配) / FC23 读写多寄存器 / FC24 FIFO / FC43·14 设备标识待真机核证 |
 | Modbus | Modbus RTU | | | FC22 掩码写 / FC23 读写多寄存器 / FC24 FIFO(按 byte count 增量收包) / FC43·14 设备标识(按对象头增量收包) / `inter_frame_delay` 帧间静默待真机核证 |
 | OPC-UA | opc.tcp | | | 订阅/Browse 为 v0.35 新增,待真机验证 |

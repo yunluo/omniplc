@@ -184,6 +184,20 @@ reader.clear_error()              # General Fault 清除
 # 结果串内容 = 读码器 IDMVS「数据处理」配置的输出(质量/码制等可配置并入)
 ```
 
+## 海康机器人 ID 读码器(TCP 命令协议)
+
+```python
+from omniplc import HikrobotIdTcpClient
+# 双通道:命令通道(IDMVS「通信命令控制」设端口)+ 结果通道(「通信配置>TCP服务器」设端口)
+reader = HikrobotIdTcpClient("192.168.0.10", command_port=9989, result_port=9988)
+reader.connect()
+reader.set_acquisition(True)      # <Set,Acq,1> 开始采集(或 IDMVS 工具栏)
+ok, text = reader.scan()          # <Exec,TriSoft> → 等结果推送;NoRead→(False, None)
+ok, n = reader.get_acquisition()  # <Get,Acq>
+ok = reader.command("Set", "1DNum", "5")   # 手册 §3 指令列表全量透传
+# 结果文本 = 读码器「输出格式化」模板原文(<code_type>/<code_quality> 等占位符随文输出)
+```
+
 ## 丰田 TOYOPUC 计算机链接
 
 ```python
