@@ -1092,6 +1092,23 @@ _TRANSLATIONS: Dict[str, str] = {
     '串口读取超时(receive_timeout={})': 'Serial read timed out (receive_timeout={})',
     '校验位必须是 SerialParity 枚举或 N/E/O,收到:{!r}': "Parity must be a SerialParity enum or 'N'/'E'/'O', got: {!r}",
     'UDP 报文超过缓冲({}B,实收 {}B),链路正常(对端报文超长)': 'UDP datagram exceeds the buffer ({0} B, received {1} B); the link is fine (peer datagram too large)',
+    # ---- 海康机器人 ID 系列智能读码器(Modbus) ----
+    'result_words 必须在 {}~{} 之间,收到:{}': 'result_words must be between {0} and {1}, got: {2}',
+    'poll_interval 必须大于 0,收到:{}': 'poll_interval must be greater than 0, got: {}',
+    '读码器内部故障(General Fault),请排查后调用 clear_error() 清除': 'Reader internal fault (General Fault); investigate and call clear_error() to reset',
+    '读码超时({}s),设备未输出 Results OK/NG': 'The read timed out ({} s) with no Results OK/NG from the device',
+    'Results Ack 未被设备消费(Results OK/NG 未清零),握手未闭环': 'Results Ack was not consumed by the device (Results OK/NG not cleared); the handshake did not close',
+    '控制字写入失败({}):{}': 'Control word write failed ({0}): {1}',
+    '状态字读取失败:{}': 'Status word read failed: {}',
+    '状态与结果区读取失败:{}': 'Status and result area read failed: {}',
+    '等待状态位超时({}),未在期限内置位': 'Timed out waiting for the status bit ({0}) to set',
+    '使能触发': 'enable triggering',
+    '发送触发': 'send trigger',
+    '回落触发位': 'drop trigger',
+    '应答结果': 'acknowledge result',
+    '清除错误': 'clear error',
+    '复位控制字': 'reset control word',
+    '等待 Trigger Ready': 'Trigger Ready',
 }
 # <<<I18N_END>>>
 

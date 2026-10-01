@@ -65,6 +65,8 @@ from ..core.constants import (
     READ_STRING_DEFAULT_LENGTH,
     SR_DEFAULT_PORT,
     SR_DEFAULT_SCAN_DWELL,
+    HIKROBOT_MODBUS_STATION_DEFAULT,
+    HIKROBOT_RESULT_WORDS_DEFAULT,
     SERIAL_DEFAULT_BAUD_RATE,
     SERIAL_DEFAULT_DATA_BITS,
     SERIAL_DEFAULT_PARITY,
@@ -96,7 +98,7 @@ from ..plc.melsec import (
     MelsecMxClient,
 )
 from ..plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
-from ..scanner import KeyenceSrClient
+from ..scanner import HikrobotIdModbusClient, HikrobotStatus, KeyenceSrClient
 from ..plc.omron import OmronCipClient, OmronFinsTcpClient, OmronFinsUdpClient
 from ..core.tag import Tag, TagTable
 from ..core.types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity, WordOrder
@@ -128,6 +130,8 @@ __all__ = [
     "AKeyenceMcUdpClient",
     # ---- 基恩士 SR 扫码枪 ----
     "AKeyenceSrClient",
+    # ---- 海康机器人 ID 系列智能读码器(Modbus) ----
+    "AHikrobotIdModbusClient",
     # ---- 欧姆龙 FINS / CIP 客户端 ----
     "AOmronFinsTcpClient",
     "AOmronFinsUdpClient",
@@ -1374,6 +1378,68 @@ class AKeyenceSrClient(ABaseClient):
     def scan_dwell(self) -> float:
         """扫码窗口时长(秒),构造期定(转发同步实例)。"""
         return self._scanner().scan_dwell
+
+
+class AHikrobotIdModbusClient(AModbusBaseClient):
+    """海康机器人 ID 系列智能读码器异步客户端(Modbus TCP 服务端模式)。
+
+    继承 AModbusBaseClient:station/word_order 属性与同步侧继承结构对称;
+    本类实例同时是异步 Modbus 主站,可用基类 read/write 访问同一网络。
+    """
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        port: int = MODBUS_DEFAULT_PORT,
+        station: int = HIKROBOT_MODBUS_STATION_DEFAULT,
+        result_words: int = HIKROBOT_RESULT_WORDS_DEFAULT,
+        byte_swap: bool = False,
+        encoding: str = "utf-8",
+        encoding_errors: str = "strict",
+    ) -> None:
+        """初始化读码器异步客户端(参数语义同同步版,见同步类 docstring)。
+
+        :param ip_address: 读码器 IP 或主机名
+        :param port: Modbus TCP 端口,默认 502
+        :param station: 从机地址,默认 0(读码器默认 255 或 0,本库按规范
+            钉 0~247 取 0)
+        :param result_words: 结果区大小(寄存器数,4~500 默认 100)
+        :param byte_swap: 结果数据寄存器内字节交换(对应读码器侧开关)
+        :param encoding: 条码内容解码编码,默认 utf-8
+        :param encoding_errors: 解码失败策略,默认 ``strict``
+        :raises ValueError: 参数非法
+        """
+        super().__init__(
+            HikrobotIdModbusClient(
+                ip_address,
+                port,
+                station,
+                result_words,
+                byte_swap,
+                encoding,
+                encoding_errors,
+            )
+        )
+
+    def _reader(self) -> HikrobotIdModbusClient:
+        """取读码器同步实例(内部属性)。"""
+        return self._typed(HikrobotIdModbusClient)
+
+    async def scan(
+        self, timeout: float = 10.0, poll_interval: float = 0.05
+    ) -> Tuple[bool, Optional[str]]:
+        """触发一次读码并等待结果(语义同同步版 :meth:`HikrobotIdModbusClient.scan`)。"""
+        return await self._run(lambda: self._reader().scan(timeout, poll_interval))
+
+    async def read_status(self) -> HikrobotStatus:
+        """读取状态区快照(语义同同步版)。"""
+        return await self._run(self._reader().read_status)
+
+    async def clear_error(
+        self, timeout: float = 2.0, poll_interval: float = 0.05
+    ) -> bool:
+        """清除设备错误状态(语义同同步版)。"""
+        return await self._run(lambda: self._reader().clear_error(timeout, poll_interval))
 
 
 class AToyopucTcpClient(ABaseClient):

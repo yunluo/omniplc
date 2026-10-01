@@ -864,6 +864,57 @@ SR_RESP_OK: str = "OK"
 SR_RESP_ERROR: str = "ERROR"
 """读码失败应答(未读到条码或距离过远)。"""
 
+# ------------------------------------------------- 海康机器人 ID 系列智能读码器(Modbus)
+# 依据:《海康机器人智能读码器工业协议操作手册》V1.0.4(2025/7/17 修订,随
+# 「智能读码器工业协议20250922.zip」发布),§3 ModBus 章节。
+HIKROBOT_MODBUS_STATION_DEFAULT: int = 0
+"""Modbus 从机地址默认值。手册 §3.2(印刷页 31):「从机地址默认为 255 或 0,
+如果不正确可能导致通讯异常无法连通」(V3.2.2.R 及以上固件支持配置)。
+本库 Modbus 站号按规范 V1.1b3 钉 0~247,255 超出上限,故默认取手册双默认
+之一 **0**(TCP 无广播概念,站号 0 照常收发);现场读码器若配了 255,
+需在 IDMVS 通信配置中改为 0~247 内的值。"""
+HIKROBOT_CONTROL_OFFSET: int = 0
+"""控制区保持寄存器偏移(§3.5 印刷页 39-40,REG0;服务端模式偏移地址固定)。"""
+HIKROBOT_STATUS_OFFSET: int = 1
+"""状态区保持寄存器偏移(§3.5 印刷页 40,REG1;服务端模式偏移地址固定)。"""
+HIKROBOT_RESULT_OFFSET: int = 2
+"""结果区保持寄存器起始偏移(§3.5 印刷页 41,REG2 起;服务端模式偏移地址固定)。"""
+HIKROBOT_RESULT_WORDS_DEFAULT: int = 100
+"""结果区默认大小(寄存器数,§3.5 印刷页 41:「4~500 个寄存器可配置,默认 100 个」;
+含首寄存器 Result Length,ASCII 数据容量 = 大小 - 1 字 = 2*(大小-1) 字符。
+须与读码器 IDMVS「结果模块大小」配置一致。"""
+HIKROBOT_RESULT_WORDS_MIN: int = 4
+"""结果区寄存器数下限(§3.5 印刷页 41)。"""
+HIKROBOT_RESULT_WORDS_MAX: int = 500
+"""结果区寄存器数上限(§3.5 印刷页 41)。"""
+HIKROBOT_CTRL_TRIGGER_ENABLE: int = 0x0001
+"""控制字 bit0 Trigger Enable:PLC 通过该位控制设备使能触发功能(§3.5 印刷页 40)。"""
+HIKROBOT_CTRL_TRIGGER: int = 0x0002
+"""控制字 bit1 Trigger:满足 Enable 置位/设备空闲/Trigger Ready 置位时置位触发
+一张图并运行一次算法(§3.5 印刷页 40;写 3 与 5 交替触发见 §3.3.1 印刷页 34)。"""
+HIKROBOT_CTRL_RESULTS_ACK: int = 0x0004
+"""控制字 bit2 Results Ack:PLC 成功获取最新结果后置位,设备清 Results OK/NG
+(§3.5 印刷页 40)。"""
+HIKROBOT_CTRL_CLEAR_ERROR: int = 0x8000
+"""控制字 bit15 Clear Error:清除错误状态(§3.5 印刷页 40)。"""
+HIKROBOT_STATUS_TRIGGER_READY: int = 0x0001
+"""状态字 bit0 Trigger Ready:Enable 置位且设备准备接收下一个触发信号时置位
+(§3.5 印刷页 40)。"""
+HIKROBOT_STATUS_TRIGGER_ACK: int = 0x0002
+"""状态字 bit1 Trigger Ack:设备已成功接收触发信号(§3.5 印刷页 40)。"""
+HIKROBOT_STATUS_ACQUIRING: int = 0x0004
+"""状态字 bit2 Acquiring:设备正在获取图像(§3.5 印刷页 40)。"""
+HIKROBOT_STATUS_DECODING: int = 0x0008
+"""状态字 bit3 Decoding:设备正在对图像识别译码(§3.5 印刷页 40-41)。"""
+HIKROBOT_STATUS_RESULTS_OK: int = 0x0100
+"""状态字 bit8 Results OK:设备成功输出新的结果,Results Ack 置位后清零
+(§3.5 印刷页 41)。"""
+HIKROBOT_STATUS_RESULTS_NG: int = 0x0200
+"""状态字 bit9 Results NG:设备未读到码或未获取到输出结果;使用 NG 信号需关闭
+NoRead 功能(§3.5 印刷页 41)。"""
+HIKROBOT_STATUS_GENERAL_FAULT: int = 0x8000
+"""状态字 bit15 General Fault:设备内部产生错误,Clear Error 可清除(§3.5 印刷页 41)。"""
+
 # ---------------------------------------------------------------- 丰田 TOYOPUC
 TOYOPUC_DEFAULT_PORT: int = 1025
 """TOYOPUC 计算机链接以太网默认端口(默认约定值,可在 PLC 侧修改)。"""
