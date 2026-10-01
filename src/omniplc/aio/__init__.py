@@ -103,6 +103,7 @@ from ..plc.melsec import (
 from ..plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
 from ..scanner import (
     HikrobotIdModbusClient,
+    HikrobotIdSdkClient,
     HikrobotIdTcpClient,
     HikrobotStatus,
     KeyenceSrClient,
@@ -142,6 +143,8 @@ __all__ = [
     "AHikrobotIdModbusClient",
     # ---- 海康机器人 ID 系列读码器(TCP 命令) ----
     "AHikrobotIdTcpClient",
+    # ---- 海康机器人 ID 系列智能读码器(SDK) ----
+    "AHikrobotIdSdkClient",
     # ---- 欧姆龙 FINS / CIP 客户端 ----
     "AOmronFinsTcpClient",
     "AOmronFinsUdpClient",
@@ -1522,6 +1525,93 @@ class AHikrobotIdTcpClient(ABaseClient):
     ) -> Tuple[bool, Optional[str]]:
         """低阶命令入口(语义同同步版 :meth:`HikrobotIdTcpClient.command`)。"""
         return await self._run(lambda: self._reader().command(cmd_type, cmd, param))
+
+
+class AHikrobotIdSdkClient(ABaseClient):
+    """海康机器人 ID 系列智能读码器异步客户端(MvCodeReaderSDK 封装)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        *,
+        sdk_dir: Optional[str] = None,
+        dll_path: Optional[str] = None,
+        with_image: bool = False,
+        encoding: str = "utf-8",
+        encoding_errors: str = "strict",
+    ) -> None:
+        """初始化 SDK 异步客户端(参数语义同同步版,见同步类 docstring)。
+
+        :param ip_address: 读码器 IP
+        :param sdk_dir: MvCodeReaderSDK 动态库目录
+        :param dll_path: 动态库显式路径(优先于 ``sdk_dir``)
+        :param with_image: 是否随帧返回图像原始数据
+        :param encoding: 条码内容解码编码,默认 utf-8
+        :param encoding_errors: 解码失败策略,默认 ``strict``
+        :raises ValueError: 参数非法
+        """
+        super().__init__(
+            HikrobotIdSdkClient(
+                ip_address,
+                sdk_dir=sdk_dir,
+                dll_path=dll_path,
+                with_image=with_image,
+                encoding=encoding,
+                encoding_errors=encoding_errors,
+            )
+        )
+
+    def _reader(self) -> HikrobotIdSdkClient:
+        """取读码器同步实例(内部属性)。"""
+        return self._typed(HikrobotIdSdkClient)
+
+    async def scan(self, timeout: float = 10.0) -> Tuple[bool, Optional[object]]:
+        """软触发一次读码并取回一帧(语义同同步版 :meth:`HikrobotIdSdkClient.scan`)。"""
+        return await self._run(lambda: self._reader().scan(timeout))
+
+    async def read_frame(self, timeout: float = 10.0) -> Tuple[bool, Optional[object]]:
+        """被动取一帧(语义同同步版)。"""
+        return await self._run(lambda: self._reader().read_frame(timeout))
+
+    async def set_enum_value(self, key: str, value: int) -> bool:
+        """设置枚举参数。"""
+        return await self._run(lambda: self._reader().set_enum_value(key, value))
+
+    async def set_command_value(self, key: str) -> bool:
+        """执行命令型参数。"""
+        return await self._run(lambda: self._reader().set_command_value(key))
+
+    async def get_int_value(self, key: str) -> Tuple[bool, Optional[int]]:
+        """读取整型参数。"""
+        return await self._run(lambda: self._reader().get_int_value(key))
+
+    async def set_int_value(self, key: str, value: int) -> bool:
+        """设置整型参数。"""
+        return await self._run(lambda: self._reader().set_int_value(key, value))
+
+    async def get_bool_value(self, key: str) -> Tuple[bool, Optional[bool]]:
+        """读取布尔参数。"""
+        return await self._run(lambda: self._reader().get_bool_value(key))
+
+    async def set_bool_value(self, key: str, value: bool) -> bool:
+        """设置布尔参数。"""
+        return await self._run(lambda: self._reader().set_bool_value(key, value))
+
+    async def get_float_value(self, key: str) -> Tuple[bool, Optional[float]]:
+        """读取浮点参数。"""
+        return await self._run(lambda: self._reader().get_float_value(key))
+
+    async def set_float_value(self, key: str, value: float) -> bool:
+        """设置浮点参数。"""
+        return await self._run(lambda: self._reader().set_float_value(key, value))
+
+    async def get_string_value(self, key: str) -> Tuple[bool, Optional[str]]:
+        """读取字符串参数。"""
+        return await self._run(lambda: self._reader().get_string_value(key))
+
+    async def set_string_value(self, key: str, value: str) -> bool:
+        """设置字符串参数。"""
+        return await self._run(lambda: self._reader().set_string_value(key, value))
 
 
 class AToyopucTcpClient(ABaseClient):

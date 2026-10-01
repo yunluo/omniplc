@@ -79,7 +79,11 @@ from .plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpCli
 from .plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
 from .scanner import (
     HikrobotIdModbusClient,
+    HikrobotIdSdkClient,
     HikrobotIdTcpClient,
+    HikrobotSdkCode,
+    HikrobotSdkFrame,
+    HikrobotSdkQuality,
     HikrobotStatus,
     KeyenceSrClient,
 )
@@ -115,6 +119,11 @@ __all__ = [
     "HikrobotStatus",
     # ---- 海康机器人 ID 系列读码器(TCP 命令) ----
     "HikrobotIdTcpClient",
+    # ---- 海康机器人 ID 系列智能读码器(SDK) ----
+    "HikrobotIdSdkClient",
+    "HikrobotSdkCode",
+    "HikrobotSdkFrame",
+    "HikrobotSdkQuality",
     # ---- 欧姆龙 FINS / CIP 客户端 ----
     "OmronFinsTcpClient",
     "OmronFinsUdpClient",
