@@ -17,7 +17,7 @@ omniplc 实现的各品牌 / 协议族对应的**厂商手册与公开规范**,�
 ```
 docs/protocol/
 ├── beckhoff/      倍福 — TwinCAT 3 ADS 基础 + TwinCAT 2 ADS
-├── hikrobot/      海康机器人 — 智能读码器工业协议操作手册(覆盖 Modbus/MELSEC/FINS/EIP/PROFINET 五种从站模式)+ 通信指令手册 + ID2000/ID3000 用户手册 + 固件版本要求
+├── hikrobot/      海康机器人 — 智能读码器工业协议操作手册(五种从站模式)+ 通信指令手册 + ID2000/ID3000 用户手册 + MvCodeReaderSDK C 指南(Development 开发包)+ 固件版本要求
 ├── inovance/      汇川 — H3U/H3S + H5U/Easy 编程手册
 ├── keyence/       基恩士 — SR-2000 1D/2D 扫码枪用户手册(中文)
 ├── mitsubishi/    三菱 — MC 协议参考手册 + MX Component 操作手册 + SLMP 参考手册
@@ -47,6 +47,7 @@ docs/protocol/
 | 海康机器人 | 工业读码器通信指令操作手册(命令面:Get/Set/Exec 格式、TriSoft 软触发、Acq 采集、错误码表;TCP/UDP/Serial 三走线) | [hikrobot/Hikrobot_Communication_Command_Manual_V1.0.3.pdf](./hikrobot/Hikrobot_Communication_Command_Manual_V1.0.3.pdf) | V1.0.3(2024/11/7,随 IDMVS 客户端 `Applications/common/doc/` 分发) |
 | 海康机器人 | 极小型智能读码器用户手册(ID3000 系列;TCP 触发/TCP Server 结果输出/输出格式化标志符表) | [hikrobot/Hikrobot_ID3000_User_Manual_V1.7.0.pdf](./hikrobot/Hikrobot_ID3000_User_Manual_V1.7.0.pdf) | V1.7.0 |
 | 海康机器人 | 超小型智能读码器用户手册(ID2000 系列;TCP 触发端口默认 2001 等) | [hikrobot/Hikrobot_ID2000_User_Manual_V1.1.2.pdf](./hikrobot/Hikrobot_ID2000_User_Manual_V1.1.2.pdf) | V1.1.2 |
+| 海康机器人 | MvCodeReader SDK (C or C++) Developer Guide(SDK 封装依据:调用流程/结构体/错误码;本地随 Development 开发包 `Modules/MvCodeReaderSDK/Doc/` 分发) | 指南 V1.5.3(2024/01/10;SDK V2.0.0,win32/win64 双位宽 DLL) | 随 IDMVS Development 包分发 |
 | 欧姆龙 | FINS | [omron/Omron_FINS_W342_Communications_Commands_Reference_Manual.pdf](./omron/Omron_FINS_W342_Communications_Commands_Reference_Manual.pdf) | W342 |
 | 欧姆龙 | NJ/NX CPU 内置 EtherNet/IP 端口 | [omron/Omron_NJ_NX_CPU_EtherNetIP_Port_UsersManual_W506.pdf](./omron/Omron_NJ_NX_CPU_EtherNetIP_Port_UsersManual_W506.pdf) | W506 |
 | 欧姆龙 | NX EtherNet/IP 单元 | [omron/Omron_NX_EtherNetIP_Unit_UsersManual_W627.pdf](./omron/Omron_NX_EtherNetIP_Unit_UsersManual_W627.pdf) | W627 |

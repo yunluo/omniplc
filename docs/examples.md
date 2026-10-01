@@ -198,6 +198,23 @@ ok = reader.command("Set", "1DNum", "5")   # 手册 §3 指令列表全量透传
 # 结果文本 = 读码器「输出格式化」模板原文(<code_type>/<code_quality> 等占位符随文输出)
 ```
 
+## 海康机器人 ID 智能读码器(MvCodeReaderSDK)
+
+```python
+from omniplc import HikrobotIdSdkClient
+# 需 MvCodeReaderSDK 运行库(IDMVS Development 开发包);按解释器位数自动选 win32/win64
+reader = HikrobotIdSdkClient("192.168.1.100", sdk_dir=r"D:\MvCodeReaderSDK\SDK")
+reader.connect()                       # 枚举匹配 IP → 建句柄 → 开设备 → 起流
+reader.set_enum_value("TriggerMode", 1)     # 触发模式开
+reader.set_enum_value("TriggerSource", 7)   # 触发源 = 软触发
+ok, frame = reader.scan(timeout=5.0)   # TriggerSoftware → 取帧(全量元数据)
+if ok:
+    for code in frame.codes:           # 多码遍历
+        print(code.content, code.code_type_name, code.angle_deg,
+              code.quality.over_quality, code.points)
+ok, n = reader.get_int_value("Width")  # GenICam 参数访问
+```
+
 ## 丰田 TOYOPUC 计算机链接
 
 ```python

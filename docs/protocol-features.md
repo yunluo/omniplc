@@ -350,6 +350,31 @@ PROFINET 为设备侧,需 RT 控制器,库无 PROFINET ❌。
 
 ---
 
+## 15C. 海康机器人 ID 系列智能读码器(MvCodeReaderSDK ctypes 封装)
+
+客户端:`HikrobotIdSdkClient`(BaseClient 子类,SDK 会话型)
+
+依据:MvCodeReaderSDK V2.0.0(随 IDMVS Development 开发包分发)+《MvCodeReader SDK
+(C or C++) Developer Guide》V1.5.3(`Modules/MvCodeReaderSDK/Doc/`);结构体/枚举按头文件
+`MvCodeReaderParams.h` 就近行号引用,调用流程按指南 §2(印刷页 9-11)与 §3.3.3(印刷页 27-28)。
+
+| 功能 | 状态 | 备注 |
+|---|---|---|
+| 设备枚举 + 按 IP 匹配(connect) | ✅ | 私有协议 `EnumIDDevices` + GigE/USB `EnumDevices` 双路;CreateHandle→OpenDevice→StartGrabbing(指南 §2 印刷页 10-11) |
+| 软触发 + 取一帧(scan) | ✅ | `TriggerSoftware` 命令(指南 §3.5.12 印刷页 44)→ `GetOneFrameTimeoutEx2`(指南 §3.3.3 印刷页 27-28);动作型写语义 |
+| 被动取帧(read_frame) | ✅ | 不触发只取帧——连续模式/外部触发场景 |
+| **条码全量元数据** | ✅ | `MV_CODEREADER_BCR_INFO_EX2`(Params.h 行 606-635):内容/码制/四点坐标/角度(10 倍)/PPM/算法耗时/清晰度/读码评分/触发时间戳(s+µs)/库号/ROI 号 |
+| **条码质量评分** | ✅ | `MV_CODEREADER_CODE_INFO`(Params.h 行 513-561):2D 十项等级(对比度/均匀性/纠错/打印伸缩等)+ 1D 六项等级(边缘/反射率/可译码性等);**仅 ID5000 系列支持,其余设备全 0**(指南 §3.3.3 印刷页 28) |
+| 多码输出 | ✅ | `nCodeNum` 遍历,单帧最多 300 条(扩展,Params.h 行 68) |
+| 参数访问面 | ✅ | Int/Enum/Bool/Float/String Get/Set + SetCommandValue(指南 §3.5 印刷页 37-45,GenICam 节点名) |
+| NODATA 超时三态 | ✅ | `MV_CODEREADER_E_NODATA`(ErrorDefine.h 行 15)→ (False, None) 不断线;SDK 错误码 → DeviceError code 原始值 |
+| 位宽匹配 | ✅ | 按解释器位数自动选 win32/win64 子目录(SDK 双位宽 DLL 齐备);`dll_path` 显式覆盖 |
+| 图像原始数据 | ⭕ | `with_image=True` 随帧复制(默认关);图像格式转换/保存(SaveImage)未做 |
+| 面单抠图/OCR/AGV/通道(MSC) | ❌ | 指南 §3.6/多通道 API 按需再补;回调模式与轮询互斥(指南 §3.3 印刷页 33) |
+| 依赖 | — | MvCodeReaderSDK 运行库(核心零依赖,ctypes 直绑);前置 MVS SDK Runtime ≥3.0.0(指南 §2 印刷页 9) |
+
+---
+
 ## 16. 丰田 TOYOPUC(手册待补,同源参考实现双向裁决)
 
 客户端:`ToyopucTcpClient` / `ToyopucUdpClient`
