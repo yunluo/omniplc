@@ -89,6 +89,18 @@ dev = [
     "setuptools; python_version < '3.10'",
     "python-snap7==3.2.0; python_version >= '3.10'",
 ]
+# all = 全部可选运行时依赖( serial/mx/opcua/ads/s7 五件),一键安装全套扩展
+# 驱动;与 dev 的差异仅在于不含 pytest 测试工具。显式罗列而非自引用 extras
+# (omniplc[...]),兼容老版本 pip/uv 的元数据解析。
+all = [
+    "pyserial==3.5",
+    "comtypes==1.4.6; platform_system == 'Windows'",
+    "asyncua==1.1.5",
+    "pyads==3.5.1",
+    "python-snap7==1.3; python_version < '3.10'",
+    "setuptools; python_version < '3.10'",
+    "python-snap7==3.2.0; python_version >= '3.10'",
+]
 
 [build-system]
 requires = ["hatchling"]

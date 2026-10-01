@@ -18,6 +18,7 @@ uv add 'omniplc[mx]'      # 三菱 MX Component(Windows)
 uv add 'omniplc[opcua]'   # OPC-UA(asyncua)
 uv add 'omniplc[ads]'     # 倍福 TwinCAT ADS(pyads + TcAdsDll 运行库)
 uv add 'omniplc[s7]'      # 西门子 S7(python-snap7,按解释器自动二选一)
+uv add 'omniplc[all]'     # 全部可选扩展(serial/mx/opcua/ads/s7,不含测试工具)
 ```
 
 #### 快速上手
