@@ -215,6 +215,18 @@ if ok:
 ok, n = reader.get_int_value("Width")  # GenICam 参数访问
 ```
 
+## 海康机器人 ID 读码器(串口)
+
+```python
+from omniplc import HikrobotIdSerialClient
+# 读码器 RS-232:触发源=串口触发(start/stop)+「串口通讯协议」使能+换行符使能
+reader = HikrobotIdSerialClient()             # 触发/停止文本默认 start/stop,可配
+reader.configure_serial("COM3", 115200)       # 与读码器串口配置一致
+reader.connect()
+ok, code = reader.scan()                      # start → 结果行 → stop
+# 多码编排:reader.trigger() → read_result()×N → reader.stop()
+```
+
 ## 丰田 TOYOPUC 计算机链接
 
 ```python
