@@ -77,7 +77,12 @@ from .plc.keyence import (
 )
 from .plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
 from .plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
-from .scanner import HikrobotIdModbusClient, HikrobotStatus, KeyenceSrClient
+from .scanner import (
+    HikrobotIdModbusClient,
+    HikrobotIdTcpClient,
+    HikrobotStatus,
+    KeyenceSrClient,
+)
 from .transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport, UdpTransport
 
 __version__ = "0.47.3"
@@ -108,6 +113,8 @@ __all__ = [
     # ---- 海康机器人 ID 系列智能读码器(Modbus) ----
     "HikrobotIdModbusClient",
     "HikrobotStatus",
+    # ---- 海康机器人 ID 系列读码器(TCP 命令) ----
+    "HikrobotIdTcpClient",
     # ---- 欧姆龙 FINS / CIP 客户端 ----
     "OmronFinsTcpClient",
     "OmronFinsUdpClient",

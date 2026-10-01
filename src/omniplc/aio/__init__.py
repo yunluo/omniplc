@@ -67,6 +67,9 @@ from ..core.constants import (
     SR_DEFAULT_SCAN_DWELL,
     HIKROBOT_MODBUS_STATION_DEFAULT,
     HIKROBOT_RESULT_WORDS_DEFAULT,
+    HIKROBOT_NOREAD_TEXT,
+    HIKROBOT_RESULT_MAX_FRAME,
+    HIKROBOT_RESULT_SETTLE_INTERVAL,
     SERIAL_DEFAULT_BAUD_RATE,
     SERIAL_DEFAULT_DATA_BITS,
     SERIAL_DEFAULT_PARITY,
@@ -98,7 +101,12 @@ from ..plc.melsec import (
     MelsecMxClient,
 )
 from ..plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
-from ..scanner import HikrobotIdModbusClient, HikrobotStatus, KeyenceSrClient
+from ..scanner import (
+    HikrobotIdModbusClient,
+    HikrobotIdTcpClient,
+    HikrobotStatus,
+    KeyenceSrClient,
+)
 from ..plc.omron import OmronCipClient, OmronFinsTcpClient, OmronFinsUdpClient
 from ..core.tag import Tag, TagTable
 from ..core.types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity, WordOrder
@@ -132,6 +140,8 @@ __all__ = [
     "AKeyenceSrClient",
     # ---- 海康机器人 ID 系列智能读码器(Modbus) ----
     "AHikrobotIdModbusClient",
+    # ---- 海康机器人 ID 系列读码器(TCP 命令) ----
+    "AHikrobotIdTcpClient",
     # ---- 欧姆龙 FINS / CIP 客户端 ----
     "AOmronFinsTcpClient",
     "AOmronFinsUdpClient",
@@ -1440,6 +1450,78 @@ class AHikrobotIdModbusClient(AModbusBaseClient):
     ) -> bool:
         """清除设备错误状态(语义同同步版)。"""
         return await self._run(lambda: self._reader().clear_error(timeout, poll_interval))
+
+
+class AHikrobotIdTcpClient(ABaseClient):
+    """海康机器人 ID 系列读码器异步客户端(TCP 命令协议,双通道)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        command_port: int = 9989,
+        result_port: Optional[int] = None,
+        *,
+        encoding: str = "utf-8",
+        encoding_errors: str = "strict",
+        noread_text: str = HIKROBOT_NOREAD_TEXT,
+        settle_interval: float = HIKROBOT_RESULT_SETTLE_INTERVAL,
+        max_frame: int = HIKROBOT_RESULT_MAX_FRAME,
+    ) -> None:
+        """初始化读码器 TCP 命令异步客户端(参数语义同同步版)。
+
+        :param ip_address: 读码器 IP 或主机名
+        :param command_port: 命令通道端口(与读码器「通信命令控制」配置一致)
+        :param result_port: 结果通道端口(与「通信配置 > TCP 服务器」一致,
+            不得与命令端口相同);``None`` = 不开结果通道
+        :param encoding: 结果报文解码编码,默认 utf-8
+        :param encoding_errors: 解码失败策略,默认 ``strict``
+        :param noread_text: 未读到码的输出文本,默认 ``NoRead``
+        :param settle_interval: 结果成帧静默间隔(秒)
+        :param max_frame: 结果报文字节上限
+        :raises ValueError: 参数非法
+        """
+        super().__init__(
+            HikrobotIdTcpClient(
+                ip_address,
+                command_port,
+                result_port,
+                encoding=encoding,
+                encoding_errors=encoding_errors,
+                noread_text=noread_text,
+                settle_interval=settle_interval,
+                max_frame=max_frame,
+            )
+        )
+
+    def _reader(self) -> HikrobotIdTcpClient:
+        """取读码器同步实例(内部属性)。"""
+        return self._typed(HikrobotIdTcpClient)
+
+    async def scan(self, timeout: float = 10.0) -> Tuple[bool, Optional[str]]:
+        """软触发一次读码并等待结果(语义同同步版 :meth:`HikrobotIdTcpClient.scan`)。"""
+        return await self._run(lambda: self._reader().scan(timeout))
+
+    async def read_result(self, timeout: float = 10.0) -> Tuple[bool, Optional[str]]:
+        """被动等待下一帧结果推送(语义同同步版)。"""
+        return await self._run(lambda: self._reader().read_result(timeout))
+
+    async def trigger(self) -> bool:
+        """仅发送软触发命令,不等待结果。"""
+        return await self._run(self._reader().trigger)
+
+    async def set_acquisition(self, enabled: bool) -> bool:
+        """设置采集状态(``<Set,Acq,0/1>``)。"""
+        return await self._run(lambda: self._reader().set_acquisition(enabled))
+
+    async def get_acquisition(self) -> Tuple[bool, Optional[int]]:
+        """查询采集状态(``<Get,Acq>``)。"""
+        return await self._run(self._reader().get_acquisition)
+
+    async def command(
+        self, cmd_type: str, cmd: str, param: Optional[str] = None
+    ) -> Tuple[bool, Optional[str]]:
+        """低阶命令入口(语义同同步版 :meth:`HikrobotIdTcpClient.command`)。"""
+        return await self._run(lambda: self._reader().command(cmd_type, cmd, param))
 
 
 class AToyopucTcpClient(ABaseClient):
