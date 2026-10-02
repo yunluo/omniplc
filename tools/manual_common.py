@@ -310,7 +310,7 @@ DEFAULT_CONNECTIONS = {
         ],
     },
     ("ab_eip", None): {
-        "params": {"slot": 0, "connected_messaging": False},
+        "params": {"slot": 0, "connected_messaging": False, "rpi_us": 100000},
         "points": [
             {'tag_id': 'mybool_bool', 'address': 'MyBool', 'type': 'bool', 'remark': 'BOOL 标签'},
             {'tag_id': 'myint_short', 'address': 'MyInt', 'type': 'short', 'remark': 'INT 标签'},
@@ -514,7 +514,8 @@ def build_client(conn):
     if d == "ab_eip":
         return AllenBradleyEthIpClient(ip, port or 44818,
                                        _p(conn, "slot", 0),
-                                       _p(conn, "connected_messaging", False))
+                                       _p(conn, "connected_messaging", False),
+                                       _p(conn, "rpi_us", 100000))
     if d == "beckhoff_ads":
         return BeckhoffAdsClient(ip, _p(conn, "ads_port", 851),
                                  _p(conn, "net_id", ""))

@@ -86,6 +86,9 @@ SERIAL_DEFAULT_PARITY: SerialParity = SerialParity.NONE
 MODBUS_DEFAULT_STATION: int = 1
 MODBUS_STATION_MIN: int = 0
 MODBUS_STATION_MAX: int = 247
+"""站号缺省上限(串口线口径 0~247;TCP/UDP Unit ID 为路由字段,上限 255
+由 build_mbap 收口——审查 1001 R9-1:V1.1b3 TCP 指南 p.23「0xFF has to be
+used」即 TCP 存在 255 站号语义)。"""
 MODBUS_REGISTER_BIT_MAX: int = 15
 """寄存器位访问的位号上限(hr0.15)。"""
 MBAP_HEADER_SIZE: int = 7
@@ -289,8 +292,8 @@ MC_1E_RESPONSE_HEAD_SIZE: int = 2
 """1E 响应头:副头部(1) + 结束代码(1)。"""
 MC_1E_MAX_POINTS: int = 255
 """1E 单事务点数上限(保守取 255;手册位单位/字设备上限 256,点数域为
-1 字节点数 + 固定值 1 字节共 2 字节,255 点点数域恰为 ``FF 01``;2026-09-30
-订正:原注"2 字节小端"不准确,256 点按手册应发 00 01)。"""
+1 字节点数 + 固定值 1 字节共 2 字节小端——255 点点数域恰为 ``FF 00``,
+256 点为 ``00 01``;审查 1001 R9-5 订正原注 "FF 01" 笔误)。"""
 MC_1E_ERROR_EXTRA: int = 0x5B
 """1E 该结束码的响应后跟**1 字节**异常细分码(SH-080008 §18.2 印刷页 395:
 二进制结束代码为 1 字节,算例 ``5BH 10H`` = 5B 后跟 PC 号错 10H;

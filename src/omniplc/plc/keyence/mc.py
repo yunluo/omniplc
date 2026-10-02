@@ -30,6 +30,12 @@ KV MC 条目。
 
 软元件码表见 :data:`omniplc.core.constants.KEYENCE_MC_DEVICE_CODES`;
 不使用三菱记号(D/M/X/Y),连三菱机型请直接用 ``MelsecMcTcpClient``。
+
+**继承能力面披露**(审查 1001 R9-3,与汇川同款披露对齐):本类完整继承
+三菱 MC 的扩展命令面——0406 多块批量读 / 0403 随机读 / 1402 随机写 /
+0101 CPU 型号读(ping 探活的探测命令)。KV 对这些命令的支持**未经手册
+核证**(KV MC 协议手册待补),真机联测前应视为未知;0101 支持面核证项
+见 docs/real-machine-checklist.md。
 """
 from __future__ import annotations
 

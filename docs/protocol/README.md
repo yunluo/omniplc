@@ -106,6 +106,8 @@ omniplc 已实现且**有部分覆盖**但关键官方手册仍缺的协议:
 
 | 协议 | 已有 | 缺口 |
 |---|---|---|
+| 海康机器人 ID 系列读码器(TCP 命令协议) | 《工业读码器通信指令操作手册》V1.0.3(命令面全量)+ ID2000/ID3000 用户手册 | **结果推送报文无帧界**——静默成帧间隔(`HIKROBOT_RESULT_SETTLE_INTERVAL` 0.05s)为本库工程口径,手册未定义推送帧界;**命令通道端口无出厂默认**(9989 为常用约定);「TriSoft→等结果推送」的时序组合为手册分节推断。三项均标待核,真机抓包定案 |
+| 海康机器人 ID 系列读码器(Modbus 模式) | 《智能读码器工业协议操作手册》V1.0.4(寄存器模型/握手时序) | `byte_swap` 是否作用于长度寄存器 REG2 手册未明(印刷页 44 只写"交换结果数据字节序"),本库按"仅数据寄存器"解读,真机核证项 |
 | 三菱 MC(QnA 兼容帧扩展命令) | SH-080008(0403 随机读/1402 随机写/0101 CPU 型号等已实现) | 时钟数据读/写(记法 0701/0702,QnACPU 串口扩展)在 SH-080008 与 SLMP 手册均无收录,需《QCPU 用户手册(基础系统篇)》;按铁律未实现,拿到手册后补 |
 | Allen-Bradley EtherNet/IP | ODVA 公开白皮书 + Rockwell 官方 5 份 + Schneider 第三方教程(`odva/`,15 份) | Logix 标签编程手册(1756-RMxxx 系列)+ **1756-PM020**(Get_Attributes_List 应答示例);完整 CIP Volume 1/2 规范(需 ODVA 会员)。本批 Get_Attribute_List 逐项布局按 CIP Vol 1 §5-4 章节号 + OpENer 一致性栈/pycomm3 参考实现对照裁决(见 review.md「AB EtherNet/IP(CIP)专项」);拿到全本后补页码级引用 |
 | 基恩士 KV PLC | SR-2000 扫码枪手册(`keyence/`);SLMP 参考手册(`mitsubishi/`,供 KV MC 兼容实现) | KV-8000/7500/7300 Host Link 通信命令手册 + KV MC 协议手册(需 MyKeyence 账号) |

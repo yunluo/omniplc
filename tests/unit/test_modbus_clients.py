@@ -38,6 +38,18 @@ def test_tcp_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bytes(scripted.sent) == codec.build_mbap(1, 1, codec.build_read_pdu(3, 0, 1))
 
 
+def test_tcp_unit_id_ff_allowed() -> None:
+    """TCP Unit ID 0xFF(255)合法(审查 1001 R9-1:路由字段非串口站号,
+    TCP 实施指南 p.23「0xFF has to be used」;原实现共用 0~247 误拒)。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 0xFF)
+    assert client.station == 255
+    with pytest.raises(ValueError, match="Unit ID"):
+        ModbusTcpClient("127.0.0.1", 502, 300)
+    # RTU 仍按串行线口径 0~247
+    with pytest.raises(ValueError, match="站号"):
+        ModbusRtuClient(station=255)
+
+
 def test_tcp_transaction_id_mismatch_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP:事务号不匹配按坏帧处理,标记断开等待惰性重连;错误信息带收到的原始帧。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)
@@ -483,13 +495,20 @@ def test_tcp_read_real_transport_semantics() -> None:
 
 
 def test_station_frozen_after_construction() -> None:
-    """站号构造期定:属性只读(双入口取消),构造传参生效。"""
+    """站号构造期定:属性只读(双入口取消),构造传参生效。
+
+    上限按走线分流(审查 1001 R9-1):TCP Unit ID 是路由字段(0~255,
+    248~255 合法),RTU 串行线站号 0~247(248 拒)。
+    """
     client = ModbusTcpClient("127.0.0.1", station=2)
     assert client.station == 2
     with pytest.raises(AttributeError):
         client.station = 5
+    assert ModbusTcpClient("127.0.0.1", station=248).station == 248  # TCP 放行
     with pytest.raises(ValueError):
-        ModbusTcpClient("127.0.0.1", station=248)
+        ModbusTcpClient("127.0.0.1", station=300)  # 超 Unit ID 字节上限
+    with pytest.raises(ValueError):
+        ModbusRtuClient(station=248)  # RTU 维持串行线上限
 
 
 # ----------------------------------------------------------------------

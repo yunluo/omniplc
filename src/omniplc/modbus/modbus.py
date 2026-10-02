@@ -93,7 +93,13 @@ class ModbusBaseClient(BaseClient):
 
     @property
     def station(self) -> int:
-        """Modbus 站号(0~247,0 为广播,仅用于写;构造期定,只读)。"""
+        """Modbus 站号(构造期定,只读)。
+
+        语义按走线分流:**RTU** 为串行线站号 0~247(0 = 广播,仅写);
+        **TCP/UDP** 的 Unit ID 是路由字段(0~255,无广播语义,站号 0 照常
+        收发;0xFF 在部分网关语义为转发到串行线)——审查 1001 R9-8 订正
+        原注释的 RTU 单一口径表述。
+        """
         return self._station
 
     @staticmethod
@@ -832,7 +838,7 @@ class ModbusBaseClient(BaseClient):
         )
 
     def get_comm_event_counter(self) -> Tuple[bool, Optional[int]]:
-        """取通信事件计数器(FC11,规范 §6.11):返回事件计数。
+        """取通信事件计数器(FC11,规范 §6.9):返回事件计数。
 
         状态字非 0(0xFFFF=设备忙)抛 :class:`DeviceError`(设备侧条件,不断线)。
         """
@@ -850,7 +856,7 @@ class ModbusBaseClient(BaseClient):
         return self._execute(operation)
 
     def get_comm_event_log(self) -> Tuple[bool, Optional[Dict[str, object]]]:
-        """取通信事件日志(FC12,规范 §6.12)。
+        """取通信事件日志(FC12,规范 §6.10)。
 
         :return: ``(是否成功, {status, event_count, message_count, events})``;
             ``events`` 为原始事件字节(bytes)
@@ -1033,14 +1039,24 @@ class ModbusTcpClient(ModbusBaseClient):
 
         :param ip_address: PLC 的 IP 或主机名
         :param port: 端口,默认 502
-        :param station: 站号(Unit ID),默认 1
+        :param station: 站号(Unit ID),默认 1。**TCP/UDP 的 Unit ID 是
+            路由字段而非串口站号**:合法范围 0~255(build_mbap 收口),
+            0xFF(255)按 TCP 实施指南 p.23「0xFF has to be used」在部分
+            网关语义为"转发到串行线",部分设备把它当私有路由——审查
+            1001 R9-1:原实现共用串口线 0~247 上限,0xFF 被误拒
         :raises ValueError: 参数非法
         """
         validate_endpoint(ip_address, port)
         super().__init__()
         self._ip_address = ip_address
         self._port = int(port)
-        self._station = self._check_station(station)
+        if not MODBUS_STATION_MIN <= int(station) <= 0xFF:
+            raise ValueError(
+                _("TCP/UDP Unit ID 必须在 {}~255 之间,收到:{}").format(
+                    MODBUS_STATION_MIN, station
+                )
+            )
+        self._station = int(station)
 
     def _create_transport(self) -> BaseTransport:
         return TcpTransport(self._ip_address, self._port)
@@ -1347,7 +1363,7 @@ def _coalesce_group(
     """把同组条目按"相邻偏移"合并为多个 chunk(内部函数)。
 
     同组内宽度统一(``kind=="bit"`` 全部宽 1 bit;``kind=="word"`` 全部
-    宽 ``width`` words),按 offset 升序遍历。三条规则:
+    宽 ``width`` words),按 offset 升序遍历。五条规则:
 
     1. **同 offset 合并**:同字位 / 同位(位设备),属于同一 FC 覆盖区
     2. **相邻 offset 合并**(``offset == current_end``):gap = 0,合并不切
@@ -1355,6 +1371,12 @@ def _coalesce_group(
        空洞必须独立 FC
     4. **超 FC 上限在连续区内二次切片**:并入前先算合并后跨度,超限则
        先切块、本条目另起一笔(保证每 chunk 跨度 ≤ ``max_unit``)
+    5. **重叠区间(``offset < current_end``)按合并跨度吸收**(审查 1001
+       R9-7):条目起址落在当前 chunk 覆盖区内(如写 ``hr0`` 与 ``hr0.3``
+       混批)时不切块——FC01~04 的响应只按起始地址 + 数量返回,**重叠
+       部分的值以 chunk 内最后一次写入/排序序为准**,同 offset 的写-写
+       顺序语义由调用方保证(点位表内不承诺条目间顺序);整批读场景
+       重叠值本就同源,无信息损失
 
     读 / 写按协议上下限传不同 ``max_unit``:读位 2000 / 读写 125;
     写位 1968 / 写字 123。

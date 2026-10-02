@@ -714,9 +714,11 @@ class AsyncModbusTcpClient(AsyncBaseClient):
                 )
             except DeviceError as exc:
                 if exc.code == 0x02:
+                    # 与同步侧同口径(V1.1b3 §6.17):异常码 02 优先含义是
+                    # "地址越界",跨段网关只是次要可能(第九轮 R9-4)
                     raise DeviceError(
-                        _("{};部分网关/老设备不支持跨段 FC23(读、写地址分属不同网段)"
-                        ",可改用 write_many + read_many").format(exc),
+                        _("{};若读/写地址均在设备合法范围内,可能是部分网关"
+                        "不支持跨段 FC23,可改用 write_many + read_many").format(exc),
                         exc.code,
                     ) from exc
                 raise
@@ -813,7 +815,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         )
 
     async def get_comm_event_counter(self) -> Tuple[bool, Optional[int]]:
-        """取通信事件计数器(FC11,规范 §6.11)。
+        """取通信事件计数器(FC11,规范 §6.9)。
 
         状态字非 0(``0xFFFF`` = 设备忙)抛 :class:`DeviceError`(设备侧条件,
         不断线)。
@@ -834,7 +836,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         return await self._execute(operation)
 
     async def get_comm_event_log(self) -> Tuple[bool, Optional[Dict[str, object]]]:
-        """取通信事件日志(FC12,规范 §6.12)。
+        """取通信事件日志(FC12,规范 §6.10)。
 
         :return: ``(是否成功, {status, event_count, message_count, events})``
         """
