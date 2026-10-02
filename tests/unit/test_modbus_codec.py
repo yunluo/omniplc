@@ -11,7 +11,7 @@ from typing import List
 import pytest
 
 from omniplc.core.errors import ProtocolFrameError
-from omniplc.modbus import codec
+from omniplc.plc.modbus import codec
 
 
 # ----------------------------------------------------------------------

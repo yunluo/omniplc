@@ -22,10 +22,10 @@ import pytest
 
 from omniplc import HikrobotIdModbusClient, HikrobotStatus
 from omniplc.core.errors import DeviceError, TransportTimeoutError
-from omniplc.modbus import codec
+from omniplc.plc.modbus import codec
 from scripted import ScriptedTransport as _ScriptedTransport
 
-import omniplc.scanner.hikrobot as hikrobot_module
+import omniplc.reader.hikrobot as hikrobot_module
 
 _STATION = 0
 _RESULT_WORDS = 100

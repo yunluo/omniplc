@@ -15,7 +15,7 @@ import pytest
 
 from omniplc import ModbusTcpClient
 from omniplc.core.errors import ErrorCategory
-from omniplc.modbus import codec
+from omniplc.plc.modbus import codec
 from omniplc.native import AsyncModbusTcpClient
 from omniplc.core.tag import Tag, TagTable
 from omniplc.transport.base import BaseTransport

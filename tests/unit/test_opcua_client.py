@@ -23,8 +23,8 @@ import pytest
 from omniplc import OpcUaClient
 from omniplc.aio import AOpcUaClient
 from omniplc.core.errors import DeviceError, ErrorCategory, OmniPLCInternalError
-from omniplc.opcua.address import parse_opcua_nodeid
-from omniplc.opcua.client import (
+from omniplc.plc.opcua.address import parse_opcua_nodeid
+from omniplc.plc.opcua.client import (
     OpcUaSubscription,
     _OpcUaSession,
     _coerce_read,
@@ -108,7 +108,7 @@ def test_build_data_change_filter() -> None:
     """死区过滤器:不传/None→None;传 deadband_value→DataChangeFilter(默认 Absolute)。"""
     import asyncua.ua
 
-    from omniplc.opcua.client import _build_data_change_filter
+    from omniplc.plc.opcua.client import _build_data_change_filter
 
     assert _build_data_change_filter(None, None) is None
     assert _build_data_change_filter(None, "Absolute") is None

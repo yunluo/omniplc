@@ -34,8 +34,8 @@ import struct
 import threading
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
-from ..core.base_client import BaseClient, validate_endpoint
-from ..core.constants import (
+from ...core.base_client import BaseClient, validate_endpoint
+from ...core.constants import (
     INT16_MAX,
     INT16_MIN,
     INT32_MAX,
@@ -51,19 +51,19 @@ from ..core.constants import (
     UINT32_MAX,
     UINT64_MAX,
 )
-from ..core.debug import log_op
-from ..core.errors import DeviceError, ErrorCategory, OmniPLCInternalError, TransportClosedError
-from ..core.validation import (
+from ...core.debug import log_op
+from ...core.errors import DeviceError, ErrorCategory, OmniPLCInternalError, TransportClosedError
+from ...core.validation import (
     check_range,
     check_uint16,
     require_bool,
     require_float,
     require_int,
 )
-from ..core.types import DataType, PrimitiveValue
-from ..transport.base import BaseTransport
+from ...core.types import DataType, PrimitiveValue
+from ...transport.base import BaseTransport
 from .address import parse_opcua_nodeid
-from ..core.i18n import _
+from ...core.i18n import _
 
 _VARIANT_TYPE_NAMES = {
     DataType.BOOL: "Boolean",
@@ -285,7 +285,7 @@ def _safe_disconnect(client: Any) -> None:
 # 订阅句柄与回调桥(v0.35 新增)
 # ----------------------------------------------------------------------
 
-_UA_LOGGER = logging.getLogger("omniplc.opcua")
+_UA_LOGGER = logging.getLogger("omniplc.plc.opcua")
 """异步回调内出错日志出口(用户回调异常不杀订阅,记日志 + last_error)。"""
 
 
@@ -451,7 +451,7 @@ class OpcUaClient(BaseClient):
     """OPC-UA 客户端(封装 asyncua,opc.tcp 会话,默认端口 4840)。
 
     地址为标准 NodeId 字符串(``ns=2;s=Device.Tag``/``i=2258``,
-    见 :mod:`omniplc.opcua.address`)。数据类型显式指定
+    见 :mod:`omniplc.plc.opcua.address`)。数据类型显式指定
     (推荐 :class:`~omniplc.types.DataType` 枚举),写入按对应
     VariantType 编码,读取按该类型校验返回值。
 

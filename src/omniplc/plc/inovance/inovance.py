@@ -3,7 +3,7 @@
 汇川小型 PLC(H3U/H3S/H5U/Easy 系列)的 TCP 与串口通信本质是
 标准 Modbus:网口 Modbus TCP(默认端口 502,从站默认开启),
 串口 Modbus RTU(缺省 9600-8N2)。帧收发完全复用
-:mod:`omniplc.modbus`,本模块只把汇川软元件地址换算为
+:mod:`omniplc.plc.modbus`,本模块只把汇川软元件地址换算为
 Modbus 线圈/保持寄存器地址,见 :mod:`.address`。
 
 地址语法::
@@ -30,7 +30,7 @@ from ...core.constants import (
     SERIAL_DEFAULT_DATA_BITS,
     SERIAL_DEFAULT_PARITY,
 )
-from ...modbus.modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
+from ..modbus.modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from ...core.types import DataType, PrimitiveValue, SerialParity
 
 

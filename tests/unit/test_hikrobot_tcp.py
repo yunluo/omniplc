@@ -1,6 +1,6 @@
 """海康机器人 ID 系列读码器 TCP 命令客户端测试:假 socket 双通道全链路。
 
-替换 :func:`omniplc.scanner.hikrobot_tcp._open_connection` 模块工厂(同
+替换 :func:`omniplc.reader.hikrobot_tcp._open_connection` 模块工厂(同
 MTConnect ``_new_connection`` 惯例),命令/结果两条 TCP 连接各挂
 size 感知假 socket,按《工业读码器通信指令操作手册》V1.0.3 §1.3/§3 与
 用户手册的推送口径验证:
@@ -18,7 +18,7 @@ from typing import List, Optional, Tuple
 import pytest
 
 from omniplc import HikrobotIdTcpClient
-from omniplc.scanner import hikrobot_tcp
+from omniplc.reader import hikrobot_tcp
 
 from scripted import ChunkSocket
 

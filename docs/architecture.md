@@ -13,10 +13,10 @@ omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7
 ```mermaid
 flowchart TB
     subgraph UserApi["用户 API 层"]
-        Clients["协议 × 走线 具体客户端类<br/>28 个同步 + 28 个异步(A 前缀镜像,omniplc.aio 线程池包装)<br/>5 个原生异步(Async 前缀,omniplc.native 真 asyncio 协议栈,零第三方依赖)<br/>scanner:KeyenceSrClient 扫码枪 · cnc:MTConnectClient 机床数采"]
+        Clients["协议 × 走线 具体客户端类<br/>28 个同步 + 28 个异步(A 前缀镜像,omniplc.aio 线程池包装)<br/>5 个原生异步(Async 前缀,omniplc.native 真 asyncio 协议栈,零第三方依赖)<br/>reader:KeyenceSrClient 扫码枪 · cnc:MTConnectClient 机床数采"]
     end
     subgraph Drivers["驱动层 drivers(协议编解码 + 地址解析)"]
-        Modbus["modbus/<br/>codec + address + client"]
+        Modbus["plc/modbus/<br/>codec + address + client"]
         Melsec["plc/melsec/<br/>codec_qna(3E/4E)+ codec_a(1E)+ codec_serial(3C/4C 串口帧)<br/>+ codec_serial_a(1C 串口帧)+ address + client"]
         Omron["plc/omron/<br/>codec + address + client"]
         Ab["plc/ab/<br/>codec_cip(ENIP 封装 + CIP 服务)+ address(标签名)+ client"]
@@ -26,7 +26,7 @@ flowchart TB
         Toyopuc["plc/toyopuc/<br/>codec + address + client"]
         SiemensD["plc/siemens/<br/>address(DB/I/Q/M 解析)+ client(封装 python-snap7)"]
         BeckhoffD["plc/beckhoff/<br/>ads(封装 pyads,AMS 851;DataType→PLCTYPE 映射)"]
-        Opcua["opcua/<br/>address + client(封装 asyncua)"]
+        Opcua["plc/opcua/<br/>address + client(封装 asyncua)"]
     end
     subgraph TransportLayer["传输层 transport(可插拔)"]
         TransportList["BaseTransport(ABC)→ TcpTransport / UdpTransport / SerialTransport"]
@@ -74,7 +74,7 @@ flowchart TB
     BaseClient["BaseClient(ABC,模板方法)— core/base_client.py<br/>连接状态机 / RLock 事务锁 / 惰性重连 / 重试 / last_error / 上下文管理器<br/>read()/write()/read_many()/write_many()/read_tag()/bind_tags()<br/>read_bool…read_double / read_string + write_* ——类型化方法只写一次"]
 
     %% ═══ Modbus ═══
-    ModbusBaseClient["ModbusBaseClient(ABC)— modbus/modbus.py<br/>_read/_write 落到位/寄存器原语;字序 ABCD/CDAB/BADC/DCBA<br/>int16…float64 编解码与范围校验;station / word_order 属性"]
+    ModbusBaseClient["ModbusBaseClient(ABC)— plc/modbus/modbus.py<br/>_read/_write 落到位/寄存器原语;字序 ABCD/CDAB/BADC/DCBA<br/>int16…float64 编解码与范围校验;station / word_order 属性"]
     ModbusTcpClient["ModbusTcpClient<br/>MBAP 帧"]
     ModbusRtuClient["ModbusRtuClient<br/>站号 + PDU + CRC16(configure_serial)"]
     InovanceTcpClient["InovanceTcpClient — plc/inovance/<br/>汇川 H3U/H5U Modbus TCP(502)"]
@@ -111,14 +111,14 @@ flowchart TB
     KeyenceHlBase["_KeyenceHostLinkBase(ABC,私有)— plc/keyence/hostlink.py<br/>ASCII 行式协议(RD/RDS/WR/WRS + CR 结束)"]
     KeyenceHostLinkTcpClient["KeyenceHostLinkTcpClient<br/>按行逐字节收包"]
     KeyenceHostLinkUdpClient["KeyenceHostLinkUdpClient<br/>一问一答一数据报"]
-    KeyenceSrClient["KeyenceSrClient — scanner/keyence_sr.py<br/>SR 扫码枪:LON → 窗口 → LOFF → 读应答<br/>scan() 返回(是否读到, 条码文本);不实现 _read/_write"]
+    KeyenceSrClient["KeyenceSrClient — reader/keyence_sr.py<br/>SR 扫码枪:LON → 窗口 → LOFF → 读应答<br/>scan() 返回(是否读到, 条码文本);不实现 _read/_write"]
 
     %% ═══ 丰田 TOYOPUC / OPC-UA ═══
     ToyopucBase["_ToyopucBase(ABC,私有)— plc/toyopuc/toyopuc.py<br/>TOYOPUC 二进制帧(00 00 LL LH CMD / 80 RC LL LH CMD)<br/>TCP 按帧头长度分段收包,UDP 一问一答一数据报"]
     MewtocolBase["_MewtocolBase(ABC,私有)— plc/panasonic/mewtocol.py<br/>站号(01~99/EE)、接点 RCS/WCS 与数据区 RD/WD 分发、位写读-改-写<br/>TCP 按响应头 4 字节判正常/错误后精确收齐,UDP 整包校验"]
     ToyopucTcpClient["ToyopucTcpClient"]
     ToyopucUdpClient["ToyopucUdpClient"]
-    OpcUaClient["OpcUaClient — opcua/client.py<br/>OPC-UA opc.tcp(封装 asyncua 1.1.5)<br/>get_node().read_value()/write_value() 按 VariantType 编解码,无字节流"]
+    OpcUaClient["OpcUaClient — plc/opcua/client.py<br/>OPC-UA opc.tcp(封装 asyncua 1.1.5)<br/>get_node().read_value()/write_value() 按 VariantType 编解码,无字节流"]
     MxComLink["_MxComLink<br/>COM 会话(Open/Close)适配为传输对象外形"]
     OpcUaSession["_OpcUaSession<br/>asyncua 同步会话适配;UaError 在会话边界翻译为 DeviceError"]
     AdsSession["_AdsSession<br/>pyads Connection 适配;ADSError 在会话边界翻译为 DeviceError"]
@@ -434,7 +434,7 @@ ULONG/FLOAT/DOUBLE)要求字数与尺寸严格匹配;`BOOL` 取 1 个字、按"�
 | 参数 | 枚举类型 | 取值 |
 |---|---|---|
 | `read/write(data_type)` | `omniplc.core.types.DataType` | `DataType.FLOAT`、`DataType.SHORT`… |
-| Modbus 区域(`ModbusAddress.area`) | `omniplc.modbus.ModbusArea` | `COIL / DISCRETE_INPUT / HOLDING_REGISTER / INPUT_REGISTER` |
+| Modbus 区域(`ModbusAddress.area`) | `omniplc.plc.modbus.ModbusArea` | `COIL / DISCRETE_INPUT / HOLDING_REGISTER / INPUT_REGISTER` |
 | Modbus 字序(`word_order`) | `omniplc.core.types.WordOrder` | `ABCD / CDAB / BADC / DCBA` |
 | 字节序(`byteorder`) | `omniplc.core.types.ByteOrder` | `BIG / LITTLE` |
 | 三菱 MC 帧型(`frame`) | `omniplc.core.types.McFrame` | `FRAME_3E / FRAME_4E / FRAME_1E / FRAME_3C / FRAME_4C / FRAME_1C` |
@@ -535,18 +535,18 @@ class BaseClient(ABC):
 
 | 协议 | 语法示例 | 说明 |
 |---|---|---|
-| Modbus | `hr0` / `c7` / `di10` / `ir3` / `hr0.15` / `40001` | 前缀语法为主;兼容 Modicon 1 基风格(自动转 0 基);位号 0~15;已实现(`modbus/address.py`) |
+| Modbus | `hr0` / `c7` / `di10` / `ir3` / `hr0.15` / `40001` | 前缀语法为主;兼容 Modicon 1 基风格(自动转 0 基);位号 0~15;已实现(`plc/modbus/address.py`) |
 | 三菱 MC | `D100` / `M10` / `X1F` / `Y40` / `W100` / `R100` / `Z0` / `ZR100` / `L10` / `F10` / `SM10` / `SD10` / `TS0`·`TC0`·`TN0` / `CS0`·`CC0`·`CN0` / `D100.3` | 已实现(`plc/melsec/`);编号进制按码表:X/Y/W/B/SB/SW/DX/DY 十六进制、其余十进制(Q/L/R 口径,SH-080008;FX5U 可 `xy_octal=True` 使 X/Y 按八进制),地址解析保留数字原文;位软元件带位号后缀(`M10.5`)拒 `ValueError`,字软元件位访问(`D100.3`)走读-改-写;批量读取:3E/4E 覆写 `read_many` 为 0406 多块批量读单事务 + `read_batch` 混类型混软元件(SH-080008 §8.4,总块数 ≤120,整批容错) |
 | 欧姆龙 FINS | `D100` / `CIO0` / `CIO0.5` / `W10` / `H20` / `A0` / `E0_100` / `T0` / `C10` | 已实现(`plc/omron/`);存储区码随帧 codec 实现,EM 区 bank 用下划线;T/C 为定时器/计数器(位=完成标志只读,字=当前值 PV);批量读取:覆写 `read_many` 为 0104 多存储区读单事务 + `read_batch` 混类型混软元件(W342 §5-3-5,仅字码,每条读 1 字、响应逐条区码回显校验,以太网上限 167 条;BOOL 走包含字提位) |
 | 丰田 TOYOPUC | `D0100` / `D0100L` / `D0100H` / `M0201` / `M0201W` / `X0010H` | 已实现(`plc/toyopuc/`);编号一律十六进制(手册口径);字区 S/N/R/D/B,位区 P/K/V/T/C/L/X/Y/M;L/H=低/高字节(字节访问),W=位软元件打包字 |
 | 基恩士 KV MC 兼容 | `R5` / `B1F` / `W10` / `DM100` / `ZR100` / `DM100.3` | 已实现(`plc/keyence/mc.py`,继承 MC);编号进制:R/DM/ZR 十进制、B/W 十六进制;仅基恩士记号(无三菱 D/M/X/Y) |
 | 基恩士 KV Host Link | `R515` / `B1F` / `W100` / `X0F` / `M100` / `DM100` / `DM100.5` | 已实现(`plc/keyence/hostlink.py`,TCP/UDP 8000,ASCII 行式 RD/RDS/WR/WRS);位软元件 R=组号+两位位号、B/W 十六进制、X=组号十进制+位号十六进制;字软元件 DM 十进制,16/32 位整型经 `.S/.U/.L/.D` 后缀由 PLC 原生解析;字软元件位访问(`DM100.5`,位号十进制)走读-改-写 |
-| 基恩士 SR 扫码枪 | —(无地址概念,触发式访问) | 已实现(`scanner/keyence_sr.py`,TCP 9004);`scan(bank=0~15)` 返回 `(是否读到, 条码文本)`,bank 预设不同窗口/触发/回读参数;`_read`/`_write` 为能力缺失桩(抛 `DeviceError` 不断线,调 `read_*`/`write_*` 不拆线) |
+| 基恩士 SR 扫码枪 | —(无地址概念,触发式访问) | 已实现(`reader/keyence_sr.py`,TCP 9004);`scan(bank=0~15)` 返回 `(是否读到, 条码文本)`,bank 预设不同窗口/触发/回读参数;`_read`/`_write` 为能力缺失桩(抛 `DeviceError` 不断线,调 `read_*`/`write_*` 不拆线) |
 | 汇川 H3U/H5U(Modbus) | `D100` / `R100` / `M10` / `SM10` / `SD10` / `S10` / `B10` / `T10` / `C10` / `X17` / `Y17` / `D100.3` | 已实现(`plc/inovance/`,继承 Modbus);位软元件→线圈区(基址按手册:M=编号、SM/SD=0x2400、S=0xE000、T=0xF000、C=0xF400、X=0xF800、Y=0xFC00、B=0x3000),字软元件→保持寄存器区(D=编号、R=0x3000);X/Y 八进制;T/C 位=接点、字=当前值(C 字仅 C0~C199,C200+ 为 32 位双寄存器不支持) |
 | 汇川 MC 兼容 | `D100` / `M10` / `S10` / `B1F` / `W10` / `R100` / `X17` / `Y7` / `D100.3` | 已实现(`plc/inovance/mc.py`,继承 MC);帧按三菱口径编码,S 按三菱 L 码、R≡D+8000 统一编址、X/Y 八进制命名换算为帧内十六进制;范围 M0~7999/S0~4095/B、D0~7999/R0~32767/W、X/Y0~1777(越界由 PLC 返回 4031);SM/SD/ZR 不在 MC 范围 |
 | 松下 MC 兼容(FP0H/FP7) | `R000F` / `R1.15` / `X0000` / `Y000F` / `L001F` / `SM10` / `TS0` / `CS0` / `D100` / `LD10` / `SD10` / `TN0` / `CN0` / `D100.3` | 已实现(`plc/panasonic/mc.py`,继承 MC);帧与三菱同码;位软元件 X/Y/L/R 按"字号(十进制)+位号(十六进制一位)"→ 帧内字号×16+位号,R 字号 ≥900(R9000 起)映射 SM、D 编号 ≥90000 映射 SD;D/LD/TN/CN 字、TS/CS/SM 位(十进制);仅二进制 3E(松下仅提供成批读/写) |
 | 松下 MEWTOCOL | `R000F` / `R1.15` / `X0.3` / `Y0003` / `L001F`(接点)+ `D100` / `L10` / `F5` / `S0` / `K0` / `D100.3`(数据) | 已实现(`plc/panasonic/mewtocol.py`,TCP/UDP 1024);接点区 X/Y/R/T/C/L = 字号(十进制)+位号(十六进制一位),点号形式同效;数据区 D=DT、L=LT、F=FL、S=SV 设定值、K=EV 经过值(定时器/计数器当前值用 S/K,T/C 为接点);L 按语境解析(位=链接继电器,字=LT) |
-| OPC-UA | `ns=2;s=Device.Tag` / `ns=4;i=100` / `i=2258` / `b=AAECAw==` / `g=…` | 已实现(`opcua/`);标准 NodeId 字符串,ns 省略默认 0;前缀大小写规范化,标识符值保留原文(`opcua/address.py`) |
+| OPC-UA | `ns=2;s=Device.Tag` / `ns=4;i=100` / `i=2258` / `b=AAECAw==` / `g=…` | 已实现(`plc/opcua/`);标准 NodeId 字符串,ns 省略默认 0;前缀大小写规范化,标识符值保留原文(`plc/opcua/address.py`) |
 | 罗克韦尔 AB(EtherNet/IP) | `MyDint` / `MyArray[5]` / `MyMatrix[1,2]` / `MyUdt.Member` / `Program:prog.Tag` / `MyDint.3` | 已实现(`plc/ab/`);地址即 Logix 标签名,多级成员/数组下标/程序作用域透传;`.N` 为整型位访问(设备侧 0x4E 原子读-改-写);标签自描述,实际类型由 PLC 应答返回(`ab/address.py`) |
 | 欧姆龙 NJ/NX(CIP) | `TestVar` / `MyArray[5]` / `Motor[2].Speed`(同 AB 语法) | 已实现(`plc/omron/cip.py`,继承 AB);地址即 Sysmac 变量名,标签自描述同款;NJ 标量 BOOL 直读直写、BOOL 数组按元素访问(不做 Logix 32 位打包);解析复用 `ab/address.py` |
 | 倍福 TwinCAT(ADS) | `MAIN.nCounter` / `.gGlobal` / `GVL.MyVar` | 已实现(`plc/beckhoff/`,封装 pyads);变量名原样透传 ADS 符号服务,数据类型显式指定(IEC INT=16 位口径映射 PLCTYPE);NetId 默认 IP+.1.1、可显式覆盖 |

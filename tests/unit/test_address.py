@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from omniplc.modbus.address import ModbusArea, parse_address
+from omniplc.plc.modbus.address import ModbusArea, parse_address
 
 
 class TestPrefixSyntax:

@@ -79,13 +79,13 @@ from ..core.constants import (
     SERIAL_DEFAULT_STOP_BITS,
     TOYOPUC_DEFAULT_PORT,
 )
-from ..modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
-from ..modbus.modbus import _coerce_word_order
+from ..plc.modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
+from ..plc.modbus.modbus import _coerce_word_order
 from ..plc.ab import AllenBradleyEthIpClient
 from ..plc.beckhoff import BeckhoffAdsClient
 from ..plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
 from ..plc.siemens import SiemensS7Client
-from ..opcua import OpcUaClient, OpcUaSubscription
+from ..plc.opcua import OpcUaClient, OpcUaSubscription
 from ..plc.panasonic import (
     PanasonicMcTcpClient,
     PanasonicMewtocolTcpClient,
@@ -104,7 +104,7 @@ from ..plc.melsec import (
     MelsecMxClient,
 )
 from ..plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
-from ..scanner import (
+from ..reader import (
     HikrobotIdModbusClient,
     HikrobotIdSdkClient,
     HikrobotIdSerialClient,

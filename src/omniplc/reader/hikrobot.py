@@ -88,7 +88,7 @@ from ..core.constants import (
 from ..core.errors import DeviceError, ErrorCategory, TransportTimeoutError
 from ..core.i18n import _
 from ..core.types import DataType
-from ..modbus import ModbusTcpClient
+from ..plc.modbus import ModbusTcpClient
 
 __all__ = ["HikrobotIdModbusClient", "HikrobotStatus"]
 

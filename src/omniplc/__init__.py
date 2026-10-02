@@ -52,8 +52,8 @@ from .core.i18n import set_lang
 from .core.tag import Tag, TagTable
 from .core.types import ByteOrder, DataType, McFrame, SerialParity, WordOrder
 from .cnc import MTConnectClient
-from .modbus import ModbusArea, ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
-from .opcua import OpcUaClient
+from .plc.modbus import ModbusArea, ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
+from .plc.opcua import OpcUaClient
 from .plc.melsec import (
     MelsecMcSerialClient,
     MelsecMcTcpClient,
@@ -77,7 +77,7 @@ from .plc.keyence import (
 )
 from .plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
 from .plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
-from .scanner import (
+from .reader import (
     HikrobotIdModbusClient,
     HikrobotIdSdkClient,
     HikrobotIdSerialClient,

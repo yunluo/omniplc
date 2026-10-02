@@ -393,7 +393,7 @@ from omniplc import (  # noqa: E402
     ToyopucUdpClient,
     set_debug,
 )
-from omniplc.modbus.modbus import _coerce_word_order  # noqa: E402
+from omniplc.plc.modbus.modbus import _coerce_word_order  # noqa: E402
 
 INT_RANGES = {
     "short": (-30000, 30000),

@@ -1,6 +1,6 @@
 """海康机器人 ID 系列读码器 SDK 客户端测试:假函数表 + 真 ctypes 结构体。
 
-替换 :func:`omniplc.scanner.hikrobot_sdk._load_sdk`(模块工厂,同
+替换 :func:`omniplc.reader.hikrobot_sdk._load_sdk`(模块工厂,同
 MTConnect ``_new_connection`` 惯例),函数表按《MvCodeReader SDK (C or
 C++) Developer Guide》V1.5.3 的流程语义在 Python 侧模拟,结构体使用
 模块内**真实 ctypes 定义**填充——解析路径端到端验证:
@@ -20,8 +20,8 @@ from typing import List, Optional
 import pytest
 
 from omniplc import HikrobotIdSdkClient
-from omniplc.scanner import hikrobot_sdk
-from omniplc.scanner.hikrobot_sdk import (
+from omniplc.reader import hikrobot_sdk
+from omniplc.reader.hikrobot_sdk import (
     _MV_CODEREADER_DEVICE_INFO,
     _MV_CODEREADER_E_NODATA,
     _MV_CODEREADER_GIGE_DEVICE,

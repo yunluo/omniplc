@@ -1,8 +1,8 @@
 """原生 asyncio Modbus TCP 客户端。
 
-:class:`AsyncModbusTcpClient` 是 :class:`~omniplc.modbus.ModbusTcpClient` 的
+:class:`AsyncModbusTcpClient` 是 :class:`~omniplc.plc.modbus.ModbusTcpClient` 的
 原生异步孪生:MBAP 组帧、PDU 编解码、地址解析、字序处理**全部复用同步侧的纯
-模块**(:mod:`omniplc.modbus.codec` / :mod:`omniplc.modbus.address` 与
+模块**(:mod:`omniplc.plc.modbus.codec` / :mod:`omniplc.plc.modbus.address` 与
 ``modbus.py`` 里既有的校验/编解码助手),本模块只重写"薄分发层"——把同步的
 ``_transact`` 与位/寄存器原语换成 ``await`` 版本。
 
@@ -51,9 +51,9 @@ from ..core.validation import (
     require_float,
     require_int,
 )
-from ..modbus import codec
-from ..modbus.address import ModbusAddress, ModbusArea, parse_address
-from ..modbus.modbus import (
+from ..plc.modbus import codec
+from ..plc.modbus.address import ModbusAddress, ModbusArea, parse_address
+from ..plc.modbus.modbus import (
     _check_address,
     _check_holding_register,
     _classify,
@@ -75,7 +75,7 @@ from ..core.i18n import _
 class AsyncModbusTcpClient(AsyncBaseClient):
     """Modbus TCP 客户端(MBAP over TCP,默认端口 502)。
 
-    语义与同步 :class:`~omniplc.modbus.ModbusTcpClient` 一致:站号(Unit ID)
+    语义与同步 :class:`~omniplc.plc.modbus.ModbusTcpClient` 一致:站号(Unit ID)
     1~247、字序默认 ABCD、位与寄存器区域按地址前缀区分;区别只在 I/O 是原生
     ``asyncio``(属性读取不阻塞事件循环、``await`` 可被真取消)。
     TCP 无广播语义(Unit ID 0 部分网关要求路由),读操作照常收发——
@@ -323,7 +323,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         """按数据类型批量读:同 (区, 类型) 连续地址合一笔 FC,事务最少化。
 
         合并口径与失败语义与同步
-        :meth:`~omniplc.modbus.ModbusTcpClient.read_many` 逐条一致(共用
+        :meth:`~omniplc.plc.modbus.ModbusTcpClient.read_many` 逐条一致(共用
         ``_classify`` / ``_coalesce_group`` 两个纯助手,同 (区, 类型) 且偏移
         连续/相邻的条目合为一笔 FC,N 个点压到 K 笔):
 
@@ -352,7 +352,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         """混类型批量读:按 (区, 类型) 分组,组内连续地址合一笔 FC。
 
         Modbus 协议不支持跨 FC 单事务合并,故笔数 K 取决于跨区 / 跨类型 /
-        地址空洞数;失败语义与同步 :meth:`~omniplc.modbus.ModbusTcpClient.read_batch`
+        地址空洞数;失败语义与同步 :meth:`~omniplc.plc.modbus.ModbusTcpClient.read_batch`
         一致(任一笔失败即整批 ``(False, None)``,不放出部分值)。
 
         :param items: ``(地址, 数据类型)`` 序列
@@ -375,7 +375,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """连续批量读:起始地址起连续 ``count`` 个同类型元素一笔 FC。
 
-        语义与同步 :meth:`~omniplc.modbus.ModbusTcpClient.read_range` 一致:
+        语义与同步 :meth:`~omniplc.plc.modbus.ModbusTcpClient.read_range` 一致:
         位区(c/di)= FC 01/02 单笔读位;寄存器区(hr/ir)= FC 03/04 单笔读
         ``count × 字宽`` 字;位号后缀 / 寄存器区 BOOL / STRING / 跨度越界 /
         超 FC 上限入参期拒绝;任一笔失败 ``(False, None)``。
@@ -1070,7 +1070,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
     async def _write_pdu(self, pdu: bytes) -> None:
         """发送写 PDU 并校验正常响应回显(内部方法)。
 
-        与同步 :meth:`~omniplc.modbus.ModbusBaseClient._write_pdu` 同口径:
+        与同步 :meth:`~omniplc.plc.modbus.ModbusBaseClient._write_pdu` 同口径:
         规范 §6.5/6.6/6.11/6.12 正常响应为请求 PDU 前 5 字节回显,不符按
         坏帧处理(TCP 无广播语义,站号 0 照常等待响应并校验)。
         """
@@ -1095,7 +1095,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
     async def _transact(self, pdu: bytes) -> bytes:
         """MBAP 事务:组帧→发送→按长度收→校验事务号/站号→返回 PDU。
 
-        与同步 :meth:`~omniplc.modbus.ModbusTcpClient._transact` 逐字段同序:
+        与同步 :meth:`~omniplc.plc.modbus.ModbusTcpClient._transact` 逐字段同序:
         长度域含 Unit ID(故再收 ``length - 1`` 字节),事务号/站号不匹配属
         坏帧,异常文本带收到的原始帧(便于判断是迟到的上一条响应、串口/网关
         错配还是对端语义不符)。

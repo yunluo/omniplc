@@ -265,7 +265,7 @@ def test_en_mode_core_error_paths_output_english() -> None:
 def test_en_end_to_end_codec_errors() -> None:
     """en 下真实 codec 抛错:外层模板与码表值均为英文;zh 恢复中文。"""
     from omniplc.core.errors import DeviceError
-    from omniplc.modbus import codec as mb
+    from omniplc.plc.modbus import codec as mb
     from omniplc.plc.omron import codec as fins
     from omniplc.plc.panasonic import codec_mewtocol as mew
 

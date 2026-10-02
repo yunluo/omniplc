@@ -14,7 +14,7 @@ import pytest
 
 from omniplc.core.debug import format_hex
 from omniplc.core.errors import DeviceError, ProtocolFrameError
-from omniplc.modbus import codec
+from omniplc.plc.modbus import codec
 
 GOLDEN_DIR = Path(__file__).resolve().parent.parent / "golden"
 

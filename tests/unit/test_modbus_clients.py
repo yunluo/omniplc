@@ -20,7 +20,7 @@ from omniplc import ModbusRtuClient, ModbusTcpClient
 from omniplc.core.base_client import BaseClient
 from omniplc.core.debug import format_hex
 from omniplc.core.errors import ErrorCategory, ProtocolFrameError, TransportTimeoutError
-from omniplc.modbus import codec
+from omniplc.plc.modbus import codec
 from omniplc.transport.base import BaseTransport
 from scripted import ScriptedTransport as _ScriptedTransport, mount_real_tcp
 

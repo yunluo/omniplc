@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 from typing import Dict, NamedTuple
-from ..core.i18n import _
+from ...core.i18n import _
 
 _BASE64_RE = re.compile(
     r"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}(?:==)|[A-Za-z0-9+/]{3}(?:=)|[A-Za-z0-9+/]{4})?$"

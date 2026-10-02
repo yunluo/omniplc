@@ -10,7 +10,7 @@
 帧格式与功能码语义以《Modbus 通信协议规范》V1.1b3(应用协议)与
 V1.02(串行线实现指南)为准;中文资源见
 `modbus.cn 规范页 <https://www.modbus.cn/modbus-specifications>`。
-地址语法见 :mod:`omniplc.modbus.address`。
+地址语法见 :mod:`omniplc.plc.modbus.address`。
 """
 from __future__ import annotations
 
@@ -20,9 +20,9 @@ from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple, Union, cas
 
 from . import codec
 from .address import ModbusAddress, ModbusArea, parse_address
-from ..core import convert
-from ..core.base_client import BaseClient, validate_endpoint
-from ..core.constants import (
+from ...core import convert
+from ...core.base_client import BaseClient, validate_endpoint
+from ...core.constants import (
     INT32_MAX,
     INT32_MIN,
     INT64_MAX,
@@ -55,18 +55,18 @@ from ..core.constants import (
     UINT32_MAX,
     UINT64_MAX,
 )
-from ..core.debug import format_hex
-from ..core.errors import DeviceError, ProtocolFrameError
-from ..core.validation import (
+from ...core.debug import format_hex
+from ...core.errors import DeviceError, ProtocolFrameError
+from ...core.validation import (
     check_int16,
     check_uint16,
     require_bool,
     require_float,
     require_int,
 )
-from ..transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport
-from ..core.types import ByteOrder, DataType, SerialParity, WordOrder, PrimitiveValue
-from ..core.i18n import _
+from ...transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport
+from ...core.types import ByteOrder, DataType, SerialParity, WordOrder, PrimitiveValue
+from ...core.i18n import _
 
 
 class ModbusBaseClient(BaseClient):

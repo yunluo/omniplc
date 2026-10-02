@@ -29,8 +29,8 @@ from functools import lru_cache
 from enum import Enum
 from typing import Optional
 
-from ..core.constants import ADDRESS_CACHE_MAXSIZE, MODBUS_REGISTER_BIT_MAX
-from ..core.i18n import _
+from ...core.constants import ADDRESS_CACHE_MAXSIZE, MODBUS_REGISTER_BIT_MAX
+from ...core.i18n import _
 
 # 前缀语法:c0 / di10 / hr100.3 / ir5
 _PREFIX_RE = re.compile(r"^(c|di|hr|ir)(\d+)(?:\.(\d+))?$")

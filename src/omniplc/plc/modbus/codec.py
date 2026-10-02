@@ -18,8 +18,8 @@ import struct
 from enum import IntEnum
 from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple
 
-from ..core.convert import crc16
-from ..core.constants import (
+from ...core.convert import crc16
+from ...core.constants import (
     MBAP_HEADER_SIZE,
     MODBUS_ADDRESS_MAX,
     MODBUS_COMMAND_DIAGNOSTICS,
@@ -64,9 +64,9 @@ from ..core.constants import (
     MODBUS_PROTOCOL_ID,
     MODBUS_SERVER_ID_MIN_BYTE_COUNT,
 )
-from ..core.debug import format_hex
-from ..core.errors import DeviceError, ProtocolFrameError
-from ..core.i18n import _
+from ...core.debug import format_hex
+from ...core.errors import DeviceError, ProtocolFrameError
+from ...core.i18n import _
 
 
 class ModbusFunction(IntEnum):

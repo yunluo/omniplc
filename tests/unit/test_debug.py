@@ -14,7 +14,7 @@ import pytest
 
 from omniplc import MelsecMxClient
 from omniplc.core import debug
-from omniplc.opcua.client import _OpcUaSession
+from omniplc.plc.opcua.client import _OpcUaSession
 from omniplc.plc.beckhoff.ads import _AdsSession
 from omniplc.plc.melsec import mx as mx_module
 from omniplc.transport import TcpTransport, UdpTransport

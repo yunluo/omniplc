@@ -965,7 +965,7 @@ class MelsecMcSerialClient(_MelsecMcBase):
     - ``McFrame.FRAME_3C``:QnA 兼容 3C 帧,ASCII 通信格式 4(默认)
     - ``McFrame.FRAME_4C``:QnA 扩展 4C 帧,二进制通信格式 5
 
-    串口参数须在连接前配置(与 :class:`~omniplc.modbus.ModbusRtuClient`
+    串口参数须在连接前配置(与 :class:`~omniplc.plc.modbus.ModbusRtuClient`
     一致的 ``configure_serial`` 惯例);波特率/校验位等须与 C24 侧
     "传送设定" 一致。
 
