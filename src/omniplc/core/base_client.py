@@ -1033,8 +1033,12 @@ class BaseClient(ABC):
         :return: 未启动的 :class:`~omniplc.core.monitor.Monitor` 实例
         """
         monitor = Monitor(self, points, interval=interval, on_change=on_change, on_disconnect=on_disconnect)
-        self._monitors.append(monitor)
         return monitor
+
+    def _register_monitor(self, monitor: Monitor) -> None:
+        """登记监视器(内部方法,:class:`Monitor` 构造期调用——直接构造与
+        工厂 ``create_monitor`` 行为一致;``stop`` 摘除,``disconnect`` 联动清空)。"""
+        self._monitors.append(monitor)
 
     def _remove_monitor(self, monitor: Monitor) -> None:
         """从注册表摘除已停止的监视器(内部方法,:meth:`Monitor.stop` 调用)。"""

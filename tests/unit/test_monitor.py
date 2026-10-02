@@ -143,7 +143,10 @@ def test_stable_value_and_quality_drop_stay_quiet_patterns(monkeypatch: pytest.M
     for _ in range(4):
         mon._cycle()
     assert [ev.quality for ev in events] == [MonitorQuality.GOOD, MonitorQuality.STALE]  # type: ignore[attr-defined]
-    assert mon.get("a") == PointSnapshot(MonitorQuality.STALE, 10, mon.get("a").updated_at)
+    # 失败周期保旧值且不刷新时间戳(仍是周期 2 的成功时刻)
+    after_good = mon.get("a")
+    assert after_good.quality is MonitorQuality.STALE and after_good.value == 10
+    assert after_good.updated_at == mon.stats["last_ok_at"]
     assert mon.stats["change_events"] == 2
     assert mon.stats["consecutive_fails"] == 2
 
@@ -292,6 +295,32 @@ def test_cycle_failures_write_client_shared_ledger(monkeypatch: pytest.MonkeyPat
     assert client.stats["error_count"] >= 1
     assert fires == [True]
     assert mon.stats["fail_count"] == 1
+
+
+def test_cycle_survives_bad_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    """坏地址不杀监视线程(审查 1003 P0):参数类 ValueError 按库契约从
+    read_many 上抛,读取段兜底——整周期失败记账降质,线程不死。
+
+    走真事务路径:非法地址语法在 parse_address 抛 ValueError(_execute
+    不转换调用方错误),若无兜底 _cycle 直接炸出 _run、线程静默死亡。
+    """
+    client = _client()
+    client.reconnect_backoff = False
+    monkeypatch.setattr(client, "_create_transport", lambda: ScriptedTransport([]))
+    assert client.connect() is True
+    fires: List[bool] = []
+    mon = Monitor(client, {"bad": ("no-such-address!!", "ushort")},
+                  interval=0.05, on_disconnect=lambda: fires.append(True))
+    mon._cycle()  # 不抛:兜底生效
+    assert mon.get("bad").quality is MonitorQuality.INITIAL
+    assert mon.get("bad").value is None
+    assert mon.stats["fail_count"] == 1
+    assert mon.stats["cycle_count"] == 1
+    assert fires == [True]
+    # 第二周期继续采集(线程不死),失败期不重复触发
+    mon._cycle()
+    assert mon.stats["fail_count"] == 2
+    assert len(fires) == 1
 
 
 def test_backoff_window_skips_tick(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -444,6 +473,17 @@ def test_stop_detaches_from_registry() -> None:
     monitor.stop()
     assert client._monitors == []
     assert not monitor.running
+
+
+def test_direct_construction_registers_same_as_factory() -> None:
+    """直接构造与工厂行为一致(审查 1003 P1):构造即注册,disconnect 联动。"""
+    client = _client()
+    monitor = Monitor(client, {"a": ("hr0", "ushort")})
+    assert client._monitors == [monitor]
+    assert client.disconnect() is True  # 未连接也幂等;联动先行
+    assert client._monitors == []
+    with pytest.raises(RuntimeError, match="终止"):
+        monitor.start()  # 联动终态:直接构造同样生效,无旁路
 
 
 # ----------------------------------------------------------------------

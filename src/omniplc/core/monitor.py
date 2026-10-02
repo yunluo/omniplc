@@ -43,6 +43,10 @@
 - **共享账**:监视器周期与业务共用同一本客户端账——周期失败照常写
   ``last_error`` / ``error_count``;混用同一客户端时业务侧错误文本会被
   采集周期冲掉,建议**监视器独占客户端实例**;
+- **坏地址不杀线程**:构造期校验不了地址内容(协议层无公开校验入口),
+  参数类错误(如坏地址)首周期从 ``read_many`` 上抛——读取段按
+  ``Exception`` 兜底,整周期失败记账降质、异常文本入 ``omniplc.debug``
+  日志(WARNING),监视线程不死;
 - **退避联动**:客户端重连退避窗口内跳 tick(不发报文、不记账),计
   ``skipped_ticks``;重连本身由客户端惰性重连负责,监视器不插手;
 - **生命周期**:默认不启动;``start()`` 重复调用报错;``stop()`` 后可再次
@@ -168,8 +172,9 @@ class _Point(NamedTuple):
 class Monitor:
     """客户端下的周期轮询监视器(默认不启动)。
 
-    通过 :meth:`~omniplc.core.base_client.BaseClient.create_monitor` 创建,
-    不要直接构造(工厂负责绑定客户端与注册表)。语义口径见模块 docstring。
+    通常经 :meth:`~omniplc.core.base_client.BaseClient.create_monitor`
+    创建;直接构造等价(构造即向客户端注册表登记,``disconnect`` 联动
+    一致)。语义口径见模块 docstring。
 
     :param client: 宿主客户端(只调其公开面 ``read_many`` / ``next_connect_in``
         / ``retries`` / ``receive_timeout``)
@@ -258,6 +263,9 @@ class Monitor:
             "last_ok_at": None,
             "last_duration": None,
         }
+        # 构造即注册:直接构造与工厂 create_monitor 行为一致——disconnect
+        # 联动对两者同样生效,不存在"绕过注册表、线程活过客户端"的旁路
+        self._client._register_monitor(self)
 
     # ------------------------------------------------------------------
     # 构造期校验与点位解析
@@ -397,6 +405,11 @@ class Monitor:
     def _cycle(self) -> None:
         """执行一个采集周期:批量读 → 记账 → 替换快照 → 发事件(内部方法)。
 
+        读取段兜底 :class:`Exception`:参数类错误(如坏地址)按库契约从
+        ``read_many`` 直接上抛(:meth:`~BaseClient._execute` 不转换
+        ``ValueError``),监视器不能因此死线程——按整周期失败记账降质,
+        异常文本入 ``omniplc.debug`` 日志供排障,已成功组的点不受影响。
+
         测试直接调用本方法驱动单周期(无线程、无真实等待)。
         """
         client = self._client
@@ -407,13 +420,23 @@ class Monitor:
         started = _monotonic()
         results: Dict[str, Tuple[bool, Optional[PrimitiveValue]]] = {}
         any_ok = False
-        for data_type, group in self._groups:
-            pairs = client.read_many([p.address for p in group], data_type)
-            for point, pair in zip(group, pairs):
-                ok, value = pair
-                results[point.tag_id] = (bool(ok), value)
-                if ok:
-                    any_ok = True
+        try:
+            for data_type, group in self._groups:
+                pairs = client.read_many([p.address for p in group], data_type)
+                for point, pair in zip(group, pairs):
+                    ok, value = pair
+                    ok = bool(ok)
+                    results[point.tag_id] = (ok, value)
+                    if ok and value is not None:
+                        any_ok = True
+        except Exception as exc:
+            # 组间独立:异常前的组结果保留,其余点走下方失败降质
+            log_warning(
+                getattr(client, "_debug_label", "omniplc"),
+                "monitor 周期读取异常(%d 点):%r",
+                len(self._points),
+                exc,
+            )
         self._timestamps["last_duration"] = _monotonic() - started
         self._counters["cycle_count"] += 1
         if any_ok:
