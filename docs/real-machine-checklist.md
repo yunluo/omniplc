@@ -55,6 +55,7 @@
 | 海康 ID 读码器 TCP 命令协议 | HikrobotIdTcpClient | 按通信指令手册 V1.0.3 + ID2000/ID3000 用户手册实现(命令应答/结果推送双通道),待真机核证(要点见核验记录表该行备注) |
 | 海康 ID 读码器 MvCodeReaderSDK | HikrobotIdSdkClient | 按 SDK V2.0.0 ctypes 封装(假函数表测试,真 DLL 未联测),待真机核证(要点见核验记录表该行备注) |
 | 海康 ID 读码器 RS-232 串口 | HikrobotIdSerialClient | 按 ID2000/ID3000 用户手册 + 通信指令手册实现(文本触发 + 结果行,SR 同型),待真机核证(要点见核验记录表该行备注) |
+| 心跳探测命令 ping/0601 | FINS / KV MC / 松下 MC / S7 / ADS | ①FINS 0601 状态读应答布局(Status/Mode 两字节分立 + 26 字节总数)按 W342 §5-3-17 印刷页 194-196 解码,Mode 高半字节合位的变体待真机抓包排除;②KV MC / 松下 MC 对 0101 CPU 型号读的支持面待真机(不支持则 ping 恒 False,心跳失败计数增长但不断线);③S7 `get_cpu_state` 与 ADS `read_state` 为 snap7/pyads 直传,随真机联测核证 |
 
 ---
 

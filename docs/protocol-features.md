@@ -34,11 +34,40 @@
 | 惰性自动重连 + 指数退避门控 | ✅ | `reconnect_backoff` 默认开;`next_connect_in` 可查 |
 | 超时/重试(`connect_timeout` / `receive_timeout` / `retries` / `write_retries`) | ✅ | |
 | 连接健康统计 `stats`(ClientStats) | ✅ | |
+| 探活 `ping()` + 自动心跳 `heartbeat_interval`(默认 30 秒,0 = 关) | ✅ | 见下「心跳保活」节;走线协议全覆盖,能力差异见探测命令列 |
 | 全局报文调试 `set_debug`(收发十六进制转储) | ✅ | |
 | 报错中英双语 `set_lang` + 错误分类 `last_error_category`/`last_error_code` | ✅ | 9 张协议码表全覆盖翻译 |
 | `with` 上下文管理器 | ✅ | |
 | aio 异步包装层(`omniplc.aio`) | ✅ | 同步客户端全镜像(类名前加 `A`) |
 | native 原生 asyncio 层(`omniplc.native`) | ⭕ | 5 客户端:Modbus TCP / 三菱 MC 1E·3E·4E(TCP+UDP)/ FINS(TCP+UDP);真中断语义、批量合并复用同步纯助手 |
+
+### 心跳保活(ping / 自动心跳)
+
+TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死;应用层
+心跳由各驱动提供**零副作用探测命令**,按 `heartbeat_interval`(默认 30 秒)
+由守护线程(同步层)/asyncio 任务(native 层)自动驱动,亦可手动调用
+`ping()`。契约:走与读写完全相同的事务口径(惰性重连、退避门控、重试、
+`last_error` 三件套),失败不抛;PLC 报错(DeviceError)不断线——能应答
+错误码本身就证明链路活着;传输失败(OSError)拆连后下一 tick 自动重连
+自愈;显式 `disconnect()` 停止心跳(断开是调用方的明确意图)。每 tick
+计入 `stats["transactions"]` 与 `heartbeat_ok`/`heartbeat_fail`。
+**与业务事务互斥**(同一把事务锁),业务长事务期间心跳排队,反之亦然;
+高频轮询场景(轮询本身就是心跳)可置 0 关闭。
+
+| 驱动 | 探测命令 | 依据 / 备注 |
+|---|---|---|
+| Modbus 全系(含汇川 Modbus、海康 Modbus 模式除外) | FC08 子功能 0x0000 回显查询 | 规范 §6.8;FC08 非强制,从站不支持时异常码 01 应答 = 链路存活但 ping 为 False |
+| 三菱 MC 3E/4E(KV MC、松下 MC 兼容继承) | 0101 CPU 型号读 | SH-080008 §11.2 印刷页 176-178;KV/松下对 0101 的支持待真机核证 |
+| MC 1E / 3C / 4C、KV HostLink、MEWTOCOL、TOYOPUC、汇川 MC、SR、海康串口、SDK | 无探测命令,不启用 | ping 恒 False;心跳不运行 |
+| 欧姆龙 FINS TCP/UDP | 0601 CPU Unit Status Read | W342 §5-3-17 印刷页 194-196;另公开 `read_cpu_unit_status()`(状态/模式/错误字解码) |
+| AB EtherNet/IP | Identity Object GetAttributesAll | CIP Vol 1 §5-4;复用 `get_plc_info()` |
+| 西门子 S7 | snap7 `GetCpuState` | 另公开 `get_cpu_state()`(枚举名透传,RUN/STOP);1.3/3.2 双轨核实 |
+| 倍福 ADS | pyads `read_state` | 另公开 `read_state()`((adsState, deviceState),5=RUN/7=STOP) |
+| OPC-UA | 读 `i=2258` Server 当前时间 | 0 命名空间标准变量(asyncua `nodes.current_time` 同款);顺带抑制空闲会话回收 |
+| MTConnect | GET `/probe` | Part1 §8.3.1 p.98-100 |
+| 海康 Modbus 模式 | FC03 读状态字 REG1 | 工业协议手册 V1.0.4 §3.5;不触发扫描握手 |
+| 海康 TCP 命令 | `<Get,Acq>` 采集状态查询 | 通信指令手册 V1.0.3 §3;命令通道探活 |
+| 三菱 MX(COM) | 有意不做 | COM 套间亲和 + GetCpuType 高位 0 出错码盲区(第八轮 P1-2) |
 
 ---
 

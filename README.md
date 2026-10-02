@@ -108,6 +108,22 @@ client.bind_tags(TagTable.from_json("tags.json"))
 ok, value = client.read_tag("furnace_temp")   # 点位标识 → 地址+类型,自动应用缩放
 ```
 
+#### 心跳保活(可选)
+
+```python
+ok = client.ping()                        # 手动探活:执行零副作用探测命令,失败不抛
+client.heartbeat_interval = 30            # 自动心跳间隔(秒),默认 30;0 = 关闭
+stats = client.stats                      # heartbeat_ok / heartbeat_fail / last_heartbeat_at
+```
+
+连接建立后由守护线程按间隔自动探测,失败走与读写相同的事务口径(`last_error`
+记录、传输失败拆连后下一 tick 自动重连自愈,退避门控防重连风暴);显式
+`disconnect()` 停止。探测命令逐协议落位:Modbus FC08 回显、MC 0101 CPU 型号、
+FINS 0601 状态读、AB Identity 读取、S7 `get_cpu_state`、ADS `read_state`、
+OPC-UA `i=2258` Server 时间、MTConnect `/probe`、海康读码器状态查询等——
+逐协议依据与差异见 **[docs/protocol-features.md](docs/protocol-features.md)**
+「心跳保活」节。
+
 #### 文档
 
 | 文档 | 内容 |
