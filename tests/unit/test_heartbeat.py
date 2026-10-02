@@ -276,7 +276,9 @@ class TestHeartbeatLifecycle:
         排队不发包;锁释放后 tick 才执行。排队断言是有界负断言(负载下
         只会宽松、不会误报),完成后 probe_calls +1 是确定性断言。"""
         client = _ProbeClient()
-        client.heartbeat_interval = 0.05
+        # 间隔置 0:不起守护线程,探测只由手动 tick 驱动(否则守护 tick
+        # 与手动 tick 混流,probe_calls 断言在窗口内可能 +2)
+        client.heartbeat_interval = 0
         try:
             assert client.connect() is True
             stop = threading.Event()
