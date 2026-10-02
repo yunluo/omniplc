@@ -839,7 +839,8 @@ class SiemensS7Client(BaseClient):
         """连续批量读:同区域字节起点起连续 ``count`` 个元素,snap7 ``read_area`` 单事务。
 
         地址只定位**区域 + 字节起点**,总字节数 = ``count × 类型字节数``
-        (SHORT/FLOAT 2、INT 4、LONG/DOUBLE 8,大端),按类型尺寸切片解码。
+        (SHORT/USHORT 2、INT/UINT/FLOAT 4、LONG/ULONG/DOUBLE 8,大端),
+        按类型尺寸切片解码。
         BOOL 连续读无位语义(单个字节内的位不构成连续序列),不支持;
         STRING 变长不支持(请用 :meth:`read_string`)。
 

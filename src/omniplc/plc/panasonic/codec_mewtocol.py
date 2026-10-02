@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import List
 
-from ...core.constants import MEWTOCOL_STATION_DIRECT
+from ...core.constants import MEWTOCOL_STATION_DIRECT, MEWTOCOL_WORD_FIELD_MAX
 from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
 from ...core.i18n import _
@@ -104,7 +104,8 @@ def _check_word_field(start: int, count: int, words: "List[int]") -> int:
     if count < 1:
         raise ValueError(_("MEWTOCOL 字数必须大于 0,收到:{}").format(count))
     end = start + count - 1
-    if start < 0 or end > 99999:
+    # 上限用 core 常量(review-1002 P3:与 mewtocol.py read_range 双处同源)
+    if start < 0 or end > MEWTOCOL_WORD_FIELD_MAX:
         raise ValueError(
             _("MEWTOCOL 数据区编号超出 5 位字段(0~99999):start={} end={}").format(
                 start, end

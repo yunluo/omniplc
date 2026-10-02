@@ -397,7 +397,7 @@ class AsyncBaseClient(ABC):
         value = float(seconds)
         if not math.isfinite(value) or value < 0:
             raise ValueError(
-                _("heartbeat_interval 必须为非负有限数,收到:{}").format(seconds)
+                _("heartbeat_interval 必须为非负有限数,收到:{!r}").format(seconds)
             )
         self._heartbeat_interval = value
         task = self._heartbeat_task

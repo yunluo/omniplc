@@ -19,7 +19,6 @@ import pytest
 from omniplc import HikrobotIdTcpClient
 from omniplc.scanner import hikrobot_tcp
 
-import scripted
 from scripted import ChunkSocket
 
 _CMD_PORT = 9989
@@ -250,11 +249,6 @@ def test_custom_noread_text(monkeypatch: pytest.MonkeyPatch) -> None:
         noread_text="NOREAD!",
     )
     assert client.scan(timeout=2.0) == (False, None)
-
-
-def test_scripted_module_used_for_chunks() -> None:
-    """占位断言:确认测试脚本架依赖 scripted.ChunkSocket 语义(空池即超时)。"""
-    assert scripted.ChunkSocket is ChunkSocket
 
 
 def test_command_invalid_suffix_outside_brackets(

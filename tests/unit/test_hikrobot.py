@@ -217,24 +217,30 @@ def test_scan_handshake_failure_records_last_error(
 def test_scan_ack_timeout_uses_independent_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ack 消费等待用独立收尾预算:结果在主超时末拍到达仍能成功返回
-    (审查 1001 P2-6:共用 deadline 会把成功读码误判为握手未闭环)。"""
+    """Ack 消费等待用独立收尾预算:结果在主超时末拍到达、Ack 次拍才清零
+    仍能成功返回(review-1002 返工:原用例 Ack 首拍即清零,deadline 比较
+    从未执行;现首拍仍置位,继承 deadline 的比较路径真实发生。局限如实
+    登记:修复后每笔事务的成功戳同样步进假钟(速率 2×),均匀步进假钟
+    无法构造"修复前必失败"的取值——完全判别需时钟接缝可注入,随
+    review-1002 P3 守卫盲区项一并立项)。"""
     frames = [
         _fc06_response(1, 0, 0x0001),
         _fc03_response(2, [0x0001]),
         _fc06_response(3, 0, 0x0003),
         _block_response(4, 0x0100, [2, 0x4142]),  # 结果恰在期限末拍出现
         _fc06_response(5, 0, 0x0005),
-        _fc03_response(6, [0x0000]),  # Ack 后设备清零
+        _fc03_response(6, [0x0100]),  # Ack 首拍:设备尚未消费(仍置位)
+        _fc03_response(7, [0x0000]),  # Ack 次拍:清零
     ]
     scripted = _ScriptedTransport(_chunks(frames))
     client = HikrobotIdModbusClient("127.0.0.1", 502, _STATION, _RESULT_WORDS)
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
-    # 步进设为主超时的一半:结果轮询的 deadline 已在末拍耗尽,
-    # Ack 轮询若继承同一 deadline 必失败;独立预算(1s)内则通过
+    # 步进 0.3(每笔 FC 事务的成功戳也步进假钟):Ack 首拍检查累计 2.1s——
+    # 继承 deadline(1.0s)已过期必判"握手未闭环";独立预算(自 Ack 起算
+    # 1s → 2.5s)覆盖两拍则通过
     monkeypatch.setattr(
-        hikrobot_module.time, "monotonic", _FakeClock(step=0.45)
+        hikrobot_module.time, "monotonic", _FakeClock(step=0.3)
     )
     assert client.scan(timeout=1.0, poll_interval=0.001) == (True, "AB")
 

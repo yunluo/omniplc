@@ -14,6 +14,7 @@ from __future__ import annotations
 import pytest
 
 from omniplc import HikrobotIdSerialClient
+from omniplc.core.errors import TransportTimeoutError
 from scripted import ScriptedTransport as _ScriptedTransport
 
 
@@ -158,21 +159,36 @@ def test_custom_noread_text(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_scan_timeout_silent_recv_stops_then_drains(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """完全静默超时(TransportTimeoutError 路径):停止文本先发、drain 后行,
-    链路不断线——审查 1001 P1-4:原实现该路径绕过全部收尾。"""
+    """完全静默超时(真串口 0 字节口径 = TransportTimeoutError):停止文本
+    先发、drain 后行,链路不断线——审查 1001 P1-4 + review-1002 返工:
+    原用例直接注入 socket.timeout,绕过了 _read_line 的
+    TransportTimeoutError→socket.timeout 转换路径(修复前同样通过,假绿);
+    改注入契约异常类型后,修复前该异常从 _read_line 逃逸、scan 直接抛。"""
     client = HikrobotIdSerialClient()
     client.configure_serial("COM3", 115200)
     scripted = _ScriptedTransport([])
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
+    events = []
+    orig_send = scripted.send
+
+    def send_log(data: bytes) -> None:
+        events.append("send:" + data.decode("ascii"))
+        orig_send(data)
 
     def silent_recv(size: int) -> bytes:
-        raise __import__("socket").timeout("timed out")
+        events.append("recv")
+        raise TransportTimeoutError("串口接收超时(0.05s)", 0)
 
+    monkeypatch.setattr(scripted, "send", send_log)
     monkeypatch.setattr(scripted, "recv", silent_recv)
     assert client.scan(timeout=0.05) == (False, None)
-    # 收尾完整:start → (超时) → stop → drain 尽力读
+    # 收尾完整且有序:start → 首拍超时 → stop 先发 → drain 后读(P2-4 顺序)
     assert bytes(scripted.sent) == b"startstop"
+    assert events[0] == "send:start"
+    assert events[1] == "recv"  # 首拍即静默超时
+    assert events[2] == "send:stop"
+    assert events[3] == "recv"  # stop 之后才进入 drain 读
     assert client.last_error is not None and "超时" in client.last_error
     assert client.connected is True
 
@@ -194,7 +210,9 @@ def test_read_result_timeout_keeps_window_data(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """read_result 超时:不 drain 不断线(窗口由调用方编排,迟到真结果
-    留给下一次 read_result)——审查 1001 P2-4。"""
+    留给下一次 read_result)——审查 1001 P2-4 + review-1002 返工:
+    改注入契约异常类型 TransportTimeoutError(真串口 0 字节口径),
+    修复前该异常从 _read_line/_read_result_once 逃逸、直接抛给调用方。"""
     client = HikrobotIdSerialClient()
     client.configure_serial("COM3", 115200)
     scripted = _ScriptedTransport([])
@@ -202,14 +220,16 @@ def test_read_result_timeout_keeps_window_data(
     client.connect()
 
     def silent_recv(size: int) -> bytes:
-        raise __import__("socket").timeout("timed out")
+        raise TransportTimeoutError("串口接收超时(0.05s)", 0)
 
     monkeypatch.setattr(scripted, "recv", silent_recv)
     assert client.read_result(timeout=0.05) == (False, None)
-    # socket.timeout 在 _read_result_once 不再被捕获 → 0 字节超时口径:
-    # TransportTimeoutError 由基类按"链路无残渣"处理,不断线
+    # _read_line 统一转 socket.timeout → _read_result_once 转
+    # TransportTimeoutError(0 字节超时口径,基类按"链路无残渣"不断线)
     assert client.connected is True  # 不断线
     assert bytes(scripted.sent) == b""  # 未发 stop(窗口由调用方 stop() 收)
+    # 统一后的用户可见消息(修复前原始异常文本"串口接收超时"逃逸,假绿点)
+    assert "读码结果等待超时" in (client.last_error or "")
 
 
 def test_constructor_rejects_non_ascii_text() -> None:

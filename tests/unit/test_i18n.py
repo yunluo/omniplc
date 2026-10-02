@@ -183,6 +183,59 @@ def test_no_chinese_fstring_raises_in_src() -> None:
     assert offenders == [], "含中文的 f-string raise(无法过 _()):{}".format(offenders)
 
 
+def test_all_raise_templates_in_translations() -> None:
+    """扫描 src:所有 ``_("…")`` 字面量模板必须在 ``_TRANSLATIONS`` 有键
+    (review-1002 P3:原 en 守卫只扫码表不扫 raise 文案——read_range/心跳
+    批的 73 条新文案 en 模式全部兜底回中文即此盲区;AST 提取含 py3.7 的
+    ``ast.Str`` 与 3.8+ 的 ``ast.Constant`` 双形态)。"""
+    import ast
+    from pathlib import Path
+
+    src_root = Path(__file__).resolve().parents[2] / "src" / "omniplc"
+
+    def _key_of(node: "ast.AST") -> "str | None":
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.Str) and isinstance(node.s, str):
+            return node.s
+        return None
+
+    i18n_tree = ast.parse(
+        (src_root / "core" / "i18n.py").read_text(encoding="utf-8")
+    )
+    table = set()
+    for node in ast.walk(i18n_tree):
+        if isinstance(node, ast.Dict):
+            for key in node.keys:
+                key = _key_of(key)
+                if key is not None:
+                    table.add(key)
+
+    missing = []
+    total = 0
+    for path in sorted(src_root.rglob("*.py")):
+        if path.name == "i18n.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "_"
+            ):
+                continue
+            key = _key_of(node.args[0]) if node.args else None
+            if key is None:
+                continue  # 非字面量模板(拼接/变量)不经本门禁
+            total += 1
+            if key not in table:
+                missing.append("{}:{}".format(path.name, key[:40]))
+    assert total > 1000, "AST 扫描零命中:提取逻辑失效(_() 调用共 {})".format(total)
+    assert missing == [], "raise 文案漏入 _TRANSLATIONS(en 模式兜底中文):{}".format(
+        missing
+    )
+
+
 def test_en_mode_core_error_paths_output_english() -> None:
     """en 端到端抽查:core 两处曾裸文案的错误路径在 en 模式输出英文。"""
     from omniplc.core.types import DataType
