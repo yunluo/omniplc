@@ -7,7 +7,8 @@ size 感知假 socket,按《工业读码器通信指令操作手册》V1.0.3 §1
 
 - scan() 全流程:``<Exec,TriSoft>`` 命令应答 OK → 结果推送静默成帧 → 解码
 - NoRead 文本判定 / 结果等待超时(合并入 (False, None),SR 同契约)
-- 命令面:errno 应答(-4 设备忙)/ invalid 拒绝 / 回显不符坏帧断线
+- 命令应答超时拆连重同步(P2-3)/ 命令面:errno 应答(-4 设备忙)/
+  invalid 拒绝 / 回显不符坏帧断线
 - 低阶 command() 透传:Get 参数文本返回、Set/Exec 参数校验
 """
 from __future__ import annotations
@@ -107,6 +108,19 @@ def test_scan_result_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.scan(timeout=0.05) == (False, None)
     assert client.last_error is not None and "超时" in client.last_error
     assert client.connected is True
+
+
+def test_command_reply_timeout_disconnects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """命令应答超时 → 拆连重同步(review-1002 P2-3:代码已对,补测试钉契约)。
+
+    命令通道是请求/应答型:半应答残留在缓冲,下一应答必串帧,按 TCP
+    走线契约拆连;与上一用例的结果通道 0 字节超时**不断线**口径对照。
+    """
+    client, cmd_sock, _result = _make_client(monkeypatch, [], None)
+    assert client.trigger() is False
+    assert client.connected is False  # 命令通道超时拆连(与结果通道相反)
+    assert client.last_error is not None and "应答超时" in client.last_error
+    assert bytes(cmd_sock.sent) == b"<Exec,TriSoft>"
 
 
 def test_scan_without_result_port_rejected(monkeypatch: pytest.MonkeyPatch) -> None:

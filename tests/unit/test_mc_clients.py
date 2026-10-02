@@ -443,8 +443,7 @@ def test_tcp_3e_read_range_words_0401(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_tcp_3e_read_range_ints_two_words_each(monkeypatch: pytest.MonkeyPatch) -> None:
     """read_range:D0 起 2 个 INT = 0401 读 4 字,按 2 字/元素小端切片解码。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000)
-    frame = _qna_read_response([0x0001, 0xF4240 - 0x10000, 0x0000, 0x0000]) if False else \
-        _qna_read_response([100, 0, 200, 0])
+    frame = _qna_read_response([100, 0, 200, 0])
     scripted = ScriptedTransport([frame[:9], frame[9:]])
     _mount(monkeypatch, client, scripted)
     client.connect()

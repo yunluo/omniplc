@@ -189,7 +189,9 @@ def test_scan_timeout_silent_recv_stops_then_drains(
     assert events[1] == "recv"  # 首拍即静默超时
     assert events[2] == "send:stop"
     assert events[3] == "recv"  # stop 之后才进入 drain 读
-    assert client.last_error is not None and "超时" in client.last_error
+    # 统一意图消息(review-1002 P3:drain 的 TransportTimeoutError 修复前
+    # 从 _drain_line 逃逸,把这里的消息覆盖成传输层文本"串口接收超时")
+    assert "读码结果等待超时" in (client.last_error or "")
     assert client.connected is True
 
 

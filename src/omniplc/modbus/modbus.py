@@ -930,7 +930,10 @@ class ModbusBaseClient(BaseClient):
         依据:Modbus 应用协议 V1.1b3 §6.8——Return Query Data,设备原样
         回显数据域,零副作用。注意:FC08 在规范中非强制,不支持 FC08 的
         从站会以异常码 01 应答——**能应答即链路存活**(按 DeviceError
-        不断线),仅表现为 ping 返回 False 与心跳失败计数。
+        不断线);自动心跳下仅表现为 ping 返回 False、stats 的
+        ``heartbeat_fail`` 计数与 ``last_error`` 更新,不计
+        ``error_count``/``device_error_count``(心跳记账与业务事务隔离,
+        review-1002 P1-2)。
         """
         self._reject_broadcast_read()
         return codec.parse_diagnostics_response(

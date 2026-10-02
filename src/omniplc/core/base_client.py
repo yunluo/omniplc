@@ -323,7 +323,8 @@ class BaseClient(ABC):
         错误(如 Modbus 广播站号)照库约定上抛 ``ValueError``。
 
         未实现探测命令的驱动恒返回 ``False`` 并记录 ``last_error``
-        (不计算失败统计)。
+        (不计失败统计、不建连;``last_error_at`` 同步刷新,三件套一致)。
+        自动心跳对这类驱动本就不启动,该路径只会由手动 ``ping()`` 触发。
 
         :keyword heartbeat: 自动心跳 tick 内部标记(review-1002 P1-2)——
             语义见 :meth:`_execute`;手动探测保持默认 ``False``,成功照旧
@@ -338,6 +339,10 @@ class BaseClient(ABC):
                 None,
                 record=False,
             )
+            with self._state_lock:
+                # 三件套一致(review-1002 P3):last_error 已写,last_error_at
+                # 同步刷新;失败统计仍不计、不建连(手动探测非业务事务)
+                self._timestamps["last_error_at"] = time.monotonic()
             return False
         ok, _unused = self._execute(self._ping_probe, heartbeat=heartbeat)
         return ok
@@ -456,6 +461,11 @@ class BaseClient(ABC):
         """
         with self._lock:
             if stop.is_set():
+                return
+            if self._reconnect_backoff and time.monotonic() < self._next_connect_at:
+                # 退避门控激活:本 tick 不发包,是「未尝试」而非「尝试失败」
+                # ——不计 heartbeat_fail、不刷 last_heartbeat_at,整体静默
+                # (review-1002 P3);门控解除后的下一 tick 照常探测
                 return
             try:
                 ok = self.ping(heartbeat=True)

@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import threading
 import time
 from typing import Any, List
 
@@ -103,6 +104,16 @@ class TestPingManual:
         assert client.ping() is False
         assert "未实现 ping 探活" in (client.last_error or "")
         # 兜底路径不产生网络动作:不计失败统计、不建连
+        assert client.stats["error_count"] == before
+        assert client.transports == []
+
+    def test_unsupported_driver_ping_stamps_last_error_at(self) -> None:
+        """手动 ping 未实现探活驱动:last_error_at 同步刷新(三件套一致,
+        review-1002 P3);失败统计仍不计、不建连。"""
+        client = _ProbeClient(with_ping=False)
+        before = client.stats["error_count"]
+        assert client.ping() is False
+        assert client.stats["last_error_at"] is not None
         assert client.stats["error_count"] == before
         assert client.transports == []
 
@@ -252,6 +263,18 @@ class TestHeartbeatLifecycle:
 
 class TestHeartbeatFailures:
     """心跳失败口径与自愈。"""
+
+    def test_tick_during_backoff_window_is_silent(self) -> None:
+        """退避门控激活期 tick 不发包:「未尝试」≠「尝试失败」——不计
+        heartbeat_fail 也不刷 last_heartbeat_at(review-1002 P3)。"""
+        client = _ProbeClient()
+        client._connected = False
+        client._next_connect_at = time.monotonic() + 3600.0  # 武装退避窗口
+        client._heartbeat_tick(threading.Event())
+        assert client.probe_calls == 0
+        assert client.stats["heartbeat_fail"] == 0
+        assert client.stats["heartbeat_ok"] == 0
+        assert client.stats["last_heartbeat_at"] is None
 
     def test_device_error_fails_counted_connection_kept(self) -> None:
         client = _ProbeClient()

@@ -430,6 +430,10 @@ class AsyncBaseClient(ABC):
                 if interval <= 0:
                     return
                 await asyncio.sleep(interval)
+                if self._reconnect_backoff and time.monotonic() < self._next_connect_at:
+                    # 退避门控激活:本 tick 不发包,「未尝试」≠「尝试失败」,
+                    # 不计 heartbeat_fail(review-1002 P3,与同步层同口径)
+                    continue
                 try:
                     ok = await self.ping(heartbeat=True)
                 except _CANCELLED_ERRORS:

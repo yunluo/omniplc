@@ -409,7 +409,11 @@ class HikrobotIdSerialClient(BaseClient):
                 received += 1
                 if byte in (b"\r", b"\n"):
                     return True
-        except socket.timeout:
+        except (socket.timeout, TransportTimeoutError):
+            # socket.timeout:TCP 走线口径;TransportTimeoutError:真串口
+            # 0 字节超时口径(review-1002 P3:原只接 socket.timeout,真机
+            # 下 drain 超时会携带传输层文本逃逸,覆盖 _scan_once 的统一
+            # 「读码结果等待超时」意图消息,返回值路径也不可达)
             pass
         finally:
             transport.receive_timeout = previous_timeout

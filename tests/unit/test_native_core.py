@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import socket
 import threading
+import time
 from typing import Any, List, Optional, Sequence
 
 import pytest
@@ -727,6 +728,32 @@ def test_heartbeat_failure_writes_error_without_counting() -> None:
         assert client.stats["device_error_count"] == 0
         assert client.stats["heartbeat_ok"] >= 1  # 其后 tick 回显自愈
         await client.disconnect()
+
+    asyncio.run(scenario())
+
+
+def test_heartbeat_backoff_window_does_not_count_fail() -> None:
+    """退避门控激活期 tick 不发包不计 fail(review-1002 P3,与同步层同口径)。
+
+    「未尝试」≠「尝试失败」:断链自愈的退避窗口内循环照常醒来,但探测
+    不发生——heartbeat_fail / last_heartbeat_at 均不得动。
+    """
+
+    async def scenario() -> None:
+        client = AsyncModbusTcpClient("127.0.0.1", 50200, 1)
+        client._connected = False
+        client._next_connect_at = time.monotonic() + 3600.0  # 武装退避窗口
+        client.heartbeat_interval = 0.02
+        # 未连接不会自动起任务,手动起循环模拟「断链后自愈窗口期」
+        task = asyncio.get_running_loop().create_task(client._heartbeat_loop())
+        await asyncio.sleep(0.15)  # ≥ 7 个间隔,修复前必已累计多次 fail
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        assert client.stats["heartbeat_fail"] == 0
+        assert client.stats["last_heartbeat_at"] is None
 
     asyncio.run(scenario())
 
