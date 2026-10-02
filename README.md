@@ -32,12 +32,15 @@ with ModbusTcpClient(ip_address="192.168.0.10", port=502, station=1) as client:
     ok = client.write_float("hr100", 3.14)          # 写返回 bool
     if not ok:
         print(client.last_error)                    # 失败原因在这里
-    ok, values = client.read_many(["hr0", "hr2"], DataType.FLOAT)  # 逐点容错批量
+    results = client.read_many(["hr0", "hr2"], DataType.FLOAT)  # 批量读(整批容错)
     ok, values = client.read_range("hr0", 100, DataType.USHORT)    # 连续 100 点单事务
 ```
 
 - **读返回 `(是否成功, 值)`,写返回 `bool`,不抛自定义异常**;失败原因在
   `client.last_error`。参数非法抛 `ValueError`。
+- 批量入口两种:`read_many(地址列表, 类型)` 返回与地址等长的
+  `[(是否成功, 值)]` 列表;`read_range(起始地址, 数量, 类型)` 返回
+  `(是否成功, 值列表)`(整批容错)。
 - 程序化分类用 `client.last_error_category`(`TRANSPORT`/`PROTOCOL`/`DEVICE`/
   `TIMEOUT`/`UNKNOWN`)与 `client.last_error_code`(PLC 原始错误码),语言无关。
 - `set_lang("en")` 可把报错文案切英文(默认中文);`set_debug(True)` 输出全部
