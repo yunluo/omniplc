@@ -40,6 +40,7 @@ flowchart TB
         TypesC["core/types.py(DataType / WordOrder…)"]
         ConvertC["core/convert.py(纯转换函数)"]
         TagC["core/tag.py(Tag / TagTable 点位表)"]
+        MonitorC["core/monitor.py(内置监视器 Monitor:客户端下建·默认不启<br/>周期 read_many·质量三态 INITIAL/GOOD/STALE·本地快照·变更/失败期事件)"]
     end
 
     UserApi ==> Drivers
@@ -65,6 +66,19 @@ flowchart TB
 无字节流,在会话读写方法/客户端 COM 调用点输出操作级日志。输出统一走
 logging 记录器 ``omniplc.debug``(DEBUG 级):应用已配置日志时沿 propagate
 汇入既有体系;未配置任何处理器时自动挂 stderr 处理器,保证开箱即用。
+
+监视器(内置轮询采集,默认不启动):`client.create_monitor(points, interval,
+on_change, on_disconnect)` 在客户端下建监视器,`start()` 后由守护线程按固定
+周期调 `read_many` 批量采集(按数据类型分组,一组一笔事务),把"最新值 +
+质量 + 时间戳"落成本地快照;消费方 `get()`/`get_all()` 读快照,不发报文、
+不阻塞。质量三态 `INITIAL/GOOD/STALE`——失败**保留旧值降质**;"变更事件"
+在值变化或质量跨越 GOOD↔非GOOD 边界时触发(双 NaN 视为未变,首拍 `old=None`);
+`on_disconnect` 在采集失败期(整周期无一点成功,含首轮)开始时触发、恢复复位;
+回调异常吞掉计数、绝不误判为断连;客户端重连退避窗口内跳 tick(计
+`skipped_ticks`);`disconnect()` 联动停掉全部监视器(终态,不可再 `start()`)。
+监视器周期与业务共享同一本客户端账(周期失败照常写 `last_error`/`error_count`),
+采集记账独立成 `Monitor.stats`(与 `ClientStats` 分立);实现与全部口径见
+`core/monitor.py` 模块 docstring。
 
 ## 2. 类继承图
 

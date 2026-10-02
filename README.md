@@ -112,6 +112,30 @@ client.bind_tags(TagTable.from_json("tags.json"))
 ok, value = client.read_tag("furnace_temp")   # 点位标识 → 地址+类型,自动应用缩放
 ```
 
+#### 监视器(可选,内置轮询采集)
+
+客户端下建监视器,**默认不启动**;`start()` 后由后台线程按固定周期批量采集,
+把"最新值 + 质量 + 时间戳"落成本地快照,消费方读快照不发报文、不阻塞:
+
+```python
+monitor = client.create_monitor(
+    {"炉温": ("hr0", "float"), "压力": ("hr2", "ushort")},  # 或直接传 TagTable(自动应用缩放)
+    interval=1.0,
+    on_change=lambda ev: print(ev),      # MonitorEvent(tag_id, old, new, quality, updated_at)
+    on_disconnect=lambda: print("采集失败期开始"),
+)
+client.connect()
+monitor.start()
+snap = monitor.get("炉温")               # PointSnapshot(质量, 值, 时间戳),纯本地
+monitor.stats                            # cycle_count / fail_count / consecutive_fails / ...
+monitor.stop()                           # client.disconnect() 也会联动停掉全部监视器(终态)
+```
+
+质量三态 `INITIAL / GOOD / STALE`:失败**保留旧值降质**,不用 None 冲掉;变更
+事件在值变化或质量跨越 GOOD↔非GOOD 边界时触发(掉线恢复也通知,双 NaN 视为
+未变);周期与业务共享同一本客户端账,建议监视器独占客户端实例。全部语义口径
+见 `omniplc.core.monitor` 模块 docstring。
+
 #### 心跳保活(可选)
 
 ```python
