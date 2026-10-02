@@ -32,6 +32,7 @@ import asyncio
 import math
 import random
 import time
+import weakref
 from abc import ABC, abstractmethod
 from types import TracebackType
 from typing import (
@@ -84,6 +85,48 @@ from ..core.i18n import _
 
 _T = TypeVar("_T")
 _C = TypeVar("_C", bound="AsyncBaseClient")
+
+
+async def _heartbeat_loop_weak(client_ref: "weakref.ref[Any]") -> None:
+    """心跳循环主体(弱引用宿主,模块级协程;review-1004 P1-1)。
+
+    任务是循环唯一的强引用链——宿主客户端无他处引用(用户丢弃且未
+    disconnect)时,下一轮解引用为 ``None`` 即静默退出,宿主可被 GC,
+    不会留下持续 ping 设备的僵尸任务;与同步层 ``_heartbeat_target``
+    (``core/base_client.py``)同款防线。**sleep 必须留在循环层**(逐轮
+    解引用之后)——挂起点若持宿主引用,弱引用防线即失效;cancel 从
+    挂起点(sleep/ping)进入,解引用保证取消后不触碰已回收宿主。
+    """
+    while True:
+        client = client_ref()
+        if client is None:
+            return
+        interval = client._heartbeat_interval
+        if interval <= 0:
+            return
+        # 挂起点(sleep)之前置空局部引用:协程帧在 await 期间仍持有
+        # 局部变量,不清掉则宿主在睡眠窗口内无法回收(同步层 wait 期
+        # del client 同款口径);醒来后重新解引用再做事
+        client = None
+        await asyncio.sleep(interval)
+        client = client_ref()
+        if client is None:
+            return
+        if client._reconnect_backoff and time.monotonic() < client._next_connect_at:
+            # 退避门控激活:本 tick 不发包,「未尝试」≠「尝试失败」,
+            # 不计 heartbeat_fail(review-1002 P3,与同步层同口径)
+            continue
+        try:
+            ok = await client.ping(heartbeat=True)
+        except _CANCELLED_ERRORS:
+            # 3.7 的 CancelledError 是 Exception 子类,显式重抛防被吞后
+            # 任务带伤续跑(cancel 只投递一次)
+            raise
+        except Exception:
+            # 参数类错误也不终止心跳:计为失败后继续
+            ok = False
+        client._counters["heartbeat_ok" if ok else "heartbeat_fail"] += 1
+        client._timestamps["last_heartbeat_at"] = time.monotonic()
 
 
 class AsyncBaseClient(ABC):
@@ -409,6 +452,7 @@ class AsyncBaseClient(ABC):
             # 未连接(无任务)时仅写值,与循环无关
             task.cancel()
             self._heartbeat_task = None
+            self._reap_task(task)
             self._start_heartbeat()
 
     def _start_heartbeat(self) -> None:
@@ -418,35 +462,38 @@ class AsyncBaseClient(ABC):
         task = self._heartbeat_task
         if task is not None and not task.done():
             return
+        # 弱引用宿主(review-1004 P1-1,与同步层 _heartbeat_target 同款
+        # 防线):任务是循环唯一的强引用链,宿主客户端无他处引用(用户
+        # 丢弃且未 disconnect)时下一轮解引用为 None 即退出,可被 GC,
+        # 不会留下持续 ping 设备的僵尸任务
+        client_ref = weakref.ref(self)
         self._heartbeat_task = asyncio.get_running_loop().create_task(
-            self._heartbeat_loop()
+            _heartbeat_loop_weak(client_ref)
         )
 
+    def _reap_task(self, task: "asyncio.Task[None]") -> None:
+        """为已取消的旧心跳任务挂一次性收割(内部方法,同步上下文用)。
+
+        cancel 只投递请求,任务实际退出在下个挂起点;setter 是同步属性
+        无法 await——用 fire-and-forget 收割任务 ``await`` 到旧任务终止
+        并吞掉取消异常(review-1004 P2-1:防「Task was destroyed but it
+        is pending!」噪声,用户连按 setter 后立即关循环的窗口)。
+        """
+        if task.done():
+            return
+
+        async def _reap() -> None:
+            try:
+                await task
+            except _CANCELLED_ERRORS:
+                pass
+
+        asyncio.get_running_loop().create_task(_reap())
+
     async def _heartbeat_loop(self) -> None:
-        """心跳循环主体(内部方法;asyncio 任务入口,断开时被取消)。"""
-        try:
-            while True:
-                interval = self._heartbeat_interval
-                if interval <= 0:
-                    return
-                await asyncio.sleep(interval)
-                if self._reconnect_backoff and time.monotonic() < self._next_connect_at:
-                    # 退避门控激活:本 tick 不发包,「未尝试」≠「尝试失败」,
-                    # 不计 heartbeat_fail(review-1002 P3,与同步层同口径)
-                    continue
-                try:
-                    ok = await self.ping(heartbeat=True)
-                except _CANCELLED_ERRORS:
-                    # 3.7 的 CancelledError 是 Exception 子类,显式重抛
-                    # 防被吞后任务带伤续跑(cancel 只投递一次)
-                    raise
-                except Exception:
-                    # 参数类错误也不终止心跳:计为失败后继续
-                    ok = False
-                self._counters["heartbeat_ok" if ok else "heartbeat_fail"] += 1
-                self._timestamps["last_heartbeat_at"] = time.monotonic()
-        except _CANCELLED_ERRORS:
-            raise
+        """心跳循环主体(内部协程;仅测试直接驱动用——正式入口是
+        :meth:`_start_heartbeat` 起的模块级弱引用循环)。"""
+        await _heartbeat_loop_weak(weakref.ref(self))
 
     # ------------------------------------------------------------------
     # 可配置属性(超时/重试)

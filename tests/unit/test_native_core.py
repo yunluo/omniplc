@@ -768,3 +768,71 @@ def test_heartbeat_interval_setter_validation() -> None:
     assert client.heartbeat_interval == 0.0
     client.heartbeat_interval = 5.5
     assert client.heartbeat_interval == 5.5
+
+
+def test_heartbeat_loop_released_when_client_abandoned() -> None:
+    """丢弃未断开的客户端:弱引用心跳循环退出、宿主可回收(review-1004 P1-1)。
+
+    修复前 ``create_task(self._heartbeat_loop())`` 绑定方法持宿主强引用,
+    任务永久存活并持续 ping 设备;与同步层 ``_heartbeat_target`` 防线对齐。
+    """
+    import gc
+    import weakref
+
+    async def scenario() -> None:
+        client = AsyncModbusTcpClient("127.0.0.1", 50200, 1)
+        client._has_ping = True
+
+        async def fake_ping(*args: Any, **kwargs: Any) -> bool:
+            return True
+
+        client.ping = fake_ping  # type: ignore[method-assign]  # 实例属性遮蔽,免 monkeypatch 强引用
+        client.heartbeat_interval = 0.01
+        client._start_heartbeat()
+        task = client._heartbeat_task
+        assert task is not None and not task.done()
+        await asyncio.sleep(0.03)  # 至少完整 tick 两轮,证明循环在跑
+        assert not task.done()
+        ref = weakref.ref(client)
+        del client  # 任务成为唯一强引用链
+        gc.collect()  # CPython 引用计数即时回收;collect 兜底其他实现
+        await asyncio.wait_for(task, 1.0)  # 下一轮解引用为 None → 自行退出
+        assert task.done() and not task.cancelled()
+        assert ref() is None, "宿主必须可被回收(心跳循环不再是回收阻碍)"
+
+    asyncio.run(scenario())
+
+
+def test_heartbeat_setter_reaps_cancelled_task() -> None:
+    """native 心跳 setter 连改间隔:旧任务被收割到真正退出(review-1004 P2-1)。
+
+    修复前 setter ``cancel()`` 后丢弃旧任务引用且不等待——连按 setter 后
+    立即关事件循环会得到「Task was destroyed but it is pending!」噪声;
+    收割任务等旧任务终止(与 disconnect 路径的 await 同效)。
+    """
+
+    async def scenario() -> None:
+        client = AsyncModbusTcpClient("127.0.0.1", 50200, 1)
+        client._has_ping = True
+
+        async def fake_ping(*args: Any, **kwargs: Any) -> bool:
+            return True
+
+        client.ping = fake_ping  # type: ignore[method-assign]
+        client.heartbeat_interval = 0.01
+        client._start_heartbeat()
+        old = client._heartbeat_task
+        assert old is not None
+        client.heartbeat_interval = 0.02  # setter:cancel 旧任务 + 收割 + 重启
+        new = client._heartbeat_task
+        assert new is not old and not new.done()
+        await asyncio.sleep(0.08)  # 旧任务取消传播 + 收割任务完成(间隔 0.01)
+        assert old.done() and old.cancelled()
+        assert not new.done()  # 新任务在跑
+        new.cancel()
+        try:
+            await new
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(scenario())
