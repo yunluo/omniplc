@@ -497,16 +497,21 @@ def test_tcp_3e_read_range_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_read_range_frame_specific_limits(monkeypatch: pytest.MonkeyPatch) -> None:
     """read_range 帧型上限分流(review-1002 P2):1E 255、1C BR 256/WR 64,
-    超限在入参期拒绝而非 codec 锁内 ValueError 穿透 _execute。"""
+    超限在入参期拒绝而非 codec 锁内 ValueError 穿透 _execute。
+
+    match 锁「点数/字数超上限」专用文案(review-1004 P3-4:原 match="255"
+    等数字也会命中 codec 旧消息如「1E 访问点数超出范围 1~255:256」,
+    修复前测试同样 PASS,非严格回归)。
+    """
     one_e = MelsecMcTcpClient("127.0.0.1", 2000, frame="1E")
-    with pytest.raises(ValueError, match="255"):
+    with pytest.raises(ValueError, match="点数超上限"):
         one_e.read_range("D100", 256, "short")  # 1E 字读上限 255
-    with pytest.raises(ValueError, match="255"):
+    with pytest.raises(ValueError, match="点数超上限"):
         one_e.read_range("M0", 256, "bool")  # 1E 位读同上限
     serial_1c = MelsecMcSerialClient(frame="1C")
-    with pytest.raises(ValueError, match="256"):
+    with pytest.raises(ValueError, match="点数超上限"):
         serial_1c.read_range("M0", 257, "bool")  # 1C BR 上限 256
-    with pytest.raises(ValueError, match="64"):
+    with pytest.raises(ValueError, match="字数超上限"):
         serial_1c.read_range("D100", 65, "short")  # 1C WR 上限 64 字
     # 边界值放行:挂无应答脚本传输,仅证入口不拒(整批 (False, None))
     boundary = MelsecMcTcpClient("127.0.0.1", 2000, frame="1E")

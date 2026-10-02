@@ -77,14 +77,9 @@ def test_scan_timeout_stops_window(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.connected is True
 
 
-def test_scan_timeout_with_partial_line_disconnects(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """半行残留(SR 口径):读到了字节却未达行尾 → 判定断线重同步。"""
-    # 结果只有半行且无更多数据:drain 读到字节但无行尾 → 留半行 → 断线
-    client = _make_client(monkeypatch, [b"AB"])
-    assert client.scan(timeout=0.05) == (False, None)
-    assert client.connected is False
+# 「半行残留 → 断线」已由 test_scan_timeout_half_line_then_residue_disconnects
+# 以真机超时口径覆盖(原 ScriptedTransport 分片耗尽版走 ConnectionError 拆连
+# 路径,drain 分支测不到,与本文件旧错配同源,review-1003/1004 P1-3 随批删除)
 
 
 def test_read_result_passive(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -198,14 +193,69 @@ def test_scan_timeout_silent_recv_stops_then_drains(
 def test_scan_timeout_half_line_then_residue_disconnects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """半行后静默超时:drain 读不尽 → 断线重同步(防旧半行拼行)。"""
+    """半行后静默超时:drain 读不尽 → 断线重同步(防旧半行拼行)。
+
+    注入真串口 0 字节超时口径 ``TransportTimeoutError``(review-1003/1004
+    P1-3:原用 ScriptedTransport 分片耗尽的 ConnectionError 模拟,走的是
+    OSError 拆连路径,「超时 → 停窗 → drain → 残留读不尽 → 拆连」真机
+    分支完全没被测到)。断言 ``connected is False`` 本身正确——部分字节
+    截断必断线重同步(review-1001 P2-4 三分语义),错的是模拟类型。
+    """
     client = HikrobotIdSerialClient()
     client.configure_serial("COM3", 115200)
-    scripted = _ScriptedTransport([b"AB"])  # 半行(无 CR/LF)后静默
+    scripted = _ScriptedTransport([])
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
+
+    timeout_exc = TransportTimeoutError("串口接收超时(0.1s)", 0)
+    # 逐字节时序:_read_line/_drain_line 都是 recv(1) 逐字节收包
+    # ①读行:A、B(半行,无行尾)→ 超时;②drain:C(读到字节未达行尾)→ 超时
+    phases = [b"A", b"B", timeout_exc, b"C", timeout_exc]
+
+    def phased_recv(size: int) -> bytes:
+        item = phases.pop(0)
+        if isinstance(item, bytes):
+            return item
+        raise item
+
+    monkeypatch.setattr(scripted, "recv", phased_recv)
     assert client.scan(timeout=0.1) == (False, None)
     assert client.connected is False  # drain 读不尽 → 断线
+    assert "读码结果等待超时" in (client.last_error or "")
+
+
+def test_slow_result_arriving_during_drain_is_consumed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """慢结果在 drain 期间到达:整行读完 → 读净不拆连、不污染下一轮。
+
+    review-1001 P2-4 用户点名场景(review-1003 待办 2):窗内只到半行,
+    静默超时触发停窗 + drain;此时慢结果的余下部分(含行尾)到达——
+    drain 读完行尾即止,无残渣、链路完好,下一轮扫描不受残留影响。
+    """
+    client = HikrobotIdSerialClient()
+    client.configure_serial("COM3", 115200)
+    scripted = _ScriptedTransport([])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+
+    timeout_exc = TransportTimeoutError("串口接收超时(0.1s)", 0)
+    # ①读行:A、B(半行)→ 超时;②drain:C、D、CR——慢结果余下部分到齐(读净)
+    # ③下一轮 scan:完整一行 XYCR 正常应答
+    phases = [b"A", b"B", timeout_exc, b"C", b"D", b"\r", b"X", b"Y", b"\r"]
+
+    def phased_recv(size: int) -> bytes:
+        item = phases.pop(0)
+        if isinstance(item, bytes):
+            return item
+        raise item
+
+    monkeypatch.setattr(scripted, "recv", phased_recv)
+    assert client.scan(timeout=0.1) == (False, None)
+    assert client.connected is True  # drain 读净 → 不断线
+    assert "读码结果等待超时" in (client.last_error or "")
+    # 残留已被 drain 消费:下一轮从流头读完整行,无半行拼接
+    assert client.scan(timeout=0.1) == (True, "XY")
 
 
 def test_read_result_timeout_keeps_window_data(
