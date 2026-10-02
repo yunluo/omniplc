@@ -40,7 +40,6 @@ from ..core.constants import (
     MODBUS_MAX_READ_REGISTERS,
     MODBUS_MAX_WRITE_BITS,
     MODBUS_MAX_WRITE_REGISTERS,
-    MODBUS_STATION_MAX,
     MODBUS_STATION_MIN,
 )
 from ..core.debug import format_hex
@@ -101,28 +100,30 @@ class AsyncModbusTcpClient(AsyncBaseClient):
 
         :param ip_address: PLC 的 IP 或主机名
         :param port: 端口,默认 502
-        :param station: 站号(Unit ID),默认 1
+        :param station: 站号(Unit ID),默认 1。**TCP 的 Unit ID 是路由
+            字段而非串口站号**:合法范围 0~255(build_mbap 收口),0xFF
+            按 TCP 实施指南 p.23 在部分网关语义为"转发到串行线"——审查
+            1001 R9-1:原实现共用串口线 0~247 上限(native 漏修,review
+            1002 补齐与同步层对齐),0xFF 被误拒
         :raises ValueError: 参数非法
         """
         validate_endpoint(ip_address, port)
         super().__init__(ip_address, port)
-        self._station = self._check_station(station)
+        if not MODBUS_STATION_MIN <= int(station) <= 0xFF:
+            raise ValueError(
+                _("TCP Unit ID 必须在 {}~255 之间,收到:{}").format(
+                    MODBUS_STATION_MIN, station
+                )
+            )
+        self._station = int(station)
         self._word_order = WordOrder.ABCD
         self._transaction_id = 0
 
     @property
     def station(self) -> int:
-        """Modbus 站号(0~247,0 为广播,仅用于写;构造期定,只读)。"""
+        """Modbus 站号(Unit ID 0~255,路由字段;0 部分网关语义转发串行线;
+        构造期定,只读)。"""
         return self._station
-
-    @staticmethod
-    def _check_station(value: int) -> int:
-        """站号范围校验(内部方法)。"""
-        if not MODBUS_STATION_MIN <= value <= MODBUS_STATION_MAX:
-            raise ValueError(
-                _("站号必须在 {}~{} 之间,收到:{}").format(MODBUS_STATION_MIN, MODBUS_STATION_MAX, value)
-            )
-        return int(value)
 
     @property
     def word_order(self) -> WordOrder:

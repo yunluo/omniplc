@@ -339,6 +339,14 @@ class _OmronFinsBase(BaseClient):
                 raise ValueError(
                     _("FINS read_range 位区读不带位号:{!r}(位号即点位,直接用 CIO/W/H/A)").format(address)
                 )
+            if count > FINS_MAX_READ_ELEMENTS:
+                # 位区每元素 1 位,同受单命令 999 上限(W342 p.168);审查
+                # 1002 P2:原实现仅字分支校验,超限帧发出后才被 PLC 拒
+                raise ValueError(
+                    _("FINS read_range 位数超单命令上限 {}:{}").format(
+                        FINS_MAX_READ_ELEMENTS, count
+                    )
+                )
 
             def operation_bits() -> List[PrimitiveValue]:
                 frame = self._build_read(parsed, count, is_bit=True)

@@ -391,15 +391,17 @@ class HikrobotIdModbusClient(ModbusTcpClient):
         while True:
             status = self._read_status_word()
             if status & HIKROBOT_STATUS_GENERAL_FAULT:
-                raise DeviceError(
-                    _("读码器内部故障(General Fault),请排查后调用 clear_error() 清除"), 0
-                )
+                # 握手级失败写三件套(review-1002 P2-5 残留:与 scan 主循环
+                # 同口径,本方法不经 _execute,裸 raise 会漏 last_error)
+                message = _("读码器内部故障(General Fault),请排查后调用 clear_error() 清除")
+                self._set_error(message, ErrorCategory.DEVICE, 0)
+                raise DeviceError(message, 0)
             if status & bit:
                 return
             if time.monotonic() >= deadline:
-                raise TransportTimeoutError(
-                    _("等待状态位超时({}),未在期限内置位").format(action), 0
-                )
+                message = _("等待状态位超时({}),未在期限内置位").format(action)
+                self._set_error(message, ErrorCategory.TIMEOUT, None)
+                raise TransportTimeoutError(message, 0)
             time.sleep(poll_interval)
 
     @staticmethod

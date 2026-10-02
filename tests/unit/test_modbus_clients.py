@@ -1758,6 +1758,26 @@ def test_tcp_get_comm_event_counter_fc11(monkeypatch: pytest.MonkeyPatch) -> Non
     assert client.get_comm_event_counter() == (True, 7)
 
 
+def test_tcp_fc11_status_busy_device_error_not_counted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FC11 状态字非 0(0xFFFF=设备忙)→ DeviceError code=0:不断线且不计
+    device_error_count(审查 1001 R9-2——设备侧条件按无码口径,状态字保留
+    在消息文本)。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    _mount(
+        client,
+        monkeypatch,
+        [_mbap_response(1, 1, bytes([0x0B, 0xFF, 0xFF, 0x00, 0x00]))],
+    )
+    client.connect()
+    assert client.get_comm_event_counter() == (False, None)
+    assert client.connected is True
+    assert client.last_error_code is None  # code=0 无码口径(状态字在文本中)
+    assert "0xFFFF" in (client.last_error or "")
+    assert client.stats["device_error_count"] == 0
+
+
 def test_tcp_get_comm_event_log_fc12(monkeypatch: pytest.MonkeyPatch) -> None:
     """FC12:状态/事件计数/报文计数/事件字节。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)

@@ -299,8 +299,11 @@ class ABaseClient:
 
     @heartbeat_interval.setter
     def heartbeat_interval(self, seconds: float) -> None:
-        # 经 executor 下发:同步 setter 会启停线程,不在事件循环线程直写
-        self._run_sync_attribute_set("heartbeat_interval", seconds)
+        # 事件循环线程直写(review-1002 P2):同步 setter 只做校验 +
+        # life_lock 微秒级启停线程,不取事务锁,直写安全;经 executor 反而
+        # 要排队等 worker 空闲(在途事务期间阻塞整个 loop)。区别于
+        # receive_timeout(其 setter 取事务锁,必须走 executor)
+        self._sync.heartbeat_interval = seconds
 
     @property
     def receive_timeout(self) -> float:

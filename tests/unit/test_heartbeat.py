@@ -340,3 +340,28 @@ class TestHeartbeatErrorAccounting:
         client._set_error("业务读失败", ErrorCategory.DEVICE, 5)
         assert client.ping() is True
         assert client.last_error is None
+
+
+class TestHeartbeatThreadLifecycle:
+    """心跳线程引用形态(review-1002 P2)。"""
+
+    def test_abandoned_client_reclaimed_thread_exits(self) -> None:
+        """未 disconnect 丢弃的客户端可回收,心跳线程随之退出。
+
+        回归:循环体曾以绑定方法为 target 强引用客户端——丢弃的
+        客户端+传输+连接永不回收,且被丢弃客户端无限期惰性重连 PLC;
+        弱引用化后 GC 可回收,线程在下个周期发现失效即退出。
+        """
+        import gc
+        import weakref as _weakref
+
+        client = _ProbeClient()
+        client.heartbeat_interval = 0.05
+        assert client.connect() is True
+        thread = client._heartbeat_thread
+        assert thread is not None and thread.is_alive()
+        ref = _weakref.ref(client)
+        del client
+        gc.collect()
+        assert ref() is None  # 客户端可回收(修复前被强引用链钉死)
+        assert _wait_until(lambda: not thread.is_alive())

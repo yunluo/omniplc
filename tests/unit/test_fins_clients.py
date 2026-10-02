@@ -703,6 +703,8 @@ def test_udp_read_range_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
         client.read_range("D100", 2, "string")
     with pytest.raises(ValueError):
         client.read_range("D0", 500, "uint")  # 500×2 = 1000 > 999 字上限
+    with pytest.raises(ValueError):
+        client.read_range("CIO0", 1000, "bool")  # 位数同受 999 上限(review-1002 P2)
 
 
 def test_udp_read_range_device_error(monkeypatch: pytest.MonkeyPatch) -> None:

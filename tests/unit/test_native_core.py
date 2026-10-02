@@ -663,6 +663,45 @@ def test_heartbeat_task_lifecycle() -> None:
     asyncio.run(scenario())
 
 
+def test_tcp_unit_id_ff_allowed_native() -> None:
+    """TCP Unit ID 0~255(native 补齐 R9-1,与同步层对齐):0xFF 放行,
+    256/-1 拒——Unit ID 是路由字段非串口站号。"""
+    client = AsyncModbusTcpClient("127.0.0.1", 502, 0xFF)
+    assert client.station == 255
+    with pytest.raises(ValueError, match="Unit ID"):
+        AsyncModbusTcpClient("127.0.0.1", 502, 256)
+    with pytest.raises(ValueError, match="Unit ID"):
+        AsyncModbusTcpClient("127.0.0.1", 502, -1)
+
+
+def test_heartbeat_interval_setter_restarts_task() -> None:
+    """运行中写间隔:任务立即重启(review-1002 P2,与同步层同语义);置 0 立即停止。"""
+
+    async def scenario() -> None:
+        behaviors: List[Any] = []
+        for tid in range(1, 10):
+            frame = tid.to_bytes(2, "big") + bytes([0, 0, 0, 6, 1, 8, 0, 0, 0, 0])
+            behaviors.extend([frame[:7], frame[7:]])
+        client = _client(FakeTransport(behaviors))
+        client.heartbeat_interval = 0.05
+        assert await client.connect() is True
+        old_task = client._heartbeat_task
+        assert old_task is not None and not old_task.done()
+        client.heartbeat_interval = 5.0
+        new_task = client._heartbeat_task
+        assert new_task is not old_task  # 立即重启,非等旧 sleep 结束
+        await asyncio.sleep(0)
+        assert old_task.done() and old_task.cancelled()
+        assert not new_task.done()
+        client.heartbeat_interval = 0
+        assert client._heartbeat_task is None  # 置 0 立即停止
+        await asyncio.sleep(0)
+        assert new_task.done() and new_task.cancelled()
+        await client.disconnect()
+
+    asyncio.run(scenario())
+
+
 def test_heartbeat_failure_writes_error_without_counting() -> None:
     """不支持探活命令的从站形态(native):tick 失败写 last_error 但零计数。
 

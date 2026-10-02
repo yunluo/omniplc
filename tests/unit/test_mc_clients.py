@@ -10,7 +10,7 @@ import struct
 
 import pytest
 
-from omniplc import MelsecMcTcpClient, MelsecMcUdpClient
+from omniplc import MelsecMcSerialClient, MelsecMcTcpClient, MelsecMcUdpClient
 from omniplc.aio import AMelsecMcTcpClient
 from omniplc.core.constants import MC_DEFAULT_MONITOR_TIMER, MC_DEFAULT_PC_NUMBER
 from omniplc.plc.melsec import codec_a, codec_qna
@@ -494,6 +494,26 @@ def test_tcp_3e_read_range_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
         client.read_range("D100", 901, "short")  # 超点数上限
     with pytest.raises(ValueError):
         client.read_range("D100", 2, "string")
+
+
+def test_read_range_frame_specific_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range 帧型上限分流(review-1002 P2):1E 255、1C BR 256/WR 64,
+    超限在入参期拒绝而非 codec 锁内 ValueError 穿透 _execute。"""
+    one_e = MelsecMcTcpClient("127.0.0.1", 2000, frame="1E")
+    with pytest.raises(ValueError, match="255"):
+        one_e.read_range("D100", 256, "short")  # 1E 字读上限 255
+    with pytest.raises(ValueError, match="255"):
+        one_e.read_range("M0", 256, "bool")  # 1E 位读同上限
+    serial_1c = MelsecMcSerialClient(frame="1C")
+    with pytest.raises(ValueError, match="256"):
+        serial_1c.read_range("M0", 257, "bool")  # 1C BR 上限 256
+    with pytest.raises(ValueError, match="64"):
+        serial_1c.read_range("D100", 65, "short")  # 1C WR 上限 64 字
+    # 边界值放行:挂无应答脚本传输,仅证入口不拒(整批 (False, None))
+    boundary = MelsecMcTcpClient("127.0.0.1", 2000, frame="1E")
+    _mount(monkeypatch, boundary, ScriptedTransport([]))
+    boundary.connect()
+    assert boundary.read_range("D100", 255, "short") == (False, None)
 
 
 def test_tcp_1e_read_range_words(monkeypatch: pytest.MonkeyPatch) -> None:

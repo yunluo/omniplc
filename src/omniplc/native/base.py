@@ -276,9 +276,9 @@ class AsyncBaseClient(ABC):
         self._check_loop_affinity()
         self._ensure_open()
         async with self._guard():
-            return self._disconnect_locked()
+            return await self._disconnect_locked()
 
-    def _disconnect_locked(self) -> bool:
+    async def _disconnect_locked(self) -> bool:
         """断开实现(内部方法,**调用方须已持有事务锁**)。
 
         尽力而为:跨循环/已关循环的传输 ``close()`` 可能抛
@@ -290,7 +290,19 @@ class AsyncBaseClient(ABC):
         task = self._heartbeat_task
         self._heartbeat_task = None
         if task is not None and not task.done():
+            # cancel 后 await 其真正退出(review-1002 P2):不残留 pending
+            # 任务,防 run_until_complete(disconnect) 收到「Task was
+            # destroyed」噪声。本协程持有事务锁 ⇒ 心跳 tick 必不在事务中
+            #(锁互斥),其挂起点(sleep/等锁)均可取消,await 不会死锁。
+            # CancelledError 可能来自任务取消或本协程被取消,此处收尾阶段
+            # 吞掉继续清理;任务自身的其他异常同样不阻断断开流程
             task.cancel()
+            try:
+                await task
+            except _CANCELLED_ERRORS:
+                pass
+            except Exception:
+                pass
         transport = self._transport
         self._transport = None
         self._connected = False
@@ -314,7 +326,7 @@ class AsyncBaseClient(ABC):
         """
         self._closed = True
         async with self._guard():
-            self._disconnect_locked()
+            await self._disconnect_locked()
 
     @property
     def connected(self) -> bool:
@@ -385,9 +397,19 @@ class AsyncBaseClient(ABC):
         value = float(seconds)
         if not math.isfinite(value) or value < 0:
             raise ValueError(
-                _("heartbeat_interval 必须为非负有限数,收到:{!r}").format(seconds)
+                _("heartbeat_interval 必须为非负有限数,收到:{}").format(seconds)
             )
         self._heartbeat_interval = value
+        task = self._heartbeat_task
+        if task is not None and not task.done():
+            # 与同步层同语义(review-1002 P2):运行中的心跳按新间隔立即
+            # 重启;置 0 时 _start_heartbeat 因间隔非正直接返回,等效
+            # "仅停止"。旧任务在下个挂起点收到取消即退出,不残留双 tick。
+            # 须在事件循环线程调用(任务在跑即说明调用方处于该循环);
+            # 未连接(无任务)时仅写值,与循环无关
+            task.cancel()
+            self._heartbeat_task = None
+            self._start_heartbeat()
 
     def _start_heartbeat(self) -> None:
         """按需启动心跳 asyncio 任务(内部方法;connect 成功后调用,幂等)。"""

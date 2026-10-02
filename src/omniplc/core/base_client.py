@@ -18,6 +18,7 @@ import socket
 import sys
 import threading
 import time
+import weakref
 from abc import ABC, abstractmethod
 from types import TracebackType
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union, cast
@@ -399,9 +400,27 @@ class BaseClient(ABC):
         self._heartbeat_stop = stop
         # stop 事件按值传入循环体:间隔写入重启线程时,旧线程持有的是旧
         # 事件引用,置位后即退出,不会残留第二个循环
+        # 循环体经弱引用回取客户端(review-1002 P2):绑定方法会强引用
+        # 客户端,未 disconnect 直接丢弃的客户端因此永不回收,且被丢弃
+        # 客户端无限期惰性重连 PLC;弱引用在下个周期发现失效即退出
+        client_ref = weakref.ref(self)
+
+        def _heartbeat_target() -> None:
+            while True:
+                client = client_ref()
+                if client is None:
+                    return
+                interval = client._heartbeat_interval
+                del client  # 等待期间不持强引用:已丢弃的客户端可被 GC 回收
+                if stop.wait(interval):
+                    return
+                client = client_ref()
+                if client is None:
+                    return
+                client._heartbeat_tick(stop)
+
         thread = threading.Thread(
-            target=self._heartbeat_loop,
-            args=(stop,),
+            target=_heartbeat_target,
             name="omniplc-heartbeat",
             daemon=True,
         )
@@ -426,11 +445,6 @@ class BaseClient(ABC):
             stop.set()
         self._heartbeat_stop = None
         self._heartbeat_thread = None
-
-    def _heartbeat_loop(self, stop: threading.Event) -> None:
-        """心跳循环主体(内部方法;守护线程入口)。"""
-        while not stop.wait(self._heartbeat_interval):
-            self._heartbeat_tick(stop)
 
     def _heartbeat_tick(self, stop: threading.Event) -> None:
         """单次心跳:探测一次并计数(内部方法;任何异常都不终止循环)。

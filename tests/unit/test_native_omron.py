@@ -690,6 +690,8 @@ def test_native_read_range_rejects(loop: Any) -> None:
             await client.read_range("D100", 2, DataType.STRING)
         with pytest.raises(ValueError):
             await client.read_range("D0", 500, DataType.UINT)  # 1000 字 > 999
+        with pytest.raises(ValueError):
+            await client.read_range("CIO0", 1000, DataType.BOOL)  # 位数同受 999
         await client.close()
 
     loop.run_until_complete(scenario())

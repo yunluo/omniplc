@@ -15,6 +15,7 @@ ModbusTcpClient 故同样 monkeypatch ``_create_transport``),按《海康机器�
 """
 from __future__ import annotations
 
+import time
 from typing import List, Tuple
 
 import pytest
@@ -305,6 +306,37 @@ def test_constructor_result_words_range() -> None:
         HikrobotIdModbusClient("127.0.0.1", result_words=3)
     with pytest.raises(ValueError, match="result_words"):
         HikrobotIdModbusClient("127.0.0.1", result_words=501)
+
+
+def test_wait_status_bit_failure_writes_last_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_wait_status_bit 握手级失败写三件套(review-1002 P2-5 残留):
+    General Fault / 超时两分支不再裸 raise 漏 last_error(本方法不经
+    _execute,scan docstring 承诺「握手级失败写三件套」)。"""
+    client = HikrobotIdModbusClient("127.0.0.1", 502, _STATION, _RESULT_WORDS)
+    monkeypatch.setattr(client, "_read_status_word", lambda: 0)
+    with pytest.raises(TransportTimeoutError):
+        client._wait_status_bit(
+            hikrobot_module.HIKROBOT_STATUS_TRIGGER_READY,
+            time.monotonic() - 0.01,  # 期限已过 → 首拍即超时
+            0.001,
+            "测试",
+        )
+    assert client.last_error is not None and "等待状态位超时" in client.last_error
+    monkeypatch.setattr(
+        client,
+        "_read_status_word",
+        lambda: hikrobot_module.HIKROBOT_STATUS_GENERAL_FAULT,
+    )
+    with pytest.raises(DeviceError):
+        client._wait_status_bit(
+            hikrobot_module.HIKROBOT_STATUS_TRIGGER_READY,
+            time.monotonic() + 1.0,
+            0.001,
+            "测试",
+        )
+    assert client.last_error is not None and "General Fault" in client.last_error
 
 
 def test_constructor_defaults_station_zero() -> None:

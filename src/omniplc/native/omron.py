@@ -321,6 +321,14 @@ class AsyncOmronFinsBase(AsyncBaseClient):
                 raise ValueError(
                     _("FINS read_range 位区读不带位号:{!r}(位号即点位,直接用 CIO/W/H/A)").format(address)
                 )
+            if count > FINS_MAX_READ_ELEMENTS:
+                # 位区每元素 1 位,同受单命令 999 上限(W342 p.168);与
+                # 同步层同口径(review-1002 P2)
+                raise ValueError(
+                    _("FINS read_range 位数超单命令上限 {}:{}").format(
+                        FINS_MAX_READ_ELEMENTS, count
+                    )
+                )
             frame = self._build_read(parsed, count, is_bit=True)
             ok, raw_bits = await self._execute(
                 lambda: self._read_bits_transaction(frame, count)

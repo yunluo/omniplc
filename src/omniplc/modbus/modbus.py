@@ -948,9 +948,11 @@ class ModbusBaseClient(BaseClient):
             pdu = codec.build_get_comm_event_counter_pdu()
             status, count = codec.parse_comm_event_counter_pdu(self._transact(pdu))
             if status != 0:
-                raise DeviceError(
-                    _("FC11 状态字非就绪:0x{:04X}").format(status), int(status)
-                )
+                # 设备侧条件(0xFFFF=忙)按无码口径 code=0:不断线且不计
+                # device_error_count(审查 1001 R9-2——原实现透传 0xFFFF
+                # 被 _execute 当"PLC 明确错误码"计入,与文档口径相悖;
+                # 原始状态字保留在消息文本中)
+                raise DeviceError(_("FC11 状态字非就绪:0x{:04X}").format(status), 0)
             return count
 
         return self._execute(operation)

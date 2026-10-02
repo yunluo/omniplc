@@ -33,6 +33,9 @@ from ...core.constants import (
     MC_DEFAULT_NETWORK_NUMBER,
     MC_DEFAULT_PC_NUMBER,
     MC_DEFAULT_PORT,
+    MC_1C_MAX_BIT_READ_POINTS,
+    MC_1C_MAX_WORD_POINTS,
+    MC_1E_MAX_POINTS,
     MC_MAX_DATAGRAM,
     MC_MAX_TRANSFER_POINTS,
     MC_MODULE_IO_MAX,
@@ -256,10 +259,11 @@ class _MelsecMcBase(BaseClient):
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """连续批量读:同软元件起连续 ``count`` 个元素,0401 成批读单事务。
 
-        位软元件 = 位单位成批读(SH-080008 §8.2,位访问 1~960 点/
-        帧上限按 :data:`MC_MAX_TRANSFER_POINTS` 分块口径收紧为**单笔直读**,
-        超限入参期拒绝);字软元件 = 字单位成批读,16 位类型 1 字/元素、
-        32 位 2 字、64 位 4 字(SH-080008 §8.2 成批读)。所有帧型
+        位软元件 = 位单位成批读(SH-080008 §8.2;3E/4E/3C/4C 按
+        :data:`MC_MAX_TRANSFER_POINTS` 分块口径收紧为**单笔直读**,1E 帧
+        上限 255、1C 帧 BR 上限 256——帧型分流,超限入参期拒绝);字软元件
+        = 字单位成批读,16 位类型 1 字/元素、32 位 2 字、64 位 4 字
+        (SH-080008 §8.2 成批读;1C 帧 WR 上限 64 字)。所有帧型
         (3E/4E/1E/3C/4C)均支持——0401 是各帧共有的核心命令
         (1E 副头部位/字读 = MC_1E_READ_BIT/WORD,3C/4C 走 codec_serial)。
 
@@ -276,10 +280,21 @@ class _MelsecMcBase(BaseClient):
         data_type_enum = DataType.coerce(data_type)
         if data_type_enum is DataType.STRING:
             raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
-        if count > MC_MAX_TRANSFER_POINTS:
+        # 帧型上限分流(review-1002 P2):入口统一 900 会放行 1E(实际
+        # 255)/1C(BR 256/WR 64)的超限帧——codec ValueError 在事务锁内
+        # 抛出穿透 _execute(其不捕 ValueError),违反整批 (False, None)
+        # 契约,故按帧型在入参期拒绝
+        if self._frame is McFrame.FRAME_1E:
+            bit_limit = word_limit = MC_1E_MAX_POINTS
+        elif self._frame is McFrame.FRAME_1C:
+            bit_limit = MC_1C_MAX_BIT_READ_POINTS
+            word_limit = MC_1C_MAX_WORD_POINTS
+        else:
+            bit_limit = word_limit = MC_MAX_TRANSFER_POINTS
+        if count > bit_limit:
             raise ValueError(
-                _("MC read_range 点数超上限 {}(SH-080008 Appendix 5 保守口径):{}").format(
-                    MC_MAX_TRANSFER_POINTS, count
+                _("MC read_range 点数超上限 {}(帧型 {}):{}").format(
+                    bit_limit, self._frame.value, count
                 )
             )
         # 注意:此处**不**预调 _translate_address——原语 _read_bits/_read_words
@@ -319,10 +334,10 @@ class _MelsecMcBase(BaseClient):
                 width = 2
             elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
                 width = 4
-            if count * width > MC_MAX_TRANSFER_POINTS:
+            if count * width > word_limit:
                 raise ValueError(
-                    _("MC read_range 字数超上限 {}:{}×{}={}").format(
-                        MC_MAX_TRANSFER_POINTS, count, width, count * width
+                    _("MC read_range 字数超上限 {}(帧型 {}):{}×{}={}").format(
+                        word_limit, self._frame.value, count, width, count * width
                     )
                 )
 
