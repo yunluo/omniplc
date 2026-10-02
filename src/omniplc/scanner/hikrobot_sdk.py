@@ -18,7 +18,11 @@ Guide》V1.5.3(2024/01/10,``Doc/``)。指南印刷页码引用(下称「指南�
 
 **无官方 Python 绑定**(SDK 提供 C/C++/C#/Java),本模块以 ctypes 按头文件
 直接绑定;动态库须现场安装(Runtime 安装包或指明 SDK 目录),核心零依赖。
-结构体为 MSVC 自然对齐,与头文件逐字段对应。
+结构体为 MSVC 自然对齐,与头文件逐字段对应。**结构体布局以 V2.0.0 头文件
+为权威依据**(本地归档 ``docs/protocol/hikrobot/MvCodeReaderParams.h``,
+与其他厂商资料同口径不入库)——指南 V1.5.3 的 IMAGE_OUT_INFO_EX2 布局
+落后于 V2.0.0 头文件(头文件新增 UnparsedAgvInfo union 并把 nReserved
+25→23,见审查 1001 P1-2),差异以头文件为准;测试含 sizeof 解析对拍守卫。
 
 触发前置(读码器侧):TriggerMode=On + TriggerSource=Software(可经
 :meth:`set_enum_value` 设置或 IDMVS 配置),采集进行中(StartGrabbing)。
@@ -37,6 +41,7 @@ from ..core.errors import (
     ErrorCategory,
     OmniPLCInternalError,
     TransportClosedError,
+    TransportTimeoutError,
 )
 from ..core.i18n import _
 from ..core.types import DataType, PrimitiveValue
@@ -110,6 +115,18 @@ _SDK_CODE_TYPE_NAMES = {
 }
 """有码无读标记类型(1000/1001/1002)代表对应区无读出,判定为未读到码。"""
 _NOREAD_CODE_TYPES = frozenset({1000, 1001, 1002})
+
+
+def _frame_is_noread(frame: "HikrobotSdkFrame") -> bool:
+    """整帧无有效条码判定(内部方法):无码,或全部为 NoRead 标记类型。
+
+    读码器开启 NoRead 输出时,未读到码的 ROI 会输出 NoRead 标记条码
+    (类型 1000/1001/1002,指南附录 C.1)——全帧皆标记 = 没读到码,
+    不得当作成功读码返回。
+    """
+    return (not frame.codes) or all(
+        code.code_type in _NOREAD_CODE_TYPES for code in frame.codes
+    )
 
 
 # --------------------------------------------------------------------------
@@ -293,8 +310,33 @@ class _UnparsedBcrListUnion(ctypes.Union):
     ]
 
 
+class _UnparsedOcrListUnion(ctypes.Union):
+    """OCR 信息指针/对齐占位(MvCodeReaderParams.h 行 804-808;本库不解引用)。"""
+
+    _fields_ = [
+        ("pstOcrList", ctypes.c_void_p),
+        ("nAligning", ctypes.c_int64),
+    ]
+
+
+class _UnparsedAgvInfoUnion(ctypes.Union):
+    """AGV 读码头指针/对齐占位(MvCodeReaderParams.h 行 814-818;本库不解引用)。"""
+
+    _fields_ = [
+        ("pstAgvInfo", ctypes.c_void_p),
+        ("nAligning", ctypes.c_int64),
+    ]
+
+
 class _MV_CODEREADER_IMAGE_OUT_INFO_EX2(ctypes.Structure):
-    """帧输出信息(MvCodeReaderParams.h 行 779-823):图像 + 条码(扩展/质量)。"""
+    """帧输出信息(MvCodeReaderParams.h 行 751-823):图像 + 条码(扩展/质量)。
+
+    逐字段对应 V2.0.0 头文件原文:UnparsedBcrList 之后依次为
+    UnparsedOcrList(8B)→ nWholeFlag/nRes → UnparsedAgvInfo(8B)→
+    nReserved[23]——两个 union 占位缺一不可(SDK 按其编译期尺寸整体写
+    调用方缓冲,漏一个即 8 字节越界写,合计 16B;外层 pstCodeListEx 头文件
+    类型为 ``RESULT_BCR_EX*`` 非 EX2,本库不解引用故按 void* 占位)。
+    """
     _fields_ = [
         ("nWidth", ctypes.c_ushort),
         ("nHeight", ctypes.c_ushort),
@@ -307,14 +349,16 @@ class _MV_CODEREADER_IMAGE_OUT_INFO_EX2(ctypes.Structure):
         ("bFlaseTrigger", ctypes.c_uint),
         ("nFocusScore", ctypes.c_uint),
         ("bIsGetCode", ctypes.c_bool),
-        ("pstCodeListEx", ctypes.POINTER(_MV_CODEREADER_RESULT_BCR_EX2)),
+        ("pstCodeListEx", ctypes.c_void_p),
         ("pstWaybillList", ctypes.c_void_p),
         ("nEventID", ctypes.c_uint),
         ("nChannelID", ctypes.c_uint),
         ("nImageCost", ctypes.c_uint),
         ("UnparsedBcrList", _UnparsedBcrListUnion),
+        ("UnparsedOcrList", _UnparsedOcrListUnion),
         ("nWholeFlag", ctypes.c_ushort),
         ("nRes", ctypes.c_ushort),
+        ("UnparsedAgvInfo", _UnparsedAgvInfoUnion),
         ("nReserved", ctypes.c_uint * 23),
     ]
 
@@ -370,9 +414,9 @@ class HikrobotSdkQuality(NamedTuple):
     decode: int
     """译码评分。"""
     contrast_grade: int
-    """Symbol Contrast 对比度评分(2D)。"""
+    """Symbol Contrast 对比度评分(1D/2D 共用,指南 §4.1.5 印刷页 55-56)。"""
     modulation_grade: int
-    """模块均匀性评分(2D)。"""
+    """模块均匀性评分(1D/2D 共用,指南 §4.1.5 印刷页 55-56)。"""
     fpd_grade: int
     """fixed_pattern_damage 评分(2D)。"""
     axial_grade: int
@@ -643,12 +687,35 @@ class _SdkFunctions:
         self.SetCommandValue = dll.MV_CODEREADER_SetCommandValue
 
 
+_SDK_LINK_ERROR_RANGES = (
+    (0x80020200, 0x800202FF),
+    (0x80020300, 0x800203FF),
+    (0x80020500, 0x800205FF),
+)
+"""链路类错误码段(指南附录 D 印刷页 108-119):命中即断链,按 OSError
+抛出触发基类惰性重连——GigE 状态 / USB 状态 / 网络组件三类。"""
+
+
 def _check_rc(rc: int, action: str) -> None:
-    """SDK 返回码校验(内部方法):非 OK 抛 DeviceError,code = 原始错误码。"""
-    if rc != _MV_CODEREADER_OK:
-        raise DeviceError(
-            _("SDK 调用失败({}):0x{:08X}").format(action, rc & 0xFFFFFFFF), rc
-        )
+    """SDK 返回码校验(内部方法):非 OK 按错误类别分流抛出。
+
+    - **链路类**(GigE 状态 0x800202xx / USB 状态 0x800203xx / 网络组件
+      0x800205xx,指南附录 D 印刷页 108-119 明确为连接状态错误)→
+      :class:`OSError`——触发基类惰性重连,网线拔掉/掉电后不再永驻
+      "已连接"态;
+    - 其余(语义类/参数类/超时)→ :class:`DeviceError` 不断线。
+
+    ``code`` 统一按无符号呈现(restype ``c_int`` 下 0x80020006 呈负数,
+    与 0x 文本不一致)。
+    """
+    code = rc & 0xFFFFFFFF
+    if code == _MV_CODEREADER_OK:
+        return
+    if any(low <= code <= high for low, high in _SDK_LINK_ERROR_RANGES):
+        raise OSError(_("SDK 链路类错误({}):0x{:08X}").format(action, code))
+    raise DeviceError(
+        _("SDK 调用失败({}):0x{:08X}").format(action, code), code
+    )
 
 
 def _ip_to_uint(ip: str) -> int:
@@ -734,7 +801,12 @@ class _HikrobotSdkSession(BaseTransport):
             if rc != _MV_CODEREADER_OK:
                 continue
             for index in range(device_list.nDeviceNum):
-                info = device_list.pDeviceInfo[index].contents
+                pointer = device_list.pDeviceInfo[index]
+                if not pointer:
+                    # 官方样例显式判 NULL(ctypes 对 NULL 指针 .contents 会抛
+                    # ValueError 被 connect 吞成误导文案),跳过空槽位
+                    continue
+                info = pointer.contents
                 if (
                     info.nTLayerType == _MV_CODEREADER_GIGE_DEVICE
                     and info.SpecialInfo.stGigEInfo.nCurrentIp == target
@@ -988,6 +1060,10 @@ class HikrobotIdSdkClient(BaseClient):
             NoRead 标记类型)/取帧超时/命令出错返回 ``(False, None)``,原因
             记入 :attr:`last_error`
         :raises ValueError: 参数非法
+
+        注意 SDK 按先进先出返回帧:上一触发超时后**迟到的旧帧**会在下一轮
+        取回(单触发语义);如需严格配对,调用方比对
+        :attr:`HikrobotSdkFrame.trigger_index` / ``frame_num``。
         """
         if timeout <= 0:
             raise ValueError(_("timeout 必须大于 0,收到:{}").format(timeout))
@@ -996,9 +1072,11 @@ class HikrobotIdSdkClient(BaseClient):
         )
         if not ok or frame is None:
             return False, None
-        if not frame.codes:
+        if _frame_is_noread(frame):
             with self._lock:
-                self._set_error(_("读码器无读出(无条码)"), ErrorCategory.DEVICE, None)
+                self._set_error(
+                    _("读码器无读出(NoRead 标记帧)"), ErrorCategory.DEVICE, None
+                )
             return False, None
         return True, frame
 
@@ -1018,11 +1096,17 @@ class HikrobotIdSdkClient(BaseClient):
         )
         if not ok or frame is None:
             return False, None
-        if not frame.codes:
+        if _frame_is_noread(frame):
             with self._lock:
-                self._set_error(_("读码器无读出(无条码)"), ErrorCategory.DEVICE, None)
+                self._set_error(
+                    _("读码器无读出(NoRead 标记帧)"), ErrorCategory.DEVICE, None
+                )
             return False, None
         return True, frame
+
+    def close(self) -> None:
+        """断开会话(:meth:`disconnect` 别名,与 TCP/串口读码器客户端命名一致)。"""
+        self.disconnect()
 
     # ------------------------------------------------------------------
     # 参数访问(GenICam 节点名以 IDMVS 属性树为准,指南 §3.5 印刷页 37-45)
@@ -1128,9 +1212,12 @@ class HikrobotIdSdkClient(BaseClient):
         rc = session.get_one_frame_ex2(
             ctypes.pointer(data_ptr), ctypes.pointer(info), int(timeout * 1000)
         )
-        if rc == _MV_CODEREADER_E_NODATA:
-            raise DeviceError(
-                _("取帧超时({}s),读码器未输出帧(NODATA)").format(timeout), rc
+        if rc == _MV_CODEREADER_E_NODATA or (rc & 0xFFFFFFFF) == _MV_CODEREADER_E_NODATA:
+            # 超时无帧:与 TCP/串口超时同口径——TransportTimeoutError(code=0)
+            # 不计 device_error_count、不断线;比较同时覆盖 c_int restype 的
+            # 负数形态(真 DLL)与测试桩的正数形态
+            raise TransportTimeoutError(
+                _("取帧超时({}s),读码器未输出帧(NODATA)").format(timeout), 0
             )
         _check_rc(rc, _("取帧"))
         image: Optional[bytes] = None

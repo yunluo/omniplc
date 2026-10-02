@@ -1178,6 +1178,13 @@ _TRANSLATIONS: Dict[str, str] = {
     'heartbeat_interval 必须为数字,收到:{!r}': 'heartbeat_interval must be a number, got: {0!r}',
     'heartbeat_interval 必须为非负有限数,收到:{!r}': 'heartbeat_interval must be a non-negative finite number, got: {0!r}',
     '读码器应答缺少参数值': 'The reader reply is missing a parameter value',
+    # ---- 审查 1001 修复批(海康读码器域) ----
+    '读码器无读出(NoRead 标记帧)': 'The reader produced no read (NoRead marker frame)',
+    'SDK 链路类错误({}):0x{:08X}': 'SDK link-class error ({0}): 0x{1:08X}',
+    '结果报文解码失败({}):{}': 'Failed to decode the result payload ({0}): {1}',
+    '{} 必须为 ASCII,收到:{!r}': '{0} must be ASCII, got: {1!r}',
+    '{} 必须为 ASCII(串口文本触发协议口径),收到:{!r}': '{0} must be ASCII (serial text-trigger protocol), got: {1!r}',
+    '采集状态应答非数字:{!r}': 'The acquisition status reply is not numeric: {0!r}',
 }
 # <<<I18N_END>>>
 

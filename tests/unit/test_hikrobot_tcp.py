@@ -257,6 +257,75 @@ def test_scripted_module_used_for_chunks() -> None:
     assert scripted.ChunkSocket is ChunkSocket
 
 
+def test_command_invalid_suffix_outside_brackets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """手册 §1.3 印刷页 2 字面格式:``<...> invalid``(invalid 在括号外)。"""
+    client, _cmd, _result = _make_client(
+        monkeypatch,
+        [b"<Exec,TriSoft> invalid"],
+        None,
+    )
+    assert client.trigger() is False
+    assert client.last_error is not None and "invalid" in client.last_error
+    assert client.connected is True
+
+
+def test_command_invalid_suffix_no_buffer_residue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """invalid 后缀被并入判定后不残留:下一条命令应答不受污染。"""
+    client, _cmd, _result = _make_client(
+        monkeypatch,
+        [b"<Exec,TriSoft> invalid", b"<Exec,TriSoft,OK>"],
+        None,
+    )
+    assert client.trigger() is False
+    assert client.trigger() is True  # 残留会把这条变成 " invalid<...>" 断线
+
+
+def test_get_acquisition_zero_is_parameter_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``<Get,Acq,0>``:0 = 停止采集,是合法参数值,不得当 errno 吞掉。"""
+    client, cmd_sock, _result = _make_client(
+        monkeypatch,
+        [b"<Get,Acq,0>"],
+        None,
+    )
+    assert client.get_acquisition() == (True, 0)
+    assert bytes(cmd_sock.sent) == b"<Get,Acq>"
+
+
+def test_get_parameter_zero_via_low_level_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """command() 低阶:Get 的 0 值参数(如 TriTcpStopEnable=0)原样透出。"""
+    client, _cmd, _result = _make_client(
+        monkeypatch,
+        [b"<Get,TriTcpStopEnable,0>"],
+        None,
+    )
+    assert client.command("Get", "TriTcpStopEnable") == (True, "0")
+
+
+def test_set_still_treats_zero_as_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Set/Exec 的 0 仍按 EXT_CMD_ERR_OK=0 成功处理(Get 分流不波及)。"""
+    client, _cmd, _result = _make_client(
+        monkeypatch,
+        [b"<Exec,Reboot,0>"],
+        None,
+    )
+    assert client.command("Exec", "Reboot") == (True, None)
+
+
+def test_command_non_ascii_rejected_at_construction() -> None:
+    """命令参数非 ASCII 构造期拒绝(事务期 encode 不再逃逸)。"""
+    client = HikrobotIdTcpClient("127.0.0.1", _CMD_PORT)
+    with pytest.raises(ValueError, match="ASCII"):
+        client.command("Set", "TriTcpStart", "中文触发")
+
+
 def test_ping_get_acquisition(monkeypatch: pytest.MonkeyPatch) -> None:
     """ping():``<Get,Acq>`` 零副作用查询,应答即命令通道探活成功。"""
     client, cmd_sock, _result = _make_client(

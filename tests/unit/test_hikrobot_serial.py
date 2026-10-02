@@ -132,7 +132,7 @@ def test_constructor_text_validation() -> None:
 
 
 def test_configure_serial_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
-    """configure_serial 落位:默认 115200(手册未载出厂默认,以 IDMVS 为准)。"""
+    """configure_serial 落位:库缺省 115200(出厂默认 9600,手册 §4.6.2 印刷页 48)。"""
     client = HikrobotIdSerialClient()
     client.configure_serial("COM5")
     assert client._serial_config is not None  # noqa: SLF001
@@ -148,3 +148,71 @@ def test_custom_noread_text(monkeypatch: pytest.MonkeyPatch) -> None:
     """现场改过「输出无读」文本时,noread_text 同步判定。"""
     client = _make_client(monkeypatch, [b"NOREAD!\r\n"], noread_text="NOREAD!")
     assert client.scan(timeout=2.0) == (False, None)
+
+
+# ----------------------------------------------------------------------
+# 审查 1001 修复:超时收尾顺序 / read_result 不 drain / ASCII 构造期校验
+# ----------------------------------------------------------------------
+
+
+def test_scan_timeout_silent_recv_stops_then_drains(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """完全静默超时(TransportTimeoutError 路径):停止文本先发、drain 后行,
+    链路不断线——审查 1001 P1-4:原实现该路径绕过全部收尾。"""
+    client = HikrobotIdSerialClient()
+    client.configure_serial("COM3", 115200)
+    scripted = _ScriptedTransport([])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+
+    def silent_recv(size: int) -> bytes:
+        raise __import__("socket").timeout("timed out")
+
+    monkeypatch.setattr(scripted, "recv", silent_recv)
+    assert client.scan(timeout=0.05) == (False, None)
+    # 收尾完整:start → (超时) → stop → drain 尽力读
+    assert bytes(scripted.sent) == b"startstop"
+    assert client.last_error is not None and "超时" in client.last_error
+    assert client.connected is True
+
+
+def test_scan_timeout_half_line_then_residue_disconnects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """半行后静默超时:drain 读不尽 → 断线重同步(防旧半行拼行)。"""
+    client = HikrobotIdSerialClient()
+    client.configure_serial("COM3", 115200)
+    scripted = _ScriptedTransport([b"AB"])  # 半行(无 CR/LF)后静默
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.scan(timeout=0.1) == (False, None)
+    assert client.connected is False  # drain 读不尽 → 断线
+
+
+def test_read_result_timeout_keeps_window_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """read_result 超时:不 drain 不断线(窗口由调用方编排,迟到真结果
+    留给下一次 read_result)——审查 1001 P2-4。"""
+    client = HikrobotIdSerialClient()
+    client.configure_serial("COM3", 115200)
+    scripted = _ScriptedTransport([])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+
+    def silent_recv(size: int) -> bytes:
+        raise __import__("socket").timeout("timed out")
+
+    monkeypatch.setattr(scripted, "recv", silent_recv)
+    assert client.read_result(timeout=0.05) == (False, None)
+    # socket.timeout 在 _read_result_once 不再被捕获 → 0 字节超时口径:
+    # TransportTimeoutError 由基类按"链路无残渣"处理,不断线
+    assert client.connected is True  # 不断线
+    assert bytes(scripted.sent) == b""  # 未发 stop(窗口由调用方 stop() 收)
+
+
+def test_constructor_rejects_non_ascii_text() -> None:
+    """触发/停止文本非 ASCII 构造期拒绝(事务期 encode 不再逃逸)。"""
+    with pytest.raises(ValueError, match="ASCII"):
+        HikrobotIdSerialClient(trigger_text="中文触发")

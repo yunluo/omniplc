@@ -154,6 +154,12 @@ class _HikrobotIdSession(BaseTransport):
         逐字节读到 ``>`` 为止(应答自括号定界),整体受 ``timeout`` 预算约束;
         超时抛 :class:`socket.timeout`(链路仍完好,由调用方转译)。
 
+        ``>`` 之后做一次**非阻塞 MSG_PEEK**:手册 §1.3 印刷页 2 的 invalid
+        应答把 ``invalid`` 写在闭合 ``>`` **之外**(``<cmdType, cmdStr,
+        param> invalid``)——后缀与括号同一报文突发到达,非阻塞探测即可
+        捕获;探测到即一并消费并附在返回值后,由调用方判定。空池/下一应答
+        (以 ``<`` 开头)不消费。
+
         :raises ProtocolFrameError: 超过 :data:`HIKROBOT_CMD_REPLY_MAX` 上限
         """
         sock = self._command_sock
@@ -178,6 +184,29 @@ class _HikrobotIdSession(BaseTransport):
                         HIKROBOT_CMD_REPLY_MAX, format_hex(b"".join(chunks))
                     )
                 )
+        # invalid 后缀探测:非阻塞 MSG_PEEK 不消费数据,空缓冲立即返回
+        previous_timeout = sock.gettimeout()
+        try:
+            sock.settimeout(0)
+            peeked = sock.recv(64, socket.MSG_PEEK)
+        except (socket.timeout, BlockingIOError, OSError, ValueError):
+            peeked = b""
+        else:
+            stripped = peeked.lstrip()
+            if stripped.startswith(b"invalid"):
+                # 逐字节消费前导空白 + 词身——缓冲里可能还有**下一条**应答
+                # (真 socket 上设备把 invalid 与后续应答接连发出),按探测
+                # 长度整段消费会把下一条一起吞掉
+                for _pad in range(len(peeked) - len(stripped)):
+                    sock.recv(1)
+                for _char in b"invalid":
+                    sock.recv(1)
+                chunks.append(b"invalid")
+        finally:
+            try:
+                sock.settimeout(previous_timeout)
+            except OSError:
+                pass
         return b"".join(chunks)
 
     def recv_result(self, timeout: float, settle: float, max_frame: int) -> bytes:
@@ -315,11 +344,13 @@ class HikrobotIdTcpClient(BaseClient):
         前置:读码器已开始采集(IDMVS 工具栏或 :meth:`set_acquisition(True)`),
         且触发模式开启、触发源为软触发。
 
-        :param timeout: 等待命令应答与结果推送的总超时(秒)
+        :param timeout: 等待结果推送的超时(秒);命令应答另受
+            ``receive_timeout`` 约束,最坏总耗时 ≈ ``receive_timeout + timeout``
         :return: ``(是否读到条码, 结果文本)``。结果文本为读码器「输出格式化」
             模板原文(配置了元数据占位符时含元数据字段,由调用方按模板解析);
             NoRead 文本/超时/断线/命令出错返回 ``(False, None)``,原因记入
-            :attr:`last_error`
+            :attr:`last_error`。NoRead 判定为**整帧输出恰等于 NoRead 文本**
+            ——配置元数据模板后 NoRead 内嵌于输出串,由调用方按模板解析
         :raises ValueError: 结果通道未配置或参数非法
         """
         if timeout <= 0:
@@ -402,7 +433,17 @@ class HikrobotIdTcpClient(BaseClient):
         ok, value = self._execute(lambda: self._command_exchange("Get", "Acq"))
         if not ok or value is None:
             return False, None
-        return True, int(value)
+        try:
+            return True, int(value)
+        except ValueError:
+            # 防御:Get 应答非数字(理论不可达,设备按指令表返回数值)
+            with self._lock:
+                self._set_error(
+                    _("采集状态应答非数字:{!r}").format(value),
+                    ErrorCategory.DEVICE,
+                    0,
+                )
+            return False, None
 
     def _ping_probe(self) -> int:
         """探活探测命令:``<Get,Acq>`` 采集状态查询(内部方法)。
@@ -436,6 +477,15 @@ class HikrobotIdTcpClient(BaseClient):
             raise ValueError(_("Set 命令必须携带参数"))
         if cmd_type in ("Get", "Exec") and param is not None:
             raise ValueError(_("{} 命令不携带参数,收到:{!r}").format(cmd_type, param))
+        for name, part in (("cmd", cmd), ("param", param)):
+            if part is None:
+                continue
+            try:
+                str(part).encode("ascii")
+            except UnicodeEncodeError as exc:
+                raise ValueError(
+                    _("{} 必须为 ASCII,收到:{!r}").format(name, part)
+                ) from exc
         return self._execute(lambda: self._command_exchange(cmd_type, cmd, param))
 
     # ------------------------------------------------------------------
@@ -461,7 +511,14 @@ class HikrobotIdTcpClient(BaseClient):
             raise TransportTimeoutError(
                 _("读码结果等待超时({}s),结果通道无数据").format(timeout), 0
             )
-        return raw.decode(self._encoding, errors=self._encoding_errors)
+        try:
+            return raw.decode(self._encoding, errors=self._encoding_errors)
+        except UnicodeDecodeError as exc:
+            # 解码失败按"设备应答异常"处理(不断线、记 last_error),
+            # 兑现 docstring "非法序列抛错并记 last_error" 的承诺
+            raise DeviceError(
+                _("结果报文解码失败({}):{}").format(self._encoding, exc), 0
+            ) from exc
 
     def _command_exchange(
         self, cmd_type: str, cmd: str, param: Optional[str] = None
@@ -470,13 +527,20 @@ class HikrobotIdTcpClient(BaseClient):
 
         应答契约(通信指令手册 §1.3 印刷页 1-2):
         ``<Get,cmdStr,param/errno>`` / ``<Set,cmdStr,OK/errno>`` /
-        ``<Exec,cmdStr,OK/errno>``;payload 为 ``OK`` 或 ``0`` 视为成功,
-        负整数按错误码表(印刷页 12-13)转译为 :class:`DeviceError`。
+        ``<Exec,cmdStr,OK/errno>``;``invalid`` 跟在闭合 ``>`` **之外**
+        (印刷页 2,由 :meth:`recv_command_reply` 非阻塞探测并入判定)。
+
+        - payload ``OK`` → 成功无参数(:const:`None`);
+        - 负整数 → 错误码表(印刷页 12-13)转译 :class:`DeviceError`;
+        - **Get 的非负 payload(含 "0")是合法参数值**(指令表:
+          ``0=停止采集`` 等),原样返回;
+        - Set/Exec 的非负 payload = 执行成功(``EXT_CMD_ERR_OK=0``),
+          无参数返回。
 
         :return: Get 命令返回参数文本;Set/Exec 成功返回 ``None``
         :raises ProtocolFrameError: 应答非 ``<...>`` 形式或回显不符(带原始帧)
         :raises DeviceError: 设备返回 errno / invalid
-        :raises TransportTimeoutError: 命令应答超时
+        :raises TransportTimeoutError: 命令应答超时(拆连重同步)
         """
         session = self._require_transport()
         if not isinstance(session, _HikrobotIdSession):
@@ -491,17 +555,29 @@ class HikrobotIdTcpClient(BaseClient):
         try:
             reply = session.recv_command_reply(self._receive_timeout)
         except socket.timeout:
+            # 命令通道是请求/应答型:半应答残留在缓冲,下一应答必串帧——
+            # 按 TCP 走线契约拆连重同步(结果通道静默成帧无残渣,维持
+            # 0 字节超时不断线口径)
+            self._mark_disconnected()
             raise TransportTimeoutError(
                 _("命令 {} 应答超时({}s)").format(payload, self._receive_timeout), 0
             )
         text = reply.decode("ascii", errors="replace")
-        if not (text.startswith("<") and text.endswith(">")):
+        # invalid 在闭合 > 之外(手册 §1.3 印刷页 2):切出括号体与后缀
+        if text.endswith(">"):
+            frame_part, suffix_part = text, ""
+        else:
+            frame_part, _sep, suffix_part = text.rpartition(">")
+            frame_part += ">"
+        if suffix_part.strip() == "invalid":
+            raise DeviceError(_("命令被设备拒绝(invalid):{}").format(text), 0)
+        if not (frame_part.startswith("<") and frame_part.endswith(">")):
             raise ProtocolFrameError(
                 _("命令应答帧非法:期望 <...> 形式,收到 {!r}(原始帧:{})").format(
                     text, format_hex(reply)
                 )
             )
-        fields = text[1:-1].split(",", 2)
+        fields = frame_part[1:-1].split(",", 2)
         if len(fields) != 3:
             raise ProtocolFrameError(
                 _("命令应答字段数不符:期望 3 段,收到 {!r}(原始帧:{})").format(
@@ -517,11 +593,9 @@ class HikrobotIdTcpClient(BaseClient):
             )
         if reply_payload == "OK":
             return None
-        if "invalid" in reply_payload:
-            # 指令不符合通用格式(手册 §1.3 印刷页 2:返回 invalid)
-            raise DeviceError(
-                _("命令被设备拒绝(invalid):{}").format(text), 0
-            )
+        if reply_payload.strip() == "invalid":
+            # 兼容把 invalid 写进括号的固件形态(手册口径为括号外)
+            raise DeviceError(_("命令被设备拒绝(invalid):{}").format(text), 0)
         try:
             errno = int(reply_payload)
         except ValueError:
@@ -536,11 +610,13 @@ class HikrobotIdTcpClient(BaseClient):
                 ),
                 errno,
             )
-        if errno == 0:
-            # errno 0 = 指令执行成功(错误码表 EXT_CMD_ERR_OK=0)
-            return None
-        # 正整数:Get 的参数值(如 Acq=1、RunMode=2)
-        return reply_payload
+        if cmd_type == "Get":
+            # 非负 payload(含 "0")是 Get 的合法参数值(指令表:0=停止采集
+            # 等)——"0" 不是 errno(审查 1001 P1-3:原实现把 0 当成功吞掉,
+            # get_acquisition 永远取不到 0)
+            return reply_payload
+        # Set/Exec:非负 = 执行成功(错误码表 EXT_CMD_ERR_OK=0),无参数
+        return None
 
     def _create_transport(self) -> BaseTransport:
         return _HikrobotIdSession(

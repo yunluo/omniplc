@@ -50,11 +50,16 @@ class ChunkSocket:
     def settimeout(self, value: Optional[float]) -> None:
         self.timeout = value
 
-    def recv(self, size: int) -> bytes:
+    def gettimeout(self) -> Optional[float]:
+        """当前超时值(海康 TCP 命令应答的 MSG_PEEK 后缀探测用)。"""
+        return self.timeout
+
+    def recv(self, size: int, flags: int = 0) -> bytes:
         if not self._pool:
             raise socket.timeout("timed out")
         chunk = bytes(self._pool[:size])
-        del self._pool[:size]
+        if not flags & socket.MSG_PEEK:
+            del self._pool[:size]
         return chunk
 
     def sendall(self, data: bytes) -> None:

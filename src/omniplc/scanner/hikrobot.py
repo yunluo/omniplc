@@ -65,6 +65,7 @@ import time
 from typing import List, NamedTuple, Optional, Tuple
 
 from ..core.constants import (
+    HIKROBOT_ACK_SETTLE,
     HIKROBOT_CONTROL_OFFSET,
     HIKROBOT_CTRL_CLEAR_ERROR,
     HIKROBOT_CTRL_RESULTS_ACK,
@@ -84,7 +85,7 @@ from ..core.constants import (
     HIKROBOT_STATUS_TRIGGER_READY,
     MODBUS_DEFAULT_PORT,
 )
-from ..core.errors import DeviceError, TransportTimeoutError
+from ..core.errors import DeviceError, ErrorCategory, TransportTimeoutError
 from ..core.i18n import _
 from ..core.types import DataType
 from ..modbus import ModbusTcpClient
@@ -207,11 +208,21 @@ class HikrobotIdModbusClient(ModbusTcpClient):
             :meth:`clear_error` 再重试)、Results Ack 未被设备消费、
             Modbus 事务失败(细节见 ``last_error``)
         :raises ValueError: 参数非法
+
+        握手全程持**事务锁**(与家族其余 scan 同口径,审查 1001 P2-5:
+        防并发线程交插图双触发),握手级失败写 ``last_error`` 三件套。
         """
         if timeout <= 0:
             raise ValueError(_("timeout 必须大于 0,收到:{}").format(timeout))
         if poll_interval <= 0:
             raise ValueError(_("poll_interval 必须大于 0,收到:{}").format(poll_interval))
+        with self._lock:
+            return self._scan_locked(timeout, poll_interval)
+
+    def _scan_locked(
+        self, timeout: float, poll_interval: float
+    ) -> Tuple[bool, Optional[str]]:
+        """scan 握手实现(内部方法,须持事务锁)。"""
         deadline = time.monotonic() + float(timeout)
 
         # 1. 使能触发(§3.6 步骤 1)
@@ -237,9 +248,9 @@ class HikrobotIdModbusClient(ModbusTcpClient):
             status = words[0]
             if status & HIKROBOT_STATUS_GENERAL_FAULT:
                 # 设备内部异常(§3.6:确认错误原因后 Clear Error 可继续)
-                raise DeviceError(
-                    _("读码器内部故障(General Fault),请排查后调用 clear_error() 清除"), 0
-                )
+                message = _("读码器内部故障(General Fault),请排查后调用 clear_error() 清除")
+                self._set_error(message, ErrorCategory.DEVICE, 0)
+                raise DeviceError(message, 0)
             if trigger_armed and status & HIKROBOT_STATUS_TRIGGER_ACK:
                 self._write_control(HIKROBOT_CTRL_TRIGGER_ENABLE, _("回落触发位"))
                 trigger_armed = False
@@ -250,24 +261,28 @@ class HikrobotIdModbusClient(ModbusTcpClient):
                 ng = True
                 break
             if time.monotonic() >= deadline:
-                raise TransportTimeoutError(
-                    _("读码超时({}s),设备未输出 Results OK/NG").format(timeout), 0
-                )
+                message = _("读码超时({}s),设备未输出 Results OK/NG").format(timeout)
+                self._set_error(message, ErrorCategory.TIMEOUT, None)
+                raise TransportTimeoutError(message, 0)
             time.sleep(poll_interval)
         # 5. Results Ack 应答(§3.6 步骤 5:读取完成后置位,设备清 OK/NG)
         self._write_control(
             HIKROBOT_CTRL_TRIGGER_ENABLE | HIKROBOT_CTRL_RESULTS_ACK, _("应答结果")
         )
         # 6. 等设备消费 Ack(OK/NG 清零):未清即发起下一轮会读到陈旧结果,
-        #    握手必须闭环(§3.6 步骤 6)
+        #    握手必须闭环(§3.6 步骤 6)。用**独立收尾预算**(审查 1001
+        #    P2-6:不继承结果等待的过期时刻,防边界拍误报并丢结果)
+        ack_deadline = time.monotonic() + HIKROBOT_ACK_SETTLE
         while True:
             status = self._read_status_word()
             if not status & (HIKROBOT_STATUS_RESULTS_OK | HIKROBOT_STATUS_RESULTS_NG):
                 break
-            if time.monotonic() >= deadline:
-                raise DeviceError(
-                    _("Results Ack 未被设备消费(Results OK/NG 未清零),握手未闭环"), 0
+            if time.monotonic() >= ack_deadline:
+                message = _(
+                    "Results Ack 未被设备消费(Results OK/NG 未清零),握手未闭环"
                 )
+                self._set_error(message, ErrorCategory.DEVICE, 0)
+                raise DeviceError(message, 0)
             time.sleep(poll_interval)
         if ng:
             # Results NG:设备已把结果区清零(§3.6 步骤 3),正常未读到码
@@ -353,6 +368,11 @@ class HikrobotIdModbusClient(ModbusTcpClient):
         :meth:`ModbusTcpClient.read_batch` 合并为一笔 FC03——状态与结果
         同快照,规避"状态已 OK 而结果区仍是旧值"的新旧错配。
 
+        **上限注意**(审查 1001 P3-⑱):``result_words > 124`` 时单笔超出
+        Modbus 字读上限 125(含状态字),``read_batch`` 自动拆多笔 FC03——
+        此时状态与结果**不再同快照**(设备先写数据后置 OK 位,错配窗口小);
+        需要严格同快照请把 ``result_words`` 控制在 124 以内。
+
         :raises DeviceError: 事务失败
         """
         ok, values = self.read_batch(self._block_addresses)
@@ -404,6 +424,11 @@ class HikrobotIdModbusClient(ModbusTcpClient):
         截断。每寄存器两字节,Modbus 寄存器标准大端;读码器侧开启
         「结果字节交换」时寄存器内高低字节对调,按 :attr:`byte_swap`
         解码。
+
+        **待核假设**(审查 1001 P3-⑰):手册(印刷页 44)只写「交换结果
+        数据字节序」,长度字 REG2 是否同样交换未明——本库按"仅数据寄存器"
+        解读(长度字恒标准大端);若真机整区交换,length=6 解成 0x0600 被
+        min() 截到容量会解出乱码,核证要点已列真机清单。
         """
         length = words[1] if len(words) > 1 else 0
         # words[0] 为状态字、words[1] 为长度寄存器,数据自 words[2](REG3)起

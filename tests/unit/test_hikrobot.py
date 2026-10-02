@@ -194,6 +194,50 @@ def test_scan_ack_not_consumed_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         client.scan(timeout=1.0, poll_interval=0.001)
 
 
+def test_scan_handshake_failure_records_last_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """握手级失败写 last_error 三件套(审查 1001 P2-5:scan 持事务锁口径)。"""
+    frames = [
+        _fc06_response(1, 0, 0x0001),
+        _fc03_response(2, [0x0001]),
+        _fc06_response(3, 0, 0x0003),
+        _block_response(4, 0x8000, []),  # General Fault
+    ]
+    client, _scripted = _make_client(monkeypatch, frames)
+    with pytest.raises(DeviceError, match="General Fault"):
+        client.scan(timeout=2.0, poll_interval=0.001)
+    # 抛出不逃逸事务契约:失败原因进 last_error(此前是残留旧值/空)
+    assert client.last_error is not None and "General Fault" in client.last_error
+    assert client.last_error_category is not None
+    assert client.connected is True
+
+
+def test_scan_ack_timeout_uses_independent_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ack 消费等待用独立收尾预算:结果在主超时末拍到达仍能成功返回
+    (审查 1001 P2-6:共用 deadline 会把成功读码误判为握手未闭环)。"""
+    frames = [
+        _fc06_response(1, 0, 0x0001),
+        _fc03_response(2, [0x0001]),
+        _fc06_response(3, 0, 0x0003),
+        _block_response(4, 0x0100, [2, 0x4142]),  # 结果恰在期限末拍出现
+        _fc06_response(5, 0, 0x0005),
+        _fc03_response(6, [0x0000]),  # Ack 后设备清零
+    ]
+    scripted = _ScriptedTransport(_chunks(frames))
+    client = HikrobotIdModbusClient("127.0.0.1", 502, _STATION, _RESULT_WORDS)
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    # 步进设为主超时的一半:结果轮询的 deadline 已在末拍耗尽,
+    # Ack 轮询若继承同一 deadline 必失败;独立预算(1s)内则通过
+    monkeypatch.setattr(
+        hikrobot_module.time, "monotonic", _FakeClock(step=0.45)
+    )
+    assert client.scan(timeout=1.0, poll_interval=0.001) == (True, "AB")
+
+
 def test_scan_byte_swap_decoding(monkeypatch: pytest.MonkeyPatch) -> None:
     """读码器「结果字节交换」开启时寄存器内高低字节对调,按 byte_swap 解码。"""
     # "AB" 大端 0x4142;交换后线上为 0x4241

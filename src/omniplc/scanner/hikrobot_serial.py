@@ -120,7 +120,12 @@ class HikrobotIdSerialClient(BaseClient):
 
     @staticmethod
     def _check_text(name: str, value: str) -> str:
-        """触发/停止文本校验(内部方法):非空且 1~31 字符。"""
+        """触发/停止文本校验(内部方法):非空、1~31 字符且 ASCII。
+
+        ASCII 校验前移到构造期:文本触发协议为 ASCII 口径,非 ASCII 文本
+        若拖到事务期 ``encode("ascii")`` 才抛 UnicodeEncodeError,会直接
+        逃逸事务模板且不记 last_error(审查 1001 P3-⑭)。
+        """
         text = str(value)
         if not 1 <= len(text) <= HIKROBOT_SERIAL_TRIGGER_MAX_LEN:
             raise ValueError(
@@ -128,6 +133,12 @@ class HikrobotIdSerialClient(BaseClient):
                     name, HIKROBOT_SERIAL_TRIGGER_MAX_LEN, value
                 )
             )
+        try:
+            text.encode("ascii")
+        except UnicodeEncodeError as exc:
+            raise ValueError(
+                _("{} 必须为 ASCII(串口文本触发协议口径),收到:{!r}").format(name, value)
+            ) from exc
         return text
 
     # ------------------------------------------------------------------
@@ -146,7 +157,10 @@ class HikrobotIdSerialClient(BaseClient):
 
         波特率/数据位/校验位/停止位须与读码器「串口通讯协议」「串口触发」
         配置一致;读码器可选项 4800~115200(通信指令手册 TriSeriBaud,
-        印刷页 8),默认 115200 为常用值(手册未记载出厂默认,以 IDMVS 为准)。
+        印刷页 8)。**出厂默认 9600**(超小型手册 §4.6.2 印刷页 48 原文:
+        「串口波特率:设置串口波特率,默认为9600」——审查 1001 P3-⑩ 订正
+        原"手册未载"表述);本库缺省取 115200 为常用现场值取舍,不一致时
+        以现场 IDMVS 配置为准并在此显式传入。
 
         :param port_name: 串口名,如 ``"COM3"``
         :param baud_rate: 波特率,默认 115200
@@ -263,37 +277,68 @@ class HikrobotIdSerialClient(BaseClient):
         超时也尽力停窗,防扫描窗常开。
         """
         transport = self._require_transport()
+        stopped = False
+
+        def _stop_best_effort() -> None:
+            """发送停止文本收窗(幂等;尽力而为,失败不打断主流程)。"""
+            nonlocal stopped
+            if stopped:
+                return
+            stopped = True
+            try:
+                transport.send(self._stop_text.encode("ascii"))
+            except (OSError, TransportClosedError):
+                pass  # 停窗失败不产生脏数据
+
         try:
             transport.send(self._trigger_text.encode("ascii"))
             try:
                 line = self._read_line(transport, timeout)
             except socket.timeout:
-                # 结果窗内无应答:链路仍完好(SR 同口径),尽力读掉半行残留
+                # **先**发停止文本关窗(慢解码的真结果不再流入),**再**读
+                # 残留——顺序与 _drain_line 的"扫描窗已收"前提一致(审查
+                # 1001 P2-4:原顺序 drain 在前,窗口还开着,会把慢结果当
+                # 残渣吃掉或漏进下一轮)
+                _stop_best_effort()
                 if not self._drain_line(transport):
                     self._mark_disconnected()
                 raise TransportTimeoutError(
                     _("读码结果等待超时({}s),串口无应答").format(timeout), 0
                 )
-            return line.decode(self._encoding, errors=self._encoding_errors)
-        finally:
-            # 停止触发收窗:尽力而为,失败不打断主流程(停窗失败不产生脏数据)
             try:
-                transport.send(self._stop_text.encode("ascii"))
-            except (OSError, TransportClosedError):
-                pass
+                return line.decode(self._encoding, errors=self._encoding_errors)
+            except UnicodeDecodeError as exc:
+                # 解码失败按"设备应答异常"处理(不断线、记 last_error)
+                raise DeviceError(
+                    _("结果报文解码失败({}):{}").format(self._encoding, exc), 0
+                ) from exc
+        finally:
+            # 成功路径收窗;超时路径已在 except 中先发过(幂等跳过)
+            _stop_best_effort()
 
     def _read_result_once(self, timeout: float) -> str:
-        """读一行结果(内部方法,须事务内调用)。"""
+        """读一行结果(内部方法,须事务内调用)。
+
+        超时**不 drain 不断线**:扫描窗的开/关由调用方编排(多码场景
+        trigger → read_result → stop),窗口开着时迟到的真结果是合法
+        数据,下一次 :meth:`read_result` 即可取回——drain 会把它当残渣
+        吃掉(审查 1001 P2-4)。超时转 :class:`TransportTimeoutError`
+        (串口 0 字节口径,基类不断线;socket.timeout 是 TCP 走线口径,
+        直通会被基类按坏链拆连)。
+        """
         transport = self._require_transport()
         try:
             line = self._read_line(transport, timeout)
-        except socket.timeout:
-            if not self._drain_line(transport):
-                self._mark_disconnected()
+        except socket.timeout as exc:
             raise TransportTimeoutError(
                 _("读码结果等待超时({}s),串口无应答").format(timeout), 0
-            )
-        return line.decode(self._encoding, errors=self._encoding_errors)
+            ) from exc
+        try:
+            return line.decode(self._encoding, errors=self._encoding_errors)
+        except UnicodeDecodeError as exc:
+            raise DeviceError(
+                _("结果报文解码失败({}):{}").format(self._encoding, exc), 0
+            ) from exc
 
     def _send_trigger(self) -> None:
         """发送开始触发文本(内部方法)。"""
@@ -316,7 +361,17 @@ class HikrobotIdSerialClient(BaseClient):
                 if remaining <= 0:
                     raise socket.timeout(_("串口收行超时({}s)").format(read_timeout))
                 transport.receive_timeout = remaining
-                byte = transport.recv(1)
+                try:
+                    byte = transport.recv(1)
+                except TransportTimeoutError as exc:
+                    # 串口逐字节超时(0 字节)统一转 socket.timeout:让调用方
+                    # "except socket.timeout → 停止文本 → drain → 断线判定"
+                    # 的收尾路径对"完全静默"与"半行后静默"都完整生效(审查
+                    # 1001 P1-4:原实现只接 socket.timeout,TransportTimeoutError
+                    # 直接逃逸,drain/断线判定全成死代码)
+                    raise socket.timeout(
+                        _("串口收行超时({}s)").format(read_timeout)
+                    ) from exc
                 if byte == b"\r" or byte == b"\n":
                     if not started:
                         continue

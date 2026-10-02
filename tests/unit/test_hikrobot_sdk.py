@@ -502,3 +502,84 @@ def test_ip_to_uint() -> None:
     assert _ip_to_uint("192.168.1.100") == (192 << 24) | (168 << 16) | (1 << 8) | 100
     with pytest.raises(ValueError, match="IPv4"):
         _ip_to_uint("1.2.3")
+
+
+# ----------------------------------------------------------------------
+# 审查 1001 修复:NoRead 判定 / 结构体布局守卫 / 断链分流 / close 别名
+# ----------------------------------------------------------------------
+
+
+def test_ex2_struct_size_matches_header() -> None:
+    """EX2 结构体 sizeof 对拍守卫:与 V2.0.0 头文件布局逐字段一致。
+
+    头文件(MvCodeReaderParams.h L751-823)在 UnparsedBcrList 之后还有
+    UnparsedOcrList(8B)与 UnparsedAgvInfo(8B)两个 union——漏一个即
+    8 字节越界写(SDK 按其编译期尺寸整体写调用方缓冲)。win64 期望
+    200(2+2+4×10+1+pad7+8×3+2+2+pad4+4×23),win32 期望 192(指针
+    4B;enPixelType 后无 pad,三个 union 各 8B)。
+    """
+    import sys
+
+    size = ctypes.sizeof(_MV_CODEREADER_IMAGE_OUT_INFO_EX2)
+    expected = 192 if sys.maxsize < 2 ** 32 else 200
+    assert size == expected, (
+        "IMAGE_OUT_INFO_EX2 布局与 V2.0.0 头文件不符(实际 {} 期望 {}):"
+        "请对照 MvCodeReaderParams.h L751-823 逐字段核对".format(size, expected)
+    )
+    # 两个占位 union 必须在位(缺任何一个都会使 sizeof 偏小 8)
+    fields = [name for name, _type in _MV_CODEREADER_IMAGE_OUT_INFO_EX2._fields_]
+    assert "UnparsedOcrList" in fields
+    assert "UnparsedAgvInfo" in fields
+
+
+def test_scan_noread_marker_frame(monkeypatch: pytest.MonkeyPatch) -> None:
+    """全帧均为 NoRead 标记类型(1000/1001/1002):(False, None) 不当成功。"""
+    sdk = _FakeSdk()
+    sdk.add_gige_device(_IP)
+    sdk.frame = _make_frame(
+        codes=[
+            {"content": "NoRead1D", "bar_type": 1000, "points": [(0, 0)] * 4, "angle_deg": 0},
+            {"content": "NoRead2D", "bar_type": 1001, "points": [(0, 0)] * 4, "angle_deg": 0},
+        ]
+    )
+    client, _sdk = _make_client(monkeypatch, sdk)
+    assert client.scan(timeout=2.0) == (False, None)
+    assert client.last_error is not None and "无读出" in client.last_error
+    assert client.connected is True
+
+
+def test_scan_mixed_noread_and_real_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """混合帧(部分 ROI NoRead、部分真码):按读到码成功返回。"""
+    sdk = _FakeSdk()
+    sdk.add_gige_device(_IP)
+    sdk.frame = _make_frame(
+        codes=[
+            {"content": "NoRead2D", "bar_type": 1001, "points": [(0, 0)] * 4, "angle_deg": 0},
+            {"content": "ABC123", "bar_type": 2, "points": [(0, 0)] * 4, "angle_deg": 0},
+        ]
+    )
+    client, _sdk = _make_client(monkeypatch, sdk)
+    ok, frame = client.scan(timeout=2.0)
+    assert ok is True
+    assert frame is not None and len(frame.codes) == 2
+
+
+def test_link_error_disconnects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """链路类错误码(0x800202xx GigE 状态):按 OSError 拆连触发惰性重连。"""
+    sdk = _FakeSdk()
+    sdk.add_gige_device(_IP)
+    sdk.frame_rc = 0x80020212  # 0x800202xx 段(指南附录 D:连接状态错误)
+    client, _sdk = _make_client(monkeypatch, sdk)
+    assert client.scan(timeout=2.0) == (False, None)
+    assert client.connected is False
+
+
+def test_close_alias_disconnects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """close() 别名:docstring 示例调用形态可用,等同 disconnect。"""
+    sdk = _FakeSdk()
+    sdk.add_gige_device(_IP)
+    client, _sdk = _make_client(monkeypatch, sdk)
+    client.close()
+    assert client.connected is False

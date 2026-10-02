@@ -154,7 +154,14 @@ class KeyenceSrClient(BaseClient):
         transport.receive_timeout = read_timeout
         try:
             line = self._read_line(transport, read_timeout)
-            text = line.decode(self._encoding, errors=self._encoding_errors)
+            try:
+                text = line.decode(self._encoding, errors=self._encoding_errors)
+            except UnicodeDecodeError as exc:
+                # 解码失败按"设备应答异常"处理(不断线、记 last_error,
+                # 审查 1001 P3-⑨ 与海康读码器同族同修)
+                raise DeviceError(
+                    _("结果报文解码失败({}):{}").format(self._encoding, exc), 0
+                ) from exc
             if text.strip().upper().startswith("ER,"):
                 # 命令错误应答 ``ER,<命令名称>,<错误代码>``(SR-2000 手册 Rev6.0 §12-1
                 # 印刷页 76);不可当条码返回,按设备错误抛出(不断线)
