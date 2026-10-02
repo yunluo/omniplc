@@ -127,6 +127,7 @@ def _restore_s7_module_globals() -> Iterator[None]:
     s7_module._AREAS_ENUM = False
     s7_module._SNAP7_ERRORS = (RuntimeError,)
     s7_module._SNAP7_RECV_TIMEOUT_PARAM = False
+    s7_module._SNAP7_1X_TYPES = False
 
 
 def _client(monkeypatch: pytest.MonkeyPatch) -> tuple:
@@ -781,6 +782,73 @@ def test_read_batch_ctypes_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     assert ok is True
     assert values == [0x1234, True, -7]
     assert fake.multi_calls == 1
+
+
+def test_read_multi_vars_types_probe_1x(monkeypatch: pytest.MonkeyPatch) -> None:
+    """1.x 类型对动态探测:snap7.types 缺失时回落 snap7.type(2.x 布局)命中。"""
+    import sys
+    import types
+
+    class S7DataItem:
+        pass
+
+    S7WLByte = 3  # 1.x 模块级 int(WordLen=BYTE)
+
+    type_mod = types.ModuleType("snap7.type")
+    setattr(type_mod, "S7DataItem", S7DataItem)
+    setattr(type_mod, "S7WLByte", S7WLByte)
+    monkeypatch.setitem(sys.modules, "snap7.type", type_mod)
+    monkeypatch.setitem(sys.modules, "snap7.types", None)  # 屏蔽 1.x 真模块
+
+    data_item, wl_byte = s7_module._snap7_1x_types()
+    assert data_item is S7DataItem
+    assert wl_byte is S7WLByte
+
+
+def test_read_multi_vars_types_unavailable_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """双轨模块均无 S7DataItem/S7WLByte(纯 3.x 面)→ OmniPLCInternalError。"""
+    import sys
+    import types
+
+    type_mod = types.ModuleType("snap7.type")  # 3.x 真布局:无 S7WLByte
+    monkeypatch.setitem(sys.modules, "snap7.type", type_mod)
+    monkeypatch.setitem(sys.modules, "snap7.types", None)
+
+    from omniplc.core.errors import OmniPLCInternalError
+
+    with pytest.raises(OmniPLCInternalError):
+        s7_module._snap7_1x_types()
+
+
+def test_read_multi_vars_types_probe_cache_reset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """探测失败缓存 None 不再重探;手动复位 False(fixture 同款)后可命中。"""
+    import sys
+    import types
+
+    from omniplc.core.errors import OmniPLCInternalError
+
+    type_mod = types.ModuleType("snap7.type")
+    monkeypatch.setitem(sys.modules, "snap7.type", type_mod)
+    monkeypatch.setitem(sys.modules, "snap7.types", None)
+
+    with pytest.raises(OmniPLCInternalError):
+        s7_module._snap7_1x_types()
+
+    class S7DataItem:
+        pass
+
+    # 缓存 None:即便类型面补齐也不再重探(与 _snap7_area 三态一致)
+    setattr(type_mod, "S7DataItem", S7DataItem)
+    setattr(type_mod, "S7WLByte", 3)
+    with pytest.raises(OmniPLCInternalError):
+        s7_module._snap7_1x_types()
+
+    s7_module._SNAP7_1X_TYPES = False  # 复位(fixture 收尾同款)后重新探测命中
+    assert s7_module._snap7_1x_types()[0] is S7DataItem
 
 
 def test_read_batch_rejects(monkeypatch: pytest.MonkeyPatch) -> None:

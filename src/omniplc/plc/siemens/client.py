@@ -174,6 +174,37 @@ def _snap7_recv_timeout_param() -> Any:
     return _SNAP7_RECV_TIMEOUT_PARAM
 
 
+_SNAP7_1X_TYPES: Any = False
+"""snap7 1.x ctypes 多变量读类型对缓存:False = 未探测,None = 探测失败
+(1.x 类型面不可用),否则为 ``(S7DataItem, S7WLByte)``。仅 1.x/2.x(C 封装
+线)可达——``read_multi_vars`` 按 ``MAX_VARS`` 分流,3.x 纯 Python 线走
+dict 通道不取此类型;1.x 在 ``snap7.types``、2.x 在 ``snap7.type``。以
+``__import__`` 动态探测而非静态 import:python-snap7 3.2.0 已移除
+``snap7.types`` 模块,静态写法在 3.10+ 环境被类型检查器判未解析导入。"""
+
+
+def _snap7_1x_types() -> Any:
+    """探测当前 snap7 轨道的 ``(S7DataItem, S7WLByte)`` 类型对(内部函数)。"""
+    global _SNAP7_1X_TYPES
+    if _SNAP7_1X_TYPES is False:
+        _SNAP7_1X_TYPES = None
+        for module_name in ("snap7.types", "snap7.type"):
+            try:
+                module = __import__(module_name, fromlist=["S7DataItem"])
+            except ImportError:
+                continue
+            data_item = getattr(module, "S7DataItem", None)
+            wl_byte = getattr(module, "S7WLByte", None)
+            if data_item is not None and wl_byte is not None:
+                _SNAP7_1X_TYPES = (data_item, wl_byte)
+                break
+    if _SNAP7_1X_TYPES is None:
+        raise OmniPLCInternalError(
+            _("snap7 类型导入失败:{}").format("snap7.types/S7WLByte 不可用")
+        )
+    return _SNAP7_1X_TYPES
+
+
 def _snap7_area(area: int) -> Any:
     """协议区码 int → snap7 ``Areas`` 枚举成员(内部函数)。
 
@@ -411,16 +442,13 @@ class _S7Session(BaseTransport):
             return [bytes(item) for item in results]
         import ctypes
 
-        try:
-            from snap7.types import S7DataItem, S7WLByte
-        except Exception as exc:
-            raise OmniPLCInternalError(_("snap7 类型导入失败:{}").format(exc))
-        array = (S7DataItem * len(specs))()
+        data_item, wl_byte = _snap7_1x_types()
+        array = (data_item * len(specs))()
         buffers = []
         for index, (area, db, start, size) in enumerate(specs):
             buffer = (ctypes.c_uint8 * size)()
             array[index].Area = getattr(_snap7_area(area), "value", _snap7_area(area))
-            array[index].WordLen = int(S7WLByte)
+            array[index].WordLen = int(wl_byte)
             array[index].DBNumber = db
             array[index].Start = start
             array[index].Amount = size
