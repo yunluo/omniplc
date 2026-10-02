@@ -23,10 +23,11 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from types import TracebackType
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Type, TypeVar, Union
 
 from ..core.base_client import BaseClient, ClientStats
 from ..core.errors import ErrorCategory, _CANCELLED_ERRORS
+from ..core.monitor import Monitor, MonitorEvent
 from ..cnc import MTConnectClient
 from ..core.constants import (
     AB_EIP_DEFAULT_PORT,
@@ -492,6 +493,23 @@ class ABaseClient:
     def bind_tags(self, table: TagTable) -> None:
         """绑定点位表(与同步版共用)。"""
         self._sync.bind_tags(table)
+
+    def create_monitor(
+        self,
+        points: Union[Mapping[str, Sequence[str]], TagTable],
+        interval: float = 1.0,
+        on_change: Optional[Callable[[MonitorEvent], None]] = None,
+        on_disconnect: Optional[Callable[[], None]] = None,
+    ) -> Monitor:
+        """在同步孪生下建监视器(与同步版共用,**默认不启动**)。
+
+        监视器驱动同步孪生实例(``_sync``),与本 A 客户端的调用共享同一把
+        事务锁(采集周期与异步调用串行);回调仍在监视器线程执行。
+        语义口径见 :class:`~omniplc.core.monitor.Monitor`。
+        """
+        return self._sync.create_monitor(
+            points, interval=interval, on_change=on_change, on_disconnect=on_disconnect
+        )
 
     async def read_tag(self, tag: Union[str, Tag]) -> Tuple[bool, Optional[PrimitiveValue]]:
         """按点位读取(自动应用缩放)。"""

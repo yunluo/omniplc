@@ -1222,6 +1222,21 @@ _TRANSLATIONS: Dict[str, str] = {
     'S7 read_range 不支持位地址:{!r}(位访问请逐点读)': 'S7 read_range does not support bit addresses: {0!r} (read bits point by point)',
     'TOYOPUC read_range 仅支持字软元件数值类型连续读(位软元件无批量位读命令,L/H/W 后缀地址不支持),收到:{!r}': 'TOYOPUC read_range supports numeric word-device reads only (no batch bit-read command; L/H/W suffixed addresses are not supported), got: {0!r}',
     'TOYOPUC read_range 字数超上限 {}:{}×{}={}': 'TOYOPUC read_range word count exceeds the limit of {0}: {1}x{2}={3}',
+    # ---- 监视器(周期轮询采集,core/monitor.py) ----
+    'points 不能为空': 'points must not be empty',
+    'on_change 必须为可调用对象或 None': 'on_change must be callable or None',
+    'on_disconnect 必须为可调用对象或 None': 'on_disconnect must be callable or None',
+    '监视器已随客户端断开终止,不能再次启动(请重建)': 'The monitor was terminated by client disconnect and cannot be started again (recreate it)',
+    '监视器已在运行': 'The monitor is already running',
+    'points 必须为点位映射(Dict 或 TagTable),收到:{}': 'points must be a point mapping (Dict or TagTable), got: {0}',
+    'interval 必须为数值,收到:{!r}': 'interval must be a number, got: {0!r}',
+    'interval 必须为不小于 {} 秒的有限数,收到:{!r}': 'interval must be a finite number >= {0} seconds, got: {1!r}',
+    '点位标识必须为非空字符串,收到:{!r}': 'Point id must be a non-empty string, got: {0!r}',
+    '点位 {!r} 的地址必须为非空字符串': 'Address of point {0!r} must be a non-empty string',
+    '点位 {!r} 不支持 STRING:批量读不收变长字符串,请用客户端 read_string 自行轮询': 'Point {0!r} does not support STRING: batch reads take no variable-length strings; poll via the client read_string instead',
+    '点位 {!r} 的数据类型非法:{}': 'Invalid data type for point {0!r}: {1}',
+    '未知点位:{!r}': 'Unknown point id: {0!r}',
+    '点位 {!r} 的取值必须为 (地址, 数据类型) 二元组,收到:{!r}': 'Value of point {0!r} must be an (address, data_type) pair, got: {1!r}',
 }
 # <<<I18N_END>>>
 

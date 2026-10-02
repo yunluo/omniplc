@@ -32,9 +32,11 @@ def test_base_client_surface_mirrored() -> None:
 def test_async_methods_are_coroutines() -> None:
     """A* 客户端全部 async 方法均为协程函数(防手误漏 async)。
 
-    ``bind_tags`` 是标签表绑定的同步透传(纯配置,不涉 I/O),豁免。
+    ``bind_tags`` 是标签表绑定的同步透传(纯配置,不涉 I/O),豁免;
+    ``create_monitor`` 是监视器工厂透传(建监视器本身不发报文,监视器
+    自带线程),豁免。
     """
-    sync_passthrough = {"bind_tags", "configure_serial"}
+    sync_passthrough = {"bind_tags", "configure_serial", "create_monitor"}
     for name in aio.__all__:
         cls = getattr(aio, name)
         for attr in dir(cls):

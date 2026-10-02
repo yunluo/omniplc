@@ -18,17 +18,18 @@ import pytest
 import omniplc as pkg
 import omniplc.native as native
 
-_SYNC_BASE_PENDING: set = set()
-"""同步基类里**尚未**进入原生层的公开面(批量读写已随本批补齐,表空)。"""
+_SYNC_BASE_PENDING: set = {"create_monitor"}
+"""同步基类里**尚未**进入原生层的公开面(create_monitor 监视器为同步线程形态,
+原生 asyncio task 版后置单独立项——设计闭版 2026-10-02,落地后从表里删除)。"""
 
-_MODBUS_PENDING: set = set()
-"""同步 Modbus TCP 里尚未进入原生层的公开面(批量与扩展功能码已补齐,表空)。"""
+_MODBUS_PENDING: set = {"create_monitor"}
+"""同步 Modbus TCP 里尚未进入原生层的公开面(监视器经基类继承,原生版后置)。"""
 
-_MELSEC_PENDING: set = set()
-"""同步 MC 客户端里尚未进入原生层的公开面(批量合并与扩展命令已补齐,表空)。"""
+_MELSEC_PENDING: set = {"create_monitor"}
+"""同步 MC 客户端里尚未进入原生层的公开面(监视器经基类继承,原生版后置)。"""
 
-_FINS_PENDING: set = set()
-"""同步 FINS 客户端里尚未进入原生层的公开面(0104 多存储区读已补齐,表空)。"""
+_FINS_PENDING: set = {"create_monitor"}
+"""同步 FINS 客户端里尚未进入原生层的公开面(监视器经基类继承,原生版后置)。"""
 
 
 def _public(cls: type) -> set:

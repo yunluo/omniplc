@@ -41,6 +41,17 @@ CNC 机床数采(MTConnect Agent,HTTP/XML 只读)、
     import omniplc
 
     omniplc.set_lang("en")  # 之后报错文案输出英文
+
+监视器(客户端下建,默认不启动;本地快照读,不发报文)::
+
+    import omniplc
+
+    client = omniplc.ModbusTcpClient("192.168.0.10", 502, 1)
+    monitor = client.create_monitor({"炉温": ("hr0", "float")}, interval=1.0,
+                                    on_change=lambda ev: print(ev))
+    with client:
+        monitor.start()
+        snap = monitor.get("炉温")   # PointSnapshot(质量, 值, 时间戳)
 """
 from __future__ import annotations
 
@@ -49,6 +60,13 @@ from .core.base_client import BaseClient, ClientStats
 from .core.debug import set_debug
 from .core.errors import ErrorCategory
 from .core.i18n import set_lang
+from .core.monitor import (
+    Monitor,
+    MonitorEvent,
+    MonitorQuality,
+    MonitorStats,
+    PointSnapshot,
+)
 from .core.tag import Tag, TagTable
 from .core.types import ByteOrder, DataType, McFrame, SerialParity, WordOrder
 from .cnc import MTConnectClient
@@ -176,6 +194,12 @@ __all__ = [
     "set_debug",
     # ---- 报错文案语言 ----
     "set_lang",
+    # ---- 监视器(周期轮询采集) ----
+    "Monitor",
+    "MonitorQuality",
+    "MonitorEvent",
+    "MonitorStats",
+    "PointSnapshot",
     # ---- 元数据 ----
     "__version__",
     "__author__",

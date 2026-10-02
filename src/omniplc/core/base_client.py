@@ -21,7 +21,7 @@ import time
 import weakref
 from abc import ABC, abstractmethod
 from types import TracebackType
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union, cast
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Type, TypeVar, Union, cast
 
 from .constants import (
     DEFAULT_CONNECT_TIMEOUT,
@@ -46,6 +46,7 @@ from .errors import (
     TransportTimeoutError,
 )
 from .tag import Tag, TagTable
+from .monitor import Monitor, MonitorEvent
 from .validation import require_int
 from ..transport import BaseTransport
 from .types import DataType, PrimitiveValue
@@ -174,6 +175,8 @@ class BaseClient(ABC):
         self._heartbeat_interval: float = HEARTBEAT_INTERVAL_DEFAULT
         self._heartbeat_stop: Optional[threading.Event] = None
         self._heartbeat_thread: Optional[threading.Thread] = None
+        # 在跑监视器注册表(create_monitor 登记;stop 摘除,disconnect 联动清空)
+        self._monitors: List[Monitor] = []
         self._heartbeat_life_lock = threading.Lock()
 
     # ------------------------------------------------------------------
@@ -267,8 +270,14 @@ class BaseClient(ABC):
         违背它重新建连;传输失败触发的拆连(:meth:`_mark_disconnected`)
         不停心跳,下一 tick 自动重连。
 
+        断开同时**联动停掉所有在跑监视器**(终态,不可再 ``start()``)——
+        监控线程不得活过客户端;``with`` 块退出经本方法,同样生效。
+
         :return: 是否成功
         """
+        # 先停监视器再取事务锁:join 不在锁内,监视器线程若正持有锁跑
+        # 周期,能自然跑完本轮(有界)后退出,不会与锁形成环形等待
+        self._stop_monitors()
         with self._lock:
             self._stop_heartbeat()
             transport = self._transport
@@ -989,6 +998,60 @@ class BaseClient(ABC):
             return self._tag_table[tag]
         except KeyError:
             raise ValueError(_("点位表中不存在:{!r}").format(tag))
+
+    # ------------------------------------------------------------------
+    # 监视器(周期轮询采集;实现与语义口径见 core/monitor.py)
+    # ------------------------------------------------------------------
+
+    def create_monitor(
+        self,
+        points: Union[Mapping[str, Sequence[str]], TagTable],
+        interval: float = 1.0,
+        on_change: Optional[Callable[[MonitorEvent], None]] = None,
+        on_disconnect: Optional[Callable[[], None]] = None,
+    ) -> Monitor:
+        """在本客户端下建监视器(周期轮询采集;**默认不启动**,须显式 ``start()``)。
+
+        语义口径(质量三态/变更事件/共享账/退避联动/生命周期)详见
+        :class:`~omniplc.core.monitor.Monitor`。要点:
+
+        - ``points``:``Dict[tag_id, (地址, 数据类型)]`` 或
+          :class:`~omniplc.core.tag.TagTable`(``scale``/``offset`` 与
+          :meth:`read_tag` 同口径);STRING 类型构造期拒绝;
+        - 快照读 :meth:`~omniplc.core.monitor.Monitor.get` 纯本地,不发报文;
+        - 监视器周期与业务**共享同一本客户端账**(周期失败照常写
+          ``last_error``/``error_count``),混用时业务侧错误文本会被采集
+          周期冲掉,建议监视器独占客户端实例;
+        - 客户端 :meth:`disconnect` 联动停掉所有在跑监视器(终态)。
+
+        :param points: 点位映射(标识 → (地址, 数据类型))或点位表
+        :param interval: 采集周期(秒,下限 0.05)
+        :param on_change: 数据变更回调(收 :class:`~omniplc.core.monitor.MonitorEvent`,
+            监视器线程执行)
+        :param on_disconnect: 采集失败期开始回调(监视器线程执行)
+        :raises ValueError: points/interval/回调参数非法
+        :return: 未启动的 :class:`~omniplc.core.monitor.Monitor` 实例
+        """
+        monitor = Monitor(self, points, interval=interval, on_change=on_change, on_disconnect=on_disconnect)
+        self._monitors.append(monitor)
+        return monitor
+
+    def _remove_monitor(self, monitor: Monitor) -> None:
+        """从注册表摘除已停止的监视器(内部方法,:meth:`Monitor.stop` 调用)。"""
+        try:
+            self._monitors.remove(monitor)
+        except ValueError:
+            pass
+
+    def _stop_monitors(self) -> None:
+        """停掉所有在跑监视器并清空注册表(内部方法,disconnect 联动)。
+
+        "断开是调用方的明确意图"(与心跳同款口径):置终态再停线程,
+        监视器不得违背它继续采集;停掉即终态,不可再 ``start()``。
+        """
+        for monitor in list(self._monitors):
+            monitor._terminate()
+        self._monitors.clear()
 
     # ------------------------------------------------------------------
     # 事务执行:惰性重连 + 重试 + 错误转换(线程安全核心)
