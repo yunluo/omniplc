@@ -515,8 +515,12 @@ def test_ex2_struct_size_matches_header() -> None:
     头文件(MvCodeReaderParams.h L751-823)在 UnparsedBcrList 之后还有
     UnparsedOcrList(8B)与 UnparsedAgvInfo(8B)两个 union——漏一个即
     8 字节越界写(SDK 按其编译期尺寸整体写调用方缓冲)。win64 期望
-    200(2+2+4×10+1+pad7+8×3+2+2+pad4+4×23),win32 期望 192(指针
-    4B;enPixelType 后无 pad,三个 union 各 8B)。
+    200:2+2(宽高)+4×8(至 bIsGetCode 前)+1+pad3(bool 后指针对齐)
+    +8×2(双指针)+4×3(事件/通道/耗时)+pad4(union 8 对齐)+8×3
+    (三 union)+2+2(标志/保留)+pad4(union 对齐)+4×23(nReserved)
+    +尾垫 4。win32 期望 192:指针 4B,三 union 仍 8B/8 对齐,同构求和
+    后尾垫 4。32 位门禁环境只执行 win32 分支,win64 期望由 64 位解释器
+    (CI 3.12 腿)核证。
     """
     import sys
 

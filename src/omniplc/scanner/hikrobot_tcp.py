@@ -160,6 +160,12 @@ class _HikrobotIdSession(BaseTransport):
         捕获;探测到即一并消费并附在返回值后,由调用方判定。空池/下一应答
         (以 ``<`` 开头)不消费。
 
+        竞态披露(review-1002 P3):后缀与括号**同一突发到达**时探测必然
+        命中;若设备把 ``invalid`` 与 ``>`` **分段到达**(探测时后缀尚未
+        入缓冲),残留后缀会使下一条命令应答首帧解析失败
+        (:class:`ProtocolFrameError`)→ 走既有拆连惰性重连自愈。真机未见
+        此形态,登记为已知理论窗口。
+
         :raises ProtocolFrameError: 超过 :data:`HIKROBOT_CMD_REPLY_MAX` 上限
         """
         sock = self._command_sock

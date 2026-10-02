@@ -841,6 +841,9 @@ class SiemensS7Client(BaseClient):
         地址只定位**区域 + 字节起点**,总字节数 = ``count × 类型字节数``
         (SHORT/USHORT 2、INT/UINT/FLOAT 4、LONG/ULONG/DOUBLE 8,大端),
         按类型尺寸切片解码。
+        总字节数不设入参上限(review-1002 P3):单事务容量受连接协商 PDU
+        约束,超限时 snap7 运行期报错、按整批容错 ``(False, None)`` 返回
+        (非入参期 ``ValueError``)——大跨度数据请调用方自行分段。
         BOOL 连续读无位语义(单个字节内的位不构成连续序列),不支持;
         STRING 变长不支持(请用 :meth:`read_string`)。
 
