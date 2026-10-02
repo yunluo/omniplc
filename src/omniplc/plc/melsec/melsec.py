@@ -282,7 +282,12 @@ class _MelsecMcBase(BaseClient):
                     MC_MAX_TRANSFER_POINTS, count
                 )
             )
-        parsed = self._translate_address(parse_mc_address(address))
+        # 注意:此处**不**预调 _translate_address——原语 _read_bits/_read_words
+        # 经 _build_frame 组帧,品牌兼容子类(松下/汇川)在 _build_frame 内
+        # 恰好换算一次;预换算会二次应用非幂等线性化(松下 R1003→1603→2563
+        # 静默错软元件,汇川 X/Y 十六进制编号二次八进制解析抛错),与单点
+        # _read(不预换算)对齐,门控也须按品牌原记号判定
+        parsed = parse_mc_address(address)
         if data_type_enum is not DataType.BOOL and parsed.bit is not None:
             raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         _code, is_bit_device, _base = self._device_info(parsed.device)

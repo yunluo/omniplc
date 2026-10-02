@@ -663,6 +663,35 @@ def test_heartbeat_task_lifecycle() -> None:
     asyncio.run(scenario())
 
 
+def test_heartbeat_failure_writes_error_without_counting() -> None:
+    """不支持探活命令的从站形态(native):tick 失败写 last_error 但零计数。
+
+    回归(review-1002 P1-2):修复前 FC08 异常应答每 tick 计入
+    error_count + device_error_count;成功 tick 还会清掉业务 last_error。
+    """
+
+    async def scenario() -> None:
+        # 首 tick:FC08 异常应答(0x88 01,不支持 FC08 的从站);其后回显自愈
+        behaviors: List[Any] = []
+        exc_frame = (1).to_bytes(2, "big") + bytes([0, 0, 0, 3, 1, 0x88, 0x01])
+        behaviors.extend([exc_frame[:7], exc_frame[7:]])
+        for tid in range(2, 9):
+            frame = tid.to_bytes(2, "big") + bytes([0, 0, 0, 6, 1, 8, 0, 0, 0, 0])
+            behaviors.extend([frame[:7], frame[7:]])
+        client = _client(FakeTransport(behaviors))
+        client.heartbeat_interval = 0.05
+        assert await client.connect() is True
+        await asyncio.sleep(0.25)
+        assert client.stats["heartbeat_fail"] >= 1
+        assert client.last_error_code == 1  # 失败原因仍可见
+        assert client.stats["error_count"] == 0
+        assert client.stats["device_error_count"] == 0
+        assert client.stats["heartbeat_ok"] >= 1  # 其后 tick 回显自愈
+        await client.disconnect()
+
+    asyncio.run(scenario())
+
+
 def test_heartbeat_interval_setter_validation() -> None:
     """native 心跳间隔 setter:非数字/负数/非有限数拒绝,0 合法(关闭)。"""
     client = AsyncModbusTcpClient("127.0.0.1", 502, 1)

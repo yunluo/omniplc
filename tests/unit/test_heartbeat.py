@@ -13,7 +13,7 @@ import pytest
 
 from omniplc.core.base_client import BaseClient
 from omniplc.core.constants import HEARTBEAT_INTERVAL_DEFAULT
-from omniplc.core.errors import DeviceError, TransportTimeoutError
+from omniplc.core.errors import DeviceError, ErrorCategory, TransportTimeoutError
 from omniplc.core.types import DataType, PrimitiveValue
 from omniplc.transport import BaseTransport
 
@@ -297,3 +297,46 @@ class TestHeartbeatFailures:
             assert _wait_until(lambda: client.stats["heartbeat_fail"] >= 2)
         finally:
             client.disconnect()
+
+
+class TestHeartbeatErrorAccounting:
+    """心跳 tick 不劫持业务错误记账(review-1002 P1-2)。"""
+
+    def test_tick_failure_writes_error_without_counting(self) -> None:
+        """不支持探活命令的从站形态:tick 失败写 last_error 但零计数。"""
+        client = _ProbeClient()
+        client.heartbeat_interval = 0.05
+        try:
+            client.script_probe_failure(DeviceError("PLC 明确报错", 5))
+            assert client.connect() is True
+            assert _wait_until(lambda: client.stats["heartbeat_fail"] >= 1)
+            assert client.last_error_code == 5  # 失败原因仍可见
+            # 不计入 error_count / device_error_count(修复前每 tick 双计数)
+            assert client.stats["error_count"] == 0
+            assert client.stats["device_error_count"] == 0
+        finally:
+            client.disconnect()
+
+    def test_tick_success_keeps_business_error_and_stamps(self) -> None:
+        """业务失败后心跳成功:last_error 保留,成功戳/RTT 不被心跳刷新。"""
+        client = _ProbeClient()
+        client.heartbeat_interval = 0.05
+        try:
+            assert client.connect() is True
+            assert _wait_until(lambda: client.stats["heartbeat_ok"] >= 1)
+            client._set_error("业务读失败", ErrorCategory.DEVICE, 5)
+            success_at = client.stats["last_success_at"]
+            rtt = client.stats["last_rtt"]
+            assert _wait_until(lambda: client.stats["heartbeat_ok"] >= 2)
+            assert client.last_error == "业务读失败"  # 心跳成功不清业务错误
+            assert client.stats["last_success_at"] == success_at
+            assert client.stats["last_rtt"] == rtt
+        finally:
+            client.disconnect()
+
+    def test_manual_ping_success_still_clears_error(self) -> None:
+        """手动 ping(非心跳标记)成功照旧清 last_error(契约不变)。"""
+        client = _ProbeClient()
+        client._set_error("业务读失败", ErrorCategory.DEVICE, 5)
+        assert client.ping() is True
+        assert client.last_error is None

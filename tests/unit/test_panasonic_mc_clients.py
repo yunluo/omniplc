@@ -288,3 +288,26 @@ def test_batch_read_translates_address_like_single(
 
     assert batch.read_batch([("R1003", "ushort")]) == (False, None)
     assert b"\x43\x06\x00" in bytes(scripted_batch.sent)
+
+
+def test_read_range_translates_address_once_like_single(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """read_range 与单点读走同一地址换算(恰好一次):R1003 → 帧内 1603。
+
+    回归(review-1002 P1-1):read_range 曾在入口预调 ``_translate_address``,
+    随后原语经 ``_build_frame`` 松下覆写再换算一次——``_linearize``
+    (字号×16+位号)非幂等,R1003 → 1603 → 2563,静默读错软元件。
+    """
+    client = PanasonicMcTcpClient("127.0.0.1", 2000)
+    frame = _word_read_response([7, 8])
+    scripted = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, values = client.read_range("R1003", 2, "ushort")
+    assert ok is True
+    assert values == [7, 8]
+    sent = bytes(scripted.sent)
+    assert sent == _expected("R1603", 2, False, False)
+    assert sent[15:18] == b"\x43\x06\x00"  # 1603 = 0x0643(换算恰好一次)
+    assert b"\x03\x0a\x00" not in sent  # 不是二次换算的 2563 = 0x0A03

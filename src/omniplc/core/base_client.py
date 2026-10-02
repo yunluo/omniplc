@@ -312,7 +312,7 @@ class BaseClient(ABC):
         """
         return self._has_ping
 
-    def ping(self) -> bool:
+    def ping(self, *, heartbeat: bool = False) -> bool:
         """探活:执行驱动的零副作用探测命令,返回链路与设备是否健康。
 
         走与读写完全相同的事务契约(:meth:`_execute`:惰性重连、退避门控、
@@ -324,6 +324,9 @@ class BaseClient(ABC):
         未实现探测命令的驱动恒返回 ``False`` 并记录 ``last_error``
         (不计算失败统计)。
 
+        :keyword heartbeat: 自动心跳 tick 内部标记(review-1002 P1-2)——
+            语义见 :meth:`_execute`;手动探测保持默认 ``False``,成功照旧
+            清 ``last_error`` 并刷新成功戳
         :return: 探测命令是否成功
         :raises ValueError: 探测命令的参数类错误(如广播站号下的读)
         """
@@ -335,7 +338,7 @@ class BaseClient(ABC):
                 record=False,
             )
             return False
-        ok, _unused = self._execute(self._ping_probe)
+        ok, _unused = self._execute(self._ping_probe, heartbeat=heartbeat)
         return ok
 
     @property
@@ -441,7 +444,7 @@ class BaseClient(ABC):
             if stop.is_set():
                 return
             try:
-                ok = self.ping()
+                ok = self.ping(heartbeat=True)
             except Exception:
                 # ping 的参数类错误(如广播站号)也不终止心跳:计为失败后继续
                 ok = False
@@ -968,7 +971,7 @@ class BaseClient(ABC):
     # ------------------------------------------------------------------
 
     def _execute(
-        self, operation: Callable[[], _T], is_write: bool = False
+        self, operation: Callable[[], _T], is_write: bool = False, heartbeat: bool = False
     ) -> Tuple[bool, Optional[_T]]:
         """事务模板:在事务锁内执行一次协议操作(内部方法)。
 
@@ -984,6 +987,12 @@ class BaseClient(ABC):
 
         :param operation: 无参可调用,成功返回值,失败抛内部异常/OSError
         :param is_write: 是否写操作(决定重试次数与防重复写入语义)
+        :param heartbeat: 心跳 tick 标记(review-1002 P1-2)——成功**不清**
+            :attr:`last_error`、不刷 ``last_success_at``/``last_rtt``(业务
+            监测字段不被心跳劫持);失败写 ``last_error`` 但不计
+            ``error_count``/``device_error_count``(不支持探活命令的从站
+            每 tick 确定性报错是已知形态,不是链路劣化)。传输类真实故障
+            (OSError 拆连)不受本标记影响,照常计数。
         :return: ``(是否成功, 值)``
         """
         retries = self._write_retries if is_write else self._retries
@@ -1005,9 +1014,12 @@ class BaseClient(ABC):
                 try:
                     value = operation()
                     with self._state_lock:
-                        self._clear_error()
-                        self._timestamps["last_success_at"] = time.monotonic()
-                        self._timestamps["last_rtt"] = time.perf_counter() - started
+                        if not heartbeat:
+                            # 心跳 tick 成功不清业务 last_error、不刷成功戳
+                            # (review-1002 P1-2:监测字段语义不被心跳劫持)
+                            self._clear_error()
+                            self._timestamps["last_success_at"] = time.monotonic()
+                            self._timestamps["last_rtt"] = time.perf_counter() - started
                     return True, value
                 except TransportTimeoutError as exc:
                     # 超时但 0 字节已读:链路无残渣,不拆连也不计设备错误码;
@@ -1019,8 +1031,12 @@ class BaseClient(ABC):
                     continue
                 except DeviceError as exc:
                     code = _extract_code(exc)
-                    self._set_error(_describe(exc), _categorize(exc), code)
-                    if code is not None and code >= 0:
+                    # 心跳失败写 last_error 但两计数豁免(review-1002 P1-2);
+                    # record=False 同时豁免 error_count 与 last_error_at
+                    self._set_error(
+                        _describe(exc), _categorize(exc), code, record=not heartbeat
+                    )
+                    if not heartbeat and code is not None and code >= 0:
                         # 只计"PLC 明确返回错误码"的次数:code=0 的无码失败
                         # (能力缺失、设备侧条件、超时)与负码诊断
                         # (本地缓冲/配置问题,如 UDP 报文超长 -10040)不计入

@@ -337,13 +337,15 @@ class AsyncBaseClient(ABC):
         """当前驱动是否支持 ping 探活(类级能力快照,语义同同步基类)。"""
         return self._has_ping
 
-    async def ping(self) -> bool:
+    async def ping(self, *, heartbeat: bool = False) -> bool:
         """探活:执行驱动的零副作用探测命令(语义同同步 :meth:`BaseClient.ping`)。
 
         走同一事务契约(:meth:`_execute`:惰性重连、退避门控、重试、
         last_error 三件套);未实现探测命令的驱动恒返回 ``False`` 并记录
         ``last_error``(不计算失败统计)。
 
+        :keyword heartbeat: 自动心跳 tick 内部标记(review-1002 P1-2)——
+            语义见 :meth:`_execute`;手动探测保持默认 ``False``
         :return: 探测命令是否成功
         :raises ValueError: 探测命令的参数类错误(如广播站号下的读)
         """
@@ -355,7 +357,7 @@ class AsyncBaseClient(ABC):
                 record=False,
             )
             return False
-        ok, _unused = await self._execute(self._ping_probe)
+        ok, _unused = await self._execute(self._ping_probe, heartbeat=heartbeat)
         return ok
 
     async def _ping_probe(self) -> Any:
@@ -407,7 +409,7 @@ class AsyncBaseClient(ABC):
                     return
                 await asyncio.sleep(interval)
                 try:
-                    ok = await self.ping()
+                    ok = await self.ping(heartbeat=True)
                 except _CANCELLED_ERRORS:
                     # 3.7 的 CancelledError 是 Exception 子类,显式重抛
                     # 防被吞后任务带伤续跑(cancel 只投递一次)
@@ -850,7 +852,10 @@ class AsyncBaseClient(ABC):
     # ------------------------------------------------------------------
 
     async def _execute(
-        self, operation: Callable[[], Awaitable[_T]], is_write: bool = False
+        self,
+        operation: Callable[[], Awaitable[_T]],
+        is_write: bool = False,
+        heartbeat: bool = False,
     ) -> Tuple[bool, Optional[_T]]:
         """事务模板:在事务锁内 ``await`` 一次协议操作(内部方法)。
 
@@ -870,6 +875,10 @@ class AsyncBaseClient(ABC):
 
         :param operation: 无参协程工厂,成功返回值,失败抛内部异常/OSError
         :param is_write: 是否写操作(决定重试次数与防重复写入语义)
+        :param heartbeat: 心跳 tick 标记(review-1002 P1-2)——成功**不清**
+            :attr:`last_error`、不刷 ``last_success_at``/``last_rtt``;失败
+            写 ``last_error`` 但不计 ``error_count``/``device_error_count``。
+            传输类真实故障(OSError 拆连)不受本标记影响,照常计数。
         :return: ``(是否成功, 值)``
         """
         self._ensure_open()
@@ -906,8 +915,11 @@ class AsyncBaseClient(ABC):
                     continue
                 except DeviceError as exc:
                     code = _extract_code(exc)
-                    self._set_error(_describe(exc), _categorize(exc), code)
-                    if code is not None and code >= 0:
+                    # 心跳失败写 last_error 但两计数豁免(review-1002 P1-2)
+                    self._set_error(
+                        _describe(exc), _categorize(exc), code, record=not heartbeat
+                    )
+                    if not heartbeat and code is not None and code >= 0:
                         # 只计"PLC 明确返回错误码"的次数(负码为库内诊断码,
                         # 与同步层同口径;native 侧当前无负码来源,防御一致)
                         self._counters["device_error_count"] += 1
@@ -918,9 +930,12 @@ class AsyncBaseClient(ABC):
                 else:
                     if transport is not None:
                         transport.mark_synced()
-                    self._clear_error()
-                    self._timestamps["last_success_at"] = time.monotonic()
-                    self._timestamps["last_rtt"] = time.perf_counter() - started
+                    if not heartbeat:
+                        # 心跳 tick 成功不清业务 last_error、不刷成功戳
+                        # (review-1002 P1-2,与同步层同口径)
+                        self._clear_error()
+                        self._timestamps["last_success_at"] = time.monotonic()
+                        self._timestamps["last_rtt"] = time.perf_counter() - started
                     return True, value
             return False, None
 

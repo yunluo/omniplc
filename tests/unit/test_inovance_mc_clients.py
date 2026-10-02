@@ -263,3 +263,27 @@ def test_ping_disabled_for_h5u() -> None:
     assert client.ping_supported is False
     assert client.ping() is False
     assert client._transport is None  # 兜底路径不发包、不建连
+
+
+def test_read_range_translates_address_once_like_single(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """read_range 与单点读走同一地址换算(恰好一次):X17 → 帧内 0x0F。
+
+    回归(review-1002 P1-1):read_range 曾在入口预调 ``_translate_address``,
+    随后原语经 ``_build_frame`` 汇川覆写再换算一次——X/Y 换算后编号已是
+    十六进制串,二次按八进制解析抛 ValueError 且穿透 ``_execute``
+    (违反整批 ``(False, None)`` 契约)。
+    """
+    client = InovanceMcTcpClient("127.0.0.1", 2000)
+    frame = _bit_read_response([1, 0, 1])
+    scripted = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, values = client.read_range("X17", 3, "bool")
+    assert ok is True
+    assert values == [True, False, True]
+    sent = bytes(scripted.sent)
+    assert sent == _expected("XF", 3, True, False)
+    assert sent[18] == 0x9C
+    assert sent[15:18] == b"\x0f\x00\x00"  # 八进制 17 = 0x0F,换算恰好一次
