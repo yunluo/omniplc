@@ -982,7 +982,7 @@ _TRANSLATIONS: Dict[str, str] = {
     'MEWTOCOL 字号超出 3 位字段(0~999),收到:{}': 'The MEWTOCOL word number exceeds the 3-digit field (0~999), got: {}',
     'MEWTOCOL 位号超出 1 位字段(0~F),收到:{}': 'The MEWTOCOL bit number exceeds the 1-digit field (0~F), got: {}',
     'MEWTOCOL 字数必须大于 0,收到:{}': 'The MEWTOCOL word count must be greater than 0, got: {}',
-    'MEWTOCOL 数据区编号超出 5 位字段(0~99999):start={} end={}': 'The MEWTOCOL data area number exceeds the 5-digit field (0~99999): start={0} end={1}',
+    'MEWTOCOL 数据区编号超出 5 位字段(0~{}):start={} end={}': 'The MEWTOCOL data area number exceeds the 5-digit field (0-{0}): start={1} end={2}',
     'MEWTOCOL 响应过短(至少 {} 字节),实收 {}(收到的原始帧:{})': 'MEWTOCOL response too short (at least {0} bytes required), got {1} (raw frame received: {2})',
     'MEWTOCOL 响应未以 CR 结束:{!r}(收到的原始帧:{})': 'The MEWTOCOL response does not end with CR: {0!r} (raw frame received: {1})',
     'MEWTOCOL 响应帧头非法:{!r}(应为 %HH$ 或 %HH!)(收到的原始帧:{})': 'Invalid MEWTOCOL response header: {0!r} (expected %HH$ or %HH!) (raw frame received: {1})',

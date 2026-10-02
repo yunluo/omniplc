@@ -107,8 +107,10 @@ def _check_word_field(start: int, count: int, words: "List[int]") -> int:
     # 上限用 core 常量(review-1002 P3:与 mewtocol.py read_range 双处同源)
     if start < 0 or end > MEWTOCOL_WORD_FIELD_MAX:
         raise ValueError(
-            _("MEWTOCOL 数据区编号超出 5 位字段(0~99999):start={} end={}").format(
-                start, end
+            # 消息上限同样引常量(review-1004 P3-1:原字面量 0~99999,常量
+            # 改值时文案会与实际校验不符)
+            _("MEWTOCOL 数据区编号超出 5 位字段(0~{}):start={} end={}").format(
+                MEWTOCOL_WORD_FIELD_MAX, start, end
             )
         )
     for word in words:

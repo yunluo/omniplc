@@ -1435,24 +1435,24 @@ class AKeyenceSrClient(ABaseClient):
             KeyenceSrClient(ip_address, port, scan_dwell, encoding, encoding_errors)
         )
 
-    def _scanner(self) -> KeyenceSrClient:
-        """取扫码枪同步实例(内部属性)。"""
+    def _reader(self) -> KeyenceSrClient:
+        """取扫码枪同步实例(内部属性;与海康 _reader 命名对齐,review-1004 P3-2)。"""
         return self._typed(KeyenceSrClient)
 
     async def scan(
         self, bank: Optional[int] = None, timeout: Optional[float] = None
     ) -> Tuple[bool, Optional[str]]:
         """触发一次扫码(语义同同步版 :meth:`KeyenceSrClient.scan`)。"""
-        return await self._run(lambda: self._scanner().scan(bank, timeout))
+        return await self._run(lambda: self._reader().scan(bank, timeout))
 
     async def reset(self) -> bool:
         """清缓冲并复位扫码枪。"""
-        return await self._run(self._scanner().reset)
+        return await self._run(self._reader().reset)
 
     @property
     def scan_dwell(self) -> float:
         """扫码窗口时长(秒),构造期定(转发同步实例)。"""
-        return self._scanner().scan_dwell
+        return self._reader().scan_dwell
 
 
 class AHikrobotIdModbusClient(AModbusBaseClient):

@@ -215,6 +215,10 @@ def test_all_raise_templates_in_translations() -> None:
     total = 0
     for path in sorted(src_root.rglob("*.py")):
         if path.name == "i18n.py":
+            # 有意排除取词模块自身(review-1004 P3-3 登记):i18n.py 是双语
+            # 表的载体——本守卫扫的就是这张表的键集,扫自身会把表键当文案
+            # 自比较,无信息量;若日后 i18n.py 内部出现真正的 raise 文案,
+            # 需人工确认键已在表(盲区登记于此,勿当遗漏)
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
