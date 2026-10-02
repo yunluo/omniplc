@@ -259,6 +259,32 @@ def test_tcp_read_range_mixed_widths(monkeypatch: pytest.MonkeyPatch) -> None:
     assert values == [4294967291, 300]
 
 
+def test_tcp_read_range_64bit_types(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:LONG/DOUBLE 64 位 4 字/元素,低字在前小端(review-1002
+    P3 覆盖缺口:此前 64 位腿零覆盖);2 元素 = CMD 1C 8 字单事务。"""
+    client = ToyopucTcpClient("127.0.0.1", 1025)
+    scripted = ScriptedTransport(
+        _chunks(_response(0x1C, struct.pack("<qq", -5, 1 << 62)))
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, values = client.read_range("D0100", 2, "long")
+    assert ok is True
+    assert values == [-5, 1 << 62]
+    assert bytes(scripted.sent) == codec.build_word_read(0x1100, 8)
+
+    scripted2 = ScriptedTransport(
+        _chunks(_response(0x1C, struct.pack("<d", 1.5)))
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted2)
+    client.disconnect()
+    client.connect()
+    ok, values = client.read_range("D0100", 1, "double")
+    assert ok is True
+    assert values == [1.5]
+    assert bytes(scripted2.sent) == codec.build_word_read(0x1100, 4)
+
+
 def test_tcp_read_range_rejects() -> None:
     """read_range 入参校验:位软元件 BOOL/位地址/count/STRING/超限。"""
     client = ToyopucTcpClient("127.0.0.1", 1025)

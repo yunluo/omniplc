@@ -487,6 +487,31 @@ def test_async_mask_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     asyncio.run(scenario())
 
 
+def test_async_read_range_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """异步镜像:read_range(FC03 连续读)经单工作线程往返,帧与同步一致
+    (review-1002 P3 覆盖缺口:aio 包装层此前零覆盖)。"""
+    import asyncio
+
+    from omniplc.aio import AModbusTcpClient
+
+    async def scenario() -> None:
+        client = AModbusTcpClient("127.0.0.1", 502, 1)
+        sync = client._sync
+        response = codec.build_mbap(1, 1, _fc03_response([100, 200, 300]))
+        scripted = _ScriptedTransport([response[:7], response[7:]])
+        monkeypatch.setattr(sync, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        ok, values = await client.read_range("hr10", 3, "short")
+        assert ok is True
+        assert values == [100, 200, 300]
+        assert bytes(scripted.sent) == codec.build_mbap(
+            1, 1, codec.build_read_pdu(3, 10, 3)
+        )
+        await client.close()
+
+    asyncio.run(scenario())
+
+
 def test_tcp_read_real_transport_semantics() -> None:
     """真 TcpTransport 凑满循环:响应小片到达仍能完整收包。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)
@@ -820,6 +845,24 @@ def test_tcp_read_range_ir_uses_fc04(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bytes(scripted.sent) == codec.build_mbap(1, 1, codec.build_read_pdu(4, 20, 2))
 
 
+def test_tcp_read_range_64bit_word_order_swap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:LONG 64 位 4 字/元素,``word_order`` 全程生效
+    (覆盖缺口,review-1002 P3:64 位解码逐元素按 4 字块换序,负数符号
+    扩展不被字交换破坏;-2 规范序 …FFFF_FFFE → CDAB 线上序
+    FFFE FFFF FFFF FFFF)。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    client.word_order = "CDAB"
+    registers = [0xFFFE, 0xFFFF, 0xFFFF, 0xFFFF, 0x0708, 0x0506, 0x0304, 0x0102]
+    response = _mbap_response(1, 1, _fc03_response(registers))
+    scripted = _ScriptedTransport([response[:7], response[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, values = client.read_range("hr0", 2, "long")
+    assert ok is True
+    assert values == [-2, 0x0102030405060708]
+    assert bytes(scripted.sent) == codec.build_mbap(1, 1, codec.build_read_pdu(3, 0, 8))
+
+
 def test_tcp_read_range_over_limit_rejected_before_frame() -> None:
     """read_range:超 FC 03 单笔 125 字上限 → 入参期 ValueError(零字节发送)。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)
@@ -884,6 +927,27 @@ def test_base_read_range_unsupported_raises() -> None:
     client = ModbusTcpClient("127.0.0.1", 502, 1)
     with pytest.raises(ValueError):
         BaseClient.read_range(client, "hr0", 3, "ushort")
+
+
+def test_read_range_rejected_on_addressless_drivers() -> None:
+    """无「连续地址」概念的四驱动 read_range 一律拒绝(review-1002 P3
+    覆盖缺口):AB CIP 符号标签 / OPC-UA NodeId / ADS 名字 / MTConnect
+    XML 查询——基类 ValueError,构造即可断言(无需连接)。"""
+    from omniplc import (
+        AllenBradleyEthIpClient,
+        BeckhoffAdsClient,
+        MTConnectClient,
+        OpcUaClient,
+    )
+
+    for client in (
+        AllenBradleyEthIpClient("127.0.0.1", 44818),
+        OpcUaClient("127.0.0.1", 4840),
+        BeckhoffAdsClient("127.0.0.1", 851),
+        MTConnectClient("127.0.0.1", 5000),
+    ):
+        with pytest.raises(ValueError, match="不支持连续批量读"):
+            client.read_range("whatever", 3, "ushort")
 
 
 def test_async_read_many_aio_mirror(monkeypatch: pytest.MonkeyPatch) -> None:

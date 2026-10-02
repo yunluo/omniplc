@@ -184,38 +184,42 @@ class TestHeartbeatLifecycle:
             client.disconnect()
 
     def test_unsupported_driver_never_starts_heartbeat(self) -> None:
+        """不支持探活的驱动不启线程:连接返回即确定(connect 内锁序),
+        无线程则不可能有 tick——无需固定 sleep 等待(review-1002 P3
+        deflake:负断言不靠睡时长)。"""
         client = _ProbeClient(with_ping=False)
         client.heartbeat_interval = 0.05
-        try:
-            assert client.connect() is True
-            time.sleep(0.25)
-            assert client.stats["heartbeat_ok"] == 0
-            assert client.stats["heartbeat_fail"] == 0
-        finally:
-            client.disconnect()
+        assert client.connect() is True
+        assert client._heartbeat_thread is None
+        assert client.stats["heartbeat_ok"] == 0
+        assert client.stats["heartbeat_fail"] == 0
+        client.disconnect()
 
     def test_zero_interval_never_starts_heartbeat(self) -> None:
+        """间隔 0 不启线程(同上,连接返回即确定,无需 sleep)。"""
         client = _ProbeClient()
         client.heartbeat_interval = 0
-        try:
-            assert client.connect() is True
-            time.sleep(0.25)
-            assert client.probe_calls == 0
-            assert client._heartbeat_thread is None
-        finally:
-            client.disconnect()
+        assert client.connect() is True
+        assert client._heartbeat_thread is None
+        assert client.probe_calls == 0
+        client.disconnect()
 
     def test_disconnect_stops_heartbeat(self) -> None:
         client = _ProbeClient()
         client.heartbeat_interval = 0.05
         assert client.connect() is True
         assert _wait_until(lambda: client.stats["heartbeat_ok"] >= 1)
+        thread = client._heartbeat_thread
+        assert thread is not None
         assert client.disconnect() is True
         # _stop_heartbeat 同步清线程引用并置位停止事件
         assert client._heartbeat_thread is None
         assert client._heartbeat_stop is None
         calls = client.probe_calls
-        time.sleep(0.25)  # ≥ 5 个间隔,足够暴露"未停止"
+        # join 收敛在途 tick(disconnect 取到事务锁即说明探测已出锁),
+        # 之后 stop 已置位,不会再有探测——确定性断言替代固定 sleep
+        thread.join(5.0)
+        assert not thread.is_alive()
         assert client.probe_calls == calls
 
     def test_disconnected_lazy_reconnect_does_not_revive_heartbeat(self) -> None:
@@ -225,9 +229,11 @@ class TestHeartbeatLifecycle:
         try:
             assert client.connect() is True
             assert _wait_until(lambda: client.stats["heartbeat_ok"] >= 1)
+            thread = client._heartbeat_thread
             assert client.disconnect() is True
             calls = client.probe_calls
-            time.sleep(0.2)
+            thread.join(5.0)
+            assert not thread.is_alive()
             assert client.probe_calls == calls
         finally:
             client.disconnect()
@@ -252,11 +258,37 @@ class TestHeartbeatLifecycle:
         try:
             assert client.connect() is True
             assert _wait_until(lambda: client.stats["heartbeat_ok"] >= 1)
+            thread = client._heartbeat_thread
+            assert thread is not None
             client.heartbeat_interval = 0
             assert client._heartbeat_thread is None
             calls = client.probe_calls
-            time.sleep(0.2)
+            # join 收敛在途 tick(setter 只持 life_lock,探测可能已出锁
+            # 在途),之后 stop 已置位不再有探测——替代固定 sleep
+            thread.join(5.0)
+            assert not thread.is_alive()
             assert client.probe_calls == calls
+        finally:
+            client.disconnect()
+
+    def test_heartbeat_queues_behind_in_flight_transaction(self) -> None:
+        """互斥(review-1002 P3 补用例):业务事务持事务锁期间,心跳 tick
+        排队不发包;锁释放后 tick 才执行。排队断言是有界负断言(负载下
+        只会宽松、不会误报),完成后 probe_calls +1 是确定性断言。"""
+        client = _ProbeClient()
+        client.heartbeat_interval = 0.05
+        try:
+            assert client.connect() is True
+            stop = threading.Event()
+            with client._lock:  # 模拟业务长事务占住事务锁
+                tick = threading.Thread(target=client._heartbeat_tick, args=(stop,))
+                tick.start()
+                tick.join(0.2)
+                assert tick.is_alive()  # 锁被业务持有,tick 排队中
+                calls = client.probe_calls
+            tick.join(5.0)
+            assert not tick.is_alive()
+            assert client.probe_calls == calls + 1
         finally:
             client.disconnect()
 

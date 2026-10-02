@@ -633,6 +633,36 @@ def test_read_range_3e_words_0401(monkeypatch: pytest.MonkeyPatch, loop: Any) ->
     loop.run_until_complete(scenario())
 
 
+def test_read_range_3e_bits_bool(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
+    """native read_range:M0 起 10 个 BOOL = 0401 位单位成批读(review-1002
+    P3 覆盖缺口:native BOOL 腿此前零覆盖);帧与同步层逐字节一致。"""
+
+    async def scenario() -> None:
+        client = AsyncMelsecMcTcpClient("127.0.0.1", 2000, "3E")
+        request = codec_qna.build_request(
+            "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("M0"), 10, True, False
+        )
+        # 位读响应:半字节打包,每字节 2 点(高半字节在前,SH-080008 §8.2)
+        bits = [1, 0, 1, 1, 0, 0, 1, 0, 1, 0]
+        data = bytes((bits[i] << 4) | bits[i + 1] for i in range(0, len(bits), 2))
+        frame = (
+            b"\xd0\x00" + b"\x00\xff\xff\x03\x00"
+            + (2 + len(data)).to_bytes(2, "little") + (0).to_bytes(2, "little") + data
+        )
+        scripted = ScriptedAsyncTransport(_split_3e(frame))
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        ok, values = await client.read_range("M0", 10, DataType.BOOL)
+        assert ok is True
+        assert values == [
+            True, False, True, True, False, False, True, False, True, False
+        ]
+        assert bytes(scripted.sent) == request
+        await client.close()
+
+    loop.run_until_complete(scenario())
+
+
 def test_read_range_1e_and_rejects(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
     """native read_range:1E 帧同样走 0401;入参校验与门控与同步一致。"""
 
