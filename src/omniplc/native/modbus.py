@@ -35,6 +35,7 @@ from ..core.constants import (
     MODBUS_DEVICE_ID_MAX_PAGES,
     MODBUS_DEVICE_ID_RESERVED_MAX,
     MODBUS_DEVICE_ID_RESERVED_MIN,
+    MODBUS_ADDRESS_MAX,
     MODBUS_MAX_READ_BITS,
     MODBUS_MAX_READ_REGISTERS,
     MODBUS_MAX_WRITE_BITS,
@@ -364,6 +365,104 @@ class AsyncModbusTcpClient(AsyncBaseClient):
             coerced = DataType.coerce(data_type)
             parsed.append((_check_address(addr, coerced), coerced))
         return await self._execute(lambda: self._coalesce_and_read(parsed))
+
+    async def read_range(
+        self,
+        address: str,
+        count: int,
+        data_type: Union[DataType, str],
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """连续批量读:起始地址起连续 ``count`` 个同类型元素一笔 FC。
+
+        语义与同步 :meth:`~omniplc.modbus.ModbusTcpClient.read_range` 一致:
+        位区(c/di)= FC 01/02 单笔读位;寄存器区(hr/ir)= FC 03/04 单笔读
+        ``count × 字宽`` 字;位号后缀 / 寄存器区 BOOL / STRING / 跨度越界 /
+        超 FC 上限入参期拒绝;任一笔失败 ``(False, None)``。
+
+        :param address: 起始地址(位区如 ``"c0"``,寄存器区如 ``"hr0"``)
+        :param count: 元素个数(按 ``data_type`` 计)
+        :param data_type: 数据类型(BOOL 仅位区;数值类型仅寄存器区)
+        :return: ``(是否成功, 与地址升序对应的值列表)``
+        :raises ValueError: ``count`` 非正整数 / 位号后缀 / 区域×类型不匹配 /
+            跨度越界 / 超单笔 FC 上限
+        """
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        data_type_enum = DataType.coerce(data_type)
+        if data_type_enum is DataType.STRING:
+            raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
+        parsed = _check_address(address, data_type_enum)
+        if data_type_enum is DataType.BOOL:
+            if parsed.bit is not None:
+                raise ValueError(
+                    _("read_range 位区读不支持位号后缀:{!r}(位区直接用 c/di)").format(address)
+                )
+            if parsed.area in (ModbusArea.HOLDING_REGISTER, ModbusArea.INPUT_REGISTER):
+                raise ValueError(
+                    _("read_range 的 BOOL 仅支持线圈(c)/离散输入(di)区,寄存器区请逐点"
+                    "(hr0.3)或按字读后自取位:{!r}").format(address)
+                )
+            if parsed.offset + count > MODBUS_ADDRESS_MAX + 1:
+                raise ValueError(
+                    _("起始地址 + 数量超出 Modbus 地址空间 0~{}:{}+{}={}").format(
+                        MODBUS_ADDRESS_MAX, parsed.offset, count, parsed.offset + count
+                    )
+                )
+            if count > MODBUS_MAX_READ_BITS:
+                raise ValueError(
+                    _("FC 01/02 单笔读取位数上限 {}(规范 §6.1/§6.2),收到:{}").format(
+                        MODBUS_MAX_READ_BITS, count
+                    )
+                )
+            ok, bits = await self._execute(lambda: self._read_bits(parsed, count))
+            if not ok or bits is None:
+                return False, None
+            return True, [bool(bit) for bit in bits]
+
+        width = data_type_enum.register_size
+        if parsed.offset + width * count > MODBUS_ADDRESS_MAX + 1:
+            raise ValueError(
+                _("起始地址 + 数量超出 Modbus 地址空间 0~{}:{}+{}={}").format(
+                    MODBUS_ADDRESS_MAX,
+                    parsed.offset,
+                    width * count,
+                    parsed.offset + width * count,
+                )
+            )
+        if width * count > MODBUS_MAX_READ_REGISTERS:
+            raise ValueError(
+                _("FC 03/04 单笔读取寄存器数上限 {}(规范 §6.3/§6.4),收到:{}").format(
+                    MODBUS_MAX_READ_REGISTERS, width * count
+                )
+            )
+
+        ok, raw_values = await self._execute(
+            lambda: self._read_registers(parsed, width * count)
+        )
+        if not ok or raw_values is None:
+            return False, None
+        return True, self._decode_range_from(raw_values, count, width, data_type_enum)
+
+    def _decode_range_from(
+        self,
+        registers: List[int],
+        count: int,
+        width: int,
+        data_type: DataType,
+    ) -> List[PrimitiveValue]:
+        """把连续寄存器按元素宽度切片解码(内部方法)。"""
+        values: List[PrimitiveValue] = []
+        for index in range(count):
+            chunk = registers[index * width:(index + 1) * width]
+            if data_type is DataType.SHORT:
+                values.append(convert.to_signed(chunk[0], 16))
+            elif data_type is DataType.USHORT:
+                values.append(chunk[0])
+            elif data_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
+                values.append(_decode_32bit(chunk, data_type, self._word_order))
+            else:
+                values.append(_decode_64bit(chunk, data_type, self._word_order))
+        return values
 
     async def _coalesce_and_read(
         self,

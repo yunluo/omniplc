@@ -559,6 +559,8 @@ MEWTOCOL_STATION_DIRECT: int = 0xEE
 MEWTOCOL_CONTACT_AREAS: Tuple[str, ...] = ("X", "Y", "R", "T", "C", "L")
 """MEWTOCOL 接点(位)区代码:X/Y 外部输入输出、R 内部继电器、
 T/C 定时器计数器接点、L 链接继电器。"""
+MEWTOCOL_WORD_FIELD_MAX: int = 99999
+"""MEWTOCOL 数据区编号域上限(RD/WD 起止编号各 5 位十进制 0~99999)。"""
 MEWTOCOL_MAX_DATAGRAM: int = 2048
 """UDP 整包接收缓冲上限。"""
 

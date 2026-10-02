@@ -580,6 +580,32 @@ class AsyncBaseClient(ABC):
         """
         return [await self.read(address, data_type) for address in addresses]
 
+    async def read_range(
+        self,
+        address: str,
+        count: int,
+        data_type: Union[DataType, str],
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """连续批量读(起始地址 + 数量;契约与同步层同名方法一致)。
+
+        基类默认实现**不支持**(明确抛 :class:`ValueError`,与同步基类
+        同口径——地址递增规则协议各异,不猜);已覆写块读原语的驱动
+        (Modbus/MC/FINS)单事务取回,见各驱动 ``read_range`` docstring。
+
+        :param address: 起始协议地址
+        :param count: 连续元素个数(必须 ≥ 1)
+        :param data_type: 数据类型
+        :return: ``(是否成功, 与地址升序对应的值列表)``
+        :raises ValueError: ``count`` 非正整数 / 类型非法 / 驱动未实现
+        """
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        DataType.coerce(data_type)
+        raise ValueError(
+            _("当前驱动 {} 不支持连续批量读 read_range(起始地址+数量),"
+            "请改用 read_many/read_batch 逐点列出地址").format(type(self).__name__)
+        )
+
     async def write_many(
         self, items: Sequence[Tuple[str, Union[DataType, str], PrimitiveValue]]
     ) -> List[bool]:

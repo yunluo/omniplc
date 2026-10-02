@@ -611,3 +611,50 @@ def test_ping_3e_uses_0101_and_1e_disabled(
         assert client_1e._transport is None  # 兜底路径不发包、不建连
 
     loop.run_until_complete(scenario())
+
+
+def test_read_range_3e_words_0401(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
+    """native read_range:D100 起 3 个 SHORT = 0401 成批读 3 字单事务(与同步帧一致)。"""
+
+    async def scenario() -> None:
+        client = AsyncMelsecMcTcpClient("127.0.0.1", 2000, "3E")
+        frame = _qna_read_response([10, 20, 30])
+        scripted = ScriptedAsyncTransport(_split_3e(frame))
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        ok, values = await client.read_range("D100", 3, DataType.SHORT)
+        assert ok is True
+        assert values == [10, 20, 30]
+        assert bytes(scripted.sent) == codec_qna.build_request(
+            "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"), 3, False, False
+        )
+        await client.close()
+
+    loop.run_until_complete(scenario())
+
+
+def test_read_range_1e_and_rejects(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
+    """native read_range:1E 帧同样走 0401;入参校验与门控与同步一致。"""
+
+    async def scenario() -> None:
+        client = AsyncMelsecMcTcpClient("127.0.0.1", 2000, "1E")
+        frame = _one_e_read_response([10, 20, 30])
+        scripted = ScriptedAsyncTransport(_split_1e(frame))
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        ok, values = await client.read_range("D100", 3, DataType.SHORT)
+        assert ok is True
+        assert values == [10, 20, 30]
+        await client.close()
+
+        plain = AsyncMelsecMcTcpClient("127.0.0.1", 2000, "3E")
+        with pytest.raises(ValueError):
+            await plain.read_range("D100.3", 2, DataType.BOOL)
+        with pytest.raises(ValueError):
+            await plain.read_range("M0", 2, DataType.SHORT)   # 位软元件字访问门控
+        with pytest.raises(ValueError):
+            await plain.read_range("D100", 901, DataType.SHORT)
+        with pytest.raises(ValueError):
+            await plain.read_range("D100", 2, DataType.STRING)
+
+    loop.run_until_complete(scenario())

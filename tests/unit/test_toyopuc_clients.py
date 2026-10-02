@@ -227,6 +227,55 @@ def test_tcp_read_bit_device(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bytes(scripted.sent) == b"\x00\x00\x03\x00\x20\x01\x1a"
 
 
+# ----------------------------------------------------------------------
+# 连续批量读 read_range(CMD=1C 单事务)
+# ----------------------------------------------------------------------
+
+
+def test_tcp_read_range_shorts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:D0100 起 3 个 SHORT = 连续字读 CMD=1C 3 字单事务。"""
+    client = ToyopucTcpClient("127.0.0.1", 1025)
+    scripted = ScriptedTransport(
+        _chunks(_response(0x1C, b"\x0a\x00\x14\x00\x1e\x00"))
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, values = client.read_range("D0100", 3, "short")
+    assert ok is True
+    assert values == [10, 20, 30]
+    assert bytes(scripted.sent) == codec.build_word_read(0x1100, 3)
+
+
+def test_tcp_read_range_mixed_widths(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:32/64 位类型按 2/4 字/元素切片解码(低字在前)。"""
+    client = ToyopucTcpClient("127.0.0.1", 1025)
+    scripted = ScriptedTransport(
+        _chunks(_response(0x1C, struct.pack("<i", -5) + struct.pack("<I", 300)))
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, values = client.read_range("D0100", 2, "uint")
+    assert ok is True
+    assert values == [4294967291, 300]
+
+
+def test_tcp_read_range_rejects() -> None:
+    """read_range 入参校验:位软元件 BOOL/位地址/count/STRING/超限。"""
+    client = ToyopucTcpClient("127.0.0.1", 1025)
+    with pytest.raises(ValueError):
+        client.read_range("M0201", 4, "bool")   # 位软元件无批量位读命令
+    with pytest.raises(ValueError):
+        client.read_range("D0100L", 2, "short")  # 字节访问地址不支持
+    with pytest.raises(ValueError):
+        client.read_range("D0100", 0, "short")
+    with pytest.raises(ValueError):
+        client.read_range("D0100", True, "short")
+    with pytest.raises(ValueError):
+        client.read_range("D0100", 2, "string")
+    with pytest.raises(ValueError):
+        client.read_range("D0100", 513, "short")  # 513 字 > 512 上限
+
+
 def test_tcp_read_packed_word(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP:位软元件打包字访问(M010W → CMD=1C,字地址 = 0x180 + 0x10)。"""
     client = ToyopucTcpClient("127.0.0.1", 1025)

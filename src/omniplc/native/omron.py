@@ -282,6 +282,80 @@ class AsyncOmronFinsBase(AsyncBaseClient):
     # 批量读取(0104 多存储区读,单事务)
     # ------------------------------------------------------------------
 
+    async def read_range(
+        self,
+        address: str,
+        count: int,
+        data_type: Union[DataType, str],
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """连续批量读:同存储区起连续 ``count`` 个元素,0101 Area Read 单事务。
+
+        契约与同步 :meth:`~omniplc.plc.omron.OmronFinsTcpClient.read_range`
+        一致:字区数值类型连续字读、位区(CIO/W/H/A)BOOL 连续位读;
+        T/C 完成标志 / 字区 BOOL / STRING / 超单命令上限入参期拒绝。
+
+        :param address: 起始存储区地址(如 ``"D100"``、``"CIO0"``)
+        :param count: 元素个数(按 ``data_type`` 计,INT×10 = 20 字)
+        :param data_type: 数据类型
+        :return: ``(是否成功, 与地址升序对应的值列表)``
+        :raises ValueError: ``count`` 非正整数 / 类型非法 / 字数超限
+        """
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        data_type_enum = DataType.coerce(data_type)
+        if data_type_enum is DataType.STRING:
+            raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
+        parsed = parse_fins_address(address)
+        if data_type_enum is not DataType.BOOL and parsed.bit is not None:
+            raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
+        if data_type_enum is DataType.BOOL:
+            if parsed.area in FINS_TIMER_COUNTER_AREAS:
+                raise ValueError(
+                    _("T/C 完成标志为单点位,不支持连续读:{!r}(示例:T0)").format(address)
+                )
+            if parsed.area not in FINS_BIT_WRITABLE_AREAS:
+                raise ValueError(
+                    _("FINS read_range 的 BOOL 连续读需要位存储区(CIO/W/H/A):{!r}").format(address)
+                )
+            if parsed.bit is not None:
+                raise ValueError(
+                    _("FINS read_range 位区读不带位号:{!r}(位号即点位,直接用 CIO/W/H/A)").format(address)
+                )
+            frame = self._build_read(parsed, count, is_bit=True)
+            ok, raw_bits = await self._execute(
+                lambda: self._read_bits_transaction(frame, count)
+            )
+            if not ok or raw_bits is None:
+                return False, None
+            return True, [bool(bit) for bit in raw_bits]
+        width = 1
+        if data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
+            width = 2
+        elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
+            width = 4
+        if count * width > FINS_MAX_READ_ELEMENTS:
+            raise ValueError(
+                _("FINS read_range 字数超单命令上限 {}:{}×{}={}").format(
+                    FINS_MAX_READ_ELEMENTS, count, width, count * width
+                )
+            )
+        ok, raw_words = await self._execute(
+            lambda: self._read_words(parsed, count * width)
+        )
+        if not ok or raw_words is None:
+            return False, None
+        values: List[PrimitiveValue] = []
+        for index in range(count):
+            chunk = raw_words[index * width:(index + 1) * width]
+            values.append(_words_to_value(chunk, data_type_enum))
+        return True, values
+
+    async def _read_bits_transaction(self, frame: bytes, count: int) -> List[int]:
+        """位区连续位读的单事务通道(内部方法,0101 位区码)。"""
+        return codec.parse_response(
+            await self._transact(frame), frame, count, is_bit=True, is_read=True
+        )
+
     async def read_many(
         self, addresses: Sequence[str], data_type: Union[DataType, str]
     ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:

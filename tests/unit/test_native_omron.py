@@ -643,3 +643,53 @@ def test_native_0601_status_and_ping(
         codec.build_cpu_unit_status_read(0, _DEST_NODE, 0, 0, _SRC_NODE, 0, 1)
         + codec.build_cpu_unit_status_read(0, _DEST_NODE, 0, 0, _SRC_NODE, 0, 2)
     )
+
+
+def test_native_read_range_words_and_bits(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """native read_range:D 区字读(低字在前解码)+ CIO 位区连续位读。"""
+
+    async def scenario() -> None:
+        client = AsyncOmronFinsUdpClient(
+            "192.168.250.1", 9600, destination_node=_DEST_NODE, source_node=_SRC_NODE
+        )
+        # 字读响应:32 位值低字存低地址(100 = [100, 0],200 = [200, 0])
+        words_data = b"".join(v.to_bytes(2, "big") for v in [100, 0, 200, 0])
+        resp_words = _fins_response(1, 0x0101, words_data)
+        bits_data = bytes([1, 0, 1, 1, 0, 0, 1, 0])
+        resp_bits = _fins_response(2, 0x0101, bits_data)
+        scripted = ScriptedAsyncTransport([resp_words, resp_bits], datagram=True)
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        ok, values = await client.read_range("D0", 2, DataType.UINT)
+        assert ok is True
+        assert values == [100, 200]
+        ok, values = await client.read_range("CIO0", 8, DataType.BOOL)
+        assert ok is True
+        assert values == [True, False, True, True, False, False, True, False]
+        await client.close()
+
+    loop.run_until_complete(scenario())
+
+
+def test_native_read_range_rejects(loop: Any) -> None:
+    """native read_range 入参校验:T/C 完成标志、字区 BOOL、位号、STRING、超限。"""
+
+    async def scenario() -> None:
+        client = AsyncOmronFinsUdpClient(
+            "192.168.250.1", 9600, destination_node=_DEST_NODE, source_node=_SRC_NODE
+        )
+        with pytest.raises(ValueError):
+            await client.read_range("T0", 2, DataType.BOOL)
+        with pytest.raises(ValueError):
+            await client.read_range("D100", 2, DataType.BOOL)
+        with pytest.raises(ValueError):
+            await client.read_range("D100.3", 2, DataType.BOOL)
+        with pytest.raises(ValueError):
+            await client.read_range("D100", 2, DataType.STRING)
+        with pytest.raises(ValueError):
+            await client.read_range("D0", 500, DataType.UINT)  # 1000 字 > 999
+        await client.close()
+
+    loop.run_until_complete(scenario())

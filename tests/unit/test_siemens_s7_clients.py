@@ -438,6 +438,47 @@ def test_read_errors(monkeypatch: pytest.MonkeyPatch) -> None:
         client.read("DB1.DBS20", "STRING")  # 泛型读不支持字符串(用 read_string)
 
 
+# ----------------------------------------------------------------------
+# 连续批量读 read_range(snap7 read_area 单事务)
+# ----------------------------------------------------------------------
+
+
+def test_read_range_shorts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:MW20 起 3 个 SHORT = read_area 6 字节,大端切片解码。"""
+    client, fake = _client(monkeypatch)
+    fake.seed(_AREA_M, 0, 20, struct.pack(">hhh", 10, -20, 30))
+    ok, values = client.read_range("MW20", 3, "short")
+    assert ok is True
+    assert values == [10, -20, 30]
+
+
+def test_read_range_ints_and_floats(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:32 位类型 4 字节/元素切片(INT 大端、FLOAT IEEE754)。"""
+    client, fake = _client(monkeypatch)
+    fake.seed(_AREA_DB, 1, 0, struct.pack(">iif", -5, 300, 2.5))
+    ok, values = client.read_range("DB1.DBD0", 2, "int")
+    assert ok is True
+    assert values == [-5, 300]
+    ok, values = client.read_range("DB1.DBD8", 1, "float")
+    assert ok is True
+    assert values == [2.5]
+
+
+def test_read_range_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range 入参校验:count/STRING/位地址。"""
+    client, _ = _client(monkeypatch)
+    with pytest.raises(ValueError):
+        client.read_range("MW20", 0, "short")
+    with pytest.raises(ValueError):
+        client.read_range("MW20", True, "short")
+    with pytest.raises(ValueError):
+        client.read_range("MW20", 2, "string")
+    with pytest.raises(ValueError):
+        client.read_range("M10.2", 4, "bool")   # BOOL 连续读无位语义
+    with pytest.raises(ValueError):
+        client.read_range("DB1.DBX0.3", 2, "short")  # 位地址读数值
+
+
 def test_write_values(monkeypatch: pytest.MonkeyPatch) -> None:
     """写:按 DataType 大端编码落内存;越界转 ValueError。"""
     client, fake = _client(monkeypatch)

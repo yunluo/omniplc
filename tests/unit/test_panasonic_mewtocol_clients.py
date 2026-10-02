@@ -114,6 +114,56 @@ def test_read_multi_word_low_word_first(monkeypatch: pytest.MonkeyPatch) -> None
     assert sent[len(frame):].startswith(frame)
 
 
+# ----------------------------------------------------------------------
+# 连续批量读 read_range(RD 单事务)
+# ----------------------------------------------------------------------
+
+
+def test_read_range_shorts_rd(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:D100 起 3 个 SHORT = RD D00100~D00102 单事务。"""
+    client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
+    frame = _resp("RD", "000A0014001E")
+    scripted = ScriptedTransport([frame[:4], frame[4:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, values = client.read_range("D100", 3, "short")
+    assert ok is True
+    assert values == [10, 20, 30]
+    body = "%01#RDD0010000102"
+    assert bytes(scripted.sent) == body.encode("ascii") + \
+        codec_mewtocol.bcc(body).encode("ascii") + b"\r"
+
+
+def test_read_range_ints_low_word_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:D0 起 2 个 UINT = RD 4 字,低字在前切片解码。"""
+    client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
+    # 数据段 = 4 字 × 4 字符;100 = [0064, 0000],200 = [00C8, 0000](低字在前)
+    frame = _resp("RD", "0064000000C80000")
+    scripted = ScriptedTransport([frame[:4], frame[4:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, values = client.read_range("D0", 2, "uint")
+    assert ok is True
+    assert values == [100, 200]
+
+
+def test_read_range_rejects() -> None:
+    """read_range 入参校验:接点区/位号/count/STRING。"""
+    client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
+    with pytest.raises(ValueError):
+        client.read_range("R1F", 4, "bool")    # 接点区无批量接点命令
+    with pytest.raises(ValueError):
+        client.read_range("D100.3", 2, "bool")  # 字软元件位号不支持
+    with pytest.raises(ValueError):
+        client.read_range("D100", 0, "short")
+    with pytest.raises(ValueError):
+        client.read_range("D100", True, "short")
+    with pytest.raises(ValueError):
+        client.read_range("D100", 2, "string")
+    with pytest.raises(ValueError):
+        client.read_range("D99990", 20, "short")  # 99990+20 > 99999 越界
+
+
 def test_write_words_wd(monkeypatch: pytest.MonkeyPatch) -> None:
     """WD 写字:write_ushort("D0", 100) → WDD0000000000 0064。"""
     client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)

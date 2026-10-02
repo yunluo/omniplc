@@ -632,3 +632,87 @@ def test_read_cpu_unit_status_bad_length(monkeypatch: pytest.MonkeyPatch) -> Non
     assert client.connected is False
     assert client.last_error is not None and "0601" in client.last_error
     assert format_hex(short) in (client.last_error or "")
+
+
+# ----------------------------------------------------------------------
+# 连续批量读 read_range(0101 Area Read,单事务)
+# ----------------------------------------------------------------------
+
+
+def test_udp_read_range_words_0101(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:D100 起 3 个 SHORT = 0101 Area Read 3 字单事务。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport([_fins_read_response([10, 20, 30])])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, values = client.read_range("D100", 3, "short")
+    assert ok is True
+    assert values == [10, 20, 30]
+    assert bytes(scripted.sent) == codec.build_area_read(
+        0, 5, 0, 0, 10, 0, 1, parse_fins_address("D100"), 3, False
+    )
+
+
+def test_udp_read_range_ints_two_words_each(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:D0 起 2 个 UINT = 0101 读 4 字,按 2 字/元素低字在前解码。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    # FINS 32 位值低字存低地址([低字,高字]):100 = [100, 0],200 = [200, 0]
+    scripted = ScriptedTransport([_fins_read_response([100, 0, 200, 0])])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, values = client.read_range("D0", 2, "uint")
+    assert ok is True
+    assert values == [100, 200]
+    assert bytes(scripted.sent) == codec.build_area_read(
+        0, 5, 0, 0, 10, 0, 1, parse_fins_address("D0"), 4, False
+    )
+
+
+def test_udp_read_range_cio_bits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:CIO 0 起 8 个 BOOL = 0101 位区码连续位读(每点 1 字节 0/1)。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    # 位读响应数据 = 每点 1 字节 0/1(parse_response is_bit 分支),与字读夹具不同
+    bit_data = bytes([1, 0, 1, 1, 0, 0, 1, 0])
+    scripted = ScriptedTransport([
+        _FINS_ECHO_HEAD + b"\x01" + b"\x01\x01" + b"\x00\x00" + bit_data
+    ])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, values = client.read_range("CIO0", 8, "bool")
+    assert ok is True
+    assert values == [True, False, True, True, False, False, True, False]
+    assert bytes(scripted.sent) == codec.build_area_read(
+        0, 5, 0, 0, 10, 0, 1, parse_fins_address("CIO0"), 8, True
+    )
+
+
+def test_udp_read_range_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range 入参校验:count/类型/T-C 完成标志/D 区 BOOL 连续读。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    with pytest.raises(ValueError):
+        client.read_range("D100", 0, "short")
+    with pytest.raises(ValueError):
+        client.read_range("D100", True, "short")
+    with pytest.raises(ValueError):
+        client.read_range("T0", 2, "bool")  # T/C 完成标志单点位
+    with pytest.raises(ValueError):
+        client.read_range("D100", 2, "bool")  # 字区无位号 BOOL 无连续语义
+    with pytest.raises(ValueError):
+        client.read_range("D100.3", 2, "bool")  # 字区位号不支持 range
+    with pytest.raises(ValueError):
+        client.read_range("D100", 2, "string")
+    with pytest.raises(ValueError):
+        client.read_range("D0", 500, "uint")  # 500×2 = 1000 > 999 字上限
+
+
+def test_udp_read_range_device_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:PLC 结束码非 0 → (False, None) 不断线。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport([_fins_error_response(0x1101)])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, values = client.read_range("D100", 3, "short")
+    assert ok is False
+    assert values is None
+    assert client.connected is True
+    assert client.last_error_code == 0x1101

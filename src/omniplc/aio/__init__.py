@@ -376,6 +376,19 @@ class ABaseClient:
         """批量读取,逐点独立容错。"""
         return await self._run(lambda: self._sync.read_many(addresses, data_type))
 
+    async def read_range(
+        self,
+        address: str,
+        count: int,
+        data_type: Union[DataType, str],
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """连续批量读(起始地址 + 数量;语义同同步版)。
+
+        仅覆写了块读原语的驱动可用(Modbus/MC/FINS/S7/MX/TOYOPUC/
+        MEWTOCOL 及其兼容子类);其余驱动由同步侧基类明确抛 ValueError。
+        """
+        return await self._run(lambda: self._sync.read_range(address, count, data_type))
+
     async def write_many(
         self, items: Sequence[Tuple[str, Union[DataType, str], PrimitiveValue]]
     ) -> List[bool]:

@@ -30,6 +30,7 @@
 |---|---|---|
 | 类型化读写 `read_bool…read_double` / `write_bool…write_double` 与泛型 `read`/`write` | ✅ | 读返回 `(ok, value)`、写返回 `bool`,不抛自定义异常;失败原因在 `last_error` |
 | `read_many` / `write_many` 逐点容错批量 | ✅ | 基类逐点循环;有原生批量能力的协议另有覆写(见各节) |
+| 连续批量读 `read_range(起始地址, count, 类型)` | ⭕ | 有块读原语的驱动覆写为**单事务**(Modbus FC01~04 / MC 0401 / FINS 0101 / S7 read_area / MX ReadDeviceBlock / TOYOPUC 1C / MEWTOCOL RD 及其兼容子类);其余驱动明确抛 `ValueError`(标签/节点寻址协议无"连续地址"概念,不猜地址递增) |
 | 点位表 `TagTable`(`from_json` / `from_csv` / `bind_tags` / `read_tag` / `write_tag`) | ✅ | tag_id → 地址+类型,自动 scale/offset;表构造后严格只读 |
 | 惰性自动重连 + 指数退避门控 | ✅ | `reconnect_backoff` 默认开;`next_connect_in` 可查 |
 | 超时/重试(`connect_timeout` / `receive_timeout` / `retries` / `write_retries`) | ✅ | |
@@ -94,6 +95,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 | FC43/14 设备标识 | ✅ | `read_device_id`(basic/regular/extended;基本对象 0x00~0x02;分页续读) |
 | 32/64 位类型跨寄存器 | ✅ | `word_order` 可调 |
 | 批量读合并(`read_batch`) | ✅ | 同区连续地址合并(`_classify`/`_coalesce_group`) |
+| 连续批量读(`read_range`) | ✅ | 位区 FC01/02 单笔 ≤2000 位;寄存器区 FC03/04 单笔 ≤125 字(16 位 1 字/元素、32 位 2 字、64 位 4 字);位号后缀/寄存器区 BOOL 拒绝 |
 | 批量写合并(`write_batch`) | ✅ | 位走 FC15 / 字走 FC16;寄存器位写走 FC06 RMW,不入合并 |
 | RTU 广播写(站号 0) | ✅ | 静默期 = max(帧间延迟,T3.5[>19200 bps 固定 1.750 ms],turnaround 缺省 200 ms);广播读显式拒绝 |
 | TCP 走线 | ✅ | 502 |
@@ -113,6 +115,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 | 0403 随机读 | ✅ | `random_read`(字访问 / 双字访问双列表) |
 | 1402 随机写 | ✅ | `random_write` |
 | 0406 多块批量读(字块 + 位块) | ✅ | `read_batch`:同软元件连续位请求合并为位块(1 点 = 16 位,bit0 首);字块+位块上限 120(子命令 0000,不支持 iQ-R 扩展 0002) |
+| 0401 成批读连续批量(`read_range`) | ✅ | 位软元件位单位 / 字软元件字单位单事务;所有帧型(3E/4E/1E/3C/4C)可用;点数上限 900 保守口径 |
 | 0101 CPU 型号读 | ✅ | `get_cpu_type` |
 | 1406 块写 | ❌ | 批量写由 1401/1402 覆盖,未做 |
 | 远程控制 1001~1006(RUN/STOP/锁存清除等) | ❌ | 未实现 |
@@ -155,6 +158,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 | 时钟读/写 | ✅ | 仅 MX 通道;协议通道缺手册依据未做(见 §2) |
 | 错误消息文本 | ✅ | `get_error_message` |
 | `read_batch` / `write_batch` | ✅ | |
+| 连续批量读(`read_range`) | ⭕ | 字软元件数值类型 = ReadDeviceBlock 单事务(≤960 字);BOOL 连续读拒绝(MX 位块读 16 点/字与单点读语义不一致) |
 
 ---
 
@@ -167,6 +171,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 | 0101 存储区读 | ✅ | 位 + 字;大端解码 |
 | 0102 存储区写 | ✅ | 位 + 字 |
 | 0104 多存储区读 | ✅ | `read_batch` 单事务混读;条数上限按链路(FINS_MAX_MULTIPLE_ELEMENTS);BOOL 走包含字后本地提位 |
+| 0101 连续批量读(`read_range`) | ✅ | 字区数值类型连续字读 / 位区(CIO/W/H/A)BOOL 连续位读,单命令 ≤999 字;T/C 完成标志、字区 BOOL 拒绝 |
 | 存储区覆盖 | ✅ | CIO / W / H / A / D / EM(bank 0~15)/ T·C(位=完成标志只读,字=PV 可读写) |
 | FINS/TCP(握手 + 节点自动推导) | ✅ | `local_node`/`destination_node` 缺省 None 自动(握手获取) |
 | FINS/UDP | ✅ | 目标/源节点从 IP 末段推导(UDP connect 探测) |
@@ -300,6 +305,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 |---|---|---|
 | 接点读 RCS / 接点写 WCS | ✅ | 位写对数据区走读-改-写 |
 | 数据区成批读 RD / 成批写 WD | ✅ | 字内字节序:高字节在前 |
+| 连续批量读(`read_range`) | ⭕ | 数据区数值类型 RD 单事务(编号域 0~99999);接点区无批量接点命令、BOOL 连续读拒绝 |
 | 站号(01~99)+ BCC 异或校验 | ✅ | |
 | TCP / UDP 走线 | ✅ | 1024;UDP 整包预算拦截 |
 | 字符串 | ✅ | |
@@ -438,6 +444,7 @@ start/stop,印刷页 45-47)+ §4.7.3 串口通讯协议(印刷页 52)+《极小�
 | 功能 | 状态 | 备注 |
 |---|---|---|
 | 连续字读/写(CMD 1C/1D) | ✅ | |
+| 连续批量读(`read_range`) | ⭕ | 字软元件数值类型 CMD=1C 单事务(≤512 字);位软元件无批量位读命令(仅 CMD 20 单点),BOOL 连续读拒绝 |
 | 连续字节读/写(CMD 1E/1F) | ✅ | 字符串走此(高/低字节起点可选) |
 | 单位(位)读/写(CMD 20/21) | ✅ | |
 | 响应 CMD 回显校验 + RC 结束码表 | ✅ | |
@@ -494,6 +501,7 @@ start/stop,印刷页 45-47)+ §4.7.3 串口通讯协议(印刷页 52)+《极小�
 | 位写 | ✅ | 本地读-改-写(非设备原子) |
 | S7 String / WString | ✅ | |
 | 批量读(`read_batch` = snap7 read_multi_vars) | ✅ | 单事务混读,每请求 ≤20 项(snap7 上限) |
+| 连续批量读(`read_range` = read_area) | ✅ | 同区域字节起点起 `count × 类型字节数` 一次读回;BOOL/STRING 拒绝 |
 | 存储区覆盖 | ✅ | DB(0x84)/ I=PE(0x81)/ Q=PA(0x82)/ M=MK(0x83) |
 | T / C 定时器计数器区 | ❌ | snap7 支持,地址面未暴露 |
 | SZL 系统状态列表读 | ❌ | 未实现 |

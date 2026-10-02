@@ -40,7 +40,7 @@ v0.7 覆盖基础软元件区(字 S/N/R/D/B,位 P/K/V/T/C/L/X/Y/M)。
 from __future__ import annotations
 
 import struct
-from typing import List, Optional
+from typing import List, Optional, Tuple, Union
 
 from ...core import convert
 from ...core.base_client import BaseClient, validate_endpoint
@@ -53,6 +53,7 @@ from ...core.constants import (
     TOYOPUC_FRAME_HEADER_SIZE,
     TOYOPUC_MAX_BYTE_COUNT,
     TOYOPUC_MAX_DATAGRAM,
+    TOYOPUC_MAX_WORD_COUNT,
     TOYOPUC_WORD_DEVICES,
     UINT32_MAX,
     UINT64_MAX,
@@ -242,6 +243,87 @@ class _ToyopucBase(BaseClient):
             codec.build_word_read(encode_word_address(parsed), count), count * 2
         )
         return codec.unpack_u16(data)
+
+    def read_range(
+        self,
+        address: str,
+        count: int,
+        data_type: Union[DataType, str],
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """连续批量读:字软元件起连续 ``count`` 个元素,连续字读 CMD=1C 单事务。
+
+        TOYOPUC 计算机链接的连续读命令为 CMD=1C(字区,1~512 字,
+        :data:`TOYOPUC_MAX_WORD_COUNT`);位软元件只有单位读 CMD=20(单点,
+        无批量位读命令),BOOL 连续读不支持。16 位类型 1 字/元素、32 位
+        2 字、64 位 4 字(多字数据小端、低字在前,TOYOPUC 原生序)。
+
+        :param address: 起始字软元件地址(如 ``"D0100"``;``L/H/W`` 后缀
+            访问不支持 range)
+        :param count: 元素个数(按 ``data_type`` 计,FLOAT×10 = 20 字)
+        :param data_type: 数据类型(数值类型)
+        :return: ``(是否成功, 与地址升序对应的值列表)``
+        :raises ValueError: ``count`` 非正整数 / 类型非法 / 位软元件或
+            字节访问地址 / 字数超限
+        """
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        data_type_enum = DataType.coerce(data_type)
+        if data_type_enum is DataType.STRING:
+            raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
+        parsed = parse_toyopuc_address(address)
+        if data_type_enum is DataType.BOOL or parsed.unit != "word":
+            raise ValueError(
+                _("TOYOPUC read_range 仅支持字软元件数值类型连续读(位软元件无批量"
+                "位读命令,L/H/W 后缀地址不支持),收到:{!r}").format(address)
+            )
+        width = 1
+        if data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
+            width = 2
+        elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
+            width = 4
+        if count * width > TOYOPUC_MAX_WORD_COUNT:
+            raise ValueError(
+                _("TOYOPUC read_range 字数超上限 {}:{}×{}={}").format(
+                    TOYOPUC_MAX_WORD_COUNT, count, width, count * width
+                )
+            )
+
+        def operation() -> List[PrimitiveValue]:
+            words = self._read_words(parsed, count * width)
+            values: List[PrimitiveValue] = []
+            for index in range(count):
+                chunk = words[index * width:(index + 1) * width]
+                if data_type_enum in (DataType.SHORT, DataType.USHORT):
+                    values.append(
+                        chunk[0] if data_type_enum is DataType.USHORT
+                        else convert.to_signed(chunk[0], 16)
+                    )
+                elif data_type_enum in (DataType.INT, DataType.UINT):
+                    raw = int.from_bytes(convert.words_to_bytes(chunk), "little")
+                    values.append(
+                        raw if data_type_enum is DataType.UINT
+                        else convert.to_signed(raw, 32)
+                    )
+                elif data_type_enum is DataType.FLOAT:
+                    values.append(
+                        struct.unpack("<f", convert.words_to_bytes(chunk))[0]
+                    )
+                elif data_type_enum in (DataType.LONG, DataType.ULONG):
+                    raw = int.from_bytes(convert.words_to_bytes(chunk), "little")
+                    values.append(
+                        raw if data_type_enum is DataType.ULONG
+                        else convert.to_signed(raw, 64)
+                    )
+                else:
+                    values.append(
+                        struct.unpack("<d", convert.words_to_bytes(chunk))[0]
+                    )
+            return values
+
+        ok, values = self._execute(operation)
+        if not ok or values is None:
+            return False, None
+        return True, values
 
     def _write_words(self, parsed: ToyopucAddress, words: List[int]) -> None:
         """连续字写(CMD=1D,内部方法)。"""

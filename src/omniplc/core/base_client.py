@@ -688,6 +688,44 @@ class BaseClient(ABC):
         """
         return [self.read(address, data_type) for address in addresses]
 
+    def read_range(
+        self,
+        address: str,
+        count: int,
+        data_type: Union[DataType, str],
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """连续批量读:从 ``address`` 起连续 ``count`` 个同类型元素一笔取回。
+
+        与 :meth:`read_many` 的差异:本方法按"**起始地址 + 数量**"表达,
+        无需逐个列出地址——``read_range("hr0", 100, "ushort")`` 一次取回
+        hr0 起连续 100 个字,与 pymodbus ``read_holding_registers(0, 100)``
+        同型。"连续"依赖**数值化地址按协议步进**,只在有块读原语的驱动上
+        有定义,已覆写为协议单事务:Modbus(FC 01~04)、MC(0401 成批读)、
+        FINS(0101 Area Read)、S7(snap7 ``read_area``)、MX(ReadDeviceBlock)、
+        TOYOPUC(CMD 1C)、MEWTOCOL(RD)。标签/节点号类寻址协议(AB CIP
+        符号标签、OPC-UA NodeId、ADS 名字)与 XML 查询(MTConnect)没有
+        "连续地址"概念,不提供本方法。
+
+        基类默认实现**不支持**该操作(明确抛 :class:`ValueError`,不猜
+        地址递增规则——静默重读同址会返回错值);参数校验先行(count /
+        类型非法先于能力错误报告)。
+
+        :param address: 起始协议地址(语法由驱动定义,如 ``"hr0"``、``"D100"``)
+        :param count: 连续元素个数(按 ``data_type`` 计,如 FLOAT×10 = 10 个
+            浮点;必须 ≥ 1)
+        :param data_type: 数据类型,推荐用 :class:`omniplc.types.DataType` 枚举
+        :return: ``(是否成功, 与地址升序对应的值列表)``;失败为 ``(False, None)``
+        :raises ValueError: ``count`` 非正整数 / 类型非法 / 当前驱动未实现
+            连续批量读
+        """
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        DataType.coerce(data_type)
+        raise ValueError(
+            _("当前驱动 {} 不支持连续批量读 read_range(起始地址+数量),"
+            "请改用 read_many/read_batch 逐点列出地址").format(type(self).__name__)
+        )
+
     def write_many(
         self, items: Sequence[Tuple[str, Union[DataType, str], PrimitiveValue]]
     ) -> List[bool]:

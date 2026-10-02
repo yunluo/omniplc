@@ -540,6 +540,54 @@ def test_read_many_fails_whole_batch(monkeypatch: pytest.MonkeyPatch, loop: Any)
     assert holder["code"] == 2
 
 
+def test_read_range_single_fc(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
+    """native read_range:hr0 起 3 个 SHORT = 单笔 FC 03 读 3 字(与同步帧一致)。"""
+    holder: Dict[str, Any] = {}
+
+    async def scenario() -> None:
+        client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+        scripted = ScriptedAsyncTransport(
+            _chunks([(1, _resp_registers(struct.pack(">hhh", 10, 20, 30)))])
+        )
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        await client.connect()
+        holder["result"] = await client.read_range("hr0", 3, DataType.SHORT)
+        holder["sent"] = bytes(scripted.sent)
+        await client.close()
+
+    loop.run_until_complete(scenario())
+    assert holder["result"] == (True, [10, 20, 30])
+    assert holder["sent"] == codec.build_mbap(1, 1, codec.build_read_pdu(3, 0, 3))
+
+
+def test_read_range_rejects_before_frame(loop: Any) -> None:
+    """native read_range 入参校验:超上限/位号后缀/寄存器区 BOOL/基类拒绝。"""
+    holder: Dict[str, Any] = {}
+
+    async def scenario() -> None:
+        client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+        with pytest.raises(ValueError):
+            await client.read_range("hr0", 126, DataType.SHORT)
+        with pytest.raises(ValueError):
+            await client.read_range("hr0.3", 2, DataType.BOOL)
+        with pytest.raises(ValueError):
+            await client.read_range("hr0", 4, DataType.BOOL)
+        with pytest.raises(ValueError):
+            await client.read_range("hr0", 0, DataType.SHORT)
+
+        class _Unsupported(AsyncModbusTcpClient):
+            pass
+
+        from omniplc.native.base import AsyncBaseClient
+
+        with pytest.raises(ValueError):
+            await AsyncBaseClient.read_range(client, "hr0", 2, DataType.USHORT)
+        holder["done"] = True
+
+    loop.run_until_complete(scenario())
+    assert holder["done"] is True
+
+
 def test_write_many_chunks_fail_independently(
     monkeypatch: pytest.MonkeyPatch, loop: Any
 ) -> None:

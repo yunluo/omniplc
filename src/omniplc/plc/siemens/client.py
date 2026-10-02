@@ -802,6 +802,66 @@ class SiemensS7Client(BaseClient):
         )
         return value
 
+    def read_range(
+        self,
+        address: str,
+        count: int,
+        data_type: Union[DataType, str],
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """连续批量读:同区域字节起点起连续 ``count`` 个元素,snap7 ``read_area`` 单事务。
+
+        地址只定位**区域 + 字节起点**,总字节数 = ``count × 类型字节数``
+        (SHORT/FLOAT 2、INT 4、LONG/DOUBLE 8,大端),按类型尺寸切片解码。
+        BOOL 连续读无位语义(单个字节内的位不构成连续序列),不支持;
+        STRING 变长不支持(请用 :meth:`read_string`)。
+
+        :param address: 起始字节地址(如 ``"DB1.DBB0"``、``"MW20"``;
+            ``DBX``/位号记号不支持)
+        :param count: 元素个数(按 ``data_type`` 计,INT×10 = 40 字节)
+        :param data_type: 数据类型(数值类型)
+        :return: ``(是否成功, 与地址升序对应的值列表)``
+        :raises ValueError: ``count`` 非正整数 / 类型非法 / 位地址
+        """
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        data_type_enum = DataType.coerce(data_type)
+        if data_type_enum is DataType.STRING:
+            raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
+        if data_type_enum not in _SIZES or data_type_enum is DataType.BOOL:
+            raise ValueError(_("S7 read_range 不支持的数据类型:{}").format(data_type_enum))
+        parsed = parse_s7_address(address)
+        if parsed.bit is not None:
+            raise ValueError(
+                _("S7 read_range 不支持位地址:{!r}(位访问请逐点读)").format(address)
+            )
+        size = _SIZES[data_type_enum]
+
+        def operation() -> List[PrimitiveValue]:
+            data = self._session().read_area(
+                area_code(parsed.area), parsed.db_number, parsed.byte_index, size * count
+            )
+            values: List[PrimitiveValue] = []
+            for index in range(count):
+                blob = data[index * size:(index + 1) * size]
+                if data_type_enum is DataType.FLOAT:
+                    values.append(struct.unpack(">f", blob)[0])
+                elif data_type_enum is DataType.DOUBLE:
+                    values.append(struct.unpack(">d", blob)[0])
+                else:
+                    values.append(
+                        int.from_bytes(
+                            blob,
+                            "big",
+                            signed=data_type_enum in (DataType.SHORT, DataType.INT, DataType.LONG),
+                        )
+                    )
+            return values
+
+        ok, values = self._execute(operation)
+        if not ok or values is None:
+            return False, None
+        return True, values
+
     def read_many(
         self, addresses: Sequence[str], data_type: Union[DataType, str]
     ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:

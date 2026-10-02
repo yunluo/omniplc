@@ -17,6 +17,7 @@ from typing import List
 import pytest
 
 from omniplc import ModbusRtuClient, ModbusTcpClient
+from omniplc.core.base_client import BaseClient
 from omniplc.core.debug import format_hex
 from omniplc.core.errors import ErrorCategory, ProtocolFrameError, TransportTimeoutError
 from omniplc.modbus import codec
@@ -754,6 +755,135 @@ def test_tcp_read_batch_mixed_types(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert ok is True
     assert values == [True, True, 100, 305419896]
+
+
+# ----------------------------------------------------------------------
+# 连续批量读 read_range(起始地址 + 数量,单笔 FC)
+# ----------------------------------------------------------------------
+
+
+def test_tcp_read_range_shorts_one_fc(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:hr10 起 3 个 SHORT = 1 笔 FC 03 读 3 字(§6.3 形态)。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    response = _mbap_response(1, 1, _fc03_response([100, 200, 300]))
+    scripted = _ScriptedTransport([response[:7], response[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, values = client.read_range("hr10", 3, "short")
+    assert ok is True
+    assert values == [100, 200, 300]
+    assert bytes(scripted.sent) == codec.build_mbap(1, 1, codec.build_read_pdu(3, 10, 3))
+
+
+def test_tcp_read_range_floats_two_words_each(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:hr0 起 2 个 FLOAT = 1 笔 FC 03 读 4 字,按 2 字/元素切片解码。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    import struct as _struct
+    word1 = 0x42F6  # 123.0 大端前半(0x42F60000)
+    word2 = 0x0000
+    word3 = 0x4248  # 50.0(0x42480000)
+    word4 = 0x0000
+    response = _mbap_response(1, 1, _fc03_response([word1, word2, word3, word4]))
+    scripted = _ScriptedTransport([response[:7], response[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, values = client.read_range("hr0", 2, "float")
+    assert ok is True
+    assert values == [_struct.unpack(">f", (0x42F60000).to_bytes(4, "big"))[0], 50.0]
+    assert bytes(scripted.sent) == codec.build_mbap(1, 1, codec.build_read_pdu(3, 0, 4))
+
+
+def test_tcp_read_range_coils_one_fc(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:c0 起 10 个 BOOL = 1 笔 FC 01 读 10 位。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    bits = [1, 0, 1, 1, 0, 0, 1, 0, 1, 0]
+    response = _mbap_response(1, 1, _fc01_response(bits))
+    scripted = _ScriptedTransport([response[:7], response[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, values = client.read_range("c0", 10, "bool")
+    assert ok is True
+    assert values == [bool(b) for b in bits]
+    assert bytes(scripted.sent) == codec.build_mbap(1, 1, codec.build_read_pdu(1, 0, 10))
+
+
+def test_tcp_read_range_ir_uses_fc04(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:ir 区走 FC 04(输入寄存器,功能码按区域自动选择)。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    response = _mbap_response(1, 1, bytes([4, 4]) + b"".join(v.to_bytes(2, "big") for v in (5, 6)))
+    scripted = _ScriptedTransport([response[:7], response[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, values = client.read_range("ir20", 2, "ushort")
+    assert ok is True
+    assert values == [5, 6]
+    assert bytes(scripted.sent) == codec.build_mbap(1, 1, codec.build_read_pdu(4, 20, 2))
+
+
+def test_tcp_read_range_over_limit_rejected_before_frame() -> None:
+    """read_range:超 FC 03 单笔 125 字上限 → 入参期 ValueError(零字节发送)。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    with pytest.raises(ValueError):
+        client.read_range("hr0", 126, "short")
+
+
+def test_tcp_read_range_span_overflow_rejected() -> None:
+    """read_range:起始地址 + 跨度越出 0xFFFF → 入参期 ValueError。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    # 65534 + 3 字 = 65537 > 65536(0xFFFF + 1):越界;65534+2=65536 恰好合法
+    with pytest.raises(ValueError):
+        client.read_range("hr65534", 3, "short")
+
+
+def test_tcp_read_range_bit_suffix_rejected() -> None:
+    """read_range:寄存器位号后缀无"连续 N 点"语义 → 拒绝。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    with pytest.raises(ValueError):
+        client.read_range("hr0.3", 2, "bool")
+
+
+def test_tcp_read_range_bool_on_register_area_rejected() -> None:
+    """read_range:BOOL 连续读仅位区;寄存器区拒绝(语义不明)。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    with pytest.raises(ValueError):
+        client.read_range("hr0", 4, "bool")
+
+
+def test_tcp_read_range_count_invalid_rejected() -> None:
+    """read_range:count 0 / 负数 / 非整数 / bool 恒拒绝。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    with pytest.raises(ValueError):
+        client.read_range("hr0", 0, "short")
+    with pytest.raises(ValueError):
+        client.read_range("hr0", -1, "short")
+    with pytest.raises(ValueError):
+        client.read_range("hr0", 1.5, "short")
+    with pytest.raises(ValueError):
+        client.read_range("hr0", True, "short")
+
+
+def test_tcp_read_range_device_error_whole_batch_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """read_range:PLC 异常码 → (False, None) 整批失败,不断线。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    exception_pdu = bytes([0x83, 0x02])  # FC 03 非法数据地址
+    response = _mbap_response(1, 1, exception_pdu)
+    scripted = _ScriptedTransport([response[:7], response[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, values = client.read_range("hr0", 3, "short")
+    assert ok is False
+    assert values is None
+    assert client.connected is True
+    assert client.last_error_code == 0x02
+
+
+def test_base_read_range_unsupported_raises() -> None:
+    """基类默认实现:无块读原语协议明确拒绝(不猜地址递增规则)。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    with pytest.raises(ValueError):
+        BaseClient.read_range(client, "hr0", 3, "ushort")
 
 
 def test_async_read_many_aio_mirror(monkeypatch: pytest.MonkeyPatch) -> None:

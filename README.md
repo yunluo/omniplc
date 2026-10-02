@@ -33,6 +33,7 @@ with ModbusTcpClient(ip_address="192.168.0.10", port=502, station=1) as client:
     if not ok:
         print(client.last_error)                    # 失败原因在这里
     ok, values = client.read_many(["hr0", "hr2"], DataType.FLOAT)  # 逐点容错批量
+    ok, values = client.read_range("hr0", 100, DataType.USHORT)    # 连续 100 点单事务
 ```
 
 - **读返回 `(是否成功, 值)`,写返回 `bool`,不抛自定义异常**;失败原因在

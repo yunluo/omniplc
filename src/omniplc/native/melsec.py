@@ -38,6 +38,7 @@ from ..core.constants import (
     MC_DEFAULT_PC_NUMBER,
     MC_DEFAULT_PORT,
     MC_MAX_DATAGRAM,
+    MC_MAX_TRANSFER_POINTS,
     MC_RESPONSE_HEAD_SIZE,
 )
 from ..core.validation import (
@@ -217,6 +218,96 @@ class AsyncMelsecMcBase(AsyncBaseClient):
     # ------------------------------------------------------------------
     # 批量与扩展命令(3E/4E;与同步侧同一套规划/解析助手)
     # ------------------------------------------------------------------
+
+    async def read_range(
+        self,
+        address: str,
+        count: int,
+        data_type: Union[DataType, str],
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """连续批量读:同软元件起连续 ``count`` 个元素,0401 成批读单事务。
+
+        契约与同步 :meth:`~omniplc.plc.melsec.MelsecMcTcpClient.read_range`
+        一致:位软元件 = 位单位成批读、字软元件 = 字单位成批读(SH-080008
+        §8.2);所有帧型(3E/4E/1E)可用;STRING/字软元件位号/位软元件
+        字单位访问(门控)/超点数上限入参期拒绝。
+
+        :param address: 起始软元件地址(如 ``"D100"``、``"M0"``)
+        :param count: 元素个数(按 ``data_type`` 计,INT×10 = 20 字)
+        :param data_type: 数据类型
+        :return: ``(是否成功, 与地址升序对应的值列表)``
+        :raises ValueError: ``count`` 非正整数 / 类型非法 / 点数超限 / 门控
+        """
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        data_type_enum = DataType.coerce(data_type)
+        if data_type_enum is DataType.STRING:
+            raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
+        if count > MC_MAX_TRANSFER_POINTS:
+            raise ValueError(
+                _("MC read_range 点数超上限 {}(SH-080008 Appendix 5 保守口径):{}").format(
+                    MC_MAX_TRANSFER_POINTS, count
+                )
+            )
+        parsed = self._translate_address(parse_mc_address(address))
+        if data_type_enum is not DataType.BOOL and parsed.bit is not None:
+            raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
+        _code, is_bit_device, _base = self._device_info(parsed.device)
+        if data_type_enum is DataType.BOOL:
+            if not is_bit_device:
+                raise ValueError(
+                    _("MC read_range 的 BOOL 需要位软元件(如 M0)或字软元件位号"
+                    "单点读(如 D100.3),收到:{!r}").format(address)
+                )
+            codec_qna.reject_bit_suffix_on_bit_device(parsed)
+            ok, bits = await self._execute(lambda: self._read_bits(parsed, count))
+            if not ok or bits is None:
+                return False, None
+            return True, [bool(bit) for bit in bits]
+        if is_bit_device and not self._bit_device_word_access_allowed:
+            raise ValueError(
+                _("MC 位软元件 {}{} 只支持 BOOL,字单位请改用字软元件"
+                "(如 D)或逐点位读").format(parsed.device, parsed.number)
+            )
+        width = 1
+        if data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
+            width = 2
+        elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
+            width = 4
+        if count * width > MC_MAX_TRANSFER_POINTS:
+            raise ValueError(
+                _("MC read_range 字数超上限 {}:{}×{}={}").format(
+                    MC_MAX_TRANSFER_POINTS, count, width, count * width
+                )
+            )
+
+        ok, raw_values = await self._execute(
+            lambda: self._read_words(parsed, count * width)
+        )
+        if not ok or raw_values is None:
+            return False, None
+        return True, self._decode_range_from(raw_values, count, width, data_type_enum)
+
+    def _decode_range_from(
+        self,
+        words: List[int],
+        count: int,
+        width: int,
+        data_type: DataType,
+    ) -> List[PrimitiveValue]:
+        """把连续字按元素宽度切片解码(MC 小端字序,内部方法)。"""
+        values: List[PrimitiveValue] = []
+        for index in range(count):
+            chunk = words[index * width:(index + 1) * width]
+            if data_type is DataType.SHORT:
+                values.append(convert.to_signed(chunk[0], 16))
+            elif data_type is DataType.USHORT:
+                values.append(chunk[0])
+            elif data_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
+                values.append(_decode_32(chunk, data_type))
+            else:
+                values.append(_decode_64(chunk, data_type))
+        return values
 
     async def read_many(
         self, addresses: Sequence[str], data_type: Union[DataType, str]

@@ -22,7 +22,7 @@ TCP 按响应头(4 字节)判断正常/错误后精确收齐;UDP 一次收整包
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import List, Sequence
+from typing import List, Optional, Sequence, Tuple, Union
 
 from . import codec_mewtocol
 from .address import MewtocolAddress, parse_mewtocol_address
@@ -33,6 +33,7 @@ from ...core.constants import (
     MEWTOCOL_DEFAULT_PORT,
     MEWTOCOL_DEFAULT_STATION,
     MEWTOCOL_MAX_DATAGRAM,
+    MEWTOCOL_WORD_FIELD_MAX,
 )
 from ...core.errors import ProtocolFrameError
 from ...core.validation import check_int16, check_uint16, require_bool
@@ -186,6 +187,75 @@ class _MewtocolBase(BaseClient):
             raise ProtocolFrameError(
                 _("MEWTOCOL 读响应含非十六进制数据:{!r}").format(data_text)
             ) from exc
+
+    def read_range(
+        self,
+        address: str,
+        count: int,
+        data_type: Union[DataType, str],
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """连续批量读:数据区软元件起连续 ``count`` 个元素,RD 单事务。
+
+        MEWTOCOL 的批量读命令为 RD(数据区 DT/LD/FL/F/S/K,起止编号
+        各 5 位十进制);接点区(X/Y/R/T/C/L)只有单接点读 RCS,无
+        批量接点命令,BOOL 连续读不支持。16 位类型 1 字/元素、32 位
+        2 字、64 位 4 字(多字数据低字在前、字内高字节在前)。
+
+        :param address: 起始数据区地址(如 ``"D100"``;字软元件位号
+            ``D100.3`` 不支持 range)
+        :param count: 元素个数(按 ``data_type`` 计,INT×10 = 20 字)
+        :param data_type: 数据类型(数值类型)
+        :return: ``(是否成功, 与地址升序对应的值列表)``
+        :raises ValueError: ``count`` 非正整数 / 类型非法 / 接点区或
+            位号地址 / 字数越界
+        """
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        data_type_enum = DataType.coerce(data_type)
+        if data_type_enum is DataType.STRING:
+            raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
+        parsed = parse_mewtocol_address(address, False)
+        if data_type_enum is DataType.BOOL or parsed.area in MEWTOCOL_CONTACT_AREAS:
+            raise ValueError(
+                _("MEWTOCOL read_range 仅支持数据区数值类型连续读(接点区无批量"
+                "接点命令),收到:{!r}").format(address)
+            )
+        if parsed.bit is not None:
+            raise ValueError(
+                _("MEWTOCOL read_range 不支持字软元件位号后缀:{!r}(请逐点读)").format(address)
+            )
+        width = 1
+        if data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
+            width = 2
+        elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
+            width = 4
+        if count * width > MEWTOCOL_WORD_FIELD_MAX or parsed.word + count * width > MEWTOCOL_WORD_FIELD_MAX + 1:
+            raise ValueError(
+                _("MEWTOCOL read_range 编号域越界(0~{}):start={} 字数={}").format(
+                    MEWTOCOL_WORD_FIELD_MAX, parsed.word, count * width
+                )
+            )
+
+        def operation() -> List[PrimitiveValue]:
+            words = self._read_words(parsed, count * width)
+            values: List[PrimitiveValue] = []
+            for index in range(count):
+                chunk = words[index * width:(index + 1) * width]
+                if data_type_enum in (DataType.SHORT, DataType.USHORT):
+                    values.append(
+                        chunk[0] if data_type_enum is DataType.USHORT
+                        else convert.to_signed(chunk[0], 16)
+                    )
+                elif data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
+                    values.append(_decode_32(chunk, data_type_enum))
+                else:
+                    values.append(_decode_64(chunk, data_type_enum))
+            return values
+
+        ok, values = self._execute(operation)
+        if not ok or values is None:
+            return False, None
+        return True, values
 
     def _write_words(self, parsed: MewtocolAddress, words: List[int]) -> None:
         """WD 成批写字软元件(逐字 4 位十六进制、高字节在前)。"""

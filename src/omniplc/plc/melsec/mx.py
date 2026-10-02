@@ -748,6 +748,75 @@ class MelsecMxClient(BaseClient):
     # 批量读取(ReadDeviceRandom 随机读,单事务)
     # ------------------------------------------------------------------
 
+    def read_range(
+        self,
+        address: str,
+        count: int,
+        data_type: Union[DataType, str],
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """连续批量读:同软元件起连续 ``count`` 个元素,ReadDeviceBlock 单事务。
+
+        字软元件块读(MX Component 手册 5.2.5 ReadDeviceBlock),16 位类型
+        1 字/元素、32 位 2 字、64 位 4 字;单事务上限
+        :data:`MX_MAX_BLOCK_WORDS`(960 字)。BOOL 连续读不支持
+        (MX 位块读按 16 点/字返回、与单点读语义不一致)。
+
+        :param address: 起始软元件地址(如 ``"D100"``;数值类型须字软元件)
+        :param count: 元素个数(按 ``data_type`` 计,INT×10 = 20 字)
+        :param data_type: 数据类型(数值类型)
+        :return: ``(是否成功, 与地址升序对应的值列表)``
+        :raises ValueError: ``count`` 非正整数 / 类型非法 / 字数超限 /
+            位软元件(MX 位块读 16 点/字语义与单点读不一致,统一拒绝)
+        """
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        data_type_enum = DataType.coerce(data_type)
+        if data_type_enum is DataType.STRING:
+            raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
+        parsed = _check_address(address)
+        _reject_non_bool_access(parsed, data_type_enum, address)
+        if data_type_enum is DataType.BOOL:
+            # MX ReadDeviceBlock 位软元件按 16 点/字返回、GetDevice 单点 0/1,
+            # 两种语义不一致;连续位读无一致实现口径,统一拒绝(同 MC 字门控精神)
+            raise ValueError(
+                _("MX read_range 不支持 BOOL 连续读(位块读语义不一致),请逐点读:{!r}").format(
+                    address
+                )
+            )
+        width = 1
+        if data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
+            width = 2
+        elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
+            width = 4
+        if count * width > MX_MAX_BLOCK_WORDS:
+            raise ValueError(
+                _("MX read_range 字数超上限 {}:{}×{}={}").format(
+                    MX_MAX_BLOCK_WORDS, count, width, count * width
+                )
+            )
+        device_text = _device_text(parsed)
+
+        def operation_words() -> List[PrimitiveValue]:
+            words = self._read_words(device_text, count * width)
+            values: List[PrimitiveValue] = []
+            for index in range(count):
+                chunk = words[index * width:(index + 1) * width]
+                if data_type_enum in (DataType.SHORT, DataType.USHORT):
+                    values.append(
+                        chunk[0] if data_type_enum is DataType.USHORT
+                        else convert.to_signed(chunk[0], 16)
+                    )
+                elif data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
+                    values.append(_decode_32(chunk, data_type_enum))
+                else:
+                    values.append(_decode_64(chunk, data_type_enum))
+            return values
+
+        ok, values = self._execute(operation_words)
+        if not ok or values is None:
+            return False, None
+        return True, values
+
     def read_many(
         self, addresses: Sequence[str], data_type: Union[DataType, str]
     ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:

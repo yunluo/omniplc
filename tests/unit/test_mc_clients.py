@@ -420,6 +420,109 @@ def test_read_batch_rejects_bit_suffix_on_word_type() -> None:
         client.read_batch([("D100.3", "short")])
 
 
+# ----------------------------------------------------------------------
+# 连续批量读 read_range(0401 成批读,单事务)
+# ----------------------------------------------------------------------
+
+
+def test_tcp_3e_read_range_words_0401(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:D100 起 3 个 SHORT = 0401 成批读 3 字单事务(§8.2)。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    frame = _qna_read_response([10, 20, 30])
+    scripted = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, values = client.read_range("D100", 3, "short")
+    assert ok is True
+    assert values == [10, 20, 30]
+    assert bytes(scripted.sent) == codec_qna.build_request(
+        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"), 3, False, False
+    )
+
+
+def test_tcp_3e_read_range_ints_two_words_each(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:D0 起 2 个 INT = 0401 读 4 字,按 2 字/元素小端切片解码。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    frame = _qna_read_response([0x0001, 0xF4240 - 0x10000, 0x0000, 0x0000]) if False else \
+        _qna_read_response([100, 0, 200, 0])
+    scripted = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, values = client.read_range("D0", 2, "uint")
+    assert ok is True
+    assert values == [100, 200]
+    assert bytes(scripted.sent) == codec_qna.build_request(
+        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D0"), 4, False, False
+    )
+
+
+def test_tcp_3e_read_range_bit_device_bool(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:M0 起 10 个 BOOL = 0401 位单位成批读 10 点。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    request = codec_qna.build_request(
+        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("M0"), 10, True, False
+    )
+    # 位读响应:半字节打包,每字节 2 点(高半字节在前,SH-080008 §8.2)
+    bits = [1, 0, 1, 1, 0, 0, 1, 0, 1, 0]
+    data = bytes(
+        (bits[i] << 4) | bits[i + 1] for i in range(0, len(bits), 2)
+    )
+    response = b"\xd0\x00" + b"\x00\xff\xff\x03\x00" + (2 + len(data)).to_bytes(
+        2, "little"
+    ) + (0).to_bytes(2, "little") + data
+    scripted = ScriptedTransport([response[:9], response[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, values = client.read_range("M0", 10, "bool")
+    assert ok is True
+    assert values == [True, False, True, True, False, False, True, False, True, False]
+    assert bytes(scripted.sent) == request
+
+
+def test_tcp_3e_read_range_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range 入参校验:count/类型/位软元件字访问门控/超限。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    with pytest.raises(ValueError):
+        client.read_range("D100", 0, "short")
+    with pytest.raises(ValueError):
+        client.read_range("D100", True, "short")
+    with pytest.raises(ValueError):
+        client.read_range("D100.3", 2, "bool")  # 字软元件位号不支持 range
+    with pytest.raises(ValueError):
+        client.read_range("M0", 2, "short")  # 位软元件字访问被门控
+    with pytest.raises(ValueError):
+        client.read_range("D100", 901, "short")  # 超点数上限
+    with pytest.raises(ValueError):
+        client.read_range("D100", 2, "string")
+
+
+def test_tcp_1e_read_range_words(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:1E 帧走字单位成批读(副头部 0x01),与单点读同命令。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000, frame="1E")
+    frame = _one_e_read_response([10, 20, 30])
+    scripted = ScriptedTransport([frame[:2], frame[2:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, values = client.read_range("D100", 3, "short")
+    assert ok is True
+    assert values == [10, 20, 30]
+    assert bytes(scripted.sent) == codec_a.build_request(
+        0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"), 3, False, False
+    )
+
+
+def test_tcp_3e_read_range_device_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range:PLC 结束码非 0 → (False, None) 不断线。"""
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    frame = _qna_read_response([0] * 3, end_code=0xC059)
+    _mount(monkeypatch, client, ScriptedTransport([frame[:9], frame[9:]]))
+    client.connect()
+    ok, values = client.read_range("D100", 3, "short")
+    assert ok is False
+    assert values is None
+    assert client.connected is True
+
+
 def test_async_mirror_read_batch() -> None:
     """异步镜像 read_batch:混类型批量读往返。"""
 

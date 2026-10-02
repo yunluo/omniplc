@@ -654,6 +654,53 @@ def test_read_batch_rejects(fake: FakeActUtlType) -> None:
 
 
 # ----------------------------------------------------------------------
+# 连续批量读 read_range(ReadDeviceBlock 单事务)
+# ----------------------------------------------------------------------
+
+
+def test_read_range_shorts_block(fake: FakeActUtlType) -> None:
+    """read_range:D100 起 3 个 SHORT = ReadDeviceBlock 3 字单事务。"""
+    client = _client()
+    fake.put("D100", 10)
+    fake.put("D101", 20)
+    fake.put("D102", 30)
+    ok, values = client.read_range("D100", 3, "short")
+    assert ok is True
+    assert values == [10, 20, 30]
+    kinds = [call[0] for call in fake.calls if call[0] == "ReadDeviceBlock"]
+    assert kinds == ["ReadDeviceBlock"]  # 单事务
+
+
+def test_read_range_ints_two_words_each(fake: FakeActUtlType) -> None:
+    """read_range:D0 起 2 个 INT = ReadDeviceBlock 4 字,按 2 字/元素小端解码。"""
+    client = _client()
+    for index, word in enumerate(_encode_32(-2, DataType.INT)):
+        fake.put("D{}".format(index), word)
+    for index, word in enumerate(_encode_32(300, DataType.UINT)):
+        fake.put("D{}".format(2 + index), word)
+    ok, values = client.read_range("D0", 2, "uint")
+    assert ok is True
+    assert values == [4294967294, 300]
+    block_calls = [call for call in fake.calls if call[0] == "ReadDeviceBlock"]
+    assert block_calls == [("ReadDeviceBlock", "D0", 4)]
+
+
+def test_read_range_rejects(fake: FakeActUtlType) -> None:
+    """read_range 拒绝路径:count/STRING/位软元件 BOOL 连续读。"""
+    client = _client()
+    with pytest.raises(ValueError):
+        client.read_range("D100", 0, "short")
+    with pytest.raises(ValueError):
+        client.read_range("D100", True, "short")
+    with pytest.raises(ValueError):
+        client.read_range("D100", 2, "string")
+    with pytest.raises(ValueError):
+        client.read_range("M0", 4, "bool")   # MX 位块读语义不一致,拒绝
+    with pytest.raises(ValueError):
+        client.read_range("D0", 961, "short")  # 961 字 > 960 上限
+
+
+# ----------------------------------------------------------------------
 # 批量写入(WriteDeviceRandom 随机写)/ CPU 型号 / 时钟 / 出错文本
 # ----------------------------------------------------------------------
 

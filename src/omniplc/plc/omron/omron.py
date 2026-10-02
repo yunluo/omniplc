@@ -294,6 +294,88 @@ class _OmronFinsBase(BaseClient):
     # 批量读取(0104 多存储区读,单事务)
     # ------------------------------------------------------------------
 
+    def read_range(
+        self,
+        address: str,
+        count: int,
+        data_type: Union[DataType, str],
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """连续批量读:同存储区起连续 ``count`` 个元素,0101 Area Read 单事务。
+
+        字区(D/EM/CIO/W/H/A)= 字区码连续字读(W342 §5-3-2),16 位类型
+        1 字/元素、32 位 2 字、64 位 4 字;单命令读上限 999 字
+        (:data:`FINS_MAX_READ_ELEMENTS`,W342 §5-2-2 p.168)。位区 BOOL
+        连续读 = 位区码连续位读(§5-3-2 位访问,CIO/W/H/A 区);老固件
+        不支持 D/EM 位区码的机型请改用字区数值类型读。T/C 完成标志为
+        单点位语义,不支持 range;T/C 当前值按字区读。
+
+        :param address: 起始存储区地址(如 ``"D100"``、``"CIO0"``
+        :param count: 元素个数(按 ``data_type`` 计,INT×10 = 20 字)
+        :param data_type: 数据类型
+        :return: ``(是否成功, 与地址升序对应的值列表)``
+        :raises ValueError: ``count`` 非正整数 / 类型非法 / 字数或位读超限 /
+            T/C 完成标志
+        """
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        data_type_enum = DataType.coerce(data_type)
+        if data_type_enum is DataType.STRING:
+            raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
+        parsed = parse_fins_address(address)
+        if data_type_enum is not DataType.BOOL and parsed.bit is not None:
+            raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
+        if data_type_enum is DataType.BOOL:
+            if parsed.area in FINS_TIMER_COUNTER_AREAS:
+                raise ValueError(
+                    _("T/C 完成标志为单点位,不支持连续读:{!r}(示例:T0)").format(address)
+                )
+            if parsed.area not in FINS_BIT_WRITABLE_AREAS:
+                # 位区码只对位存储区(CIO/W/H/A)有定义;字区(D/EM)位读
+                # 无"连续位"一致语义(老固件还要走字读回退),统一拒绝
+                raise ValueError(
+                    _("FINS read_range 的 BOOL 连续读需要位存储区(CIO/W/H/A):{!r}").format(address)
+                )
+            if parsed.bit is not None:
+                raise ValueError(
+                    _("FINS read_range 位区读不带位号:{!r}(位号即点位,直接用 CIO/W/H/A)").format(address)
+                )
+
+            def operation_bits() -> List[PrimitiveValue]:
+                frame = self._build_read(parsed, count, is_bit=True)
+                values = codec.parse_response(
+                    self._transact(frame), frame, count, is_bit=True, is_read=True
+                )
+                return [bool(value) for value in values]
+
+            ok, values = self._execute(operation_bits)
+            if not ok or values is None:
+                return False, None
+            return True, values
+        width = 1
+        if data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
+            width = 2
+        elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
+            width = 4
+        if count * width > FINS_MAX_READ_ELEMENTS:
+            raise ValueError(
+                _("FINS read_range 字数超单命令上限 {}:{}×{}={}").format(
+                    FINS_MAX_READ_ELEMENTS, count, width, count * width
+                )
+            )
+
+        def operation_words() -> List[PrimitiveValue]:
+            words = self._read_words(parsed, count * width)
+            values: List[PrimitiveValue] = []
+            for index in range(count):
+                chunk = words[index * width:(index + 1) * width]
+                values.append(_words_to_value(chunk, data_type_enum))
+            return values
+
+        ok, values = self._execute(operation_words)
+        if not ok or values is None:
+            return False, None
+        return True, values
+
     def read_many(
         self, addresses: Sequence[str], data_type: Union[DataType, str]
     ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
