@@ -35,6 +35,7 @@ import time
 from abc import ABC, abstractmethod
 from types import TracebackType
 from typing import (
+    Any,
     Awaitable,
     Callable,
     Dict,
@@ -62,6 +63,7 @@ from ..core.constants import (
     DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_RECEIVE_TIMEOUT,
     DEFAULT_STRING_ENCODING,
+    HEARTBEAT_INTERVAL_DEFAULT,
     READ_STRING_DEFAULT_LENGTH,
     RECONNECT_BACKOFF_BASE,
     RECONNECT_BACKOFF_FACTOR,
@@ -133,13 +135,20 @@ class AsyncBaseClient(ABC):
             "transactions": 0,
             "error_count": 0,
             "device_error_count": 0,
+            "heartbeat_ok": 0,
+            "heartbeat_fail": 0,
         }
         self._timestamps: Dict[str, Optional[float]] = {
             "last_error_at": None,
             "last_connect_at": None,
             "last_success_at": None,
+            "last_heartbeat_at": None,
             "last_rtt": None,
         }
+        # 应用层心跳(asyncio 任务形态):connect 成功后启动,_disconnect_locked
+        # 中取消;间隔与语义与同步基类一致(见其「心跳保活」节)
+        self._heartbeat_interval: float = HEARTBEAT_INTERVAL_DEFAULT
+        self._heartbeat_task: Optional["asyncio.Task[None]"] = None
 
     # ------------------------------------------------------------------
     # 连接管理
@@ -252,6 +261,8 @@ class AsyncBaseClient(ABC):
         self._reset_backoff()
         self._counters["connect_count"] += 1
         self._timestamps["last_connect_at"] = time.monotonic()
+        # 心跳在连接成功后按需启动(幂等;不支持探活/间隔 0 时不启动)
+        self._start_heartbeat()
         return True
 
     async def disconnect(self) -> bool:
@@ -273,7 +284,13 @@ class AsyncBaseClient(ABC):
         尽力而为:跨循环/已关循环的传输 ``close()`` 可能抛
         ``RuntimeError``(不止 OSError)——吞掉并记错误,不中断断开流程
         (否则清理半途而废,``self._transport`` 已置 None,连接泄漏)。
+        显式断开同时取消心跳任务(与同步基类同口径:断开是调用方的
+        明确意图,心跳不得违背;传输失败拆连不停心跳)。
         """
+        task = self._heartbeat_task
+        self._heartbeat_task = None
+        if task is not None and not task.done():
+            task.cancel()
         transport = self._transport
         self._transport = None
         self._connected = False
@@ -307,6 +324,101 @@ class AsyncBaseClient(ABC):
         线程间共享同一实例不支持(见模块 docstring)。
         """
         return self._connected
+
+    # ------------------------------------------------------------------
+    # 心跳保活(ping 探活 + 自动心跳 asyncio 任务)
+    # ------------------------------------------------------------------
+
+    # 类属性默认 False;支持探活的驱动覆写为 True(与同步基类同约定)
+    _has_ping: bool = False
+
+    @property
+    def ping_supported(self) -> bool:
+        """当前驱动是否支持 ping 探活(类级能力快照,语义同同步基类)。"""
+        return self._has_ping
+
+    async def ping(self) -> bool:
+        """探活:执行驱动的零副作用探测命令(语义同同步 :meth:`BaseClient.ping`)。
+
+        走同一事务契约(:meth:`_execute`:惰性重连、退避门控、重试、
+        last_error 三件套);未实现探测命令的驱动恒返回 ``False`` 并记录
+        ``last_error``(不计算失败统计)。
+
+        :return: 探测命令是否成功
+        :raises ValueError: 探测命令的参数类错误(如广播站号下的读)
+        """
+        if not self._has_ping:
+            self._set_error(
+                _("当前驱动未实现 ping 探活(无零副作用探测命令)"),
+                ErrorCategory.UNKNOWN,
+                None,
+                record=False,
+            )
+            return False
+        ok, _unused = await self._execute(self._ping_probe)
+        return ok
+
+    async def _ping_probe(self) -> Any:
+        """零副作用探测命令(内部方法;支持探活的驱动覆写为协程)。"""
+        raise DeviceError(_("当前驱动未实现 ping 探活"), 0)
+
+    @property
+    def heartbeat_interval(self) -> float:
+        """应用层心跳间隔(秒),默认 30;0 = 关闭(语义同同步基类)。
+
+        连接建立后由 **asyncio 任务**按本间隔自动调用 :meth:`ping`;
+        写入对运行中的任务下一 tick 生效。失败计数与自愈语义与同步层
+        一致:每 tick 计入 ``heartbeat_ok``/``heartbeat_fail``,传输失败
+        拆连后下一 tick 经 :meth:`_execute` 惰性重连;显式
+        :meth:`disconnect` 取消任务。
+        """
+        return self._heartbeat_interval
+
+    @heartbeat_interval.setter
+    def heartbeat_interval(self, seconds: float) -> None:
+        if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+            raise ValueError(
+                _("heartbeat_interval 必须为数字,收到:{!r}").format(seconds)
+            )
+        value = float(seconds)
+        if not math.isfinite(value) or value < 0:
+            raise ValueError(
+                _("heartbeat_interval 必须为非负有限数,收到:{!r}").format(seconds)
+            )
+        self._heartbeat_interval = value
+
+    def _start_heartbeat(self) -> None:
+        """按需启动心跳 asyncio 任务(内部方法;connect 成功后调用,幂等)。"""
+        if self._heartbeat_interval <= 0 or not self._has_ping:
+            return
+        task = self._heartbeat_task
+        if task is not None and not task.done():
+            return
+        self._heartbeat_task = asyncio.get_running_loop().create_task(
+            self._heartbeat_loop()
+        )
+
+    async def _heartbeat_loop(self) -> None:
+        """心跳循环主体(内部方法;asyncio 任务入口,断开时被取消)。"""
+        try:
+            while True:
+                interval = self._heartbeat_interval
+                if interval <= 0:
+                    return
+                await asyncio.sleep(interval)
+                try:
+                    ok = await self.ping()
+                except _CANCELLED_ERRORS:
+                    # 3.7 的 CancelledError 是 Exception 子类,显式重抛
+                    # 防被吞后任务带伤续跑(cancel 只投递一次)
+                    raise
+                except Exception:
+                    # 参数类错误也不终止心跳:计为失败后继续
+                    ok = False
+                self._counters["heartbeat_ok" if ok else "heartbeat_fail"] += 1
+                self._timestamps["last_heartbeat_at"] = time.monotonic()
+        except _CANCELLED_ERRORS:
+            raise
 
     # ------------------------------------------------------------------
     # 可配置属性(超时/重试)

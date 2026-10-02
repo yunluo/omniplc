@@ -197,6 +197,22 @@ def loop(request: pytest.FixtureRequest) -> Any:
     """按事件循环类参数化的循环(Windows 上 Selector/Proactor 双跑)。"""
     event_loop = make_loop(request.param)
     yield event_loop
+
+    async def _cancel_pending() -> None:
+        current = asyncio.current_task()
+        tasks = [
+            task
+            for task in asyncio.all_tasks()
+            if task is not current and not task.done()
+        ]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    # 收尾取消残留任务(如用例未显式断开的客户端心跳任务):loop.close()
+    # 对未完成任务会报 "Task was destroyed" 噪声,掩盖真实失败
+    event_loop.run_until_complete(_cancel_pending())
     event_loop.close()
 
 
@@ -692,6 +708,31 @@ def test_string_rejects_bit_suffix(
             await client.read_string("hr0.3", 4)
         with pytest.raises(ValueError):
             await client.write_string("hr0.3", "AB")
+        await client.close()
+
+    loop.run_until_complete(scenario())
+
+
+# ----------------------------------------------------------------------
+# 探活(FC08 回显)
+# ----------------------------------------------------------------------
+
+
+def test_ping_fc08(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
+    """原生 ping:FC08 回显(规范 §6.8)为探测命令;异常码应答不断线。"""
+
+    async def scenario() -> None:
+        client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+        assert client.ping_supported is True
+        scripted = ScriptedAsyncTransport(
+            _chunks([(1, bytes([8, 0x00, 0x00, 0x00, 0x00])), (2, bytes([0x88, 0x01]))])
+        )
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        assert await client.ping() is True
+        # 从站不支持 FC08 → 异常码 01 应答:ping False 但链路完好
+        assert await client.ping() is False
+        assert client.connected is True
         await client.close()
 
     loop.run_until_complete(scenario())

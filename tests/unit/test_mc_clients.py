@@ -12,7 +12,7 @@ import pytest
 
 from omniplc import MelsecMcTcpClient, MelsecMcUdpClient
 from omniplc.aio import AMelsecMcTcpClient
-from omniplc.core.constants import MC_DEFAULT_MONITOR_TIMER
+from omniplc.core.constants import MC_DEFAULT_MONITOR_TIMER, MC_DEFAULT_PC_NUMBER
 from omniplc.plc.melsec import codec_a, codec_qna
 from omniplc.plc.melsec.address import parse_mc_address
 from omniplc.plc.melsec.melsec import _MC_DEVICE_CODES_FX5U_XY
@@ -650,3 +650,29 @@ def test_string_rejects_bit_suffix(monkeypatch: pytest.MonkeyPatch) -> None:
         client.read_string("D100.3", 4)
     with pytest.raises(ValueError):
         client.write_string("D100.3", "AB")
+
+
+def _qna_cpu_model_response(name: bytes = b"Q02UCPU", code: int = 0x0263) -> bytes:
+    """构造 0101 CPU 型号读响应(测试脚手架;名 16B ASCII + 代码 2B 小端)。"""
+    data = name.ljust(16, b"\x20") + code.to_bytes(2, "little")
+    head = b"\xd0\x00" + b"\x00\xff\xff\x03\x00"
+    return head + (2 + len(data)).to_bytes(2, "little") + b"\x00\x00" + data
+
+
+def test_ping_3e_uses_0101_and_1e_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ping():3E 帧探测命令为 0101 CPU 型号读;1E 帧无探测命令恒 False。"""
+    client = MelsecMcTcpClient("127.0.0.1", frame="3E")
+    assert client.ping_supported is True
+    response = _qna_cpu_model_response()
+    scripted = ScriptedTransport([response[:9], response[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.ping() is True
+    assert bytes(scripted.sent) == codec_qna.build_read_cpu_model(
+        "3E", 1, 0, MC_DEFAULT_PC_NUMBER, MC_DEFAULT_MONITOR_TIMER
+    )
+
+    client_1e = MelsecMcTcpClient("127.0.0.1", frame="1E")
+    assert client_1e.ping_supported is False
+    assert client_1e.ping() is False
+    assert client_1e._transport is None  # 兜底路径不发包、不建连

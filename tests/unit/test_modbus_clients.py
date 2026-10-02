@@ -1971,3 +1971,31 @@ def test_rtu_incremental_length_capped() -> None:
     with pytest.raises(ProtocolFrameError):
         client._transact(codec.build_get_comm_event_log_pdu())
 
+
+def test_tcp_ping_fc08(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ping():FC08 回显查询(规范 §6.8)为探测命令,应答即探活成功。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    assert client.ping_supported is True
+    frame = codec.build_mbap(1, 1, bytes([8, 0x00, 0x00, 0x00, 0x00]))
+    scripted = _ScriptedTransport([frame[:7], frame[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    assert client.connect() is True
+    assert client.ping() is True
+    assert bytes(scripted.sent) == codec.build_mbap(
+        1, 1, codec.build_diagnostics_pdu(0x0000, 0x0000)
+    )
+
+
+def test_tcp_ping_fc08_unsupported_slave_keeps_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """从站不支持 FC08 以异常码应答:ping False 但链路完好(能应答=活着)。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    frame = codec.build_mbap(1, 1, bytes([0x88, 0x01]))
+    scripted = _ScriptedTransport([frame[:7], frame[7:]])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.ping() is False
+    assert client.connected is True
+    assert client.last_error_code == 1  # 异常码 01:illegal function
+

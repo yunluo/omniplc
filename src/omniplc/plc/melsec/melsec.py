@@ -132,6 +132,10 @@ class _MelsecMcBase(BaseClient):
                     type(self).__name__, self._frame.value, supported
                 )
             )
+        # 探活按帧型启用:0101 CPU 型号读仅 3E/4E 帧支持(SH-080008 §11.2),
+        # 1E/3C/4C 帧实例不启用 ping 与自动心跳。实例属性覆盖类属性,
+        # 子类(如汇川 H5U)可在 __init__ 中再置 False 显式关闭。
+        self._has_ping = self._frame in (McFrame.FRAME_3E, McFrame.FRAME_4E)
         self._network_number = check_byte_field("网络编号", network_number)
         self._pc_number = check_byte_field("PC 编号", pc_number)
         self._serial = 0
@@ -587,22 +591,31 @@ class _MelsecMcBase(BaseClient):
             raise ValueError(
                 _("CPU 型号读取仅支持 3E/4E 帧,当前帧型:{}").format(self._frame.value)
             )
+        return self._execute(self._cpu_model_operation)
 
-        def operation() -> Tuple[str, int]:
-            # 0101 同样按客户端路由字段组帧(跨网/他站访问他站 CPU);
-            # 4E 响应按序列号回显校验
-            request = codec_qna.build_read_cpu_model(
-                self._frame.value,
-                self._next_serial(),
-                self._network_number,
-                self._pc_number,
-                MC_DEFAULT_MONITOR_TIMER,
-            )
-            return codec_qna.parse_read_cpu_model_response(
-                self._transact(request), self._frame.value, expected_serial=self._serial
-            )
+    def _ping_probe(self) -> Tuple[str, int]:
+        """探活探测命令:0101 CPU 型号读(内部方法;仅 3E/4E 帧启用)。
 
-        return self._execute(operation)
+        依据:SH-080008 §11.2 印刷页 176-178——只读系统信息,零副作用。
+        KV MC 兼容(KeyenceMc*)与松下 MC 兼容(PanasonicMc*)继承本探针,
+        两家对 0101 的支持面待真机核证(docs/real-machine-checklist.md)。
+        """
+        return self._cpu_model_operation()
+
+    def _cpu_model_operation(self) -> Tuple[str, int]:
+        """0101 CPU 型号读的协议操作(内部方法;公开方法与探活共用)。"""
+        # 0101 同样按客户端路由字段组帧(跨网/他站访问他站 CPU);
+        # 4E 响应按序列号回显校验
+        request = codec_qna.build_read_cpu_model(
+            self._frame.value,
+            self._next_serial(),
+            self._network_number,
+            self._pc_number,
+            MC_DEFAULT_MONITOR_TIMER,
+        )
+        return codec_qna.parse_read_cpu_model_response(
+            self._transact(request), self._frame.value, expected_serial=self._serial
+        )
 
     def _read_bool_impl(self, parsed: McAddress) -> bool:
         """位软元件按点位成批读;字软元件读 1 字后按位提取(合法路径)。

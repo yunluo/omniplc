@@ -230,6 +230,22 @@ def loop(request: pytest.FixtureRequest) -> Any:
     """按事件循环类参数化的循环(Windows 上 Selector/Proactor 双跑)。"""
     event_loop = make_loop(request.param)
     yield event_loop
+
+    async def _cancel_pending() -> None:
+        current = asyncio.current_task()
+        tasks = [
+            task
+            for task in asyncio.all_tasks()
+            if task is not current and not task.done()
+        ]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    # 收尾取消残留任务(如用例未显式断开的客户端心跳任务):loop.close()
+    # 对未完成任务会报 "Task was destroyed" 噪声,掩盖真实失败
+    event_loop.run_until_complete(_cancel_pending())
     event_loop.close()
 
 
@@ -571,3 +587,27 @@ def test_sync_async_parity_extended(
         assert tuple(
             command.hex() for command, _frame in _qna_requests(bytes(sync_scripted.sent), case.frame)
         ) == case.expect_fc
+
+
+def test_ping_3e_uses_0101_and_1e_disabled(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """native ping:3E 帧探测命令为 0101;1E 帧无探测命令恒 False(不发包)。"""
+
+    async def scenario() -> None:
+        client = AsyncMelsecMcTcpClient("127.0.0.1", 2000, "3E")
+        assert client.ping_supported is True
+        scripted = ScriptedAsyncTransport(
+            _split_3e(_cpu_model_response("Q02UCPU", 0x0263))
+        )
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        assert await client.ping() is True
+        await client.close()
+
+        client_1e = AsyncMelsecMcTcpClient("127.0.0.1", 2000, "1E")
+        assert client_1e.ping_supported is False
+        assert await client_1e.ping() is False
+        assert client_1e._transport is None  # 兜底路径不发包、不建连
+
+    loop.run_until_complete(scenario())

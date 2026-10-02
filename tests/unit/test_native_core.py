@@ -628,3 +628,48 @@ def test_disconnect_rejects_cross_loop() -> None:
     with pytest.raises(RuntimeError, match="另一个事件循环"):
         asyncio.run(client.disconnect())
     asyncio.run(client.close())
+
+
+# ----------------------------------------------------------------------
+# 心跳保活(asyncio 任务)
+# ----------------------------------------------------------------------
+
+
+def test_heartbeat_task_lifecycle() -> None:
+    """心跳任务:connect 启动、disconnect 取消;显式断开后不再有探测发出。"""
+
+    async def scenario() -> None:
+        # FC08 回显应答(tid 递增),给足心跳 tick 消费
+        behaviors: List[Any] = []
+        for tid in range(1, 8):
+            frame = tid.to_bytes(2, "big") + bytes([0, 0, 0, 6, 1, 8, 0, 0, 0, 0])
+            behaviors.extend([frame[:7], frame[7:]])
+        client = _client(FakeTransport(behaviors))
+        client.heartbeat_interval = 0.05
+        assert client.ping_supported is True
+        assert await client.connect() is True
+        task = client._heartbeat_task
+        assert task is not None and not task.done()
+        await asyncio.sleep(0.25)
+        assert client.stats["heartbeat_ok"] >= 2
+        assert client.stats["last_heartbeat_at"] is not None
+        await client.disconnect()
+        await asyncio.sleep(0.05)
+        assert task is not None and task.done()
+        ticks = client.stats["heartbeat_ok"] + client.stats["heartbeat_fail"]
+        await asyncio.sleep(0.15)  # ≥ 3 个间隔,足够暴露"未取消"
+        assert client.stats["heartbeat_ok"] + client.stats["heartbeat_fail"] == ticks
+
+    asyncio.run(scenario())
+
+
+def test_heartbeat_interval_setter_validation() -> None:
+    """native 心跳间隔 setter:非数字/负数/非有限数拒绝,0 合法(关闭)。"""
+    client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+    for bad in (-1, float("nan"), float("inf"), True, "30"):
+        with pytest.raises(ValueError):
+            client.heartbeat_interval = bad  # type: ignore[assignment]
+    client.heartbeat_interval = 0
+    assert client.heartbeat_interval == 0.0
+    client.heartbeat_interval = 5.5
+    assert client.heartbeat_interval == 5.5

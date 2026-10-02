@@ -65,6 +65,9 @@ class AllenBradleyEthIpClient(BaseClient):
         ok = client.write_bool("MyBool", True)
     """
 
+    # 探活:Identity Object GetAttributesAll(零副作用系统级读,见 _ping_probe)
+    _has_ping = True
+
     def __init__(
         self,
         ip_address: str = "192.168.1.20",
@@ -383,6 +386,20 @@ class AllenBradleyEthIpClient(BaseClient):
             with self._lock:
                 self._set_error(_("GetAttributesAll 解码失败:{}").format(exc), _categorize(exc), _extract_code(exc))
             return False, None
+
+    def _ping_probe(self) -> dict:
+        """探活探测命令:Identity Object GetAttributesAll(内部方法)。
+
+        复用 :meth:`get_plc_info` 的请求与解码(裸操作形态,供基类事务
+        模板调度);零副作用,应答即控制器存活证据。
+        """
+        request = codec_cip._service_request(
+            codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL,
+            codec_cip.build_class_instance_path(CIP_CLASS_IDENTITY, CIP_INSTANCE_IDENTITY),
+            b"",
+        )
+        payload = self._transact(request, codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL)
+        return codec_cip.parse_module_identity_payload(payload)
 
     def get_attribute_all(
         self, class_id: int, instance: int

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import socket
 from abc import abstractmethod
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from . import codec
 from .address import FinsAddress, parse_fins_address
@@ -76,6 +76,9 @@ def _local_ip_for(host: str, port: int) -> str:
 
 class _OmronFinsBase(BaseClient):
     """FINS 客户端公共基类:节点地址、SID 与软元件分发(私有)。"""
+
+    # 探活:FINS 0601 CPU Unit Status Read(零副作用系统级读,见下)
+    _has_ping = True
 
     def __init__(
         self,
@@ -169,6 +172,42 @@ class _OmronFinsBase(BaseClient):
     def _next_sid(self) -> int:
         """SID 递增(0~255 回绕,事务标识,内部方法)。"""
         return self._bump_id("_sid", FINS_SID_BITS)
+
+    # ------------------------------------------------------------------
+    # 状态读与探活(FINS 0601)
+    # ------------------------------------------------------------------
+
+    def read_cpu_unit_status(self) -> Tuple[bool, Optional[Dict[str, object]]]:
+        """读 CPU 单元运行状态(FINS 0601,W342 §5-3-17 印刷页 194-196)。
+
+        返回字段字典:``status``(状态字节原始值)、``run``(bit0,True =
+        程序执行中)、``mode``(运行模式 00=PROGRAM/02=MONITOR/04=RUN)、
+        ``fatal_error``/``nonfatal_error``(致命/非致命错误字原始值)、
+        ``message_flags``(MSG 显示标志)、``error_code``(当前错误码,
+        无错 0)、``error_message``(FAL/FALS 文本,去尾空格)。
+
+        命令帧仅命令码、无参数,零副作用——同时是 :meth:`ping` 的探测命令。
+
+        :return: ``(是否成功, 状态字典)``;失败为 ``(False, None)``
+        """
+        return self._execute(self._cpu_unit_status_operation)
+
+    def _ping_probe(self) -> Dict[str, object]:
+        """探活探测命令:0601 CPU Unit Status Read(内部方法)。"""
+        return self._cpu_unit_status_operation()
+
+    def _cpu_unit_status_operation(self) -> Dict[str, object]:
+        """0601 状态读的协议操作(内部方法;公开方法与探活共用)。"""
+        request = codec.build_cpu_unit_status_read(
+            self._destination_network,
+            self._destination_node,
+            self._destination_unit,
+            self._source_network,
+            self._source_node,
+            self._source_unit,
+            self._next_sid(),
+        )
+        return codec.parse_cpu_unit_status_read(self._transact(request), request)
 
     # ------------------------------------------------------------------
     # 协议原语(BaseClient 类型化方法只调用 _read/_write)

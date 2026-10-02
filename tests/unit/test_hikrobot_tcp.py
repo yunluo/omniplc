@@ -255,3 +255,14 @@ def test_custom_noread_text(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_scripted_module_used_for_chunks() -> None:
     """占位断言:确认测试脚本架依赖 scripted.ChunkSocket 语义(空池即超时)。"""
     assert scripted.ChunkSocket is ChunkSocket
+
+
+def test_ping_get_acquisition(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ping():``<Get,Acq>`` 零副作用查询,应答即命令通道探活成功。"""
+    client, cmd_sock, _result = _make_client(
+        monkeypatch,
+        [b"<Get,Acq,1>"],
+        None,
+    )
+    assert client.ping() is True
+    assert bytes(cmd_sock.sent) == b"<Get,Acq>"

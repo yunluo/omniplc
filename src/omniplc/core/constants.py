@@ -63,6 +63,14 @@ TCP_KEEPALIVE_INTERVAL: int = 5
 TCP_KEEPALIVE_COUNT: int = 3
 """TCP keepalive 失败判定次数(连续无应答即认为对端失联)。"""
 
+# ---------------------------------------------------------------- 应用层心跳
+HEARTBEAT_INTERVAL_DEFAULT: float = 30.0
+"""应用层心跳默认间隔秒数(用户裁决 2026-10-02:30 秒一次;置 0 关闭)。
+
+TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死,也压
+不到秒级窗口;应用层心跳由驱动提供零副作用探测命令(FC08/0101/0601 等)
+按本间隔驱动。"""
+
 # ---------------------------------------------------------------- 默认端口
 MODBUS_DEFAULT_PORT: int = 502
 MC_DEFAULT_PORT: int = 2000
@@ -593,6 +601,17 @@ FINS_COMMAND_AREA_WRITE: int = 0x0102
 """Area Write 命令(MRC=01, SRC=02)。"""
 FINS_COMMAND_MULTIPLE_AREA_READ: int = 0x0104
 """Multiple Memory Area Read 命令(MRC=01, SRC=04;W342 §5-3-5)。"""
+FINS_COMMAND_CPU_UNIT_STATUS_READ: int = 0x0601
+"""CPU Unit Status Read 命令(MRC=06, SRC=01;W342 §5-3-17 p.194)。
+
+读 CPU 运行状态(RUN/停止、运行模式、致命/非致命错误字),命令帧仅
+命令码两字节、无参数——零副作用,用作 FINS 探活命令。"""
+FINS_STATUS_PROGRAM: int = 0x00
+"""0601 应答 Mode 值:PROGRAM(W342 §5-3-17 p.195)。"""
+FINS_STATUS_MONITOR: int = 0x02
+"""0601 应答 Mode 值:MONITOR。"""
+FINS_STATUS_RUN: int = 0x04
+"""0601 应答 Mode 值:RUN。"""
 FINS_MAX_MULTIPLE_ELEMENTS: int = 167
 """0104 多存储区读单命令条目上限(Ethernet/Controller Link;SYSMAC LINK/
 DeviceNet 为 89;W342 §5-3-5 p.178)。"""

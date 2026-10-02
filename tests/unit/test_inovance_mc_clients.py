@@ -2,7 +2,8 @@
 
 覆盖:码表(S=三菱L码 92h)、R 与 D 统一编址(R100→D8100)、
 X/Y 八进制命名转帧内十六进制(X17→0x0F)、X/Y 八进制非法拒绝、
-三菱专有记号(ZR/SM)拒绝、位写、字软元件位写读-改-写、异步镜像。
+三菱专有记号(ZR/SM)拒绝、位写、字软元件位写读-改-写、异步镜像、
+ping/心跳显式关闭(H5U 手册 16.4 无 0101 探测命令)。
 """
 from __future__ import annotations
 
@@ -254,3 +255,11 @@ def test_read_batch_translates_addresses(monkeypatch: pytest.MonkeyPatch) -> Non
         [(0xA8, INOVANCE_MC_R_BASE, 1)],
         [(x_code, 0x0F, 1)],
     )
+
+
+def test_ping_disabled_for_h5u() -> None:
+    """H5U 手册 16.4 命令支持面无 0101:探活与自动心跳显式关闭。"""
+    client = InovanceMcTcpClient("127.0.0.1")
+    assert client.ping_supported is False
+    assert client.ping() is False
+    assert client._transport is None  # 兜底路径不发包、不建连

@@ -81,6 +81,9 @@ class ModbusBaseClient(BaseClient):
     _BROADCAST_WITHOUT_RESPONSE: bool = False
     """走线是否具备广播语义(RTU 为 True:站号 0 写不等响应)。"""
 
+    # 探活:FC08 诊断回显(零副作用系统级命令,见 _ping_probe)
+    _has_ping = True
+
     def __init__(self) -> None:
         """初始化 Modbus 公共配置(字序默认 ABCD,站号默认 1)。"""
         super().__init__()
@@ -814,6 +817,19 @@ class ModbusBaseClient(BaseClient):
 
         # 仅 0x000A(清计数器与诊断寄存器)是写语义;其余子功能为只读查询
         return self._execute(operation, is_write=int(sub_function) == 0x000A)
+
+    def _ping_probe(self) -> int:
+        """探活探测命令:FC08 子功能 0x0000 回显查询(内部方法)。
+
+        依据:Modbus 应用协议 V1.1b3 §6.8——Return Query Data,设备原样
+        回显数据域,零副作用。注意:FC08 在规范中非强制,不支持 FC08 的
+        从站会以异常码 01 应答——**能应答即链路存活**(按 DeviceError
+        不断线),仅表现为 ping 返回 False 与心跳失败计数。
+        """
+        self._reject_broadcast_read()
+        return codec.parse_diagnostics_response(
+            self._transact(codec.build_diagnostics_pdu(0x0000, 0x0000)), 0x0000
+        )
 
     def get_comm_event_counter(self) -> Tuple[bool, Optional[int]]:
         """取通信事件计数器(FC11,规范 §6.11):返回事件计数。

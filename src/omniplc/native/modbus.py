@@ -87,6 +87,9 @@ class AsyncModbusTcpClient(AsyncBaseClient):
     _BROADCAST_WITHOUT_RESPONSE: bool = False
     """TCP 站号 0 为路由字段而非广播:读放行(与同步 ModbusTcpClient 一致)。"""
 
+    # 探活:FC08 诊断回显(与同步基类同口径,见 _ping_probe)
+    _has_ping = True
+
     def __init__(
         self,
         ip_address: str = "127.0.0.1",
@@ -801,6 +804,13 @@ class AsyncModbusTcpClient(AsyncBaseClient):
             )
 
         return await self._execute(operation, is_write=int(sub_function) == 0x000A)
+
+    async def _ping_probe(self) -> int:
+        """探活探测命令:FC08 子功能 0x0000 回显查询(内部方法,镜像同步侧)。"""
+        self._reject_broadcast_read()
+        return codec.parse_diagnostics_response(
+            await self._transact(codec.build_diagnostics_pdu(0x0000, 0x0000)), 0x0000
+        )
 
     async def get_comm_event_counter(self) -> Tuple[bool, Optional[int]]:
         """取通信事件计数器(FC11,规范 §6.11)。

@@ -20,7 +20,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from .base import AsyncBaseClient
 from .transport import AsyncBaseTransport, AsyncTcpTransport, AsyncUdpTransport
@@ -67,6 +67,9 @@ class AsyncOmronFinsBase(AsyncBaseClient):
     (network 0~127、node 0~254、unit 0~255,越界构造期拒绝,不做 ``& 0xFF``
     静默截断)。
     """
+
+    # 探活:FINS 0601 CPU Unit Status Read(与同步基类同口径,见 _ping_probe)
+    _has_ping = True
 
     def __init__(
         self,
@@ -153,6 +156,38 @@ class AsyncOmronFinsBase(AsyncBaseClient):
     def _next_sid(self) -> int:
         """SID 递增(0~255 回绕,事务标识,内部方法)。"""
         return self._bump_id("_sid", FINS_SID_BITS)
+
+    # ------------------------------------------------------------------
+    # 状态读与探活(FINS 0601)
+    # ------------------------------------------------------------------
+
+    async def read_cpu_unit_status(self) -> Tuple[bool, Optional[Dict[str, object]]]:
+        """读 CPU 单元运行状态(FINS 0601,W342 §5-3-17 印刷页 194-196)。
+
+        返回字段字典与同步侧 :meth:`~omniplc.OmronFinsTcpClient.read_cpu_unit_status`
+        完全一致;命令帧仅命令码、无参数,零副作用——同时是 :meth:`ping`
+        的探测命令。
+
+        :return: ``(是否成功, 状态字典)``;失败为 ``(False, None)``
+        """
+        return await self._execute(self._cpu_unit_status_operation)
+
+    async def _ping_probe(self) -> Dict[str, object]:
+        """探活探测命令:0601 CPU Unit Status Read(内部方法)。"""
+        return await self._cpu_unit_status_operation()
+
+    async def _cpu_unit_status_operation(self) -> Dict[str, object]:
+        """0601 状态读的协议操作(内部方法;公开方法与探活共用)。"""
+        request = codec.build_cpu_unit_status_read(
+            self._destination_network,
+            self._destination_node,
+            self._destination_unit,
+            self._source_network,
+            self._source_node,
+            self._source_unit,
+            self._next_sid(),
+        )
+        return codec.parse_cpu_unit_status_read(await self._transact(request), request)
 
     # ------------------------------------------------------------------
     # 协议原语(基类类型化方法只调用 _read/_write)

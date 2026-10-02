@@ -437,3 +437,36 @@ def test_async_mirror_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
         await client.close()
 
     asyncio.run(scenario())
+
+
+# ----------------------------------------------------------------------
+# 状态读与探活(pyads read_state)
+# ----------------------------------------------------------------------
+
+class _FakeAdsConnection:
+    """内存版 pyads Connection:仅 read_state(状态读/探活测试用)。"""
+
+    def __init__(self, state: Any) -> None:
+        self.state = state
+        self.calls = 0
+
+    def read_state(self) -> Any:
+        self.calls += 1
+        return self.state
+
+
+def test_read_state_and_ping(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_state/ping:pyads read_state 透传 (adsState, deviceState)。"""
+    client = BeckhoffAdsClient("127.0.0.1", 851)
+    fake = FakeAdsSession()
+    conn = _FakeAdsConnection((5, 0))
+    monkeypatch.setattr(fake, "_connection", conn)
+    monkeypatch.setattr(client, "_create_transport", lambda: fake)
+    assert client.connect() is True
+    assert client.read_state() == (True, (5, 0))
+    assert client.ping() is True
+    assert conn.calls == 2
+    # pyads 返回 None(会话未就绪口径)→ 内部错误,按传输失败拆连
+    conn.state = None
+    assert client.read_state() == (False, None)
+    assert client.connected is False

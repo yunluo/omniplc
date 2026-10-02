@@ -280,6 +280,28 @@ class ABaseClient:
         """连接健康统计快照(转发同步实例,字段说明见同步版)。"""
         return self._sync.stats
 
+    async def ping(self) -> bool:
+        """探活(语义同同步版 :meth:`BaseClient.ping`)。"""
+        return await self._run(self._sync.ping)
+
+    @property
+    def ping_supported(self) -> bool:
+        """当前驱动是否支持 ping 探活(转发同步实例)。"""
+        return self._sync.ping_supported
+
+    @property
+    def heartbeat_interval(self) -> float:
+        """应用层心跳间隔(秒;语义同同步版)。
+
+        心跳线程运行在同步实例上,与事件循环无关;aio 侧仅转发配置。
+        """
+        return self._sync.heartbeat_interval
+
+    @heartbeat_interval.setter
+    def heartbeat_interval(self, seconds: float) -> None:
+        # 经 executor 下发:同步 setter 会启停线程,不在事件循环线程直写
+        self._run_sync_attribute_set("heartbeat_interval", seconds)
+
     @property
     def receive_timeout(self) -> float:
         """单次收发超时(秒)。"""
@@ -1911,6 +1933,10 @@ class _AFinsRoutingClient(ABaseClient):
         """源单元号(转发同步实例)。"""
         return self._fins.source_unit
 
+    async def read_cpu_unit_status(self) -> Tuple[bool, Optional[Dict[str, object]]]:
+        """读 CPU 单元运行状态(0601,零副作用;语义同同步版)。"""
+        return await self._run(self._fins.read_cpu_unit_status)
+
 
 class AOmronFinsTcpClient(_AFinsRoutingClient):
     """欧姆龙 FINS/TCP 异步客户端。"""
@@ -2272,6 +2298,11 @@ class ABeckhoffAdsClient(ABaseClient):
         sync = self._typed(BeckhoffAdsClient)
         return sync.ads_port
 
+    async def read_state(self) -> Tuple[bool, Optional[Tuple[int, int]]]:
+        """读 ADS 状态与设备状态(零副作用;语义同同步版)。"""
+        sync = self._typed(BeckhoffAdsClient)
+        return await self._run(sync.read_state)
+
 
 class ASiemensS7Client(ABaseClient):
     """西门子 S7 异步客户端(封装 python-snap7,DB/I/Q/M 绝对寻址)。"""
@@ -2316,6 +2347,10 @@ class ASiemensS7Client(ABaseClient):
     ) -> Tuple[bool, Optional[str]]:
         """读 S7 WString(UTF-16BE,语义同同步版)。"""
         return await self._run(lambda: self._client().read_wstring(address, length))
+
+    async def get_cpu_state(self) -> Tuple[bool, Optional[str]]:
+        """读 CPU 运行状态(snap7 GetCpuState,零副作用;语义同同步版)。"""
+        return await self._run(lambda: self._client().get_cpu_state())
 
     async def write_wstring(self, address: str, value: str) -> bool:
         """写 S7 WString(UTF-16BE,语义同同步版)。"""

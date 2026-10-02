@@ -120,6 +120,10 @@ class InovanceMcTcpClient(MelsecMcTcpClient):
         :raises ValueError: 参数非法
         """
         super().__init__(ip_address, port, McFrame.FRAME_3E, network_number, pc_number)
+        # H5U 手册 16.4 命令支持面仅披露 0401/1401/0403/1402,无 0101 CPU
+        # 型号读——探活与自动心跳显式关闭(开着会对健康链路每 tick 报一次
+        # 设备错误);MC 探针在基类 __init__ 已按 3E 帧置 True,此处覆盖
+        self._has_ping = False
 
     def _device_info(self, device: str) -> Tuple[int, bool, int]:
         """查汇川 MC 码表(R 视同 D,内部方法)。"""

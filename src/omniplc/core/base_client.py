@@ -20,12 +20,13 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from types import TracebackType
-from typing import Callable, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union, cast
 
 from .constants import (
     DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_RECEIVE_TIMEOUT,
     DEFAULT_STRING_ENCODING,
+    HEARTBEAT_INTERVAL_DEFAULT,
     PORT_MAX,
     PORT_MIN,
     READ_STRING_DEFAULT_LENGTH,
@@ -75,9 +76,12 @@ class ClientStats(TypedDict):
     transactions: int
     error_count: int
     device_error_count: int
+    heartbeat_ok: int
+    heartbeat_fail: int
     last_error_at: Optional[float]
     last_connect_at: Optional[float]
     last_success_at: Optional[float]
+    last_heartbeat_at: Optional[float]
     last_rtt: Optional[float]
 
 
@@ -110,6 +114,10 @@ class BaseClient(ABC):
 
     :example: ``with ModbusTcpClient("192.168.0.10", 502, 1) as client: ...``
     """
+
+    # 类属性默认 False;支持探活的驱动覆写为 True(MC 系按帧型在构造期
+    # 以实例属性覆盖——1E/3C/4C 帧无 0101 探测命令,不启用)
+    _has_ping: bool = False
 
     def __init__(self, ip_address: str = "", port: int = 0) -> None:
         """初始化公共状态(子类在完成自身参数校验后调用)。
@@ -146,13 +154,26 @@ class BaseClient(ABC):
             "transactions": 0,
             "error_count": 0,
             "device_error_count": 0,
+            "heartbeat_ok": 0,
+            "heartbeat_fail": 0,
         }
         self._timestamps: Dict[str, Optional[float]] = {
             "last_error_at": None,
             "last_connect_at": None,
             "last_success_at": None,
+            "last_heartbeat_at": None,
             "last_rtt": None,
         }
+        # 应用层心跳:connect 成功后由守护线程按间隔驱动 ping()(见
+        # 「心跳保活」节);显式 disconnect 停止,传输失败拆连**不**停止——
+        # 心跳正是靠下一 tick 的 _execute 惰性重连实现自愈。
+        # _heartbeat_life_lock 仅保护线程启停与间隔写入(微秒级,绝不包 I/O),
+        # 与事务锁 _lock 的获取顺序恒为 _lock → _heartbeat_life_lock
+        # (connect 成功路径),无反向获取,不成环。
+        self._heartbeat_interval: float = HEARTBEAT_INTERVAL_DEFAULT
+        self._heartbeat_stop: Optional[threading.Event] = None
+        self._heartbeat_thread: Optional[threading.Thread] = None
+        self._heartbeat_life_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # 连接管理
@@ -234,14 +255,21 @@ class BaseClient(ABC):
                 # 计数器口径统一:与 stats 快照同锁,避免快照读到跨锁序中间态
                 self._counters["connect_count"] += 1
                 self._timestamps["last_connect_at"] = time.monotonic()
+            # 心跳在连接成功后按需启动(幂等;不支持探活/间隔 0 时不启动)
+            self._start_heartbeat()
             return True
 
     def disconnect(self) -> bool:
         """断开连接(幂等)。
 
+        显式断开会**停止心跳线程**——"断开"是调用方的明确意图,心跳不得
+        违背它重新建连;传输失败触发的拆连(:meth:`_mark_disconnected`)
+        不停心跳,下一 tick 自动重连。
+
         :return: 是否成功
         """
         with self._lock:
+            self._stop_heartbeat()
             transport = self._transport
             self._transport = None
             self._connected = False
@@ -268,6 +296,158 @@ class BaseClient(ABC):
         中读取不得阻塞事件循环。
         """
         return self._connected
+
+    # ------------------------------------------------------------------
+    # 心跳保活(ping 探活 + 守护线程自动心跳)
+    # ------------------------------------------------------------------
+
+    @property
+    def ping_supported(self) -> bool:
+        """当前驱动是否支持 ping 探活(类级能力,无锁快照)。
+
+        支持探活的驱动覆写了零副作用探测命令(Modbus FC08 回显、MC 0101
+        CPU 型号、FINS 0601 状态读、AB Identity 读取等);不支持者
+        (MX COM 会话、SDK 会话、无探测命令的串口驱动)``ping()`` 恒
+        ``False`` 且自动心跳不启用。
+        """
+        return self._has_ping
+
+    def ping(self) -> bool:
+        """探活:执行驱动的零副作用探测命令,返回链路与设备是否健康。
+
+        走与读写完全相同的事务契约(:meth:`_execute`:惰性重连、退避门控、
+        重试、``last_error`` 三件套):探测命令成功返回 ``True``;传输失败
+        按事务口径处理(OSError 拆连、超时保留连接);PLC 报错(DeviceError)
+        不断线——能应答错误码本身就证明链路活着。失败不抛异常,参数类
+        错误(如 Modbus 广播站号)照库约定上抛 ``ValueError``。
+
+        未实现探测命令的驱动恒返回 ``False`` 并记录 ``last_error``
+        (不计算失败统计)。
+
+        :return: 探测命令是否成功
+        :raises ValueError: 探测命令的参数类错误(如广播站号下的读)
+        """
+        if not self._has_ping:
+            self._set_error(
+                _("当前驱动未实现 ping 探活(无零副作用探测命令)"),
+                ErrorCategory.UNKNOWN,
+                None,
+                record=False,
+            )
+            return False
+        ok, _unused = self._execute(self._ping_probe)
+        return ok
+
+    @property
+    def heartbeat_interval(self) -> float:
+        """应用层心跳间隔(秒),默认 30(:data:`HEARTBEAT_INTERVAL_DEFAULT`);0 = 关闭。
+
+        连接建立后由**守护线程**按本间隔自动调用 :meth:`ping`;写入立即
+        生效(运行中的心跳线程按新间隔重启)。仅对 ``ping_supported`` 为
+        True 的驱动生效——不支持探活的驱动置多少都不会有线程运行。
+
+        心跳不是免费功能,启用方应知晓:
+
+        - 每 tick 一次完整事务,计入 ``stats["transactions"]``;结果计
+          ``heartbeat_ok``/``heartbeat_fail``,时间戳记 ``last_heartbeat_at``;
+        - 探测与业务事务互斥(同一把事务锁),业务长事务期间心跳排队等待,
+          反之探测期间(最长 ``connect_timeout + receive_timeout`` 量级)
+          业务事务也要等;
+        - 失败的 tick 会写入 ``last_error``(与真实事务一致);
+        - **自动重连**:传输失败拆连后,下一 tick 经 ``_execute`` 惰性重连
+          (受 :attr:`reconnect_backoff` 退避门控约束,不会形成重连风暴);
+        - 显式 :meth:`disconnect` 停止心跳(断开是调用方的明确意图)。
+        """
+        return self._heartbeat_interval
+
+    @heartbeat_interval.setter
+    def heartbeat_interval(self, seconds: float) -> None:
+        if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+            raise ValueError(
+                _("heartbeat_interval 必须为数字,收到:{!r}").format(seconds)
+            )
+        value = float(seconds)
+        if not math.isfinite(value) or value < 0:
+            raise ValueError(
+                _("heartbeat_interval 必须为非负有限数,收到:{!r}").format(seconds)
+            )
+        with self._heartbeat_life_lock:
+            self._heartbeat_interval = value
+            thread = self._heartbeat_thread
+            if thread is not None and thread.is_alive():
+                # 运行中的心跳按新间隔重启;置 0 时 _start_heartbeat_locked
+                # 因间隔非正直接返回,等效"仅停止"
+                self._stop_heartbeat_locked()
+                self._start_heartbeat_locked()
+
+    def _start_heartbeat(self) -> None:
+        """按需启动心跳守护线程(内部方法;connect 成功后调用,幂等)。"""
+        with self._heartbeat_life_lock:
+            self._start_heartbeat_locked()
+
+    def _start_heartbeat_locked(self) -> None:
+        """启动心跳线程(内部方法;须持 ``_heartbeat_life_lock``)。"""
+        if self._heartbeat_interval <= 0 or not self._has_ping:
+            return
+        thread = self._heartbeat_thread
+        if thread is not None and thread.is_alive():
+            return
+        stop = threading.Event()
+        self._heartbeat_stop = stop
+        # stop 事件按值传入循环体:间隔写入重启线程时,旧线程持有的是旧
+        # 事件引用,置位后即退出,不会残留第二个循环
+        thread = threading.Thread(
+            target=self._heartbeat_loop,
+            args=(stop,),
+            name="omniplc-heartbeat",
+            daemon=True,
+        )
+        self._heartbeat_thread = thread
+        thread.start()
+
+    def _stop_heartbeat(self) -> None:
+        """停止心跳守护线程(内部方法;显式断开/间隔写入时调用,幂等)。"""
+        with self._heartbeat_life_lock:
+            self._stop_heartbeat_locked()
+
+    def _stop_heartbeat_locked(self) -> None:
+        """停止心跳线程(内部方法;须持 ``_heartbeat_life_lock``)。
+
+        只置位不 join:线程可能正持有事务锁在途探测,join 会把 disconnect
+        卡满一个事务时长;置位后线程退出,而**尚未进入探测**的 tick 会在
+        :meth:`_heartbeat_tick` 的锁内复查中直接放弃(见该方法),因此
+        disconnect 返回后不会再有心跳探测发出。
+        """
+        stop = self._heartbeat_stop
+        if stop is not None:
+            stop.set()
+        self._heartbeat_stop = None
+        self._heartbeat_thread = None
+
+    def _heartbeat_loop(self, stop: threading.Event) -> None:
+        """心跳循环主体(内部方法;守护线程入口)。"""
+        while not stop.wait(self._heartbeat_interval):
+            self._heartbeat_tick(stop)
+
+    def _heartbeat_tick(self, stop: threading.Event) -> None:
+        """单次心跳:探测一次并计数(内部方法;任何异常都不终止循环)。
+
+        在事务锁内复查停止事件:disconnect 与 tick 竞争同一把事务锁,锁内
+        复查保证"显式断开后不再发起心跳探测"——否则在途 tick 会在
+        disconnect 之后经 :meth:`_execute` 惰性重连复活连接,违背断开意图。
+        ping 内层再取事务锁为 RLock 重入,同线程直接放行。
+        """
+        with self._lock:
+            if stop.is_set():
+                return
+            try:
+                ok = self.ping()
+            except Exception:
+                # ping 的参数类错误(如广播站号)也不终止心跳:计为失败后继续
+                ok = False
+        with self._state_lock:
+            self._timestamps["last_heartbeat_at"] = time.monotonic()
+            self._counters["heartbeat_ok" if ok else "heartbeat_fail"] += 1
 
     # ------------------------------------------------------------------
     # 可配置属性(超时/重试)
@@ -410,8 +590,10 @@ class BaseClient(ABC):
         - ``error_count``:失败总数(设备错误 + 传输错误 + 建连失败)
         - ``device_error_count``:PLC 明确返回错误码的次数(链路完好;
           接收超时与无码失败——能力缺失、设备侧条件——不计入)
-        - ``last_error_at`` / ``last_connect_at`` / ``last_success_at``:
-          ``time.monotonic()`` 时间戳(秒)
+        - ``heartbeat_ok`` / ``heartbeat_fail``:自动心跳成功/失败 tick 数
+          (手动 :meth:`ping` 不计入;间隔 0 或驱动不支持探活时恒为 0)
+        - ``last_error_at`` / ``last_connect_at`` / ``last_success_at`` /
+          ``last_heartbeat_at``:``time.monotonic()`` 时间戳(秒)
         - ``last_rtt``:最近一次成功事务的往返耗时(秒,含 PLC 等待)
 
         时间戳为单调钟相对值,跨重启无意义;用于现场判断"多久前
@@ -912,6 +1094,16 @@ class BaseClient(ABC):
         缺省实现语义同 :meth:`_read_string`。
         """
         raise DeviceError(_("当前驱动暂不支持字符串写入"), 0)
+
+    def _ping_probe(self) -> Any:
+        """零副作用探测命令(内部方法;支持探活的驱动覆写)。
+
+        缺省实现抛 :class:`DeviceError`(链路正常,由 :meth:`_execute` 转
+        ``(False, None)`` + ``last_error``,不逃逸裸异常),与
+        :meth:`_read_string` 同款;``_has_ping`` 为 False 时不会被调用。
+        返回值只作探活成功依据(:meth:`ping` 不消费具体值)。
+        """
+        raise DeviceError(_("当前驱动未实现 ping 探活"), 0)
 
     def _bump_id(self, attr: str, bits: int = 16) -> int:
         """递增指定字段的协议序列号(回绕到 0),返回新值(内部方法)。

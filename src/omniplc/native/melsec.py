@@ -114,6 +114,8 @@ class AsyncMelsecMcBase(AsyncBaseClient):
                     type(self).__name__, self._frame.value, supported
                 )
             )
+        # 探活按帧型启用(与同步基类同口径):0101 仅 3E/4E 帧支持
+        self._has_ping = self._frame in (McFrame.FRAME_3E, McFrame.FRAME_4E)
         self._network_number = check_byte_field("网络编号", network_number)
         self._pc_number = check_byte_field("PC 编号", pc_number)
         self._serial = 0
@@ -535,23 +537,27 @@ class AsyncMelsecMcBase(AsyncBaseClient):
             raise ValueError(
                 _("CPU 型号读取仅支持 3E/4E 帧,当前帧型:{}").format(self._frame.value)
             )
+        return await self._execute(self._cpu_model_operation)
 
-        async def operation() -> Tuple[str, int]:
-            # 0101 同样按客户端路由字段组帧;4E 响应按序列号回显校验(镜像同步侧)
-            request = codec_qna.build_read_cpu_model(
-                self._frame.value,
-                self._next_serial(),
-                self._network_number,
-                self._pc_number,
-                MC_DEFAULT_MONITOR_TIMER,
-            )
-            return codec_qna.parse_read_cpu_model_response(
-                await self._transact(request),
-                self._frame.value,
-                expected_serial=self._serial,
-            )
+    async def _ping_probe(self) -> Tuple[str, int]:
+        """探活探测命令:0101 CPU 型号读(内部方法;仅 3E/4E 帧启用)。"""
+        return await self._cpu_model_operation()
 
-        return await self._execute(operation)
+    async def _cpu_model_operation(self) -> Tuple[str, int]:
+        """0101 CPU 型号读的协议操作(内部方法;公开方法与探活共用)。"""
+        # 0101 同样按客户端路由字段组帧;4E 响应按序列号回显校验(镜像同步侧)
+        request = codec_qna.build_read_cpu_model(
+            self._frame.value,
+            self._next_serial(),
+            self._network_number,
+            self._pc_number,
+            MC_DEFAULT_MONITOR_TIMER,
+        )
+        return codec_qna.parse_read_cpu_model_response(
+            await self._transact(request),
+            self._frame.value,
+            expected_serial=self._serial,
+        )
 
     # ------------------------------------------------------------------
     # 位/字原语(核心命令 + 帧封装)

@@ -1172,6 +1172,12 @@ _TRANSLATIONS: Dict[str, str] = {
     '读码结果等待超时({}s),串口无应答': 'Waiting for the decode result timed out ({} s) with no response on the serial port',
     '串口收行超时({}s)': 'The serial line read timed out ({} s)',
     '串口应答超过 {} 字节上限': 'The serial response exceeds the {}-byte limit',
+    # ---- 心跳保活(ping / 自动心跳) ----
+    '当前驱动未实现 ping 探活(无零副作用探测命令)': 'The current driver does not implement ping (no side-effect-free probe command)',
+    '当前驱动未实现 ping 探活': 'The current driver does not implement ping',
+    'heartbeat_interval 必须为数字,收到:{!r}': 'heartbeat_interval must be a number, got: {0!r}',
+    'heartbeat_interval 必须为非负有限数,收到:{!r}': 'heartbeat_interval must be a non-negative finite number, got: {0!r}',
+    '读码器应答缺少参数值': 'The reader reply is missing a parameter value',
 }
 # <<<I18N_END>>>
 

@@ -125,6 +125,9 @@ class HikrobotIdModbusClient(ModbusTcpClient):
         client.close()
     """
 
+    # 探活:读状态区 REG1(FC03 零副作用单读,读码器自身状态寄存器)
+    _has_ping = True
+
     def __init__(
         self,
         ip_address: str = "192.168.0.10",
@@ -280,6 +283,14 @@ class HikrobotIdModbusClient(ModbusTcpClient):
         :raises DeviceError: Modbus 事务失败(细节见 ``last_error``)
         """
         return self._to_status(self._read_status_word())
+
+    def _ping_probe(self) -> int:
+        """探活探测命令:FC03 读状态字 REG1(内部方法)。
+
+        依据:工业协议手册 V1.0.4 §3.5 印刷页 40——状态寄存器只读,
+        零副作用;不触发扫描握手,读码器应答即链路存活。
+        """
+        return self._read_status_word()
 
     def clear_error(self, timeout: float = 2.0, poll_interval: float = 0.05) -> bool:
         """清除设备错误状态(控制字 bit15 置位,§3.5 印刷页 40)。

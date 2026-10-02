@@ -237,6 +237,9 @@ class HikrobotIdTcpClient(BaseClient):
     被动接收下一帧推送结果。
     """
 
+    # 探活:<Get,Acq> 采集状态查询(零副作用命令,见 _ping_probe)
+    _has_ping = True
+
     def __init__(
         self,
         ip_address: str = "192.168.0.10",
@@ -400,6 +403,17 @@ class HikrobotIdTcpClient(BaseClient):
         if not ok or value is None:
             return False, None
         return True, int(value)
+
+    def _ping_probe(self) -> int:
+        """探活探测命令:``<Get,Acq>`` 采集状态查询(内部方法)。
+
+        依据:通信指令手册 V1.0.3 §3 命令列表——Get 类查询零副作用,
+        读码器应答即命令通道存活(结果通道不参与握手,须现场验证)。
+        """
+        value = self._command_exchange("Get", "Acq")
+        if value is None:
+            raise DeviceError(_("读码器应答缺少参数值"), 0)
+        return int(value)
 
     def command(
         self, cmd_type: str, cmd: str, param: Optional[str] = None

@@ -338,6 +338,9 @@ class MTConnectClient(BaseClient):
         ok, alarms = client.read_conditions()
     """
 
+    # 探活:HTTP GET /probe(零副作用,Agent 必答,见 _ping_probe)
+    _has_ping = True
+
     def __init__(
         self,
         ip_address: str = "192.168.0.10",
@@ -445,6 +448,14 @@ class MTConnectClient(BaseClient):
         if not devices:
             raise DeviceError(_("MTConnect /probe 未包含 Device"), 0)
         return devices[0]
+
+    def _ping_probe(self) -> Dict[str, str]:
+        """探活探测命令:HTTP GET ``/probe``(内部方法)。
+
+        依据:MTConnect Part1 §8.3.1 p.98-100——Agent 必须实现 /probe,
+        返回设备清单,零副作用。HTTP 逐请求建连,探活即完整性校验。
+        """
+        return self._fetch_probe()
 
     def _fetch_probe_devices(self) -> List[Dict[str, str]]:
         """读取 /probe,返回全部 Device 的属性列表(内部方法)。"""

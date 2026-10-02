@@ -79,6 +79,9 @@ _VARIANT_TYPE_NAMES = {
 }
 """DataType → asyncua ``ua.VariantType`` 成员名(惰性解析,保持核心零导入)。"""
 
+OPCUA_SERVER_TIME_NODE = "i=2258"
+"""Server_ServerStatus_CurrentTime 标准变量(0 命名空间;探活探测命令)。"""
+
 _ENDPOINT_RE = re.compile(r"^opc\.tcp://([^/\s:]+|\[[0-9A-Fa-f:]+\])(?::(\d{1,5}))?(?:/.*)?$", re.IGNORECASE)
 """opc.tcp 端点 URL:主机(IPv4/IPv6 字面量/主机名)+ 可选端口 + 可选路径。"""
 
@@ -469,6 +472,9 @@ class OpcUaClient(BaseClient):
         ok = client.write_ushort("ns=2;s=Device.Speed", 1200)
     """
 
+    # 探活:读 Server_ServerStatus_CurrentTime 标准变量(零副作用,见 _ping_probe)
+    _has_ping = True
+
     def __init__(
         self,
         ip_address: str = "192.168.0.10",
@@ -587,6 +593,16 @@ class OpcUaClient(BaseClient):
         parsed = parse_opcua_nodeid(address)
         self._session().write_value(parsed.text, value, _VARIANT_TYPE_NAMES[DataType.STRING])
         return value
+
+    def _ping_probe(self) -> Any:
+        """探活探测命令:读 ``i=2258`` Server 当前时间(内部方法)。
+
+        ``i=2258`` = Server_ServerStatus_CurrentTime(0 命名空间标准变量,
+        asyncua ``Client.nodes.current_time`` 同款)——每个 OPC-UA 服务器
+        必须实现,零副作用,能读到即会话与服务存活;顺带保活会话,抑制
+        服务器对空闲会话的超时回收。
+        """
+        return self._session().read_value(OPCUA_SERVER_TIME_NODE)
 
     # ------------------------------------------------------------------
     # 批量读取(UA Read 服务原生多节点,单请求)

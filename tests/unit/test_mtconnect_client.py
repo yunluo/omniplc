@@ -782,3 +782,10 @@ def test_read_integer_out_of_declared_range(monkeypatch: pytest.MonkeyPatch) -> 
     assert client.last_error is not None and "超出声明类型范围" in client.last_error
     assert client.connected is True
     assert client.read_short("ok") == (True, 123)
+
+
+def test_ping_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ping():GET /probe 零副作用,Agent 应答即探活成功。"""
+    client = _client(monkeypatch)
+    assert client.ping() is True
+    assert client.connected is True

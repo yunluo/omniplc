@@ -268,3 +268,12 @@ def test_constructor_defaults_station_zero() -> None:
     client = HikrobotIdModbusClient("127.0.0.1")
     assert client.station == 0
     assert client._ip_address == "127.0.0.1"  # noqa: SLF001 私有属性直读(构造缺省断言)
+
+
+def test_ping_reads_status_word(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ping():FC03 读 REG1 状态字,应答即探活成功(不触发扫描握手)。"""
+    client, scripted = _make_client(monkeypatch, [_fc03_response(1, [0x0001])])
+    assert client.ping() is True
+    assert bytes(scripted.sent) == codec.build_mbap(
+        1, _STATION, codec.build_read_pdu(3, 1, 1)
+    )

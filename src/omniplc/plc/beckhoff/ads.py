@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import re
 import struct
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 from ...core.base_client import BaseClient, validate_endpoint
 from ...core.constants import (
@@ -304,6 +304,24 @@ class _AdsSession(BaseTransport):
         value = getattr(symbol, "symbol_type", None)
         return value if isinstance(value, str) else None
 
+    def read_state(self) -> Tuple[int, int]:
+        """读 ADS 状态与设备状态(pyads read_state,会话调用,异常在此翻译)。
+
+        返回 ``(adsState, deviceState)``,取值见 Beckhoff ADS 规范
+        (5 = RUN、7 = STOP 等);零副作用,同时是探活探测命令。
+        """
+        try:
+            state = self.connection.read_state()
+        except OSError:
+            raise
+        except Exception as exc:
+            raise _translate_ads_error(exc) from exc
+        if state is None:
+            raise OmniPLCInternalError(_("ADS 状态读取返回空(pyads 会话未就绪)"))
+        ads_state, device_state = state
+        log_op(self._debug_label, "状态读 → ADS=%d 设备=%d", ads_state, device_state)
+        return int(ads_state), int(device_state)
+
 
 class BeckhoffAdsClient(BaseClient):
     """倍福 TwinCAT ADS 客户端(封装 pyads,变量名读写)。
@@ -324,6 +342,9 @@ class BeckhoffAdsClient(BaseClient):
         ok, value = client.read_int("MAIN.nCounter")
         ok = client.write_bool("MAIN.bStart", True)
     """
+
+    # 探活:pyads read_state(ADS 状态读,零副作用系统级读,见 _ping_probe)
+    _has_ping = True
 
     def __init__(
         self,
@@ -396,6 +417,22 @@ class BeckhoffAdsClient(BaseClient):
         if not isinstance(link, _AdsSession):
             raise TransportClosedError(_("内部错误:传输对象不是 ADS 会话"))
         return link
+
+    # ------------------------------------------------------------------
+    # 状态读与探活(pyads read_state)
+    # ------------------------------------------------------------------
+
+    def read_state(self) -> Tuple[bool, Optional[Tuple[int, int]]]:
+        """读 ADS 状态与设备状态,返回 ``(是否成功, (adsState, deviceState))``。
+
+        取值见 Beckhoff ADS 规范(5 = RUN、7 = STOP 等);零副作用,
+        同时是 :meth:`ping` 的探测命令。
+        """
+        return self._execute(lambda: self._session().read_state())
+
+    def _ping_probe(self) -> Tuple[int, int]:
+        """探活探测命令:ADS 状态读(内部方法)。"""
+        return self._session().read_state()
 
     # ------------------------------------------------------------------
     # 协议原语

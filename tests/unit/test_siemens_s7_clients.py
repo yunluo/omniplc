@@ -30,6 +30,8 @@ class FakeS7Client:
         self.connect_args: Optional[tuple] = None
         self.connect_error: Optional[BaseException] = None
         self.read_error: Optional[BaseException] = None
+        self.cpu_state: str = "S7CpuStatusRun"
+        self.cpu_state_error: Optional[BaseException] = None
         self.mem: dict = {}
         self.destroyed = False
         self.multi_calls = 0
@@ -48,6 +50,11 @@ class FakeS7Client:
 
     def get_connected(self) -> bool:
         return self.connected_flag
+
+    def get_cpu_state(self) -> str:
+        if self.cpu_state_error is not None:
+            raise self.cpu_state_error
+        return self.cpu_state
 
     def read_area(self, area: Any, db: int, start: int, size: int) -> bytes:
         if self.read_error is not None:
@@ -823,3 +830,17 @@ def test_async_mirror_read_batch(monkeypatch: pytest.MonkeyPatch) -> None:
 
     asyncio.run(scenario())
     assert fake.multi_calls == 1
+
+
+def test_get_cpu_state_and_ping(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_cpu_state/ping:GetCpuState 枚举名透传;传输类错误按半开拆连。"""
+    client, fake = _client(monkeypatch)
+    assert client.ping_supported is True
+    ok, state = client.get_cpu_state()
+    assert ok is True
+    assert state == "S7CpuStatusRun"
+    assert client.ping() is True
+    # snap7 传输类错误文本(1.x C 库 Cli_ErrorText 口径)→ OSError 拆连
+    fake.cpu_state_error = RuntimeError("ISO : An error occurred during recv")
+    assert client.get_cpu_state() == (False, None)
+    assert client.connected is False

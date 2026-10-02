@@ -19,12 +19,13 @@
 """
 from __future__ import annotations
 
-from typing import List, Sequence, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 from .address import FinsAddress
 from ...core.constants import (
     FINS_COMMAND_AREA_READ,
     FINS_COMMAND_AREA_WRITE,
+    FINS_COMMAND_CPU_UNIT_STATUS_READ,
     FINS_COMMAND_MULTIPLE_AREA_READ,
     FINS_EM_BANK_MAX,
     FINS_EM_BIT_CODE_BASE,
@@ -312,6 +313,85 @@ def parse_response(
     if is_bit:
         return [int(byte) for byte in data]
     return [int.from_bytes(data[i:i + 2], "big") for i in range(0, expected, 2)]
+
+
+# ----------------------------------------------------------------------
+# CPU Unit Status Read(0601,探活/状态读)
+# ----------------------------------------------------------------------
+
+def build_cpu_unit_status_read(
+    destination_network: int,
+    destination_node: int,
+    destination_unit: int,
+    source_network: int,
+    source_node: int,
+    source_unit: int,
+    sid: int,
+) -> bytes:
+    """构造 CPU Unit Status Read(0601)FINS 帧。
+
+    依据:W342 §5-3-17 印刷页 194——命令格式仅命令码 ``06 01`` 两字节,
+    无参数(零副作用,用作探活探测命令)。
+    """
+    return _build_frame(
+        destination_network,
+        destination_node,
+        destination_unit,
+        source_network,
+        source_node,
+        source_unit,
+        sid,
+        FINS_COMMAND_CPU_UNIT_STATUS_READ,
+        b"",
+    )
+
+
+def parse_cpu_unit_status_read(frame: bytes, request_frame: bytes) -> Dict[str, object]:
+    """解析 CPU Unit Status Read(0601)响应。
+
+    依据:W342 §5-3-17 印刷页 194-196——响应 = 结束码(2B)+ Status(1B,
+    bit0 运行/停止、bit1 内置 Flash 写入、bit2 电池、bit7 CPU 待机,
+    bit3~6 未定义)+ Mode(1B,00=PROGRAM/02=MONITOR/04=RUN)+ 致命错(2B)
+    + 非致命错(2B)+ MSG 显示标志(2B)+ 错误码(2B)+ 错误消息(16B
+    ASCII,FAL/FALS 文本,无则 16 空格)。
+
+    :raises ProtocolFrameError: 帧结构/ICF·SID·命令码不符或数据长度不符
+        (消息带原始帧十六进制转储)
+    :raises DeviceError: 结束码非正常完成
+    """
+    _check_identity(frame, request_frame)
+    prefix = FINS_HEADER_SIZE + 2
+    # 结束码先于数据长度校验(与 parse_response 同口径):错误应答只带
+    # 结束码、不带数据,按结束码抛 DeviceError 而非误判坏帧
+    if len(frame) < prefix + FINS_END_CODE_SIZE:
+        raise ProtocolFrameError(
+            _("FINS 响应不完整:至少 {} 字节,实际 {}(收到的原始帧:{})").format(
+                prefix + FINS_END_CODE_SIZE, len(frame), format_hex(frame)
+            )
+        )
+    end_code = int.from_bytes(frame[12:14], "big")
+    if not _is_normal_end_code(end_code):
+        text = _(_end_code_text(end_code))
+        raise DeviceError(_("FINS 结束码 0x{:04X}({})").format(end_code, text), end_code)
+    data_total = 1 + 1 + 2 + 2 + 2 + 2 + 16
+    total = prefix + FINS_END_CODE_SIZE + data_total
+    if len(frame) != total:
+        raise ProtocolFrameError(
+            _("FINS 0601 响应长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})").format(
+                total, len(frame), format_hex(frame)
+            )
+        )
+    data = frame[prefix + FINS_END_CODE_SIZE:]
+    return {
+        "status": int(data[0]),
+        "run": bool(data[0] & 0x01),
+        "mode": int(data[1]),
+        "fatal_error": int.from_bytes(data[2:4], "big"),
+        "nonfatal_error": int.from_bytes(data[4:6], "big"),
+        "message_flags": int.from_bytes(data[6:8], "big"),
+        "error_code": int.from_bytes(data[8:10], "big"),
+        "error_message": data[10:26].decode("ascii", errors="replace").rstrip(),
+    }
 
 
 # ----------------------------------------------------------------------

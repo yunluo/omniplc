@@ -30,6 +30,22 @@ def loop(request: pytest.FixtureRequest) -> Any:
     """按事件循环类参数化的循环(Windows 上 Selector/Proactor 双跑)。"""
     event_loop = make_loop(request.param)
     yield event_loop
+
+    async def _cancel_pending() -> None:
+        current = asyncio.current_task()
+        tasks = [
+            task
+            for task in asyncio.all_tasks()
+            if task is not current and not task.done()
+        ]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    # 收尾取消残留任务(如用例未显式断开的客户端心跳任务):loop.close()
+    # 对未完成任务会报 "Task was destroyed" 噪声,掩盖真实失败
+    event_loop.run_until_complete(_cancel_pending())
     event_loop.close()
 
 

@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import socket
 from typing import Any, Dict, NamedTuple, Optional, Sequence, Tuple
 
@@ -201,6 +202,22 @@ def loop(request: pytest.FixtureRequest) -> Any:
     """按事件循环类参数化的循环(Windows 上 Selector/Proactor 双跑)。"""
     event_loop = make_loop(request.param)
     yield event_loop
+
+    async def _cancel_pending() -> None:
+        current = asyncio.current_task()
+        tasks = [
+            task
+            for task in asyncio.all_tasks()
+            if task is not current and not task.done()
+        ]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    # 收尾取消残留任务(如用例未显式断开的客户端心跳任务):loop.close()
+    # 对未完成任务会报 "Task was destroyed" 噪声,掩盖真实失败
+    event_loop.run_until_complete(_cancel_pending())
     event_loop.close()
 
 
@@ -572,3 +589,57 @@ def test_d_area_bit_read_falls_back_on_1101(
         await client.close()
 
     loop.run_until_complete(scenario())
+
+
+# ----------------------------------------------------------------------
+# CPU Unit Status Read(0601)与探活
+# ----------------------------------------------------------------------
+
+_CPU_STATUS_DATA = (
+    bytes([0x01, 0x04])
+    + (0).to_bytes(2, "big") * 4
+    + b"\x20" * 16
+)
+"""0601 应答数据(SID 无关):RUN + RUN 模式 + 错误字全 0 + 空错误消息。"""
+_CPU_STATUS_RESP_1 = _fins_response(1, 0x0601, data=_CPU_STATUS_DATA)
+_CPU_STATUS_RESP_2 = _fins_response(2, 0x0601, data=_CPU_STATUS_DATA)
+
+
+def test_native_0601_status_and_ping(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """原生 0601:命令帧仅命令码,应答按 W342 §5-3-17 解码;ping 复用同一命令。"""
+
+    async def scenario() -> None:
+        client = AsyncOmronFinsUdpClient(
+            "192.168.250.1", 9600, destination_node=_DEST_NODE, source_node=_SRC_NODE
+        )
+        assert client.ping_supported is True
+        scripted = ScriptedAsyncTransport(
+            [_CPU_STATUS_RESP_1, _CPU_STATUS_RESP_2], datagram=True
+        )
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        assert await client.read_cpu_unit_status() == (
+            True,
+            {
+                "status": 0x01,
+                "run": True,
+                "mode": 0x04,
+                "fatal_error": 0,
+                "nonfatal_error": 0,
+                "message_flags": 0,
+                "error_code": 0,
+                "error_message": "",
+            },
+        )
+        assert await client.ping() is True
+        holder["sent"] = bytes(scripted.sent)
+        await client.close()
+
+    holder: Dict[str, Any] = {}
+    loop.run_until_complete(scenario())
+    assert holder["sent"] == (
+        codec.build_cpu_unit_status_read(0, _DEST_NODE, 0, 0, _SRC_NODE, 0, 1)
+        + codec.build_cpu_unit_status_read(0, _DEST_NODE, 0, 0, _SRC_NODE, 0, 2)
+    )

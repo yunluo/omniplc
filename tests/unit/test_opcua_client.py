@@ -1135,3 +1135,14 @@ def test_active_subscriptions_does_not_block_on_transaction_lock() -> None:
     finally:
         client._lock.release()
     assert client.active_subscriptions == {1: None}
+
+
+def test_ping_reads_server_time_node(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ping():读 i=2258 Server 当前时间(零副作用,顺带抑制空闲会话回收)。"""
+    client = OpcUaClient("127.0.0.1", 4840)
+    fake = FakeSession()
+    fake.values["i=2258"] = "2026-10-02T00:00:00Z"
+    monkeypatch.setattr(client, "_create_transport", lambda: fake)
+    client.connect()
+    assert client.ping() is True
+    assert client.last_error is None

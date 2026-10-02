@@ -364,6 +364,20 @@ class _S7Session(BaseTransport):
         )
         return bytes(data)
 
+    def get_cpu_state(self) -> str:
+        """读 CPU 运行状态(snap7 GetCpuState,会话调用,异常在此翻译)。
+
+        返回 snap7 状态枚举名(``"S7CpuStatusRun"``/``"S7CpuStatusStop"``
+        等)——1.x 与 3.x 的枚举成员数值不一致,库只透传名字不解析数值。
+        零副作用,同时是探活探测命令(能应答即 CPU 会话存活)。
+        """
+        try:
+            state = self._require_client().get_cpu_state()
+        except _SNAP7_ERRORS as exc:
+            self._raise_link_aware(exc)
+        log_op(self._debug_label, "cpu state → %r", state)
+        return getattr(state, "name", str(state))
+
     def read_multi_vars(
         self, specs: "Sequence[Tuple[int, int, int, int]]"
     ) -> "List[bytes]":
@@ -498,6 +512,9 @@ class SiemensS7Client(BaseClient):
         ok, text = client.read_string("DB1.DBS20", length=32)
     """
 
+    # 探活:snap7 GetCpuState(零副作用系统级读,见 _ping_probe)
+    _has_ping = True
+
     def __init__(
         self,
         ip_address: str = "192.168.0.1",
@@ -556,6 +573,24 @@ class SiemensS7Client(BaseClient):
         return _S7Session(
             self._ip_address, self._rack, self._slot, self._port, self._dll_path
         )
+
+    # ------------------------------------------------------------------
+    # 状态读与探活(snap7 GetCpuState)
+    # ------------------------------------------------------------------
+
+    def get_cpu_state(self) -> Tuple[bool, Optional[str]]:
+        """读 CPU 运行状态(snap7 GetCpuState;零副作用)。
+
+        返回 ``(是否成功, 状态枚举名)``,如 ``"S7CpuStatusRun"``/
+        ``"S7CpuStatusStop"``(1.x/3.x 枚举数值不一致,统一按名字透传)。
+
+        同时是 :meth:`ping` 的探测命令:能应答即 CPU 会话存活。
+        """
+        return self._execute(lambda: self._session().get_cpu_state())
+
+    def _ping_probe(self) -> str:
+        """探活探测命令:snap7 GetCpuState(内部方法)。"""
+        return self._session().get_cpu_state()
 
     # ------------------------------------------------------------------
     # 协议原语

@@ -7,6 +7,7 @@ import pytest
 
 from omniplc import OmronFinsTcpClient, OmronFinsUdpClient
 from omniplc.aio import AOmronFinsUdpClient
+from omniplc.core.debug import format_hex
 from omniplc.plc.omron import codec
 from omniplc.plc.omron.address import parse_fins_address
 from omniplc.plc.omron import omron as omron_module
@@ -546,3 +547,88 @@ def test_udp_explicit_node_bypasses_derivation_range_check(
     client.connect()
     assert client.read_ushort("D100") == (True, 20)
     assert client._destination_node == 5
+
+
+# ----------------------------------------------------------------------
+# CPU Unit Status Read(0601)与探活
+# ----------------------------------------------------------------------
+
+def _fins_cpu_status_response(
+    status: int = 0x01,
+    mode: int = 0x04,
+    fatal: int = 0,
+    nonfatal: int = 0,
+    message_flags: int = 0,
+    error_code: int = 0,
+    error_message: bytes = b"",
+) -> bytes:
+    """构造 0601 状态读响应(测试脚手架,SID=1;布局依 W342 §5-3-17)。"""
+    data = (
+        bytes([status, mode])
+        + fatal.to_bytes(2, "big")
+        + nonfatal.to_bytes(2, "big")
+        + message_flags.to_bytes(2, "big")
+        + error_code.to_bytes(2, "big")
+        + error_message[:16].ljust(16, b"\x20")
+    )
+    return _FINS_ECHO_HEAD + b"\x01" + b"\x06\x01" + b"\x00\x00" + data
+
+
+def test_read_cpu_unit_status_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """0601 状态读:命令帧仅 2 字节命令码,应答按 W342 §5-3-17 布局解码。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport([_fins_cpu_status_response()])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, info = client.read_cpu_unit_status()
+    assert ok is True
+    assert info == {
+        "status": 0x01,
+        "run": True,
+        "mode": 0x04,
+        "fatal_error": 0,
+        "nonfatal_error": 0,
+        "message_flags": 0,
+        "error_code": 0,
+        "error_message": "",
+    }
+    expected = codec.build_cpu_unit_status_read(0, 5, 0, 0, 10, 0, 1)
+    assert bytes(scripted.sent) == expected
+    assert expected[10:12] == b"\x06\x01"  # 命令码 0601,载荷为空
+
+
+def test_ping_fins_cpu_unit_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ping():FINS 探测命令为 0601 状态读,应答即探活成功。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    assert client.ping_supported is True
+    scripted = ScriptedTransport([_fins_cpu_status_response()])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.ping() is True
+    assert bytes(scripted.sent) == codec.build_cpu_unit_status_read(0, 5, 0, 0, 10, 0, 1)
+
+
+def test_read_cpu_unit_status_error_end_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    """0601 结束码非 0:按 DeviceError 不断线,原始码进 last_error_code。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport([
+        _FINS_ECHO_HEAD + b"\x01" + b"\x06\x01" + (0x1101).to_bytes(2, "big")
+    ])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_cpu_unit_status() == (False, None)
+    assert client.last_error_code == 0x1101
+    assert client.connected is True
+
+
+def test_read_cpu_unit_status_bad_length(monkeypatch: pytest.MonkeyPatch) -> None:
+    """0601 应答数据不足 26 字节:按坏帧拆连,错误带原始帧转储。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    short = _FINS_ECHO_HEAD + b"\x01" + b"\x06\x01" + b"\x00\x00" + b"\x01\x04"
+    scripted = ScriptedTransport([short])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_cpu_unit_status() == (False, None)
+    assert client.connected is False
+    assert client.last_error is not None and "0601" in client.last_error
+    assert format_hex(short) in (client.last_error or "")
