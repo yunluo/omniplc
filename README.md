@@ -1,7 +1,10 @@
 # Omniplc
 ![](docs/assets/omniplc_banner.png)
 
-面向多品牌、多协议 PLC 的 Python 统一通信库:三菱 / 欧姆龙 / 基恩士 / 汇川 / 松下 / 丰田 / 罗克韦尔(AB)/ 倍福(TwinCAT)/ 西门子(S7)/ SR 扫码枪 / 海康读码器 / OPC-UA / CNC(MTConnect),共 17 族协议、31 个同步客户端。**一次编写,同一套 API。**
+面向多品牌、多协议 PLC 的 Python 统一通信库:三菱 / 欧姆龙 / 基恩士 / 汇川 /
+松下 / 丰田 / 罗克韦尔(AB)/ 倍福(TwinCAT)/ 西门子(S7)/ SR 扫码枪 /
+海康读码器 / OPC-UA / CNC(MTConnect),共 17 族协议、31 个同步客户端。
+**一次编写,同一套 API。**
 
 - **Python 3.7.9+**,核心零第三方依赖;全量类型标注(PEP 484 + py.typed)
 - 命名与使用习惯对齐各厂商 SDK,迁移成本极低

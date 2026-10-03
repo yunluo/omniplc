@@ -25,7 +25,10 @@
 
 - 协议帧级实现引用:`docs/architecture.md` §11 路线图与版本履历表
 - 历史审查/修复记录:`CHANGELOG.md` 各版本条目(审查台账文档已按维护决策移出仓库,历史提交记录仍可回溯)
-- **原生异步层(omniplc.native)**:首批 5 个客户端(Modbus TCP / MC 1E·3E over TCP·UDP / FINS TCP·UDP)是**独立于同步层的代码路径**——帧级已由"同步 × 异步对拍"测试锁死,但**真机尚未联测**,需与对应同步行一并核证(见 `docs/architecture.md` §12)
+- **原生异步层(omniplc.native)**:首批 5 个客户端
+  (Modbus TCP / MC 1E·3E over TCP·UDP / FINS TCP·UDP)是**独立于同步层
+  的代码路径**——帧级已由"同步 × 异步对拍"测试锁死,但**真机尚未联测**,
+  需与对应同步行一并核证(见 `docs/architecture.md` §12)
 - 提交新真机记录:PR 模板「测试」节勾选"真机联测",并在 `CHANGELOG.md` 加条目
 
 ## 待真机核证项(v0.45.0 更新,自 README 迁入)
