@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 from concurrent.futures import ThreadPoolExecutor
 from types import TracebackType
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Type, TypeVar, Union
@@ -112,6 +113,7 @@ from ..reader import (
     KeyenceSrClient,
 )
 from ..plc.omron import OmronCipClient, OmronFinsTcpClient, OmronFinsUdpClient
+from ..plc.omron import codec as _omron_codec
 from ..core.tag import Tag, TagTable
 from ..core.types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity, WordOrder
 from ..core.i18n import _
@@ -1966,6 +1968,21 @@ class _AFinsRoutingClient(ABaseClient):
     async def read_cpu_unit_status(self) -> Tuple[bool, Optional[Dict[str, object]]]:
         """读 CPU 单元运行状态(0601,零副作用;语义同同步版)。"""
         return await self._run(self._fins.read_cpu_unit_status)
+
+    async def read_clock(self) -> Tuple[bool, Optional["_omron_codec.FinsClock"]]:
+        """读 PLC 时钟(0701;语义同同步版)。"""
+        return await self._run(self._fins.read_clock)
+
+    async def write_clock(
+        self, clock: Union["_omron_codec.FinsClock", datetime.datetime]
+    ) -> bool:
+        """写 PLC 时钟(0702;语义同同步版)。
+
+        :param clock: :class:`~omniplc.plc.omron.codec.FinsClock` 或
+            :class:`datetime.datetime`
+        """
+        fins = self._fins
+        return await self._run(lambda: fins.write_clock(clock))
 
 
 class AOmronFinsTcpClient(_AFinsRoutingClient):

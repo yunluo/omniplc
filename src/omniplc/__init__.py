@@ -78,7 +78,12 @@ from .plc.melsec import (
     MelsecMxClient,
 )
 from .plc.siemens import SiemensS7Client
-from .plc.omron import OmronCipClient, OmronFinsTcpClient, OmronFinsUdpClient
+from .plc.omron import (
+    FinsClock,
+    OmronCipClient,
+    OmronFinsTcpClient,
+    OmronFinsUdpClient,
+)
 from .plc.ab import AllenBradleyEthIpClient
 from .plc.panasonic import (
     PanasonicMcTcpClient,
@@ -147,6 +152,7 @@ __all__ = [
     "OmronFinsTcpClient",
     "OmronFinsUdpClient",
     "OmronCipClient",
+    "FinsClock",
     # ---- 汇川 H3U/H5U 客户端 ----
     "InovanceTcpClient",
     "InovanceRtuClient",

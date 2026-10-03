@@ -635,6 +635,146 @@ def test_read_cpu_unit_status_bad_length(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 # ----------------------------------------------------------------------
+# 时钟读/写(0701/0702)
+# ----------------------------------------------------------------------
+
+def _fins_clock_response(
+    year: int = 26,
+    month: int = 10,
+    day: int = 3,
+    hour: int = 14,
+    minute: int = 9,
+    second: int = 5,
+    day_of_week: int = 6,
+    sid: int = 1,
+    end_code: int = 0,
+    bcd: bool = True,
+) -> bytes:
+    """构造 0701 时钟读响应(测试脚手架;布局依 W342 §5-3-19 印刷页 198)。"""
+    fields = [year, month, day, hour, minute, second, day_of_week]
+    if bcd:
+        data = bytes((v // 10) << 4 | (v % 10) for v in fields)
+    else:
+        data = bytes(fields)
+    return _FINS_ECHO_HEAD + bytes([sid]) + b"\x07\x01" + end_code.to_bytes(2, "big") + data
+
+
+def test_read_clock_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """0701 时钟读:命令帧仅 2 字节命令码,应答 7 字节 BCD 解码(§5-3-19)。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport([_fins_clock_response()])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, clock = client.read_clock()
+    assert ok is True
+    assert clock == codec.FinsClock(
+        year=26, month=10, day=3, hour=14, minute=9, second=5, day_of_week=6
+    )
+    expected = codec.build_clock_read(0, 5, 0, 0, 10, 0, 1)
+    assert bytes(scripted.sent) == expected
+    assert expected[10:12] == b"\x07\x01"  # 命令码 0701,载荷为空
+
+
+def test_read_clock_to_datetime(monkeypatch: pytest.MonkeyPatch) -> None:
+    """0701 读后 to_datetime:默认 2000+ 世纪;星期文本码表齐六天。"""
+    import datetime as dt_module
+
+    from omniplc.core.constants import FINS_DAY_OF_WEEK_TEXT
+
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport([_fins_clock_response()])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    _ok, clock = client.read_clock()
+    assert clock is not None
+    assert clock.to_datetime() == dt_module.datetime(2026, 10, 3, 14, 9, 5)
+    assert FINS_DAY_OF_WEEK_TEXT[6] == "星期六"
+    assert len(FINS_DAY_OF_WEEK_TEXT) == 7
+
+
+def test_read_clock_non_bcd_bad_frame(monkeypatch: pytest.MonkeyPatch) -> None:
+    """0701 应答字段非 BCD(0x1A):按坏帧拆连,错误带原始帧转储。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    bad = _fins_clock_response(second=0x1A, bcd=False)
+    scripted = ScriptedTransport([bad])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_clock() == (False, None)
+    assert client.connected is False
+    assert client.last_error is not None and "BCD" in client.last_error
+    assert format_hex(bad) in (client.last_error or "")
+
+
+def test_read_clock_error_end_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    """0701 结束码非 0:按 DeviceError 不断线,原始码进 last_error_code。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport([_fins_clock_response(end_code=0x1101)])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_clock() == (False, None)
+    assert client.last_error_code == 0x1101
+    assert client.connected is True
+
+
+def test_write_clock_fields_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """0702 时钟写:FinsClock 七字段 BCD 组帧,响应仅命令码+结束码(§5-3-20)。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport([
+        _FINS_ECHO_HEAD + b"\x01" + b"\x07\x02" + b"\x00\x00"
+    ])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok = client.write_clock(codec.FinsClock(26, 10, 3, 14, 9, 5, 6))
+    assert ok is True
+    expected = codec.build_clock_write(0, 5, 0, 0, 10, 0, 1, codec.FinsClock(26, 10, 3, 14, 9, 5, 6))
+    assert bytes(scripted.sent) == expected
+    assert expected[10:12] == b"\x07\x02"
+    assert expected[12:19] == bytes([0x26, 0x10, 0x03, 0x14, 0x09, 0x05, 0x06])
+
+
+def test_write_clock_datetime_conversion(monkeypatch: pytest.MonkeyPatch) -> None:
+    """0702 传 datetime:年取右两位、星期自动换算(2026-10-03 是周六 → 6)。"""
+    import datetime as dt_module
+
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport([
+        _FINS_ECHO_HEAD + b"\x01" + b"\x07\x02" + b"\x00\x00"
+    ])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok = client.write_clock(dt_module.datetime(2026, 10, 3, 14, 9, 5))
+    assert ok is True
+    expected = codec.build_clock_write(0, 5, 0, 0, 10, 0, 1, codec.FinsClock(26, 10, 3, 14, 9, 5, 6))
+    assert bytes(scripted.sent) == expected
+
+
+def test_write_clock_range_validation() -> None:
+    """0702 字段越界:入参期 ValueError(未连接即抛,零字节发送)。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    with pytest.raises(ValueError):
+        client.write_clock(codec.FinsClock(26, 13, 3, 14, 9, 5, 6))  # 月 13
+    with pytest.raises(ValueError):
+        client.write_clock(codec.FinsClock(26, 10, 3, 24, 9, 5, 6))  # 时 24
+    with pytest.raises(ValueError):
+        client.write_clock(codec.FinsClock(26, 10, 3, 14, 9, 5, 7))  # 星期 7
+    with pytest.raises(ValueError):
+        client.write_clock(codec.FinsClock(126, 10, 3, 14, 9, 5, 6))  # 年须右两位
+
+
+def test_write_clock_error_end_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    """0702 结束码非 0(如访问权在他方 0x1101):写失败不断线。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport([
+        _FINS_ECHO_HEAD + b"\x01" + b"\x07\x02" + (0x1101).to_bytes(2, "big")
+    ])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.write_clock(codec.FinsClock(26, 10, 3, 14, 9, 5, 6)) is False
+    assert client.last_error_code == 0x1101
+    assert client.connected is True
+
+
+# ----------------------------------------------------------------------
 # 连续批量读 read_range(0101 Area Read,单事务)
 # ----------------------------------------------------------------------
 

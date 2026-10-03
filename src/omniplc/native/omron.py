@@ -8,7 +8,8 @@
 / ``_local_ip_for``),本模块只把 ``_transact`` / ``_after_connect`` 换成协程版。
 
 能力面与同步层对齐:单点读/写(位、字、字符串)+ 类型化方法 + 点位表 + 批量
-(0104 多存储区读;写按基类逐点,协议无跨存储区单事务写原语)。
+(0104 多存储区读;写按基类逐点,协议无跨存储区单事务写原语)+ 状态读(0601)
++ 时钟读/写(0701/0702)。
 
 :example::
 
@@ -19,6 +20,7 @@
 """
 from __future__ import annotations
 
+import datetime
 from abc import abstractmethod
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
@@ -188,6 +190,65 @@ class AsyncOmronFinsBase(AsyncBaseClient):
             self._next_sid(),
         )
         return codec.parse_cpu_unit_status_read(await self._transact(request), request)
+
+    # ------------------------------------------------------------------
+    # 时钟读/写(FINS 0701/0702)
+    # ------------------------------------------------------------------
+
+    async def read_clock(self) -> Tuple[bool, Optional[codec.FinsClock]]:
+        """读 PLC 时钟(FINS 0701 CLOCK READ,W342 §5-3-19 印刷页 197-198)。
+
+        语义与同步侧 :meth:`~omniplc.OmronFinsTcpClient.read_clock` 一致:
+        年份右两位原文、星期 0~6(周日 = 0)。
+
+        :return: ``(是否成功, :class:`~omniplc.plc.omron.codec.FinsClock`)``;
+            失败为 ``(False, None)``
+        """
+        return await self._execute(self._clock_read_operation)
+
+    async def write_clock(self, clock: Union[codec.FinsClock, datetime.datetime]) -> bool:
+        """写 PLC 时钟(FINS 0702 CLOCK WRITE,W342 §5-3-20 印刷页 198-199)。
+
+        语义与同步侧 :meth:`~omniplc.OmronFinsTcpClient.write_clock` 一致
+        (执行条件与字段范围见该处 docstring)。
+
+        :param clock: :class:`~omniplc.plc.omron.codec.FinsClock` 或
+            :class:`datetime.datetime`(换算同同步侧)
+        :return: 是否成功
+        :raises ValueError: 时钟字段越界(入参期拒绝,零字节发送)
+        """
+        fields = clock if isinstance(clock, codec.FinsClock) else codec.FinsClock.from_datetime(clock)
+        # 入参期校验前置(与同步侧同口径):未连接时 _execute 走不到事务内
+        codec.validate_clock(fields)
+
+        async def operation() -> None:
+            request = codec.build_clock_write(
+                self._destination_network,
+                self._destination_node,
+                self._destination_unit,
+                self._source_network,
+                self._source_node,
+                self._source_unit,
+                self._next_sid(),
+                fields,
+            )
+            codec.parse_clock_write(await self._transact(request), request)
+
+        ok, _unused = await self._execute(operation, is_write=True)
+        return ok
+
+    async def _clock_read_operation(self) -> codec.FinsClock:
+        """0701 时钟读的协议操作(内部方法)。"""
+        request = codec.build_clock_read(
+            self._destination_network,
+            self._destination_node,
+            self._destination_unit,
+            self._source_network,
+            self._source_node,
+            self._source_unit,
+            self._next_sid(),
+        )
+        return codec.parse_clock_read(await self._transact(request), request)
 
     # ------------------------------------------------------------------
     # 协议原语(基类类型化方法只调用 _read/_write)

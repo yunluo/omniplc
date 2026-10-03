@@ -13,9 +13,10 @@ FINS 多字值(32/64 位)字内大端、**低字存低地址**(2026-09-30 修正
 """
 from __future__ import annotations
 
+import datetime
 import socket
 from abc import abstractmethod
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from . import codec
 from .address import FinsAddress, parse_fins_address
@@ -208,6 +209,75 @@ class _OmronFinsBase(BaseClient):
             self._next_sid(),
         )
         return codec.parse_cpu_unit_status_read(self._transact(request), request)
+
+    # ------------------------------------------------------------------
+    # 时钟读/写(FINS 0701/0702)
+    # ------------------------------------------------------------------
+
+    def read_clock(self) -> Tuple[bool, Optional[codec.FinsClock]]:
+        """读 PLC 时钟(FINS 0701 CLOCK READ,W342 §5-3-19 印刷页 197-198)。
+
+        :return: ``(是否成功, :class:`~omniplc.plc.omron.codec.FinsClock`)``;
+            失败为 ``(False, None)``。年份为右两位原文(0~99,世纪映射是
+            调用方责任,``FinsClock.to_datetime()`` 默认按 2000+ 换算);
+            星期 0~6 对应星期日~星期六
+        """
+        return self._execute(self._clock_read_operation)
+
+    def write_clock(self, clock: Union[codec.FinsClock, datetime.datetime]) -> bool:
+        """写 PLC 时钟(FINS 0702 CLOCK WRITE,W342 §5-3-20 印刷页 198-199)。
+
+        执行条件(手册):本方须持有 CPU 访问权(他人持权时 PLC 拒收),
+        且 PLC Setup 未开「Validate FINS Write Protection via Network」;
+        PLC 侧自动校验数据范围,任一字段非法则时钟不被设置(结束码报错,
+        不断线)。星期与日期的一致性 PLC 不校验,由调用方保证。
+
+        :param clock: :class:`~omniplc.plc.omron.codec.FinsClock`(星期必填,
+            年份右两位;不指定星期需保持原值时,先 :meth:`read_clock` 取旧
+            星期再写)或 :class:`datetime.datetime`(年取右两位、星期自动
+            换算,周日 = 0)
+        :return: 是否成功
+        :raises ValueError: 时钟字段越界(入参期拒绝,零字节发送)
+        """
+        fields = clock if isinstance(clock, codec.FinsClock) else codec.FinsClock.from_datetime(clock)
+        # 入参期校验前置(事务边界之外):未连接时 _execute 走不到事务内
+        # 的 build_clock_write 校验,失败会伪装成 (False, None) 而非 ValueError
+        codec.validate_clock(fields)
+        return self._execute(
+            self._make_clock_write_operation(fields), is_write=True
+        )[0]
+
+    def _clock_read_operation(self) -> codec.FinsClock:
+        """0701 时钟读的协议操作(内部方法)。"""
+        request = codec.build_clock_read(
+            self._destination_network,
+            self._destination_node,
+            self._destination_unit,
+            self._source_network,
+            self._source_node,
+            self._source_unit,
+            self._next_sid(),
+        )
+        return codec.parse_clock_read(self._transact(request), request)
+
+    def _make_clock_write_operation(
+        self, fields: codec.FinsClock
+    ) -> Callable[[], None]:
+        """0702 时钟写的协议操作工厂(内部方法;字段先入参期校验再捕获)。"""
+        def operation() -> None:
+            request = codec.build_clock_write(
+                self._destination_network,
+                self._destination_node,
+                self._destination_unit,
+                self._source_network,
+                self._source_node,
+                self._source_unit,
+                self._next_sid(),
+                fields,
+            )
+            codec.parse_clock_write(self._transact(request), request)
+
+        return operation
 
     # ------------------------------------------------------------------
     # 协议原语(BaseClient 类型化方法只调用 _read/_write)

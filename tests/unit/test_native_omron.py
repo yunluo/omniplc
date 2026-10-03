@@ -645,6 +645,57 @@ def test_native_0601_status_and_ping(
     )
 
 
+def test_native_clock_read_write(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
+    """原生 0701/0702:帧与同步侧同构,BCD 解码 + datetime 换算 + 范围门控。"""
+    import datetime as dt_module
+
+    from omniplc.plc.omron.codec import FinsClock
+
+    clock_data = bytes([0x26, 0x10, 0x03, 0x14, 0x09, 0x05, 0x06])
+    resp_read = _fins_response(1, 0x0701, data=clock_data)
+    resp_write = _fins_response(2, 0x0702)
+
+    async def scenario() -> None:
+        client = AsyncOmronFinsUdpClient(
+            "192.168.250.1", 9600, destination_node=_DEST_NODE, source_node=_SRC_NODE
+        )
+        scripted = ScriptedAsyncTransport([resp_read, resp_write], datagram=True)
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        ok, clock = await client.read_clock()
+        assert ok is True
+        assert clock == FinsClock(26, 10, 3, 14, 9, 5, 6)
+        assert clock is not None and clock.to_datetime() == dt_module.datetime(
+            2026, 10, 3, 14, 9, 5
+        )
+        ok_write = await client.write_clock(dt_module.datetime(2026, 10, 3, 14, 9, 5))
+        assert ok_write is True
+        holder["sent"] = bytes(scripted.sent)
+        await client.close()
+
+    holder: Dict[str, Any] = {}
+    loop.run_until_complete(scenario())
+    assert holder["sent"] == (
+        codec.build_clock_read(0, _DEST_NODE, 0, 0, _SRC_NODE, 0, 1)
+        + codec.build_clock_write(
+            0, _DEST_NODE, 0, 0, _SRC_NODE, 0, 2, FinsClock(26, 10, 3, 14, 9, 5, 6)
+        )
+    )
+
+
+def test_native_clock_write_range_validation() -> None:
+    """原生 0702 字段越界:入参期 ValueError(未连接即抛,零字节发送)。"""
+    from omniplc.plc.omron.codec import FinsClock
+
+    client = AsyncOmronFinsUdpClient(
+        "192.168.250.1", 9600, destination_node=_DEST_NODE, source_node=_SRC_NODE
+    )
+    with pytest.raises(ValueError):
+        asyncio.run(client.write_clock(FinsClock(26, 13, 3, 14, 9, 5, 6)))
+    with pytest.raises(ValueError):
+        asyncio.run(client.write_clock(FinsClock(26, 10, 3, 14, 9, 5, 7)))
+
+
 def test_native_read_range_words_and_bits(
     monkeypatch: pytest.MonkeyPatch, loop: Any
 ) -> None:

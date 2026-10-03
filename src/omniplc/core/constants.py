@@ -617,6 +617,28 @@ FINS_STATUS_MONITOR: int = 0x02
 """0601 应答 Mode 值:MONITOR。"""
 FINS_STATUS_RUN: int = 0x04
 """0601 应答 Mode 值:RUN。"""
+FINS_COMMAND_CLOCK_READ: int = 0x0701
+"""CLOCK READ 命令(MRC=07, SRC=01;W342 §5-3-19 印刷页 197-198)。
+
+命令帧仅命令码两字节、无参数;响应 = 结束码 + 年/月/日/时/分/秒/星期
+各 1 字节 BCD(年 = 右两位,如 2026 → 26;星期 00=星期日 ~ 06=星期六)。"""
+FINS_COMMAND_CLOCK_WRITE: int = 0x0702
+"""CLOCK WRITE 命令(MRC=07, SRC=02;W342 §5-3-20 印刷页 198-199)。
+
+命令帧 = 命令码 + 七字段 BCD(同 CLOCK READ 应答);PLC 侧自动校验数据
+范围,任一字段非法则时钟不被设置。执行条件:本方须持有 CPU 访问权
+(他人持权时拒收),且未开「Validate FINS Write Protection via Network」。"""
+FINS_DAY_OF_WEEK_TEXT: Dict[int, str] = {
+    0: "星期日",
+    1: "星期一",
+    2: "星期二",
+    3: "星期三",
+    4: "星期四",
+    5: "星期五",
+    6: "星期六",
+}
+"""0701/0702 星期字段值 → 文本(W342 §5-3-19 印刷页 198:00=Sunday ~
+06=Saturday;PLC 不校验星期与日期一致,由调用方保证)。"""
 FINS_MAX_MULTIPLE_ELEMENTS: int = 167
 """0104 多存储区读单命令条目上限(Ethernet/Controller Link;SYSMAC LINK/
 DeviceNet 为 89;W342 §5-3-5 p.178)。"""

@@ -19,12 +19,15 @@
 """
 from __future__ import annotations
 
-from typing import Dict, List, Sequence, Tuple
+import datetime
+from typing import Dict, List, NamedTuple, Sequence, Tuple
 
 from .address import FinsAddress
 from ...core.constants import (
     FINS_COMMAND_AREA_READ,
     FINS_COMMAND_AREA_WRITE,
+    FINS_COMMAND_CLOCK_READ,
+    FINS_COMMAND_CLOCK_WRITE,
     FINS_COMMAND_CPU_UNIT_STATUS_READ,
     FINS_COMMAND_MULTIPLE_AREA_READ,
     FINS_EM_BANK_MAX,
@@ -392,6 +395,228 @@ def parse_cpu_unit_status_read(frame: bytes, request_frame: bytes) -> Dict[str, 
         "error_code": int.from_bytes(data[8:10], "big"),
         "error_message": data[10:26].decode("ascii", errors="replace").rstrip(),
     }
+
+
+# ----------------------------------------------------------------------
+# 时钟读/写(0701 / 0702)
+# ----------------------------------------------------------------------
+
+class FinsClock(NamedTuple):
+    """FINS PLC 时钟值(0701 读 / 0702 写,共 7 字段)。
+
+    :ivar year: 年,**右两位原文**(0~99;W342 §5-3-19 印刷页 198:
+        1998/1999/2000 → 98/99/00,2096/2097 → 96/97)——世纪映射是
+        调用方责任,本库不猜世纪
+    :ivar month: 月 1~12
+    :ivar day: 日 1~31
+    :ivar hour: 时 0~23
+    :ivar minute: 分 0~59
+    :ivar second: 秒 0~59
+    :ivar day_of_week: 星期 0~6(0 = 星期日;PLC 不校验星期与日期一致)
+    """
+
+    year: int
+    month: int
+    day: int
+    hour: int
+    minute: int
+    second: int
+    day_of_week: int
+
+    @classmethod
+    def from_datetime(cls, value: datetime.datetime) -> "FinsClock":
+        """从 :class:`datetime.datetime` 构造(年取右两位,星期按周日 = 0 换算)。"""
+        return cls(
+            year=value.year % 100,
+            month=value.month,
+            day=value.day,
+            hour=value.hour,
+            minute=value.minute,
+            second=value.second,
+            # datetime.weekday():周一 = 0;FINS:周日 = 0
+            day_of_week=(value.weekday() + 1) % 7,
+        )
+
+    def to_datetime(self, century: int = 2000) -> datetime.datetime:
+        """转 :class:`datetime.datetime`(年份 = ``century + 两位年``,默认 2000+)。
+
+        :param century: 世纪基值;跨世纪时钟(如 99 → 1999)请显式传 1900
+        """
+        return datetime.datetime(
+            century + self.year,
+            self.month,
+            self.day,
+            self.hour,
+            self.minute,
+            self.second,
+        )
+
+
+def _bcd_decode(value: int, frame: bytes) -> int:
+    """单字节 BCD 解码(0x25 → 25;内部函数)。
+
+    :raises ProtocolFrameError: 字节非 BCD(高/低半字节 > 9,坏数据)
+    """
+    if (value >> 4) > 9 or (value & 0x0F) > 9:
+        raise ProtocolFrameError(
+            _("FINS 0701 时钟字段非 BCD 编码:0x{:02X}(收到的原始帧:{})").format(
+                value, format_hex(frame)
+            )
+        )
+    return (value >> 4) * 10 + (value & 0x0F)
+
+
+def _bcd_encode(value: int) -> bytes:
+    """单字节 BCD 编码(25 → 0x25;内部函数,调用方已做范围校验)。"""
+    return bytes([(value // 10) << 4 | (value % 10)])
+
+
+def validate_clock(clock: FinsClock) -> None:
+    """校验时钟字段范围(入参期收口,同步/native 写入路径共用)。
+
+    :raises ValueError: 任一字段越界(月 1~12 / 日 1~31 / 时 0~23 /
+        分·秒 0~59 / 星期 0~6 / 年 0~99)
+    """
+    if not 0 <= clock.year <= 99:
+        raise ValueError(_("时钟年份须为右两位 0~99,收到:{}").format(clock.year))
+    if not 1 <= clock.month <= 12:
+        raise ValueError(_("时钟月份须为 1~12,收到:{}").format(clock.month))
+    if not 1 <= clock.day <= 31:
+        raise ValueError(_("时钟日期须为 1~31,收到:{}").format(clock.day))
+    if not 0 <= clock.hour <= 23:
+        raise ValueError(_("时钟小时须为 0~23,收到:{}").format(clock.hour))
+    if not 0 <= clock.minute <= 59:
+        raise ValueError(_("时钟分钟须为 0~59,收到:{}").format(clock.minute))
+    if not 0 <= clock.second <= 59:
+        raise ValueError(_("时钟秒须为 0~59,收到:{}").format(clock.second))
+    if not 0 <= clock.day_of_week <= 6:
+        raise ValueError(
+            _("时钟星期须为 0~6(0 = 星期日),收到:{}").format(clock.day_of_week)
+        )
+
+
+def build_clock_read(
+    destination_network: int,
+    destination_node: int,
+    destination_unit: int,
+    source_network: int,
+    source_node: int,
+    source_unit: int,
+    sid: int,
+) -> bytes:
+    """构造 CLOCK READ(0701)FINS 帧。
+
+    依据:W342 §5-3-19 印刷页 197——命令格式仅命令码 ``07 01`` 两字节,
+    无参数(RUN/MONITOR/PROGRAM 三模式均可执行,零副作用数据读)。
+    """
+    return _build_frame(
+        destination_network,
+        destination_node,
+        destination_unit,
+        source_network,
+        source_node,
+        source_unit,
+        sid,
+        FINS_COMMAND_CLOCK_READ,
+        b"",
+    )
+
+
+def parse_clock_read(frame: bytes, request_frame: bytes) -> FinsClock:
+    """解析 CLOCK READ(0701)响应。
+
+    依据:W342 §5-3-19 印刷页 198——响应 = 命令码回显 + 结束码(2B)+
+    年/月/日/时/分/秒/星期各 1 字节 BCD;星期值 00~06 对应星期日~星期六。
+    年份为右两位原文(世纪映射见 :class:`FinsClock`)。
+
+    :raises ProtocolFrameError: 帧结构/ICF·SID·命令码不符、长度不符或
+        字段非 BCD(消息带原始帧十六进制转储)
+    :raises DeviceError: 结束码非正常完成
+    """
+    _check_identity(frame, request_frame)
+    prefix = FINS_HEADER_SIZE + 2
+    # 结束码先于数据长度校验(与 parse_response 同口径):错误应答只带
+    # 结束码、不带数据,按结束码抛 DeviceError 而非误判坏帧
+    if len(frame) < prefix + FINS_END_CODE_SIZE:
+        raise ProtocolFrameError(
+            _("FINS 响应不完整:至少 {} 字节,实际 {}(收到的原始帧:{})").format(
+                prefix + FINS_END_CODE_SIZE, len(frame), format_hex(frame)
+            )
+        )
+    end_code = int.from_bytes(frame[12:14], "big")
+    if not _is_normal_end_code(end_code):
+        text = _(_end_code_text(end_code))
+        raise DeviceError(_("FINS 结束码 0x{:04X}({})").format(end_code, text), end_code)
+    data_total = 7
+    total = prefix + FINS_END_CODE_SIZE + data_total
+    if len(frame) != total:
+        raise ProtocolFrameError(
+            _("FINS 0701 响应长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})").format(
+                total, len(frame), format_hex(frame)
+            )
+        )
+    data = frame[prefix + FINS_END_CODE_SIZE:]
+    return FinsClock(
+        year=_bcd_decode(data[0], frame),
+        month=_bcd_decode(data[1], frame),
+        day=_bcd_decode(data[2], frame),
+        hour=_bcd_decode(data[3], frame),
+        minute=_bcd_decode(data[4], frame),
+        second=_bcd_decode(data[5], frame),
+        day_of_week=_bcd_decode(data[6], frame),
+    )
+
+
+def build_clock_write(
+    destination_network: int,
+    destination_node: int,
+    destination_unit: int,
+    source_network: int,
+    source_node: int,
+    source_unit: int,
+    sid: int,
+    clock: FinsClock,
+) -> bytes:
+    """构造 CLOCK WRITE(0702)FINS 帧。
+
+    依据:W342 §5-3-20 印刷页 198——命令 = 命令码 + 年/月/日/时/分/秒/
+    星期各 1 字节 BCD;PLC 侧自动校验范围,任一字段非法则时钟不被设置
+    (执行条件:本方须持 CPU 访问权、未开网络写保护)。
+
+    :raises ValueError: 时钟字段越界(见 :func:`validate_clock`)
+    """
+    validate_clock(clock)
+    payload = (
+        _bcd_encode(clock.year)
+        + _bcd_encode(clock.month)
+        + _bcd_encode(clock.day)
+        + _bcd_encode(clock.hour)
+        + _bcd_encode(clock.minute)
+        + _bcd_encode(clock.second)
+        + _bcd_encode(clock.day_of_week)
+    )
+    return _build_frame(
+        destination_network,
+        destination_node,
+        destination_unit,
+        source_network,
+        source_node,
+        source_unit,
+        sid,
+        FINS_COMMAND_CLOCK_WRITE,
+        payload,
+    )
+
+
+def parse_clock_write(frame: bytes, request_frame: bytes) -> None:
+    """解析 CLOCK WRITE(0702)响应(命令码回显 + 结束码,无数据段)。
+
+    依据:W342 §5-3-20 印刷页 198——响应 = 命令码回显 + 结束码(2B)。
+
+    :raises ProtocolFrameError: 帧结构/ICF·SID·命令码不符或长度不符
+    :raises DeviceError: 结束码非正常完成
+    """
+    parse_response(frame, request_frame, 0, False, False)
 
 
 # ----------------------------------------------------------------------
