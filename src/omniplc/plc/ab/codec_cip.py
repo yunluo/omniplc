@@ -24,7 +24,7 @@
 from __future__ import annotations
 
 import struct
-from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
 from .address import AbTag
 from ...core.constants import (
@@ -83,6 +83,12 @@ CIP_SERVICE_FORWARD_CLOSE: int = 0x4E
 """CIP Forward Close(Connection Manager;与标签 RMW 同码不同类,不冲突)。"""
 CIP_SERVICE_MULTIPLE: int = 0x0A
 """CIP Multiple Service Packet(批量内嵌服务,发往消息路由器 0x02/0x01)。"""
+CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST: int = 0x55
+"""CIP Get_Instance_Attribute_List(Logix 符号对象点位枚举,list_tags)。
+
+依据:Rockwell《Logix 5000 Data Access》(1756-PM020)私有扩展——公开
+手册库暂缺该册(见 docs/protocol/README.md「待补」);帧面经 pycomm3
+1.2.16 与 pylogix 1.1.6 双参考实现逐字节对照裁决(2026-10-03)。"""
 CIP_STATUS_CONNECTION_FAILURE: int = 0x01
 """CIP 通用状态 0x01:Connection failure(connected 消息的会话已失效)。
 
@@ -93,6 +99,18 @@ CIP_STATUS_CONNECTION_LOST: int = 0x07
 
 与 0x01 同属"connected 连接失效",须一并触发惰性重连,否则
 TwinCAT/固件侧丢连后客户端会持续在死连接上失败。"""
+CIP_STATUS_PARTIAL_TRANSFER: int = 0x06
+"""CIP 通用状态 0x06:Partial transfer, more data(还有数据未传完)。
+
+0x55 点位枚举的**分页续传信号**(非错误):应答数据域解析完后,以本页
+最大 instance + 1 作为下一页起始实例继续请求,直至状态 0x00。"""
+AB_SYMBOL_OBJECT_CLASS: int = 0x6B20
+"""Logix Symbol Object 类码(list_tags 枚举对象;pycomm3/pylogix 双源一致)。"""
+AB_TAG_LIST_ATTRIBUTES: "tuple" = (0x0001, 0x0002, 0x0008)
+"""0x55 请求的属性集:1=符号名 / 2=符号类型 / 8=数组维度(pylogix 同款
+最小集;pycomm3 的 7 属性含未公开语义字段,不取)。应答按此序逐实例回值。"""
+AB_TAG_LIST_MAX_PAGES: int = 1000
+"""0x55 分页轮数上限(防不收敛;百万点级控制器也不应触顶)。"""
 _CONNECTION_RESET_STATUSES: "frozenset" = frozenset(
     (CIP_STATUS_CONNECTION_FAILURE, CIP_STATUS_CONNECTION_LOST)
 )
@@ -447,6 +465,152 @@ def build_get_attribute_list(
         build_class_instance_path(class_id, instance),
         body,
     )
+
+
+class AbTagEntry(NamedTuple):
+    """AB 控制器点位枚举条目(:meth:`list_tags` 返回元素)。。
+
+    :ivar name: 标签名(控制器域,如 ``MyDint`` / ``MyArray[5]`` /
+        ``Program:prog.Tag``——程序域标签带 ``Program:`` 前缀)
+    :ivar instance_id: Symbol Object 实例号(分页续传的游标依据)
+    :ivar symbol_type: 符号类型原始值(16 位;bit15=结构体标志、
+        bit13~14=数组维数、低 8 位=原子类型码)
+    :ivar is_struct: 是否结构体类型(symbol_type bit15;如 STRING)
+    :ivar dims: 数组各维长度(0~3 维有效,其余为 0)
+    """
+
+    name: str
+    instance_id: int
+    symbol_type: int
+    is_struct: bool
+    dims: Tuple[int, int, int]
+
+
+def build_tag_list_request(instance: int) -> bytes:
+    """构造 0x55 Get_Instance_Attribute_List 请求(Logix Symbol Object)。
+
+    路径 = Symbol Object 类段(16 位段头 ``0x21`` + 类码 0x6B20)+
+    实例段(起始实例 ≤255 用 8 位段头 ``0x24``,否则 16 位 ``0x25``),
+    奇长度补齐字节(CIP 字对齐);body = 属性数 + :data:`AB_TAG_LIST_ATTRIBUTES`。
+
+    依据:pycomm3 1.2.16 ``_get_instance_attribute_list_service`` 与
+    pylogix 1.1.6 ``_build_tag_list_request`` 双源逐字节一致(类段/实例段
+    编码、属性号 1/2/8);1756-PM020 手册待补(见 docs/protocol/README.md)。
+
+    :param instance: 起始实例号(分页续传游标;首页 0)
+    :raises ValueError: 实例号超出 0~65535
+    """
+    if not 0 <= instance <= 0xFFFF:
+        raise ValueError(_("CIP 实例号超出 0~65535:{}").format(instance))
+    path = struct.pack("<BBH", 0x21, 0x20, AB_SYMBOL_OBJECT_CLASS)
+    if instance <= 0xFF:
+        path += struct.pack("<BB", 0x24, instance)
+    else:
+        path += struct.pack("<BH", 0x25, instance)
+    if len(path) % 2:
+        path += b"\x00"
+    body = struct.pack("<H", len(AB_TAG_LIST_ATTRIBUTES))
+    for attr in AB_TAG_LIST_ATTRIBUTES:
+        body += struct.pack("<H", attr)
+    return _service_request(CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST, path, body)
+
+
+def parse_service_reply_with_status(
+    reply: bytes, request_service: int
+) -> Tuple[int, bytes]:
+    """解析 SendRRData 应答并**保留 CIP 通用状态**(0x55 分页通道专用)。
+
+    与 :func:`parse_service_reply` 的唯一差异:CIP 状态 0x00(完成)与
+    0x06(还有数据未传完)都**正常返回** ``(状态, 数据域)``——0x06 是
+    点位枚举的分页续传信号而非错误;其余非 0 状态照常抛 :class:`DeviceError`。
+
+    :raises ProtocolFrameError: 封装/CPF/服务回显不符
+    :raises DeviceError: CIP 通用状态非 0 且非 0x06(不断线)
+    """
+    cip = _parse_rr_data_cip(reply)
+    if cip[0] != (CIP_SERVICE_UNCONNECTED_SEND | 0x80):
+        return _parse_service_payload_with_status(cip, request_service)
+    route_status = cip[2]
+    if route_status != 0:
+        raise DeviceError(_status_text(route_status), route_status)
+    return _parse_service_payload_with_status(
+        cip[_service_data_offset(cip):], request_service
+    )
+
+
+def _parse_service_payload_with_status(
+    cip: bytes, request_service: int
+) -> Tuple[int, bytes]:
+    """校验服务回显,返回 ``(CIP 通用状态, 服务数据域)``,0x06 不抛(内部)。"""
+    if len(cip) < 4:
+        raise ProtocolFrameError(_("CIP 服务应答不完整"))
+    reply_service = cip[0]
+    if reply_service != (request_service | 0x80) and reply_service != 0x00:
+        raise ProtocolFrameError(
+            _("标签服务回显不符:期望 0x{:02X},实际 0x{:02X}").format(
+                request_service | 0x80, reply_service
+            )
+        )
+    status = cip[2]
+    if status != 0 and status != CIP_STATUS_PARTIAL_TRANSFER:
+        ext = _extended_status_text(status, cip)
+        msg = _status_text(status) if ext is None else "{} — {}".format(
+            _status_text(status), ext
+        )
+        raise DeviceError(msg, status)
+    return status, cip[_service_data_offset(cip):]
+
+
+def parse_tag_list_payload(data: bytes) -> List[AbTagEntry]:
+    """解析 0x55 应答数据域为点位条目列表(单页)。
+
+    每条 = 实例号(UDINT)+ 符号名(CIP SHORT_STRING:1 字节长度 + 字符)
+    + 符号类型(UINT)+ 三个数组维度(UDINT × 3)——与请求属性序
+    1(名)/2(类型)/8(维度)对应;布局经 pycomm3 1.2.16 / pylogix 1.1.6
+    双源对照,真机核证待做。
+
+    :raises ProtocolFrameError: 数据域长度/字段越界不符(坏帧,带原始数据)
+    """
+    tags: List[AbTagEntry] = []
+    offset = 0
+    total = len(data)
+    while offset < total:
+        if offset + 4 > total:
+            raise ProtocolFrameError(
+                _("点位枚举应答不完整:实例号被截断(收到的原始数据:{})").format(
+                    format_hex(data)
+                )
+            )
+        instance_id = int.from_bytes(data[offset:offset + 4], "little")
+        offset += 4
+        name_len = data[offset]
+        offset += 1
+        if offset + name_len + 2 + 12 > total:
+            raise ProtocolFrameError(
+                _("点位枚举应答不完整:名字/类型/维度被截断(收到的原始数据:{})").format(
+                    format_hex(data)
+                )
+            )
+        name = data[offset:offset + name_len].decode("ascii", errors="replace")
+        offset += name_len
+        symbol_type = int.from_bytes(data[offset:offset + 2], "little")
+        offset += 2
+        dims: Tuple[int, int, int] = (
+            int.from_bytes(data[offset:offset + 4], "little"),
+            int.from_bytes(data[offset + 4:offset + 8], "little"),
+            int.from_bytes(data[offset + 8:offset + 12], "little"),
+        )
+        offset += 12
+        tags.append(
+            AbTagEntry(
+                name=name,
+                instance_id=instance_id,
+                symbol_type=symbol_type,
+                is_struct=bool(symbol_type & 0x8000),
+                dims=dims,
+            )
+        )
+    return tags
 
 
 def build_tag_read(path: bytes, elements: int = 1) -> bytes:

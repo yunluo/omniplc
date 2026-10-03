@@ -401,6 +401,70 @@ class AllenBradleyEthIpClient(BaseClient):
         payload = self._transact(request, codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL)
         return codec_cip.parse_module_identity_payload(payload)
 
+    def _transact_with_status(
+        self, cip_request: bytes, request_service: int
+    ) -> Tuple[int, bytes]:
+        """CIP 事务(保留通用状态版):0x06「还有数据」不抛,返回 ``(状态, 数据域)``。
+
+        通道封装与 :meth:`_transact` 完全一致(unconnected UC-Send 包裹 /
+        connected SendUnitData),解析换 lenient 版——供 0x55 点位枚举分页
+        使用;其余非 0 状态照常抛 :class:`DeviceError`(不断线)。
+        """
+        transport = self._require_transport()
+        if self._ot_connection_id is None:
+            frame = codec_cip.build_rr_data(
+                self._session_handle, self._wrap_unconnected(cip_request)
+            )
+            transport.send(frame)
+            return codec_cip.parse_service_reply_with_status(
+                self._recv_frame(), request_service
+            )
+        sequence = self._next_sequence()
+        frame = codec_cip.build_send_unit_data(
+            self._session_handle, self._ot_connection_id, sequence, cip_request
+        )
+        transport.send(frame)
+        return codec_cip.parse_service_reply_with_status(
+            self._recv_frame(), request_service
+        )
+
+    def list_tags(self) -> Tuple[bool, Optional[List[codec_cip.AbTagEntry]]]:
+        """枚举控制器域全部点位(Logix Symbol Object,服务 0x55)。
+
+        自动分页:应答状态 0x06(还有数据)时以本页最大实例号 + 1 续传,
+        直至 0x00 或轮数上限(:data:`AB_TAG_LIST_MAX_PAGES`,防不收敛)。
+        首期仅控制器域;``Program:`` 前缀的程序域标签会出现在结果里,
+        但按程序名逐程序枚举未实现(Symbol Object 程序域行为待真机核证)。
+
+        :return: ``(是否成功,
+            :class:`~omniplc.plc.ab.codec_cip.AbTagEntry` 列表)``
+            (按实例号升序);失败为 ``(False, None)``
+        """
+        return self._execute(self._tag_list_operation)
+
+    def _tag_list_operation(self) -> List[codec_cip.AbTagEntry]:
+        """0x55 点位枚举的协议操作:分页循环(内部方法)。"""
+        tags: List[codec_cip.AbTagEntry] = []
+        instance = 0
+        for _page in range(codec_cip.AB_TAG_LIST_MAX_PAGES):
+            status, data = self._transact_with_status(
+                codec_cip.build_tag_list_request(instance),
+                codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST,
+            )
+            page = codec_cip.parse_tag_list_payload(data)
+            tags.extend(page)
+            if status == 0:
+                return tags
+            if not page:
+                # 状态 0x06 但本页零条目:无游标可推进,按不收敛防御终止
+                raise ProtocolFrameError(
+                    _("点位枚举分页停滞:状态 0x06 但本页无条目")
+                )
+            instance = page[-1].instance_id + 1
+        raise ProtocolFrameError(
+            _("点位枚举分页轮数超过上限 {}").format(codec_cip.AB_TAG_LIST_MAX_PAGES)
+        )
+
     def get_attribute_all(
         self, class_id: int, instance: int
     ) -> Tuple[bool, Optional[bytes]]:

@@ -1228,3 +1228,121 @@ def test_chunk_batch_requests_counts_offset_table() -> None:
     for chunk in chunks:
         payload = 2 + 2 * len(chunk) + sum(len(r) + len(r) % 2 for r in chunk)
         assert payload + _BATCH_ENVELOPE_MARGIN <= AB_MAX_BATCH_PAYLOAD
+
+
+# ----------------------------------------------------------------------
+# list_tags 点位枚举(Logix Symbol Object,服务 0x55)
+# ----------------------------------------------------------------------
+
+def _tag_entry_bytes(
+    instance: int, name: str, symbol_type: int, dims: tuple = (0, 0, 0)
+) -> bytes:
+    """0x55 应答单条点位(instance UDINT + SHORT_STRING + type UINT + dims)。"""
+    raw = name.encode("ascii")
+    return (
+        struct.pack("<I", instance)
+        + bytes((len(raw),)) + raw
+        + struct.pack("<H", symbol_type)
+        + b"".join(struct.pack("<I", d) for d in dims)
+    )
+
+
+def test_list_tags_request_golden() -> None:
+    """0x55 请求帧黄金:服务 0x55 + Symbol Object 路径(类 16 位段 + 实例 8 位段)+ 属性 1/2/8。"""
+    expected = bytes.fromhex("55 03 21 20 20 6b 24 00 03 00 01 00 02 00 08 00".replace(" ", ""))
+    assert codec_cip.build_tag_list_request(0) == expected
+
+
+def test_list_tags_single_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    """单页枚举:两点位一页收完(状态 0),结果字段与请求帧逐字节锁定。"""
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818)
+    payload = _tag_entry_bytes(1, "MyDint", 0xC4) + _tag_entry_bytes(2, "MyBool", 0xC1)
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _reply_chunks(payload, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST)
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, tags = client.list_tags()
+    assert ok is True
+    assert tags == [
+        codec_cip.AbTagEntry(name="MyDint", instance_id=1, symbol_type=0xC4, is_struct=False, dims=(0, 0, 0)),
+        codec_cip.AbTagEntry(name="MyBool", instance_id=2, symbol_type=0xC1, is_struct=False, dims=(0, 0, 0)),
+    ]
+    sent = bytes(scripted.sent)
+    expected = codec_cip.build_rr_data(
+        _SESSION,
+        codec_cip.build_uc_send(codec_cip.build_tag_list_request(0), 0),
+    )
+    assert sent[28:] == expected
+
+
+def test_list_tags_paging(monkeypatch: pytest.MonkeyPatch) -> None:
+    """分页:首页状态 0x06(还有数据)以最大实例+1 续传,次页状态 0 收完。"""
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818)
+    page1 = _tag_entry_bytes(5, "TagA", 0xC4) + _tag_entry_bytes(7, "TagB", 0x8000 | 0x0FCE)
+    page2 = _tag_entry_bytes(9, "TagC", 0xC3, dims=(3, 0, 0))
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _reply_chunks(page1, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST, cip_status=0x06)
+        + _reply_chunks(page2, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST)
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, tags = client.list_tags()
+    assert ok is True
+    assert [t.name for t in tags] == ["TagA", "TagB", "TagC"]
+    assert tags[1].is_struct is True
+    assert tags[2].dims == (3, 0, 0)
+    sent = bytes(scripted.sent)
+    # 次页请求的实例游标 = 首页最大实例 7 + 1 = 8(8 位段),请求帧完整出现
+    assert codec_cip.build_uc_send(codec_cip.build_tag_list_request(8), 0) in sent
+
+
+def test_list_tags_bad_frame_truncated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """应答数据域截断(名字越界):按坏帧拆连,last_error 带原始数据。"""
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818)
+    truncated = struct.pack("<I", 1) + bytes((10,)) + b"AB"  # 名长 10 实给 2
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _reply_chunks(truncated, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST)
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.list_tags() == (False, None)
+    assert client.connected is False
+    assert client.last_error is not None and "点位枚举应答不完整" in client.last_error
+
+
+def test_list_tags_stalled_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    """状态 0x06 但本页零条目:无游标可推进,防御性报不收敛。"""
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818)
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _reply_chunks(b"", service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST, cip_status=0x06)
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.list_tags() == (False, None)
+    assert client.last_error is not None and "分页停滞" in client.last_error
+
+
+def test_list_tags_async_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
+    """异步镜像:list_tags 转发同步实例(单页)。"""
+
+    async def scenario() -> None:
+        client = AAllenBradleyEthIpClient("127.0.0.1", 44818)
+        sync = client._sync
+        payload = _tag_entry_bytes(1, "MyDint", 0xC4)
+        scripted = ScriptedTransport(
+            _session_chunks()
+            + _reply_chunks(payload, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST)
+        )
+        monkeypatch.setattr(sync, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        ok, tags = await client.list_tags()
+        assert ok is True
+        assert tags[0].name == "MyDint"
+        await client.close()
+
+    asyncio.run(scenario())

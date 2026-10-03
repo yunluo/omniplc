@@ -78,6 +78,15 @@ class OmronCipClient(AllenBradleyEthIpClient):
         """unconnected 直发:目标即消息路由器,不包 UC Send(内部方法)。"""
         return cip_request
 
+    def list_tags(self):  # noqa: ANN201 —— 返回形状与基类一致,由类型标注层覆盖
+        """NJ/NX 不支持 Logix 符号点位枚举(显式拒绝,覆写 AB 基类)。
+
+        服务 0x55 / Symbol Object(0x6B20)是 Logix 私有面,NJ/NX 的
+        Sysmac 变量枚举走别机制(无公开依据,待真机核证后另行评估);
+        调用即 :class:`ValueError`,不发包。
+        """
+        raise ValueError(_("NJ/NX 不支持 Logix 符号点位枚举(list_tags)"))
+
     def _parse_unconnected_reply(self, reply: bytes, request_service: int) -> bytes:
         """直发应答解析:0xB2 项内直接是服务应答(内部方法)。"""
         return codec_cip.parse_direct_service_reply(reply, request_service)

@@ -84,7 +84,7 @@ from .plc.omron import (
     OmronFinsTcpClient,
     OmronFinsUdpClient,
 )
-from .plc.ab import AllenBradleyEthIpClient
+from .plc.ab import AbTagEntry, AllenBradleyEthIpClient
 from .plc.panasonic import (
     PanasonicMcTcpClient,
     PanasonicMewtocolTcpClient,
@@ -166,6 +166,7 @@ __all__ = [
     "ToyopucUdpClient",
     # ---- 罗克韦尔 AB EtherNet/IP 客户端 ----
     "AllenBradleyEthIpClient",
+    "AbTagEntry",
     # ---- 西门子 S7 客户端 ----
     "SiemensS7Client",
     # ---- OPC-UA 客户端 ----

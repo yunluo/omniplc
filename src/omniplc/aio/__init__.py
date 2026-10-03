@@ -114,6 +114,7 @@ from ..reader import (
 )
 from ..plc.omron import OmronCipClient, OmronFinsTcpClient, OmronFinsUdpClient
 from ..plc.omron import codec as _omron_codec
+from ..plc.ab import codec_cip
 from ..core.tag import Tag, TagTable
 from ..core.types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity, WordOrder
 from ..core.i18n import _
@@ -2126,6 +2127,11 @@ class AOmronCipClient(ABaseClient):
         sync = self._typed(OmronCipClient)
         return sync.slot
 
+    async def list_tags(self) -> Tuple[bool, Optional[List["codec_cip.AbTagEntry"]]]:
+        """NJ/NX 不支持 Logix 符号点位枚举(显式拒绝;语义同同步版覆写)。"""
+        sync = self._typed(OmronCipClient)
+        return await self._run(sync.list_tags)
+
     async def generic_message(
         self, service: int, class_id: int, instance: int, body: bytes = b""
     ) -> Tuple[bool, Optional[bytes]]:
@@ -2312,6 +2318,11 @@ class AAllenBradleyEthIpClient(ABaseClient):
         """生效连接尺寸(connected 模式 Forward Open 后可用,转发同步实例)。"""
         sync = self._typed(AllenBradleyEthIpClient)
         return sync.connection_size
+
+    async def list_tags(self) -> Tuple[bool, Optional[List["codec_cip.AbTagEntry"]]]:
+        """枚举控制器域全部点位(0x55 自动分页;语义同同步版)。"""
+        sync = self._typed(AllenBradleyEthIpClient)
+        return await self._run(sync.list_tags)
 
 
 class ASiemensS7Client(ABaseClient):
