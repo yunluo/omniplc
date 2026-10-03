@@ -1,10 +1,18 @@
 # Omniplc
 ![](docs/assets/omniplc_banner.png)
 
+[![PyPI - Version](https://img.shields.io/pypi/v/omniplc)](https://pypi.org/project/omniplc/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/omniplc)](https://pypi.org/project/omniplc/)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/omniplc)](https://pypi.org/project/omniplc/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![ci](https://github.com/yunluo/omniplc/actions/workflows/ci.yml/badge.svg)](https://github.com/yunluo/omniplc/actions/workflows/ci.yml)
+
 面向多品牌、多协议 PLC 的 Python 统一通信库:三菱 / 欧姆龙 / 基恩士 / 汇川 /
 松下 / 丰田 / 罗克韦尔(AB)/ 西门子(S7)/ SR 扫码枪 /
 海康读码器 / OPC-UA / CNC(MTConnect),共 17 族协议、30 个同步客户端。
 **一次编写,同一套 API。**
+源码:[GitHub](https://github.com/yunluo/omniplc) · [Gitee 镜像](https://gitee.com/yunluo/omniplc) ·
+发布:[PyPI](https://pypi.org/project/omniplc/)
 
 > ⚠️ **安全警示**:PLC 控制着真实的生产设备与执行机构。本库的**写操作**
 > (以及批量写、位软元件读-改-写)会直接改变 PLC 侧数据与输出状态,编程

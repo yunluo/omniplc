@@ -26,6 +26,40 @@
 | 4 | AB `list_tags` 点位枚举 | P2 | CIP Get Tag List 服务(0x55),依 Rockwell 1756-PM020;pylogix/gologix/libplctag 均有,现场"看 PLC 里有哪些标签"刚需(2026-10-03 GitHub 同类库调研唯一确凿功能缺口)——需新服务封装+分页续传+变长解析 | 待实现 |
 | 5 | 连接池 / 并行采集原语 | P2 | S7netplus #49/#238/#295 实证单连接串行是吞吐瓶颈、用户自建多连接池;v1.x 履历已排期——并发生命周期设计与退避/锁模型交互,本期最大件;短期可先落 README「多实例并行」指引 | 待实现 |
 | 6 | 串口原生异步层(3.8+ 环境标记) | P3 | pymodbus RTU asyncio 先例(serial_asyncio);RTU 不需要数据报端点,"3.7 Proactor 限制"仅约束 UDP——需新增依赖线+环境标记+双循环测试,与 #5 同量级或更大 | 待实现 |
+| 7 | S7comm 自研(立项级,**计划见下节**) | P2 | 摆脱 python-snap7 C 库依赖(阻塞 DLL、按解释器双轨);Sally7 证明纯 asyncio 可行;2026-10-03 用户拍板立项,先列计划 | 计划已列 |
+| 8 | README「AI 欢迎策略」章节 | P3 | libplctag AI Policy 先例:**承认本项目大量使用 AI**(实现/测试/文档全程 AI 辅助)并欢迎 AI 辅助贡献;协作指引指向 AGENTS.md(协议引用铁律/全中文/门禁)与 CONTRIBUTING.md | 待实现 |
+
+### S7comm 自研计划骨架(立项级,2026-10-03 拍板)
+
+**动机**:摆脱 python-snap7——C 库按解释器双轨(3.7→1.3 带 DLL/3.10+→3.x)、
+ctypes 阻塞调用只能裹线程进 aio;自研后原生 asyncio 单栈、核心回归零第三方
+依赖、Windows/ARM 部署免 TcAdsDll 式运行库纠缠。Sally7(C#,MIT)证明纯
+asyncio S7 完全可行。
+
+**依据先行(铁律)**:S7comm 无官方公开手册——依据源 = Wireshark
+s7comm dissector 源码(协议树即规范)+ snap7 文档 + **真机抓包样本**(黄金帧
+的唯一权威);`docs/protocol/README.md` 待补表 S7comm 行已登记,收集的
+dissector 说明/pcap 样本按厂商新建 `docs/protocol/siemens/s7comm/` 收录。
+出处口径退一档:手册页码级不可得时,标注「Wireshark dissector 函数名 +
+抓包样本字节偏移」(铁律允许的"明确引用位置"形态,与「手册待补」同级披露)。
+
+**分阶段**:
+1. **P1 依据与建帧**:收 dissector/pcap;TPKT(RFC 1006)/COTP(CC/CR/DT)
+   /S7 头(ROSCTP)三层建帧,黄金帧测试先行(样本字节锁定);
+2. **P2 单点读写**:S7 PDU 读/写变长(Read/Write Var),DB/I/Q/M 绝对寻址,
+   rack/slot 路由,PDU 协商;
+3. **P3 能力补齐**:STRING/WSTRING(头 2 字节布局)、read_multi_vars
+   (S7 VarFun MultiRead)、位读写、优化块访问错误识别;
+4. **P4 对拍**:与 snap7 封装双轨同批响应对拍(帧语义一致 + 错误口径映射
+   对齐——`_SNAP7_ERRORS`/S7Error 谱系翻译表);
+5. **P5 并存**:新驱动命名 `S7CommClient`(或按命名惯例定),snap7 封装
+   `SiemensS7Client` 保留不撤(对拍期两轨),aio/native 同面;
+6. **P6 默认切换**:真机核证(S7-300/1200/1500,PUT/GET 授权与优化块
+   访问——真机清单已有对应项)后另行裁决是否默认,不自动换。
+
+**风险**:PUT/GET 授权与 1200/1500 优化块的行为差异只能真机核证(同
+snap7 封装现状);协议无官方规范,帧面争议以抓包样本裁决。工作量数周级,
+排 v1.x;非本期。
 
 ---
 
