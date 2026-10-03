@@ -1,10 +1,155 @@
 # 各协议用法示例
 
-按品牌分节的用法速查。构造参数、地址语法与能力细节以各客户端 docstring 与
-[architecture.md](architecture.md) 为准;通用约定(读写返回形状、错误处理、
-超时/重试)见 [README](README.md)「错误处理」节。
+按品牌分节的用法速查。**所有客户端共享的通用 API 面**(读写原语/批量读写/
+点位表/监视器/超时重试/错误处理/全局开关/异步层)见下一节,各协议节只讲
+该协议的特有能力。构造参数、地址语法与能力细节以各客户端 docstring 与
+[architecture.md](architecture.md) 为准;失败分类与现场排障见
+[troubleshooting.md](troubleshooting.md)。
 
 安装可选依赖:`pip install 'omniplc[serial|mx|opcua|s7]'`(对应小节标注)。
+
+## 通用 API 面(所有客户端共享)
+
+### 读写原语
+
+读返回 `(是否成功, 值)`、写返回 `bool`,失败**不抛异常**(原因在
+`last_error`);参数非法抛 `ValueError`。
+
+```python
+ok, b = client.read_bool("M100")          # 位
+ok, i = client.read_ushort("D100")        # 16 位:short / ushort
+ok, i = client.read_int("D200")           # 32 位:int / uint;另有 long / ulong(64 位)
+ok, f = client.read_float("D200")         # 32 位浮点;另有 double(64 位)
+ok, s = client.read_string("D300", length=20, encoding="gbk")   # 字符串(按协议定长定编码)
+ok = client.write_ushort("D100", 1234)
+ok = client.write_string("D300", "PV=1234")
+```
+
+### 超时 / 重试 / 退避 / 心跳(运行期属性,赋值即生效)
+
+```python
+client.connect_timeout = 5.0      # 建连超时(秒)
+client.receive_timeout = 3.0      # 单事务收包超时;TCP 修改立即下发 socket
+client.retries = 1                # 读重试次数(默认 0)
+client.write_retries = 0          # 写重试(默认 0——超时重试对非幂等写有双写风险)
+client.reconnect_backoff = True   # 连接失败指数退避门控(默认开,0.5s→30s 封顶)
+client.next_connect_in            # 门控剩余秒数(None = 未激活)
+client.heartbeat_interval = 30.0  # 应用层心跳周期(仅支持探活的驱动生效;0 = 关)
+```
+
+### 失败原因与告警分级
+
+```python
+ok, value = client.read_float("hr100")
+if not ok:
+    print(client.last_error)             # 人类可读原因(omniplc.set_lang("en") 切英文)
+    print(client.last_error_category)    # TRANSPORT / PROTOCOL / DEVICE / TIMEOUT / UNKNOWN
+    print(client.last_error_code)        # PLC 原始错误码(语言无关,接上位告警分级)
+```
+
+分类语义与现场排障动线见 [troubleshooting.md](troubleshooting.md)。
+
+### 连接健康统计
+
+```python
+s = client.stats     # ClientStats:connect_count/disconnect_count/transactions/
+                     # error_count/device_error_count/heartbeat_ok/heartbeat_fail/
+                     # last_rtt/last_success_at/...
+ok = client.ping()   # 手动探活一次(仅支持探活命令的驱动)
+```
+
+### 点位表(按名读写 + 工程量缩放)
+
+```python
+from omniplc import Tag, TagTable
+
+table = TagTable([
+    Tag(tag_id="furnace_temp", address="hr100", data_type="float",
+        scale=0.1, remark="炉温"),        # 读值 = 原始 × scale + offset
+    Tag(tag_id="pump_running", address="c0", data_type="bool", remark="泵运行"),
+])
+client.bind_tags(table)
+ok, value = client.read_tag("furnace_temp")    # 按点位标识读写,自动套缩放
+ok = client.write_tag("pump_running", True)
+```
+
+表构造后严格只读(不提供 add);`Monitor` 直接收 `TagTable`。
+
+### 监视器(周期轮询 + 本地快照 + 变更事件)
+
+```python
+mon = client.create_monitor(
+    {"炉温": ("hr0", "float"), "压力": ("hr2", "ushort")},
+    interval=1.0,
+    on_change=lambda ev: print(ev.tag_id, ev.old, "→", ev.new, ev.quality),
+    on_disconnect=lambda: print("采集失败期开始"),
+)
+mon.start()
+snap = mon.get("炉温")     # PointSnapshot(quality, value, updated_at)——纯本地不发报文
+mon.get_all()              # 全部点位快照
+mon.stats                  # cycle_count / consecutive_fails / slow_cycles /
+                           # skipped_ticks(退避期跳拍)/ change_events / ...
+mon.stop()
+```
+
+质量三态:`INITIAL`(从未成功)/ `GOOD`(最新值)/ `STALE`(失败期保留的
+旧值)——**消费方必须检查 quality**,拿 STALE 旧值当最新值是采集系统常见
+自伤。STRING 不支持(批量读不收变长);建议监视器独占客户端实例。
+
+### 批量读三入口 / 批量写两入口
+
+```python
+pairs = client.read_many(["hr0", "hr2", "hr4"], "float")   # 逐点独立容错 [(ok, 值)]
+ok, values = client.read_range("hr0", 100, "float")        # 连续区段单事务(整批容错)
+ok, values = client.read_batch([("D100", "short"), ("M10", "bool")])  # 协议原生合并
+
+ok = client.write_many(["M0", "M1", "M2"], [True, False, True])       # 逐点写
+ok = client.write_batch([("Q0", "bool", True), ("hr10", "ushort", 7)])  # 协议原生合并写
+```
+
+合并形态对照见下文「批量读取」「批量写」两节。
+
+### 全局开关(进程级,所有客户端生效)
+
+```python
+import omniplc
+
+omniplc.set_debug(True)                    # 收发报文十六进制实时输出(走 logging)
+omniplc.set_frame_recorder(True)           # 报文黑匣子:只存不打印,常驻最近 1000 帧
+for rec in omniplc.recorded_frames():      # 故障后取现场(墙钟时间升序)
+    print(rec.at, rec.direction, rec.label, rec.data.hex())
+omniplc.set_lang("en")                     # 报错文案切英文(默认中文)
+```
+
+### 异步两层(包装层 A* / 原生层 Async*)
+
+```python
+# 包装层:同步类名前加 A,方法全是协程(内部单工作线程驱动同步实例)
+import asyncio
+from omniplc.aio import AModbusTcpClient
+
+async def main() -> None:
+    client = AModbusTcpClient("192.168.0.10", 502, 1)
+    assert await client.connect() is True
+    ok, value = await client.read_float("hr100")
+    await client.close()
+
+asyncio.run(main())
+
+# 原生层(omniplc.native,Async* 前缀):原生 asyncio 协议栈,零第三方依赖
+from omniplc.native import AsyncModbusTcpClient
+
+async def main() -> None:
+    async with AsyncModbusTcpClient("192.168.0.10", 502, 1) as client:
+        ok, value = await client.read_float("hr100")
+
+asyncio.run(main())
+```
+
+包装层 30 客户端全镜像(`omniplc.aio`);原生层已覆盖 Modbus TCP、
+MC 3E(TCP/UDP)、FINS(TCP/UDP)、汇川两走线(`omniplc.native`,不进
+根包 `__all__`);两层差异与取舍见 [async.md](async.md)。
+
 
 ## Modbus(TCP / RTU)
 
@@ -72,8 +217,15 @@ mx = MelsecMxClient(logical_station_number=1)
 ok, values = mx.read_batch([("M10", "bool"), ("D100", "short"), ("D200", "int")])
 ```
 
-扩展:`random_read`/`random_write`(0403/1402,乱序不连续软元件单事务)、
-`get_cpu_type`(0101,CPU 型号 + 模型代码)。
+扩展:`random_read(word_items, double_word_items)` / `random_write(...)`——
+0403/1402 乱序不连续软元件单事务,按「字软元件 / 双字软元件」两组传;
+`get_cpu_type()`(0101,CPU 型号 + 模型代码,即探活命令);
+`read_range("D0", 100, "short")` 连续区段单事务;字符串
+`read_string` / `write_string`。
+
+MX Component 另有(Windows,`omniplc[mx]`):`get_clock()` / `set_clock(...)`
+PLC 时钟读写、`get_error_message(code)` 错误码取文本、
+`write_batch` 按 16 位类型合并写。
 
 ## 欧姆龙 FINS / NJ·NX CIP
 
@@ -87,6 +239,7 @@ fins = OmronFinsUdpClient(ip_address="192.168.250.1", port=9600)
 ok, value = fins.read_ushort("D100")
 ok = fins.write_bool("CIO0.5", True)
 ok, values = fins.read_batch([("D100", "short"), ("CIO0.5", "bool")])  # 0104 多存储区读
+ok, status = fins.read_cpu_unit_status()   # 0101 CPU 单元状态:运行模式/故障状态等字典
 
 # PLC 时钟(W342 §5-3-19/20):读返回 FinsClock(年=右两位,星期 0=周日);
 # 写收 FinsClock 或 datetime(星期自动换算;需 PLC 侧访问权、未开网络写保护)
@@ -99,6 +252,7 @@ ok = fins.write_clock(datetime.datetime.now())                 # 对时到当前
 from omniplc import OmronCipClient
 nj = OmronCipClient(ip_address="192.168.0.10", connected_messaging=True)  # 连接型可选
 ok, value = nj.read_int("TestVar")
+# NJ 不支持 Logix 符号点位枚举:nj.list_tags() 显式拒绝(ValueError,不发包)
 ```
 
 ## 罗克韦尔 AB EtherNet/IP(Logix 标签)
@@ -111,6 +265,11 @@ ab.connect()
 ok, value = ab.read_int("MyDint")
 ok, values = ab.read_batch([("MyDint", "int"), ("MyReal", "float")])  # 0x0A 多服务包,≤32 条
 ok, info = ab.get_plc_info()      # Identity Object
+ok, tags = ab.list_tags()         # 0x55 符号枚举(自动分页):AbTagEntry(名称/类型/is_struct/维度)
+ok, ident = ab.list_identity()    # EtherNet/IP 身份识别(设备发现,无须先 connect)
+ok, raw = ab.get_attribute_all(0x01, 1)                   # Get Attribute All
+ok, pairs = ab.get_attribute_list(0x04, 0x63, [1, 3])     # 批量读属性 → [(属性 ID, 值)]
+ok, reply = ab.generic_message(0x0E, 0x073, 1, body=b"\x00")  # 任意服务/类/实例透传
 ab_c = AllenBradleyEthIpClient(ip_address="192.168.1.20", connected_messaging=True,
                                rpi_us=100_000)  # connected 消息,大批量轮询吞吐更高
 ```
@@ -168,6 +327,8 @@ from omniplc import KeyenceSrClient
 sr = KeyenceSrClient(ip_address="192.168.0.10", port=9004, scan_dwell=1.0)
 sr.connect()
 ok, code = sr.scan()        # LON → 窗口 → LOFF → 读应答
+ok, code = sr.scan(bank=2)  # 指定库位号(读码器预设切换)
+ok = sr.reset()             # 复位读码器
 ```
 
 ## 海康机器人 ID 智能读码器(Modbus 模式)
@@ -266,6 +427,9 @@ ok, speed = cnc.read_float("Sspeed")   # 主轴转速(文本值自动转 float)
 ok, items = cnc.snapshot()             # 全量当前值快照;先看机器实际提供哪些数据项
 ok, alarms = cnc.read_conditions()     # 条件项(Fault/Warning/Normal)
 ok, device = cnc.probe()               # 设备信息(name/uuid 等)
+ok, devs = cnc.probe_all()             # 多设备 Agent 的全部设备信息
+ok, page = cnc.read_sample(from_sequence=100)   # /sample 历史样本(序列号续传)
+ok, assets = cnc.read_assets()         # 资产(刀具等)
 ```
 
 ## 西门子 S7(需 omniplc[s7];封装 python-snap7)
@@ -280,6 +444,8 @@ ok = s7.write_bool("DB1.DBX0.3", True) # DB 位(非原子读-改-写;多写者�
 ok, current = s7.read_ushort("MW10")   # Merker 字
 ok, text = s7.read_string("DB1.DBS20", length=32)   # S7 String(头 2 字节声明/实际长)
 ok, wtext = s7.read_wstring("DB1.DBW40", length=32) # S7 WString(UTF-16,中文/日文)
+ok = s7.write_wstring("DB1.DBW60", "中文")
+ok, state = s7.get_cpu_state()                      # CPU 状态(Run/Stop/...)
 ```
 
 ## 批量读取(默认逐点 / 协议原生单事务)
@@ -296,6 +462,49 @@ ok, wtext = s7.read_wstring("DB1.DBW40", length=32) # S7 WString(UTF-16,中文/�
 | OPC-UA | UA Read 原生多节点(asyncua 单请求) |
 | MX Component | 16 位类型合并 ReadDeviceRandom;32/64 位类型各走一笔块读 |
 | Modbus | 按 (区域,类型) 分组、组内连续地址合并为单条 FC(K 笔,典型 1 笔) |
+
+## 批量写(默认逐点 / 协议原生合并)
+
+`write_many(地址列表, 值列表)` 逐点写(基类契约;Modbus 覆写保留
+`List[bool]` 返回);`write_batch([(地址, 类型, 值), …])` 是协议级合并写:
+
+| 驱动 | 合并形态 |
+|---|---|
+| Modbus(TCP/RTU 及其子类) | 按 (区域,类型) 分组、组内连续合并:位走 FC15 多线圈、寄存器走 FC16 多寄存器(上限 1968 位 / 123 字);寄存器位写(读-改-写)不参与合并,排在 FC16 之前保序 |
+| 三菱 MX Component | `write_batch` 16 位同型合并块写;其余逐点 |
+| 其余驱动 | 逐点(协议无合并写面) |
+
+**写重试双写警示**:写失败重试有双写风险(超时只证明响应未到达,写可能
+已被执行),`write_retries` 默认 0——非幂等写(计数/脉冲/步进)保持默认,
+详见 [troubleshooting.md](troubleshooting.md)。
+
+## 各走线默认端口对照
+
+| 客户端 | 协议 | 默认端口 |
+|---|---|---|
+| `ModbusTcpClient` | Modbus TCP | 502 |
+| `ModbusRtuClient` | Modbus RTU | 串口(`configure_serial`) |
+| `MelsecMcTcpClient` / `UdpClient` | 三菱 MC 3E/4E | 2000 |
+| `MelsecMcSerialClient` | 三菱 MC 串口(1C/3C/4C) | 串口(C24 传送设定) |
+| `MelsecMxClient` | MX Component | 逻辑站号(通信设置实用程序) |
+| `OmronFinsTcpClient` / `UdpClient` | 欧姆龙 FINS | 9600 |
+| `OmronCipClient` / `AllenBradleyEthIpClient` | EtherNet/IP | 44818 |
+| `KeyenceHostLinkTcpClient` / `UdpClient` | KV Host Link | 8000 |
+| `KeyenceMcTcpClient` / `UdpClient` | KV MC 兼容(SLMP 3E) | 5000 |
+| `KeyenceSrClient` | SR 扫码枪 | 9004 |
+| `InovanceTcpClient` | 汇川 Modbus 映射 | 502 |
+| `InovanceRtuClient` | 汇川 Modbus RTU | 串口(默认 8N2/9600) |
+| `InovanceMcTcpClient` | 汇川 MC 兼容(3E) | 无出厂默认,须与 AutoShop「MC配置」一致 |
+| `PanasonicMcTcpClient` | 松下 MC 兼容(3E) | 2000 |
+| `PanasonicMewtocolTcpClient` / `UdpClient` | MEWTOCOL | 1024 |
+| `ToyopucTcpClient` / `UdpClient` | TOYOPUC | 1025 |
+| `OpcUaClient` | OPC-UA | 4840 |
+| `MTConnectClient` | MTConnect Agent | 5000 |
+| 海康读码器四客户端 | Modbus / TCP 命令 / SDK / 串口 | 读码器侧配置(无出厂统一口) |
+
+> **`S` 跨协议语义提示**:MEWTOCOL 的 `S10` 是**定时器设定值区**(SV,
+> 字),而三菱系 MC(含 MC 兼容子类)的 `S10` 是**步进继电器**(位)——
+> 同名不同物,跨协议移植地址时勿直接照抄。
 
 ## 采集 → MQTT 上行(可选,需 paho-mqtt)
 

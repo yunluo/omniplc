@@ -28,7 +28,7 @@
 | 4 | 错误现场环形缓冲(报文黑匣子) | P3 | 2026-10-03 现场调研:`set_debug` 是实时打印,进程崩溃后报文现场丢失,现场无人盯日志时无从排查;已落地——`set_frame_recorder(enabled, capacity=1000)` 只存不打印(1~100000 帧构造期校验),`recorded_frames()`/`clear_recorded_frames()`/`FrameRecord`(墙钟时间+方向+标识+原始字节),挂点与实时日志同在 `log_frame`(走线型全量覆盖,会话型不进),+8 例测试;排障指南 §四同步用法 | 已完成 |
 | 5 | 串口原生异步层(3.8+ 环境标记) | P3 | pymodbus RTU asyncio 先例(serial_asyncio);RTU 不需要数据报端点,"3.7 Proactor 限制"仅约束 UDP——常规工程:新增依赖线+AsyncSerialTransport+RTU 客户端+双循环测试 | 待实现 |
 | 6 | OPC-UA 断线自动重订(选项) | P3 | 2026-10-03 现场调研:会话/订阅恢复是 OPC-UA 现场普遍痛点(TransferSubscriptions 失败、订阅 stale,常见解法竟是重启服务);现状=断线不自动重订已披露(`plc/opcua/client.py`)——设计点:重连成功后自动重建订阅的选项(默认关),注意死区订阅 asyncua 私有 API 跨版本兼容坑先例 | 待实现 |
-| 7 | examples 范例丰富化:各协议对外 API 全展示 | P3 | 2026-10-03 用户指令:「使用范例要丰富,把本库对外 API 都展示下」;现状 examples.md 部分协议仅基础读写——目标:31 个客户端公开面全覆盖,协议特有能力(FINS 时钟/AB list_tags/Modbus FC 全家桶/MX/raw 通道/订阅 Browse/读码器触发时序等)与通用面(read_many/read_batch/read_range、write_many/write_batch、read_tag/write_tag/bind_tags、Monitor、stats、错误处理三件套、set_debug/set_lang)逐节展示;与「文档/披露待补」节 examples.md 默认端口对照表条目合并办理 | 待实现 |
+| 7 | examples 范例丰富化:各协议对外 API 全展示 | P3 | 2026-10-03 用户指令:「使用范例要丰富,把本库对外 API 都展示下」;已落地——新增「通用 API 面」大节(读写原语/超时重试退避心跳/告警分级/stats/点位表/Monitor/批量读写/全局开关含黑匣子/异步两层),各协议节补缺(MC random 双组签名+MX 时钟/错误码、FINS 0101、AB list_tags/list_identity/属性/GenericMessage、NJ 拒绝披露、S7 get_cpu_state/write_wstring、SR bank/reset、MTConnect sample/assets),新增「批量写」与「默认端口对照」两节(S 跨协议语义提示);API 清单经 inspect 全量盘点防漏 | 已完成 |
 | 8 | 连接池 / 并行采集原语 | P2 | S7netplus #49/#238/#295 实证单连接串行是吞吐瓶颈、用户自建多连接池;v1.x 履历已排期——并发生命周期设计与退避/锁模型交互,属设计题,待实现里最大件;短期可先落 README「多实例并行」指引 | 待实现 |
 | 9 | FANUC FOCAS DLL 封装(`cnc/`) | P3 | **计划见下节「DLL 封装族」**;fwlib32/64.dll,厂商运行库前置——模板现成(海康 SDK 先例),卡在外部物料(FOCAS 手册+头文件) | 计划已列 |
 | 10 | 三菱 CNC EZSocket DLL 封装(`cnc/`) | P3 | **计划见下节「DLL 封装族」**;SDK/手册待拿,绑定形态(ctypes/comtypes)拿到后裁决——比 FOCAS 多一层形态不确定 | 计划已列 |
@@ -186,6 +186,7 @@ snap7 封装现状);协议无官方规范,帧面争议以抓包样本裁决。�
 - **examples.md**:
   各 MC 子类默认端口对照表(松下 2000 / KV MC 5000 / 汇川 MC 2000)+
   `S` 跨协议语义提示(MEWTOCOL SV vs MC 位软元件)
+  ——**已随 examples 丰富化落地(2026-10-03,「各走线默认端口对照」节)**
 - **protocol-features §4 MX**:
   `SetCpuStatus` 远程控制已在 §2/§4 标「有意不做」
 - **PLC 子包 `__init__.py`**:
