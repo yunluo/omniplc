@@ -28,14 +28,15 @@
 | 4 | 错误现场环形缓冲(报文黑匣子) | P3 | 2026-10-03 现场调研:`set_debug` 是实时打印,进程崩溃后报文现场丢失,现场无人盯日志时无从排查;设计点:`core/debug` 收发点挂环形缓冲(最近 N 帧,默认关、显式开),故障后可取最近报文 | 待实现 |
 | 5 | 串口原生异步层(3.8+ 环境标记) | P3 | pymodbus RTU asyncio 先例(serial_asyncio);RTU 不需要数据报端点,"3.7 Proactor 限制"仅约束 UDP——常规工程:新增依赖线+AsyncSerialTransport+RTU 客户端+双循环测试 | 待实现 |
 | 6 | OPC-UA 断线自动重订(选项) | P3 | 2026-10-03 现场调研:会话/订阅恢复是 OPC-UA 现场普遍痛点(TransferSubscriptions 失败、订阅 stale,常见解法竟是重启服务);现状=断线不自动重订已披露(`plc/opcua/client.py`)——设计点:重连成功后自动重建订阅的选项(默认关),注意死区订阅 asyncua 私有 API 跨版本兼容坑先例 | 待实现 |
-| 7 | 连接池 / 并行采集原语 | P2 | S7netplus #49/#238/#295 实证单连接串行是吞吐瓶颈、用户自建多连接池;v1.x 履历已排期——并发生命周期设计与退避/锁模型交互,属设计题,待实现里最大件;短期可先落 README「多实例并行」指引 | 待实现 |
-| 8 | FANUC FOCAS DLL 封装(`cnc/`) | P3 | **计划见下节「DLL 封装族」**;fwlib32/64.dll,厂商运行库前置——模板现成(海康 SDK 先例),卡在外部物料(FOCAS 手册+头文件) | 计划已列 |
-| 9 | 三菱 CNC EZSocket DLL 封装(`cnc/`) | P3 | **计划见下节「DLL 封装族」**;SDK/手册待拿,绑定形态(ctypes/comtypes)拿到后裁决——比 FOCAS 多一层形态不确定 | 计划已列 |
-| 10 | S7comm 自研(立项级,**计划见下节**) | P2 | 摆脱 python-snap7 C 库依赖(阻塞 DLL、按解释器双轨);Sally7 证明纯 asyncio 可行;2026-10-03 用户拍板立项;2026-10-03 跨语言复看确认 S7 开源圈集体停更(nodeS7/Sharp7/S7netplus),空窗期正当其时——数周级最大件 | 计划已列 |
-| 11 | 日立(Via Mechanics)MARK 30/50/55 钻孔机数采 | P3 | **计划见下节;暂缓**(2026-10-03 用户裁决:先列计划,暂不考虑实现);MARK = Via 自研 CNC,FOCAS/EZSocket 不适用,公开零文档——启动条件未定(网关确认/手册到手),外部依赖最深 | 计划已列·暂缓 |
-| 12 | FINS 时钟读/写(0701/0702) | P2 | W342 §5-3-19/20(印刷页 197-198)有明确依据;sync/native/aio 三层 + 10 例测试已落地 | 已完成 |
-| 13 | README PLC 安全警示 | P3 | libplctag 先例(开篇免责:写操作失误可致生产/财产损失);已落地(a31c236,顺带修简介残留) | 已完成 |
-| 14 | examples「采集→MQTT」上行示例 | P3 | neuron/thingsboard 核心场景;paho-mqtt 可选示例已落地(93db9ed) | 已完成 |
+| 7 | examples 范例丰富化:各协议对外 API 全展示 | P3 | 2026-10-03 用户指令:「使用范例要丰富,把本库对外 API 都展示下」;现状 examples.md 部分协议仅基础读写——目标:31 个客户端公开面全覆盖,协议特有能力(FINS 时钟/AB list_tags/Modbus FC 全家桶/MX/raw 通道/订阅 Browse/读码器触发时序等)与通用面(read_many/read_batch/read_range、write_many/write_batch、read_tag/write_tag/bind_tags、Monitor、stats、错误处理三件套、set_debug/set_lang)逐节展示;与「文档/披露待补」节 examples.md 默认端口对照表条目合并办理 | 待实现 |
+| 8 | 连接池 / 并行采集原语 | P2 | S7netplus #49/#238/#295 实证单连接串行是吞吐瓶颈、用户自建多连接池;v1.x 履历已排期——并发生命周期设计与退避/锁模型交互,属设计题,待实现里最大件;短期可先落 README「多实例并行」指引 | 待实现 |
+| 9 | FANUC FOCAS DLL 封装(`cnc/`) | P3 | **计划见下节「DLL 封装族」**;fwlib32/64.dll,厂商运行库前置——模板现成(海康 SDK 先例),卡在外部物料(FOCAS 手册+头文件) | 计划已列 |
+| 10 | 三菱 CNC EZSocket DLL 封装(`cnc/`) | P3 | **计划见下节「DLL 封装族」**;SDK/手册待拿,绑定形态(ctypes/comtypes)拿到后裁决——比 FOCAS 多一层形态不确定 | 计划已列 |
+| 11 | S7comm 自研(立项级,**计划见下节**) | P2 | 摆脱 python-snap7 C 库依赖(阻塞 DLL、按解释器双轨);Sally7 证明纯 asyncio 可行;2026-10-03 用户拍板立项;2026-10-03 跨语言复看确认 S7 开源圈集体停更(nodeS7/Sharp7/S7netplus),空窗期正当其时——数周级最大件 | 计划已列 |
+| 12 | 日立(Via Mechanics)MARK 30/50/55 钻孔机数采 | P3 | **计划见下节;暂缓**(2026-10-03 用户裁决:先列计划,暂不考虑实现);MARK = Via 自研 CNC,FOCAS/EZSocket 不适用,公开零文档——启动条件未定(网关确认/手册到手),外部依赖最深 | 计划已列·暂缓 |
+| 13 | FINS 时钟读/写(0701/0702) | P2 | W342 §5-3-19/20(印刷页 197-198)有明确依据;sync/native/aio 三层 + 10 例测试已落地 | 已完成 |
+| 14 | README PLC 安全警示 | P3 | libplctag 先例(开篇免责:写操作失误可致生产/财产损失);已落地(a31c236,顺带修简介残留) | 已完成 |
+| 15 | examples「采集→MQTT」上行示例 | P3 | neuron/thingsboard 核心场景;paho-mqtt 可选示例已落地(93db9ed) | 已完成 |
 
 ### S7comm 自研计划骨架(立项级,2026-10-03 拍板)
 
