@@ -17,7 +17,7 @@
 - 走线型(Modbus/MC/FINS/Host Link/TOYOPUC/EtherNet/IP/CIP/SR/通用 TCP,
   TCP/UDP/串口):在传输层统一挂钩,``send``/``recv`` 的原始字节即
   请求/响应报文(TCP 应答分多段到达时按段输出)
-- 会话型(OPC-UA / ADS / MX Component):无字节流,输出操作级日志
+- 会话型(OPC-UA / MX Component):无字节流,输出操作级日志
   (读写了哪个节点/变量、按什么类型、返回什么值)
 """
 from __future__ import annotations

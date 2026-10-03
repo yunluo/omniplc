@@ -320,15 +320,6 @@ DEFAULT_CONNECTIONS = {
             {'tag_id': 'mystring_str', 'address': 'MyString', 'type': 'string', 'remark': 'STRING 标签', 'length': 40},
         ],
     },
-    ("beckhoff_ads", None): {
-        "params": {"ads_port": 851, "net_id": ""},
-        "points": [
-            {'tag_id': 'main_bswitch_bool', 'address': 'MAIN.bSwitch', 'type': 'bool', 'remark': 'MAIN 布尔'},
-            {'tag_id': 'main_nvalue_short', 'address': 'MAIN.nValue', 'type': 'short', 'remark': 'MAIN 短整数'},
-            {'tag_id': 'main_fvalue_float', 'address': 'MAIN.fValue', 'type': 'float', 'remark': 'MAIN 浮点'},
-            {'tag_id': 'gvl_ncounter_int', 'address': 'GVL.nCounter', 'type': 'int', 'remark': 'GVL 整数'},
-        ],
-    },
     ("siemens_s7", None): {
         "params": {"rack": 0, "slot": 1},
         "points": [
@@ -365,7 +356,6 @@ DEFAULT_CONNECTIONS = {
 
 from omniplc import (  # noqa: E402
     AllenBradleyEthIpClient,
-    BeckhoffAdsClient,
     InovanceMcTcpClient,
     InovanceRtuClient,
     InovanceTcpClient,
@@ -516,9 +506,6 @@ def build_client(conn):
                                        _p(conn, "slot", 0),
                                        _p(conn, "connected_messaging", False),
                                        _p(conn, "rpi_us", 100000))
-    if d == "beckhoff_ads":
-        return BeckhoffAdsClient(ip, _p(conn, "ads_port", 851),
-                                 _p(conn, "net_id", ""))
     if d == "siemens_s7":
         # 全关键字传参:v0.32.0 起签名按全库惯例调整为
         # (ip_address, port, rack, slot, dll_path),位置参数曾错位为

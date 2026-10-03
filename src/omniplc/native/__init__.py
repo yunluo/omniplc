@@ -18,8 +18,8 @@ FINS(TCP/UDP);能力面与同步层逐项对齐——单点读写、类型化方
 (MC 0406/0403/1402/0101、FINS 0104、Modbus FC 07/08/11/12/17/20/21/22/23/24 与
 FC 43 设备标识),守卫测试 ``tests/unit/test_native_surface.py`` 逐协议锁定
 "同步有、原生也必须有的公开面"。**尚未进入本包**的是串口走线(Modbus RTU /
-MC 1C·3C·4C)与其余协议(AB / S7 / ADS / OPC-UA / 基恩士 / 松下 / TOYOPUC /
-MTConnect / 通用 TCP),需要时用 :mod:`omniplc.aio` 或同步客户端过渡。
+MC 1C·3C·4C)与其余协议(AB / S7 / OPC-UA / 基恩士 / 松下 / TOYOPUC /
+MTConnect),需要时用 :mod:`omniplc.aio` 或同步客户端过渡。
 
 **实例绑定一个事件循环**:客户端在哪个循环里用就在哪个循环里建(事务锁按
 首次使用时的循环惰性创建,模块级构造再 ``asyncio.run`` 也可正常工作);

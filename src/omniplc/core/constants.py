@@ -1226,12 +1226,6 @@ AB_CIP_EXTENDED_STATUS_TEXT: dict = {
 """CIP 子状态码(16 位扩展码)→ 可读描述。:func:`omniplc.plc.ab.codec_cip._extended_status_text`
 在 ``DeviceError`` 抛出时把命中条目拼到消息末尾;未命中或扩展码 0 不参与拼接。"""
 
-# ---------------------------------------------------------------- 倍福 TwinCAT(ADS)
-ADS_DEFAULT_ADS_PORT: int = 851
-"""TwinCAT 3 PLC 运行时 1 的默认 AMS 端口(852 起为后续运行时;TC2 为 801)。"""
-ADS_NET_ID_SUFFIX: str = ".1.1"
-"""AMS NetId 默认后缀:NetId 共 6 字节,前 4 字节通常为 IP,后两段惯例 1.1。"""
-
 # ---------------------------------------------------------------- CNC 机床数采(MTConnect)
 MTCONNECT_DEFAULT_PORT: int = 5000
 """MTConnect Agent 的默认 HTTP 端口(实际以机床侧 Agent 配置为准)。"""

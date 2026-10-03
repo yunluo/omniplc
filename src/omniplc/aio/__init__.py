@@ -33,7 +33,6 @@ from ..core.constants import (
     AB_EIP_DEFAULT_PORT,
     AB_EIP_DEFAULT_RPI_US,
     AB_EIP_DEFAULT_SLOT,
-    ADS_DEFAULT_ADS_PORT,
     DEFAULT_STRING_ENCODING,
     FINS_DEFAULT_PORT,
     INOVANCE_MC_DEFAULT_PORT,
@@ -83,7 +82,6 @@ from ..core.constants import (
 from ..plc.modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from ..plc.modbus.modbus import _coerce_word_order
 from ..plc.ab import AllenBradleyEthIpClient
-from ..plc.beckhoff import BeckhoffAdsClient
 from ..plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
 from ..plc.siemens import SiemensS7Client
 from ..plc.opcua import OpcUaClient, OpcUaSubscription
@@ -169,8 +167,6 @@ __all__ = [
     "AToyopucUdpClient",
     # ---- 罗克韦尔 AB EtherNet/IP 客户端 ----
     "AAllenBradleyEthIpClient",
-    # ---- 倍福 TwinCAT ADS 客户端 ----
-    "ABeckhoffAdsClient",
     # ---- 西门子 S7 客户端 ----
     "ASiemensS7Client",
     # ---- OPC-UA 客户端 ----
@@ -2299,43 +2295,6 @@ class AAllenBradleyEthIpClient(ABaseClient):
         """生效连接尺寸(connected 模式 Forward Open 后可用,转发同步实例)。"""
         sync = self._typed(AllenBradleyEthIpClient)
         return sync.connection_size
-
-
-class ABeckhoffAdsClient(ABaseClient):
-    """倍福 TwinCAT ADS 异步客户端(封装 pyads,变量名读写)。"""
-
-    def __init__(
-        self,
-        ip_address: str = "192.168.0.10",
-        ads_port: int = ADS_DEFAULT_ADS_PORT,
-        net_id: str = "",
-    ) -> None:
-        """初始化 TwinCAT ADS 异步客户端。
-
-        :param ip_address: PLC 的 IP 或主机名(构造默认 NetId 用)
-        :param ads_port: 目标 AMS 端口,TC3 PLC 运行时 1 默认 851
-        :param net_id: 目标 AMS NetId 显式覆盖(6 段 0~255 数字);
-            默认由 ``ip_address`` 拼 ``.1.1`` 后缀组装
-        :raises ValueError: 参数非法
-        """
-        super().__init__(BeckhoffAdsClient(ip_address, ads_port, net_id))
-
-    @property
-    def net_id(self) -> str:
-        """目标 AMS NetId(转发同步实例)。"""
-        sync = self._typed(BeckhoffAdsClient)
-        return sync.net_id
-
-    @property
-    def ads_port(self) -> int:
-        """目标 AMS 端口(转发同步实例)。"""
-        sync = self._typed(BeckhoffAdsClient)
-        return sync.ads_port
-
-    async def read_state(self) -> Tuple[bool, Optional[Tuple[int, int]]]:
-        """读 ADS 状态与设备状态(零副作用;语义同同步版)。"""
-        sync = self._typed(BeckhoffAdsClient)
-        return await self._run(sync.read_state)
 
 
 class ASiemensS7Client(ABaseClient):

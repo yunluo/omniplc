@@ -1,7 +1,7 @@
 [project]
 name = "omniplc"
 version = "0.51.1"
-description = "omniplc:多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC 3E/4E/1E 与串口 1C/3C/4C / MX Component / 欧姆龙 FINS / NJ/NX CIP / 基恩士 KV Host Link / KV MC 兼容 / 汇川 H3U/H5U / 松下 MC 兼容与 MEWTOCOL / 丰田 TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / 西门子 S7 / OPC-UA / CNC MTConnect)"
+description = "omniplc:多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC 3E/4E/1E 与串口 1C/3C/4C / MX Component / 欧姆龙 FINS / NJ/NX CIP / 基恩士 KV Host Link / KV MC 兼容 / 汇川 H3U/H5U / 松下 MC 兼容与 MEWTOCOL / 丰田 TOYOPUC / AB EtherNet/IP / 西门子 S7 / OPC-UA / CNC MTConnect)"
 readme = "README.md"
 requires-python = ">=3.7.9"
 license = { text = "MIT" }
@@ -26,10 +26,6 @@ keywords = [
     "ethernet-ip",
     "cip",
     "controllogix",
-    "beckhoff",
-    "twincat",
-    "ads",
-    "pyads",
     "siemens",
     "s7",
     "snap7",
@@ -65,7 +61,6 @@ dependencies = []
 serial = ["pyserial==3.5"]
 mx = ["comtypes==1.4.6; platform_system == 'Windows'"]
 opcua = ["asyncua==1.1.5"]
-ads = ["pyads==3.5.1"]
 # S7 依赖按解释器版本二选一(pip/uv 环境标记自动生效,目标环境 3.7 与 3.12
 # 各取一线):
 #   3.7~3.9 → python-snap7 1.3:C 库封装末版线,64 位 wheel 捆绑原生 DLL,
@@ -84,19 +79,17 @@ dev = [
     "pytest-timeout>=2.1",
     "comtypes==1.4.6; platform_system == 'Windows'",
     "asyncua==1.1.5",
-    "pyads==3.5.1",
     "python-snap7==1.3; python_version < '3.10'",
     "setuptools; python_version < '3.10'",
     "python-snap7==3.2.0; python_version >= '3.10'",
 ]
-# all = 全部可选运行时依赖( serial/mx/opcua/ads/s7 五件),一键安装全套扩展
+# all = 全部可选运行时依赖( serial/mx/opcua/s7 四件),一键安装全套扩展
 # 驱动;与 dev 的差异仅在于不含 pytest 测试工具。显式罗列而非自引用 extras
 # (omniplc[...]),兼容老版本 pip/uv 的元数据解析。
 all = [
     "pyserial==3.5",
     "comtypes==1.4.6; platform_system == 'Windows'",
     "asyncua==1.1.5",
-    "pyads==3.5.1",
     "python-snap7==1.3; python_version < '3.10'",
     "setuptools; python_version < '3.10'",
     "python-snap7==3.2.0; python_version >= '3.10'",
@@ -135,7 +128,7 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 
 # 可选运行时依赖 serial(串口扩展)/comtypes(MX Component 扩展)/
-# asyncua(OPC-UA 扩展)/pyads(TwinCAT ADS 扩展)/python-snap7(S7 扩展)
+# asyncua(OPC-UA 扩展)/python-snap7(S7 扩展)
 # 无内联标注;
 # pytest 视宿主环境可能缺失:均按缺失导入处理,不影响核心代码检查。
 [[tool.mypy.overrides]]
@@ -147,7 +140,6 @@ module = [
     "asyncua",
     "asyncua.sync",
     "asyncua.ua",
-    "pyads",
     "snap7",
     "snap7.client",
     "snap7.type",

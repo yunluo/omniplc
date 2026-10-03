@@ -1,7 +1,7 @@
 """全局报文调试开关测试:开关状态、报文/操作日志、走线与会话挂钩。
 
 - 走线型:本机 echo 服务验证 TCP/UDP 收发报文输出
-- 会话型:假 OPC-UA 客户端/假 pyads 模块/假 MX COM 控件验证操作级输出
+- 会话型:假 OPC-UA 客户端/假 MX COM 控件验证操作级输出
 """
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ import pytest
 from omniplc import MelsecMxClient
 from omniplc.core import debug
 from omniplc.plc.opcua.client import _OpcUaSession
-from omniplc.plc.beckhoff.ads import _AdsSession
 from omniplc.plc.melsec import mx as mx_module
 from omniplc.transport import TcpTransport, UdpTransport
 
@@ -124,7 +123,7 @@ def test_udp_frames_logged(udp_echo_port: int, caplog: pytest.LogCaptureFixture)
 
 
 # ----------------------------------------------------------------------
-# 会话型:OPC-UA / ADS / MX Component
+# 会话型:OPC-UA / MX Component
 # ----------------------------------------------------------------------
 
 class _FakeUaNode:
@@ -179,34 +178,6 @@ def test_opcua_ops_logged(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCap
     text = "\n".join(record.getMessage() for record in caplog.records)
     assert "opcua://opc.tcp://127.0.0.1:4840 读 ns=2;s=Run → True" in text
     assert "opcua://opc.tcp://127.0.0.1:4840 写 ns=2;s=Speed ← 1200(UInt16)" in text
-
-
-class _FakeAdsConnection:
-    """假 pyads Connection:读回固定值。"""
-
-    def read_by_name(self, address: str, plctype: object) -> object:
-        return 3.5
-
-    def write_by_name(self, address: str, value: object, plctype: object) -> None:
-        pass
-
-
-def test_ads_ops_logged(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    """ADS:变量读写输出变量名、PLCTYPE 与值(pyads 桩模块注入)。"""
-    pkg = types.ModuleType("pyads")
-    setattr(pkg, "PLCTYPE_REAL", object())
-    monkeypatch.setitem(sys.modules, "pyads", pkg)
-
-    fake = _FakeAdsConnection()
-    session = _AdsSession("10.1.100.5.1.1", 851)
-    session._connection = fake
-    debug.set_debug(True)
-    with caplog.at_level(logging.DEBUG, logger="omniplc.debug"):
-        assert session.read_by_name("MAIN.rTemp", "PLCTYPE_REAL") == 3.5
-        session.write_by_name("MAIN.rTemp", 1.5, "PLCTYPE_REAL")
-    text = "\n".join(record.getMessage() for record in caplog.records)
-    assert "ads://10.1.100.5.1.1:851 读 MAIN.rTemp(PLCTYPE_REAL) → 3.5" in text
-    assert "ads://10.1.100.5.1.1:851 写 MAIN.rTemp(PLCTYPE_REAL) ← 1.5" in text
 
 
 class _FakeCom:

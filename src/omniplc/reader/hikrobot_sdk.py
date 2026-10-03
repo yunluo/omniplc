@@ -738,7 +738,7 @@ def _ip_to_uint(ip: str) -> int:
 class _HikrobotSdkSession(BaseTransport):
     """SDK 会话(加载动态库 + 枚举匹配 + 句柄生命周期,内部传输适配)。
 
-    SDK 是会话型通道(无字节流 send/recv),同 MX/ADS 适配形态。
+    SDK 是会话型通道(无字节流 send/recv),同 MX 适配形态。
     """
 
     def __init__(

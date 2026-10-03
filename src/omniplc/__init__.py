@@ -3,14 +3,13 @@
 一次编写,通过一致的 API 对接三菱(MC 协议)、欧姆龙(FINS、NJ/NX CIP)、
 基恩士(KV Host Link、MC 协议兼容、SR 扫码枪)、汇川(H3U/H5U)、
 松下(FP 系列:MC 协议兼容、MEWTOCOL)、丰田(TOYOPUC 计算机链接)、
-罗克韦尔(Allen-Bradley,EtherNet/IP)、倍福(TwinCAT,ADS)等设备,
+罗克韦尔(Allen-Bradley,EtherNet/IP)等设备,
 支持 Modbus TCP/RTU、MC 3E/4E/1E、MC 串口 3C/4C 帧、MC over MX Component、
-FINS over TCP/UDP、NJ/NX CIP(EtherNet/IP 变量读写)、TwinCAT ADS(封装 pyads)、
+FINS over TCP/UDP、NJ/NX CIP(EtherNet/IP 变量读写)、
 KV Host Link over TCP/UDP、KV MC 协议兼容(SLMP 3E)、
 汇川 Modbus TCP/RTU 与 MC 协议兼容(3E)、
 松下 MC 协议兼容(3E)与 MEWTOCOL(TCP/UDP)、
 SR 扫码枪、TOYOPUC 计算机链接 over TCP/UDP、EtherNet/IP(Logix 标签读写)、
-通用自定义 TCP(分隔符成帧,收发行为可配)、
 OPC-UA(封装 asyncua,opc.tcp 会话)、
 CNC 机床数采(MTConnect Agent,HTTP/XML 只读)、
 西门子 S7(封装 python-snap7,DB/I/Q/M 绝对寻址)。
@@ -79,7 +78,6 @@ from .plc.melsec import (
     MelsecMxClient,
 )
 from .plc.siemens import SiemensS7Client
-from .plc.beckhoff import BeckhoffAdsClient
 from .plc.omron import OmronCipClient, OmronFinsTcpClient, OmronFinsUdpClient
 from .plc.ab import AllenBradleyEthIpClient
 from .plc.panasonic import (
@@ -110,7 +108,7 @@ from .transport import BaseTransport, SerialConfig, SerialTransport, TcpTranspor
 
 __version__ = "0.51.1"
 __author__ = "云落"
-__description__ = "多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC 3E/4E/1E 与串口 1C/3C/4C / MX Component / 欧姆龙 FINS / NJ/NX CIP / 基恩士 KV Host Link / KV MC 兼容 / 汇川 H3U/H5U / 松下 MC 兼容/MEWTOCOL / 丰田 TOYOPUC / AB EtherNet/IP / 倍福 TwinCAT ADS / 西门子 S7 / OPC-UA / CNC MTConnect)"
+__description__ = "多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC 3E/4E/1E 与串口 1C/3C/4C / MX Component / 欧姆龙 FINS / NJ/NX CIP / 基恩士 KV Host Link / KV MC 兼容 / 汇川 H3U/H5U / 松下 MC 兼容/MEWTOCOL / 丰田 TOYOPUC / AB EtherNet/IP / 西门子 S7 / OPC-UA / CNC MTConnect)"
 
 __all__ = [
     # ---- 客户端基类 ----
@@ -162,8 +160,6 @@ __all__ = [
     "ToyopucUdpClient",
     # ---- 罗克韦尔 AB EtherNet/IP 客户端 ----
     "AllenBradleyEthIpClient",
-    # ---- 倍福 TwinCAT ADS 客户端 ----
-    "BeckhoffAdsClient",
     # ---- 西门子 S7 客户端 ----
     "SiemensS7Client",
     # ---- OPC-UA 客户端 ----

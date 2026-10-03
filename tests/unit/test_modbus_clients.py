@@ -930,12 +930,11 @@ def test_base_read_range_unsupported_raises() -> None:
 
 
 def test_read_range_rejected_on_addressless_drivers() -> None:
-    """无「连续地址」概念的四驱动 read_range 一律拒绝(review-1002 P3
-    覆盖缺口):AB CIP 符号标签 / OPC-UA NodeId / ADS 名字 / MTConnect
+    """无「连续地址」概念的三驱动 read_range 一律拒绝(review-1002 P3
+    覆盖缺口):AB CIP 符号标签 / OPC-UA NodeId / MTConnect
     XML 查询——基类 ValueError,构造即可断言(无需连接)。"""
     from omniplc import (
         AllenBradleyEthIpClient,
-        BeckhoffAdsClient,
         MTConnectClient,
         OpcUaClient,
     )
@@ -943,7 +942,6 @@ def test_read_range_rejected_on_addressless_drivers() -> None:
     for client in (
         AllenBradleyEthIpClient("127.0.0.1", 44818),
         OpcUaClient("127.0.0.1", 4840),
-        BeckhoffAdsClient("127.0.0.1", 851),
         MTConnectClient("127.0.0.1", 5000),
     ):
         with pytest.raises(ValueError, match="不支持连续批量读"):

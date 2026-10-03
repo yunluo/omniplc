@@ -1147,42 +1147,6 @@
       ]
     },
     {
-      "name": "倍福TwinCAT ADS",
-      "driver": "beckhoff_ads",
-      "ip": "127.0.0.1",
-      "port": 851,
-      "params": {
-        "ads_port": 851,
-        "net_id": ""
-      },
-      "points": [
-        {
-          "tag_id": "main_bswitch_bool",
-          "address": "MAIN.bSwitch",
-          "type": "bool",
-          "remark": "MAIN 布尔"
-        },
-        {
-          "tag_id": "main_nvalue_short",
-          "address": "MAIN.nValue",
-          "type": "short",
-          "remark": "MAIN 短整数"
-        },
-        {
-          "tag_id": "main_fvalue_float",
-          "address": "MAIN.fValue",
-          "type": "float",
-          "remark": "MAIN 浮点"
-        },
-        {
-          "tag_id": "gvl_ncounter_int",
-          "address": "GVL.nCounter",
-          "type": "int",
-          "remark": "GVL 整数"
-        }
-      ]
-    },
-    {
       "name": "西门子S7",
       "driver": "siemens_s7",
       "ip": "127.0.0.1",

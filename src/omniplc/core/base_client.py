@@ -496,7 +496,7 @@ class BaseClient(ABC):
         """连接超时(秒)。可在连接建立后修改,立即生效。
 
         **作用域分类**(第八轮 P2-5):走线型(TCP/UDP/串口)立即生效;
-        会话型驱动(S7/ADS/OPC-UA/MX/MTConnect)由各驱动声明实际作用范围
+        会话型驱动(S7/OPC-UA/MX/MTConnect)由各驱动声明实际作用范围
         (基类只保证把新值写到传输/会话对象)。
         """
         return self._connect_timeout
@@ -520,8 +520,8 @@ class BaseClient(ABC):
         或事务路径设置。
 
         **作用域分类**(第八轮 P2-5):走线型(TCP/UDP/串口)立即生效;
-        会话型驱动见各驱动 docstring(S7 经 snap7 RecvTimeout 热生效、
-        ADS 经 pyads set_timeout 重发;OPC-UA/MX 不作用于已建立会话)。
+        会话型驱动见各驱动 docstring(S7 经 snap7 RecvTimeout 热生效;
+        OPC-UA/MX 不作用于已建立会话)。
         """
         return self._receive_timeout
 
@@ -741,7 +741,7 @@ class BaseClient(ABC):
         有定义,已覆写为协议单事务:Modbus(FC 01~04)、MC(0401 成批读)、
         FINS(0101 Area Read)、S7(snap7 ``read_area``)、MX(ReadDeviceBlock)、
         TOYOPUC(CMD 1C)、MEWTOCOL(RD)。标签/节点号类寻址协议(AB CIP
-        符号标签、OPC-UA NodeId、ADS 名字)与 XML 查询(MTConnect)没有
+        符号标签、OPC-UA NodeId)与 XML 查询(MTConnect)没有
         "连续地址"概念,不提供本方法。
 
         基类默认实现**不支持**该操作(明确抛 :class:`ValueError`,不猜
