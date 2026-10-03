@@ -21,6 +21,12 @@
 | # | 项 | 优先级 | 依据 / 出处 | 状态 |
 |---|---|---|---|---|
 | 1 | FINS 时钟读/写(0701/0702) | P2 | W342 §5-3-19/20(印刷页 197-198)有明确依据,已排期 | 待实现 |
+| 2 | AB `list_tags` 点位枚举 | P2 | CIP Get Tag List 服务(0x55),依 Rockwell 1756-PM020;pylogix/gologix/libplctag 均有,现场"看 PLC 里有哪些标签"刚需(2026-10-03 GitHub 同类库调研唯一确凿功能缺口) | 待实现 |
+| 3 | 远程运维口径统一(**决策题**) | P2 | pymcprotocol 提供 remote run/stop/pause/reset + 密码锁;本库 MC/MX 标「有意不做」(下表 #1)但 FINS 0401/0402/2301 运维命令又排 v1.x——需二选一:统一纳入(运维命令 + 风险披露)或撤 FINS 排期;裁决后同步「有意不做」表与 architecture | 待决策 |
+| 4 | README PLC 安全警示 | P3 | libplctag 先例(开篇免责:写操作失误可致生产/财产损失);本库全部客户端可写,README 无警示——一行成本 | 待实现 |
+| 5 | examples「采集→MQTT」上行示例 | P3 | neuron/thingsboard 核心场景;paho-mqtt 可选依赖示例,库本体保持零依赖 | 待实现 |
+| 6 | 连接池 / 并行采集原语 | P2 | S7netplus #49/#238/#295 实证单连接串行是吞吐瓶颈、用户自建多连接池;v1.x 履历已排期,此处集中登记;短期先在 README/docstring 补「多实例并行」指引 | 待实现 |
+| 7 | 串口原生异步层(3.8+ 环境标记) | P3 | pymodbus RTU asyncio 先例(serial_asyncio);RTU 不需要数据报端点,"3.7 Proactor 限制"仅约束 UDP——3.8+ 标记提供,3.7 用户退回 aio 层 | 待实现 |
 
 ---
 
