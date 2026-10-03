@@ -1094,7 +1094,7 @@ FINS 协议复审(2026-09,对照欧姆龙 FINS 手册 W342):FINS 帧头 10 字�
 | v0.51.1 | **review-1005/1006 修复批 + §九有意保留注释落码(4f7db5e/4fe0185)**——监视器:注册表语义改**「在册 = 未终态」**(`stop()` 不摘表,重启无需重登记;仅 `disconnect()` 联动终停全部并清空;修孤儿线程把显式断开的连接拖回来)+ 组间隔离(单组坏地址只废本组,不饿同周期后续组)+ `_monitor_lock` 注册锁;S7:connect 失败补 `destroy()`/`_raise_link_aware` 补 `from exc`/`_new_client` 补 TypeError/STRING·WSTRING declared_max=0 回写口径 docstring 明示;ADS:`int(err_code)` 兜底/`_load_pyads` 收窄/STRING 编码白名单(utf-8 家族 + 基类缺省 ascii,显式多字节拒绝);§九 D5/D7/D8 随批 + D1/D2/D4 有意保留注释落码;read_multi_vars「部分失败静默」误报撤销(snap7 3.2.0 逐项失败抛 S7ProtocolError,代码加防复发注释)。**行为变更提示**:监视器 stop 后仍在册;ADS STRING 非 utf-8/ascii 编码改 ValueError;`_load_pyads` 非 ImportError/OSError 上抛。门禁 3.7.9 **1646 passed** / ruff / mypy(80 files) / ty 全零 | ✅ 完成 |
 | v0.52.0 | **移除倍福 TwinCAT ADS 驱动(公开 API 破坏性变更,用户决策,641a44d/e45fab3)**——整体删除 `plc/beckhoff/`(封装 pyads)+ aio 镜像 + `ads` extra(pyads==3.5.1)+ 常量/i18n 文案/测试/tools 联机脚本与配置随批清除;文档全链对齐(protocol-features 删 §8 重编号、README/协议登记/真机清单/examples/todo/AGENTS);具体类计数 27→30 订正(原计数缺海康四驱动)。**行为变更提示(破坏性)**:`BeckhoffAdsClient`/`ABeckhoffAdsClient`/`omniplc[ads]` 失效,客户端 31→30;迁移:pyads 直连或 TwinCAT 3 自带 OPC-UA 服务器。门禁 3.7.9 **1621 passed** / ruff / mypy(78 files) / ty 全零 | ✅ 完成 |
 | v0.52.1 | **原生异步层新增汇川两走线(f0537cb,纯新增)**——`AsyncInovanceTcpClient`(继承 Modbus 原生,覆写四单点钩子换汇川地址翻译)+ `AsyncInovanceMcTcpClient`(继承 MC 原生,覆写码表/R 统一编址/X·Y 八进制三个纯编解码点,探活按 H5U 16.4 显式关闭);能力面随父类全量继承,RTU 串口不进;+18 例对拍/偏移锚定/门控/守卫,原生类 5→7。门禁 3.7.9 **1639 passed** / ruff / mypy(79 files) / ty 全零 | ✅ 完成 |
-| v1.x | MC 2C 帧(A 兼容串口)、FINS Host Link、FINS 时钟读/写(0701/0702,W342 §5-3-19/20 有依据已排期)与 EM bank≥16 扩展区、TOYOPUC 扩展区/PC10/中继/时钟、AB UDT 整体读取与分片读写(0x52)、松下 MEWTOCOL-COM 串口、Modbus ASCII 走线与报告类功能码(11/17;诊断 07/08/0B/0C 与文件记录 14/15、FIFO 18 已实现)、FANUC FOCAS 与三菱 CNC EZSocket DLL 封装、连接池;FINS 运维命令(0103/0105/0401/0402/2301)已按 2026-10-03 裁决移入「有意不做」 | 规划 |
+| v1.x | MC 2C 帧(A 兼容串口)、FINS Host Link、FINS 时钟读/写(**0701/0702 已随本批落地**——W342 §5-3-19/20 印刷页 197-198,`read_clock`/`write_clock` + `FinsClock` 类型,sync/native/aio 三层)与 EM bank≥16 扩展区、TOYOPUC 扩展区/PC10/中继/时钟、AB UDT 整体读取与分片读写(0x52)与 `list_tags`(CIP 0x55)、松下 MEWTOCOL-COM 串口、Modbus ASCII 走线与报告类功能码(11/17;诊断 07/08/0B/0C 与文件记录 14/15、FIFO 18 已实现)、FANUC FOCAS 与三菱 CNC EZSocket DLL 封装、连接池;FINS 运维命令(0103/0105/0401/0402/2301)已按 2026-10-03 裁决移入「有意不做」 | 规划 |
 | v2 | 更多品牌/协议按需扩展(drivers 插槽沿用 BaseClient 原语模式) | 规划 |
 
 ## 12. 原生异步层(`omniplc.native`)
@@ -1132,7 +1132,7 @@ Modbus 的 (区,类型) 合笔、MC 0406 的位块合并、FINS 0104 的条目�
 
 **能力面对齐(2026-09-27)**:Modbus `read_batch`/`write_batch`/FC22/FC23/
 FC43(含翻页)/FC07·08·11·12·17·20·21/24;MC 4E 帧 + 0406 + 0403 + 1402 +
-0101;FINS 0104;**汇川两走线(2026-10-03,子类化 `AsyncInovanceTcpClient`
+0101;FINS 0104 与 0701/0702 时钟读/写(2026-10-03);**汇川两走线(2026-10-03,子类化 `AsyncInovanceTcpClient`
 继承 Modbus 原生、`AsyncInovanceMcTcpClient` 继承 MC 原生,只覆写汇川地址
 翻译/码表/记号三个纯编解码点,能力面随两个父类全量继承;RTU 串口不进)**。
 **未进本层**的是串口走线(Modbus RTU / MC 1C·3C·4C,需要串口

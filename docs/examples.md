@@ -78,6 +78,8 @@ ok, values = mx.read_batch([("M10", "bool"), ("D100", "short"), ("D200", "int")]
 ## 欧姆龙 FINS / NJ·NX CIP
 
 ```python
+import datetime
+
 from omniplc import OmronFinsUdpClient
 
 # TCP 自动做节点分配握手,UDP 无握手
@@ -85,6 +87,13 @@ fins = OmronFinsUdpClient(ip_address="192.168.250.1", port=9600)
 ok, value = fins.read_ushort("D100")
 ok = fins.write_bool("CIO0.5", True)
 ok, values = fins.read_batch([("D100", "short"), ("CIO0.5", "bool")])  # 0104 多存储区读
+
+# PLC 时钟(W342 §5-3-19/20):读返回 FinsClock(年=右两位,星期 0=周日);
+# 写收 FinsClock 或 datetime(星期自动换算;需 PLC 侧访问权、未开网络写保护)
+ok, clock = fins.read_clock()
+print(clock.year, clock.month, clock.day, clock.day_of_week)  # 26 10 3 6
+ok = fins.write_clock(clock)                                   # 原样回写保持星期
+ok = fins.write_clock(datetime.datetime.now())                 # 对时到当前时刻
 
 # NJ/NX CIP(44818):Sysmac 变量自描述,地址即变量名(TestVar / MyArray[5] / Motor[2].Speed)
 from omniplc import OmronCipClient
