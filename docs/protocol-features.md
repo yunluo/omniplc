@@ -38,10 +38,11 @@
 | 连接健康统计 `stats`(ClientStats) | ✅ | |
 | 探活 `ping()` + 自动心跳 `heartbeat_interval`(默认 30 秒,0 = 关) | ✅ | 见下「心跳保活」节;走线协议全覆盖,能力差异见探测命令列 |
 | 全局报文调试 `set_debug`(收发十六进制转储) | ✅ | |
+| 报文黑匣子 `set_frame_recorder`(环形缓冲只存不打印) | ⭕ | v0.52.2;走线型全量覆盖(与 `set_debug` 同挂点),会话型(OPC-UA/MX/MTConnect)无字节流不进;`recorded_frames()` 故障后取最近 N 帧(墙钟时间+方向+标识+原始字节) |
 | 报错中英双语 `set_lang` + 错误分类 `last_error_category`/`last_error_code` | ✅ | 9 张协议码表全覆盖翻译 |
 | `with` 上下文管理器 | ✅ | |
 | aio 异步包装层(`omniplc.aio`) | ✅ | 同步客户端全镜像(类名前加 `A`) |
-| native 原生 asyncio 层(`omniplc.native`) | ⭕ | 5 客户端:Modbus TCP / 三菱 MC 1E·3E·4E(TCP+UDP)/ FINS(TCP+UDP);真中断语义、批量合并复用同步纯助手 |
+| native 原生 asyncio 层(`omniplc.native`) | ⭕ | 7 客户端:Modbus TCP / 三菱 MC 1E·3E·4E(TCP+UDP)/ FINS(TCP+UDP)/ 汇川两走线;真中断语义、批量合并复用同步纯助手 |
 
 ### 心跳保活(ping / 自动心跳)
 
@@ -232,7 +233,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 | `generic_message`(任意服务/类/实例) | ✅ | |
 | 字符串(STRING 4 字头)/ BOOL 数组元素 | ✅ | |
 | 分片读/写(Read/Write Tag Fragmented 0x52/0x53) | ❌ | 超大字符串/数组受限 |
-| 标签列表枚举 `list_tags`(Get_Instance_Attribute_List 0x55) | ✅ | 自动分页(状态 0x06 以最大实例+1 续传,轮数上限防不收敛);属性 1(名)/2(类型)/8(维度),返回 `AbTagEntry`(含 is_struct/dims);帧面经 pycomm3 1.2.16 / pylogix 1.1.6 双参考实现对照,**1756-PM020 手册待补(docs/protocol「待补」)**;首期控制器域,程序域逐程序枚举未实现;NJ/NX 覆写为显式拒绝(Symbol Object 是 Logix 私有面) |
+| 标签列表枚举 `list_tags`(Get_Instance_Attribute_List 0x55) | ✅ | 自动分页(状态 0x06 以最大实例+1 续传——pycomm3 语义,pylogix 的 `Offset` 游标语义不同不取);属性 1(名)/2(类型)/8(维度),应答**只含所请求属性**(pylogix 请求 3 属性步长 `名长+20` 真机可用、pycomm3 请求 7 属性应答多 3 个地址类 UDINT——两源各与请求集自洽,不作全量假设),返回 `AbTagEntry`(含 is_struct/dims);类段 = 8 位段 `20 6B`(pylogix 源码 `pack('<H', 0x6B20)` 是「段头+类码」助记写法,**0x6B20 非类码**——review-1007 P0-1 曾误用已修正);名长 UINT 2 字节 + utf-8(review-1007 P0-2 修正);**1756-PM020 手册待补(docs/protocol「待补」)**,真机核证待做;首期控制器域,程序域逐程序枚举未实现;NJ/NX 覆写为显式拒绝(Symbol Object 是 Logix 私有面) |
 | CIP Security | ➖ | 永不考虑(内网部署口径,项目红线) |
 
 ---

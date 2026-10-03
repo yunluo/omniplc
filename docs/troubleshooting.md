@@ -190,8 +190,8 @@ omniplc.clear_recorded_frames()    # 只清内容不关开关
 ```
 
 黑匣子覆盖全部走线型协议(TCP/UDP/串口,与 `set_debug` 同一挂点);
-会话型(OPC-UA/MX)无字节流不进缓冲。与 `set_debug` 相互独立,推荐
-生产组合 = 黑匣子常驻 + 实时日志关闭。
+会话型(OPC-UA/MX/MTConnect,操作级日志口径)无字节流不进缓冲。
+与 `set_debug` 相互独立,推荐生产组合 = 黑匣子常驻 + 实时日志关闭。
 
 ## 五、关联文档
 

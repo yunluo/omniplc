@@ -9,7 +9,7 @@
 
 面向多品牌、多协议 PLC 的 Python 统一通信库:三菱 / 欧姆龙 / 基恩士 / 汇川 /
 松下 / 丰田 / 罗克韦尔(AB)/ 西门子(S7)/ SR 扫码枪 /
-海康读码器 / OPC-UA / CNC(MTConnect),共 17 族协议、30 个同步客户端。
+海康读码器 / OPC-UA / CNC(MTConnect),共 16 族协议、30 个同步客户端。
 **一次编写,同一套 API。**
 源码:[GitHub](https://github.com/yunluo/omniplc) · [Gitee 镜像](https://gitee.com/yunluo/omniplc) ·
 发布:[PyPI](https://pypi.org/project/omniplc/)
@@ -65,7 +65,7 @@ with ModbusTcpClient(ip_address="192.168.0.10", port=502, station=1) as client:
 - 连接失败自动进入指数退避门控(默认开,`reconnect_backoff = False` 关闭);
   `client.stats` 提供连接健康统计(`ClientStats` TypedDict)。
 
-各协议全部 31 个客户端的用法示例(构造参数 / 地址语法 / 协议特有能力)见
+各协议全部 30 个客户端的用法示例(构造参数 / 地址语法 / 协议特有能力)见
 **[docs/examples.md](docs/examples.md)**;现场排障(失败分类 / 超时语义 /
 坏帧比对 / 轮询过载)见 **[docs/troubleshooting.md](docs/troubleshooting.md)**,
 已知固件/设备行为差异见 [docs/firmware-notes.md](docs/firmware-notes.md)。

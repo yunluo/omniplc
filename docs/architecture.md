@@ -61,10 +61,16 @@ flowchart TB
 报文调试(全局开关):`omniplc.core.debug.set_debug(True)` 进程级生效。
 走线型协议在 ``TcpTransport``/``UdpTransport``/``SerialTransport`` 的
 ``send``/``recv`` 统一输出原始字节(方向 + 长度 + 十六进制,单条最多转储
-4096B),连接建立/断开事件一并输出;会话型(OPC-UA/MX Component)
+4096B),连接建立/断开事件一并输出;会话型(OPC-UA/MX Component/MTConnect)
 无字节流,在会话读写方法/客户端 COM 调用点输出操作级日志。输出统一走
 logging 记录器 ``omniplc.debug``(DEBUG 级):应用已配置日志时沿 propagate
 汇入既有体系;未配置任何处理器时自动挂 stderr 处理器,保证开箱即用。
+
+报文黑匣子(v0.52.2,与实时日志同一挂点):`omniplc.set_frame_recorder(True,
+capacity=1000)` 进程级常驻环形缓冲,**只存不打印**——走线型收发字节按序
+留存最近 `capacity` 帧,故障后 `recorded_frames()` 取现场(墙钟时间 +
+方向 + 走线标识 + 原始字节);会话型无字节流不进缓冲。生产推荐组合 =
+黑匣子常驻 + 实时日志关闭。
 
 监视器(内置轮询采集,默认不启动):`client.create_monitor(points, interval,
 on_change, on_disconnect)` 在客户端下建监视器,`start()` 后由守护线程按固定
