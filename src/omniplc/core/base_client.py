@@ -175,8 +175,10 @@ class BaseClient(ABC):
         self._heartbeat_interval: float = HEARTBEAT_INTERVAL_DEFAULT
         self._heartbeat_stop: Optional[threading.Event] = None
         self._heartbeat_thread: Optional[threading.Thread] = None
-        # 在跑监视器注册表(create_monitor 登记;stop 摘除,disconnect 联动清空)
+        # 在跑监视器注册表(create_monitor 登记;stop 不摘除[在册 = 未终态],
+        # disconnect 联动终停全部并清空);注册与清空共用 _monitor_lock
         self._monitors: List[Monitor] = []
+        self._monitor_lock = threading.Lock()
         self._heartbeat_life_lock = threading.Lock()
 
     # ------------------------------------------------------------------
@@ -1037,25 +1039,31 @@ class BaseClient(ABC):
 
     def _register_monitor(self, monitor: Monitor) -> None:
         """登记监视器(内部方法,:class:`Monitor` 构造期调用——直接构造与
-        工厂 ``create_monitor`` 行为一致;``stop`` 摘除,``disconnect`` 联动清空)。"""
-        self._monitors.append(monitor)
+        工厂 ``create_monitor`` 行为一致)。
 
-    def _remove_monitor(self, monitor: Monitor) -> None:
-        """从注册表摘除已停止的监视器(内部方法,:meth:`Monitor.stop` 调用)。"""
-        try:
-            self._monitors.remove(monitor)
-        except ValueError:
-            pass
+        注册表语义(review-1006 P1/P3④):**在册 = 未终态**——``stop()``
+        不摘除(重启无需重登记),仅 :meth:`disconnect` 联动
+        :meth:`_stop_monitors` 终停全部并清空。注册与清空共用
+        :attr:`_monitor_lock`,构造撞上断开清空不会出现"已摘册未终停"
+        的孤儿;断开完成后才构造的监视器与"连接前构造"同语义(启动前
+        须先 ``connect()``,模块用法示例同款)。
+        """
+        with self._monitor_lock:
+            self._monitors.append(monitor)
 
     def _stop_monitors(self) -> None:
         """停掉所有在跑监视器并清空注册表(内部方法,disconnect 联动)。
 
         "断开是调用方的明确意图"(与心跳同款口径):置终态再停线程,
         监视器不得违背它继续采集;停掉即终态,不可再 ``start()``。
+
+        注册与清空共用 :attr:`_monitor_lock`(review-1006 P3④):终停 +
+        清空对注册表原子,构造期并发登记不会落入"快照后清空"的摘除缝。
         """
-        for monitor in list(self._monitors):
-            monitor._terminate()
-        self._monitors.clear()
+        with self._monitor_lock:
+            for monitor in list(self._monitors):
+                monitor._terminate()
+            self._monitors.clear()
 
     # ------------------------------------------------------------------
     # 事务执行:惰性重连 + 重试 + 错误转换(线程安全核心)

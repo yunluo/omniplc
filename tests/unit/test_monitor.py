@@ -323,6 +323,37 @@ def test_cycle_survives_bad_address(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(fires) == 1
 
 
+def test_group_failure_isolates_other_groups(monkeypatch: pytest.MonkeyPatch) -> None:
+    """组间隔离(review-1006 P2):坏组只废本组,同周期后续组照读不饿。
+
+    组序 = 声明序:坏地址组排前;修复前单层 try 让其后全部组当周期不读
+    (float 点恒 INITIAL),修复后按组兜底,好组照常采到。
+    """
+    client = _client()
+    calls: List[List[str]] = []
+
+    def fake(addresses: List[str], data_type: object) -> List[Tuple[bool, object]]:
+        calls.append(list(addresses))
+        if "no-such-address!!" in addresses[0]:
+            raise ValueError("无法解析地址:no-such-address!!")
+        return [(True, 1.5)]
+
+    monkeypatch.setattr(client, "read_many", fake)
+    mon = Monitor(
+        client,
+        {"bad": ("no-such-address!!", "ushort"), "ok": ("hr0", "float")},
+        interval=0.05,
+    )
+    mon._cycle()
+    # 两组都发了读取(组 1 炸不拦组 2,组序 = 声明序)
+    assert calls == [["no-such-address!!"], ["hr0"]]
+    assert mon.get("bad").quality is MonitorQuality.INITIAL  # 坏组:从未成功
+    assert mon.get("ok").quality is MonitorQuality.GOOD  # 好组照读
+    assert mon.get("ok").value == 1.5
+    assert mon.stats["fail_count"] == 0  # 有点成功不进失败期
+    assert mon.stats["cycle_count"] == 1
+
+
 def test_backoff_window_skips_tick(monkeypatch: pytest.MonkeyPatch) -> None:
     """退避窗口内跳 tick:不发报文、不记账,只计 skipped_ticks。"""
     mon, client, calls, _, _ = _make(monkeypatch)
@@ -409,13 +440,16 @@ def test_start_stop_and_restart(monkeypatch: pytest.MonkeyPatch) -> None:
     mon = Monitor(client, {"a": ("hr0", "ushort")}, interval=0.05, on_change=on_change)
     mon.start()
     assert mon.running
+    assert client._monitors == [mon]
     with pytest.raises(RuntimeError, match="已在运行"):
         mon.start()
     assert first_seen.wait(5.0)
     mon.stop()
     assert not mon.running
-    mon.start()  # stop 后可重启(重建线程)
+    assert client._monitors == [mon]  # stop 不摘注册表(review-1006 P1)
+    mon.start()  # stop 后可重启(重建线程,无需重登记)
     assert mon.running
+    assert client._monitors == [mon]
     mon.stop()
     assert not mon.running
 
@@ -465,14 +499,23 @@ def test_client_disconnect_stops_monitor_terminal(monkeypatch: pytest.MonkeyPatc
         monitor.start()
 
 
-def test_stop_detaches_from_registry() -> None:
-    """工厂登记 + stop 摘除;未启动过的监视器 stop 幂等安全。"""
+def test_stop_keeps_registry_entry() -> None:
+    """工厂登记 + stop 保留(review-1006 P1 翻转):在册 = 未终态,重启
+    无需重登记;仅 disconnect 联动终停并清空。未启动过的监视器 stop 幂等。"""
     client = _client()
     monitor = client.create_monitor({"a": ("hr0", "ushort")})
     assert client._monitors == [monitor]
-    monitor.stop()
+    monitor.stop()  # 未启动过:幂等,线程本就不在
+    assert client._monitors == [monitor]  # stop 不摘注册表
+    assert not monitor.running
+    monitor.start()  # 重启无需重登记
+    assert client._monitors == [monitor]
+    assert monitor.running
+    assert client.disconnect() is True  # 联动终停 + 清空注册表
     assert client._monitors == []
     assert not monitor.running
+    with pytest.raises(RuntimeError, match="终止"):
+        monitor.start()
 
 
 def test_direct_construction_registers_same_as_factory() -> None:
@@ -484,6 +527,37 @@ def test_direct_construction_registers_same_as_factory() -> None:
     assert client._monitors == []
     with pytest.raises(RuntimeError, match="终止"):
         monitor.start()  # 联动终态:直接构造同样生效,无旁路
+
+
+def test_restart_then_disconnect_terminates_no_orphan(monkeypatch: pytest.MonkeyPatch) -> None:
+    """孤儿回归(review-1006 P1 场景 A2):stop→start→disconnect 后线程
+    必须死——注册表在册才能被联动终停,显式断开的连接不得被监视器拖活。
+
+    修复前 stop 即摘表、重启成孤儿:disconnect 找不到它,线程按周期
+    ``read_many`` 惰性重连,把用户断开的连接复活(实测 connect_count
+    0.5 秒内 2→11)。判别断言 = disconnect 返回即线程已死:联动 join
+    兜底(在册才找得到),死线程不可能再发报文,"连接复活"无从发生。
+    """
+    client = _client()
+    queue = [[(True, 1)]]
+
+    def fake(addresses: List[str], data_type: object) -> List[Tuple[bool, object]]:
+        return queue.pop(0) if queue else [(False, None)]
+
+    monkeypatch.setattr(client, "read_many", fake)
+    mon = client.create_monitor({"a": ("hr0", "ushort")}, interval=0.05)
+    mon.start()
+    mon.stop()
+    mon.start()  # 重启:修复前此处起孤儿线程(注册表已摘)
+    assert client._monitors == [mon]  # 重启不重登记,仍在册
+    assert client.disconnect() is True
+    # disconnect 联动已 join:返回即线程终态
+    assert client._monitors == []
+    assert not mon.running
+    thread = mon._thread
+    assert thread is not None and not thread.is_alive()
+    with pytest.raises(RuntimeError, match="终止"):
+        mon.start()
 
 
 # ----------------------------------------------------------------------

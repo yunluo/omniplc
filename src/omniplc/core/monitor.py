@@ -43,14 +43,16 @@
 - **共享账**:监视器周期与业务共用同一本客户端账——周期失败照常写
   ``last_error`` / ``error_count``;混用同一客户端时业务侧错误文本会被
   采集周期冲掉,建议**监视器独占客户端实例**;
-- **坏地址不杀线程**:构造期校验不了地址内容(协议层无公开校验入口),
-  参数类错误(如坏地址)首周期从 ``read_many`` 上抛——读取段按
-  ``Exception`` 兜底,整周期失败记账降质、异常文本入 ``omniplc.debug``
-  日志(WARNING),监视线程不死;
+- **坏地址不杀线程,组间隔离**:构造期校验不了地址内容(协议层无公开
+  校验入口),参数类错误(如坏地址)首周期从 ``read_many`` 上抛——读取
+  段**按组**兜底 ``Exception``:单组异常只废本组(组内点失败降质),
+  其余组照常读取,不饿同周期后续组;全部组都失败才计整周期失败。异常
+  文本入 ``omniplc.debug`` 日志(WARNING),监视线程不死;
 - **退避联动**:客户端重连退避窗口内跳 tick(不发报文、不记账),计
   ``skipped_ticks``;重连本身由客户端惰性重连负责,监视器不插手;
 - **生命周期**:默认不启动;``start()`` 重复调用报错;``stop()`` 后可再次
-  ``start()``(重建线程);客户端
+  ``start()``(重建线程,**不摘注册表**——在册即"未终态",重启无需重
+  登记);客户端
   :meth:`~omniplc.core.base_client.BaseClient.disconnect` 联动停掉所有在跑
   监视器,停掉即**终态**、不可再 ``start``(要监控请重建);
 - **周期调度**:monotonic 绝对 deadline 对齐防累计漂移;单周期读取耗时
@@ -65,6 +67,7 @@ import sys
 import threading
 import time
 from enum import Enum
+from itertools import count
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -95,6 +98,9 @@ if TYPE_CHECKING:
 
 _monotonic = time.monotonic
 """模块级时钟别名(测试注入假时钟用,实现内勿直接调 ``time.monotonic``)。"""
+
+_thread_seq = count(1)
+"""监视线程名序号(跨实例递增;GIL 下 ``next`` 原子,免锁,排障可分线程)。"""
 
 
 class MonitorQuality(Enum):
@@ -146,6 +152,9 @@ class MonitorStats(TypedDict):
 
     与客户端的 :class:`~omniplc.core.base_client.ClientStats` 分立——连接
     健康与采集健康是两本账。运行期就是普通 dict(3.7 同款退化),键集即契约。
+
+    键语义备注(review-1006 P3①):``change_events`` 计**检测到的变更数**
+    ——未设置 ``on_change`` 回调同样计数(语义是"检测到",不是"已通知")。
     """
 
     cycle_count: int
@@ -307,7 +316,11 @@ class Monitor:
 
     @property
     def stats(self) -> MonitorStats:
-        """采集健康统计快照(普通 dict,键集即契约;连接账在客户端 ``stats``)。"""
+        """采集健康统计快照(普通 dict,键集即契约;连接账在客户端 ``stats``)。
+
+        无锁拷贝(review-1006 P3⑤;单写者线程 + GIL,仅观测级撕裂):
+        跨键可能读到跨周期中间态,单键恒一致。
+        """
         merged: Dict[str, Any] = dict(self._counters)
         merged.update(self._timestamps)
         return cast(MonitorStats, merged)
@@ -319,9 +332,11 @@ class Monitor:
     def start(self) -> None:
         """启动监视线程(默认不启动,采集须显式调用)。
 
-        ``stop()`` 后可再次 ``start()``(重建线程);随客户端断开终止
+        ``stop()`` 后可再次 ``start()``(重建线程,无需重登记——``stop``
+        不摘注册表);随客户端断开终止
         (:meth:`~omniplc.core.base_client.BaseClient.disconnect` 联动)后
-        为终态,不可再启动。
+        为终态,不可再启动。``start``/``stop`` 跨线程并发调用未加互斥
+        (控制面单线程假设,review-1006 P3③),时序未定义。
 
         :raises RuntimeError: 已在运行,或已随客户端断开终止
         """
@@ -331,7 +346,11 @@ class Monitor:
             if self._thread is not None and self._thread.is_alive():
                 raise RuntimeError(_("监视器已在运行"))
             self._stop_event.clear()
-            thread = threading.Thread(target=self._run, name="omniplc-monitor", daemon=True)
+            thread = threading.Thread(
+                target=self._run,
+                name="omniplc-monitor-%d" % next(_thread_seq),
+                daemon=True,
+            )
             self._thread = thread
             # start 放锁内:保证 start() 返回后线程必已启动,disconnect 联动
             # 的 join 不会撞上"未启动线程"(竞态窗口归零)
@@ -342,9 +361,14 @@ class Monitor:
 
         在 ``on_change``/``on_disconnect`` 回调内调用合法:检测到处于监视
         线程时自动降级为"只置停止标志",不自我 join(否则死锁)。
+
+        **注册表保留**(review-1006 P1):``stop()`` 不向客户端注册表摘除
+        ——在册即"未终态",重启(:meth:`start`)无需重登记;仅客户端
+        :meth:`~omniplc.core.base_client.BaseClient.disconnect` 联动
+        (:meth:`_terminate`)为终态并清空注册表。``stop``/``start`` 控制
+        面未加互斥,请单线程控制面调用(并发时序未定义,review-1006 P3③)。
         """
         self._stop_event.set()
-        self._detach()
         thread = self._thread
         if thread is not None and threading.current_thread() is not thread:
             thread.join(self._join_budget())
@@ -368,10 +392,6 @@ class Monitor:
     # 内部:注册表联动
     # ------------------------------------------------------------------
 
-    def _detach(self) -> None:
-        """从宿主客户端注册表摘除(内部方法)。"""
-        self._client._remove_monitor(self)
-
     def _terminate(self) -> None:
         """随客户端断开联动的终态停机(内部方法):置终态 + 停线程。"""
         with self._state_lock:
@@ -379,7 +399,13 @@ class Monitor:
         self.stop()
 
     def _join_budget(self) -> float:
-        """join 上界(秒):一个周期 + 最慢事务(重试次数 × 收包超时)。"""
+        """join 上界(秒):一个周期 + 最慢事务(重试次数 × 收包超时)。
+
+        预算未乘组数/点数因子(review-1006 P3②):最坏周期 ≈ 组数 ×
+        ``(retries + 1) × receive_timeout``(基类逐点 ``read_many`` 时再乘
+        点数);超预算时 :meth:`stop` 先返回、线程仍在收尾最后一个周期,
+        随后自然退出,无害。
+        """
         return self._interval + (self._client.retries + 1) * self._client.receive_timeout + 1.0
 
     # ------------------------------------------------------------------
@@ -405,10 +431,11 @@ class Monitor:
     def _cycle(self) -> None:
         """执行一个采集周期:批量读 → 记账 → 替换快照 → 发事件(内部方法)。
 
-        读取段兜底 :class:`Exception`:参数类错误(如坏地址)按库契约从
-        ``read_many`` 直接上抛(:meth:`~BaseClient._execute` 不转换
-        ``ValueError``),监视器不能因此死线程——按整周期失败记账降质,
-        异常文本入 ``omniplc.debug`` 日志供排障,已成功组的点不受影响。
+        读取段**按组兜底** :class:`Exception`:参数类错误(如坏地址)按库
+        契约从 ``read_many`` 上抛(:meth:`~BaseClient._execute` 不转换
+        ``ValueError``),监视器不能因此死线程——单组异常只废本组(组内点
+        走失败降质),其余组照常读取(组间隔离);全部组都失败才计整周期
+        失败。异常文本入 ``omniplc.debug`` 日志(WARNING)供排障。
 
         测试直接调用本方法驱动单周期(无线程、无真实等待)。
         """
@@ -420,23 +447,27 @@ class Monitor:
         started = _monotonic()
         results: Dict[str, Tuple[bool, Optional[PrimitiveValue]]] = {}
         any_ok = False
-        try:
-            for data_type, group in self._groups:
+        for data_type, group in self._groups:
+            try:
                 pairs = client.read_many([p.address for p in group], data_type)
-                for point, pair in zip(group, pairs):
-                    ok, value = pair
-                    ok = bool(ok)
-                    results[point.tag_id] = (ok, value)
-                    if ok and value is not None:
-                        any_ok = True
-        except Exception as exc:
-            # 组间独立:异常前的组结果保留,其余点走下方失败降质
-            log_warning(
-                getattr(client, "_debug_label", "omniplc"),
-                "monitor 周期读取异常(%d 点):%r",
-                len(self._points),
-                exc,
-            )
+            except Exception as exc:
+                # 组间隔离(review-1006 P2):单组参数类错误(如坏地址)只废
+                # 本组(组内点走下方失败降质),其余组照常读取——一个配置
+                # 笔误不得饿死同周期后续组
+                log_warning(
+                    getattr(client, "_debug_label", "omniplc"),
+                    "monitor 组读取异常(%d 点,类型 %s):%r",
+                    len(group),
+                    data_type,
+                    exc,
+                )
+                continue
+            for point, pair in zip(group, pairs):
+                ok, value = pair
+                ok = bool(ok)
+                results[point.tag_id] = (ok, value)
+                if ok and value is not None:
+                    any_ok = True
         self._timestamps["last_duration"] = _monotonic() - started
         self._counters["cycle_count"] += 1
         if any_ok:
