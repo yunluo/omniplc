@@ -2326,7 +2326,10 @@ class AAllenBradleyEthIpClient(ABaseClient):
 
 
 class ASiemensS7Client(ABaseClient):
-    """西门子 S7 异步客户端(封装 python-snap7,DB/I/Q/M 绝对寻址)。"""
+    """西门子 S7 异步客户端(自研 S7comm 栈,DB/I/Q/M 绝对寻址)。
+
+    .. note:: v0.52.x 的 ``dll_path`` 参数已随 python-snap7 依赖退役移除。
+    """
 
     def __init__(
         self,
@@ -2334,7 +2337,6 @@ class ASiemensS7Client(ABaseClient):
         port: int = S7_DEFAULT_PORT,
         rack: int = S7_DEFAULT_RACK,
         slot: int = S7_DEFAULT_SLOT,
-        dll_path: str = "",
     ) -> None:
         """初始化 S7 异步客户端。
 
@@ -2342,12 +2344,9 @@ class ASiemensS7Client(ABaseClient):
         :param port: ISO-on-TCP 端口,标准 102
         :param rack: 机架号,S7_DEFAULT_RACK(0)
         :param slot: 槽位号,1200/1500 常用 1;300/400 的 CPU 常在 2
-        :param dll_path: snap7 原生库路径显式覆盖,仅 1.x/2.x(C 封装线)
-            生效——32 位 Python 需自备 32 位 snap7.dll;3.x 纯 Python 实现
-            忽略此参数;留空用捆绑库
         :raises ValueError: 参数非法
         """
-        super().__init__(SiemensS7Client(ip_address, port, rack, slot, dll_path))
+        super().__init__(SiemensS7Client(ip_address, port, rack, slot))
 
     def _client(self) -> SiemensS7Client:
         """取 S7 同步实例(内部属性)。"""
@@ -2370,7 +2369,7 @@ class ASiemensS7Client(ABaseClient):
         return await self._run(lambda: self._client().read_wstring(address, length))
 
     async def get_cpu_state(self) -> Tuple[bool, Optional[str]]:
-        """读 CPU 运行状态(snap7 GetCpuState,零副作用;语义同同步版)。"""
+        """读 CPU 运行状态(SZL 0x0424,零副作用;语义同同步版)。"""
         return await self._run(lambda: self._client().get_cpu_state())
 
     async def write_wstring(self, address: str, value: str) -> bool:

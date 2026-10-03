@@ -12,7 +12,7 @@ KV Host Link over TCP/UDP、KV MC 协议兼容(SLMP 3E)、
 SR 扫码枪、TOYOPUC 计算机链接 over TCP/UDP、EtherNet/IP(Logix 标签读写)、
 OPC-UA(封装 asyncua,opc.tcp 会话)、
 CNC 机床数采(MTConnect Agent,HTTP/XML 只读)、
-西门子 S7(封装 python-snap7,DB/I/Q/M 绝对寻址)。
+西门子 S7(自研 S7comm 协议栈,DB/I/Q/M 绝对寻址,零第三方依赖)。
 
 同步客户端::
 

@@ -520,7 +520,7 @@ class BaseClient(ABC):
         或事务路径设置。
 
         **作用域分类**(第八轮 P2-5):走线型(TCP/UDP/串口)立即生效;
-        会话型驱动见各驱动 docstring(S7 经 snap7 RecvTimeout 热生效;
+        会话型驱动见各驱动 docstring(S7 即时传播到当前会话传输;
         OPC-UA/MX 不作用于已建立会话)。
         """
         return self._receive_timeout
@@ -739,7 +739,7 @@ class BaseClient(ABC):
         hr0 起连续 100 个字,与 pymodbus ``read_holding_registers(0, 100)``
         同型。"连续"依赖**数值化地址按协议步进**,只在有块读原语的驱动上
         有定义,已覆写为协议单事务:Modbus(FC 01~04)、MC(0401 成批读)、
-        FINS(0101 Area Read)、S7(snap7 ``read_area``)、MX(ReadDeviceBlock)、
+        FINS(0101 Area Read)、S7(Read Var)、MX(ReadDeviceBlock)、
         TOYOPUC(CMD 1C)、MEWTOCOL(RD)。标签/节点号类寻址协议(AB CIP
         符号标签、OPC-UA NodeId)与 XML 查询(MTConnect)没有
         "连续地址"概念,不提供本方法。

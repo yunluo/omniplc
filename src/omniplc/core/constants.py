@@ -1268,7 +1268,7 @@ S7_DEFAULT_RACK: int = 0
 S7_DEFAULT_SLOT: int = 1
 """默认槽位号(S7-1200/1500 常用 1;S7-300/400 的 CPU 常在 2,按实际硬件调整)。"""
 S7_RACK_MAX: int = 7
-"""S7 机架号上限(ISO-on-TCP/Snap7 客户端约定)。"""
+"""S7 机架号上限(ISO-on-TCP/S7comm 客户端约定)。"""
 S7_SLOT_MAX: int = AB_EIP_SLOT_MAX
 """S7 槽位号上限(与 AB/CIP 端口段 link 单字节口径一致,0~31)。"""
 S7_DB_NUMBER_MAX: int = 65535
@@ -1278,8 +1278,8 @@ S7_BYTE_INDEX_MAX: int = 0xFFFFFF
 S7_WSTRING_DEFAULT_LENGTH: int = 64
 """S7 WSTRING 默认读取字符数(UTF-16,单字符 2 字节)。"""
 S7_MAX_MULTI_VARS: int = 20
-"""snap7 多变量一次读(``read_multi_vars``)条目上限(S7 ReadMultiVars
-每请求 20 项;snap7 库常量 ``MAX_VARS``)。"""
+"""S7 多变量一次读(``read_multi_vars``)条目上限(S7 Read Var 多 Item
+每请求 20 项;snap7 库常量 ``MAX_VARS`` 同值口径)。"""
 
 # ---------------------------------------------------------------- 通用
 BIT_INDEX_MAX: int = 63

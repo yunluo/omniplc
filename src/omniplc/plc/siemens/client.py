@@ -1,49 +1,43 @@
-"""西门子 S7 客户端(封装 python-snap7,ISO-on-TCP 102)。
+"""西门子 S7 客户端(自研 S7comm 协议栈,ISO-on-TCP 102,核心零第三方依赖)。
 
-依据:Siemens S7-1500 Communication Function Manual §3.5 p.22(ISO-on-TCP
-端口 102,RFC 1006,ES/HMI/OPC 等 S7 通信)、§7 p.50(PUT/GET 指令,仅绝对
-寻址数据块、需在 CPU 保护组态开启该服务)、§6.4(开放通信);S7comm 数据项
-编码(TPKT/COTP/S7 PDU、数据长度/DB 寻址、多变量 ReadMultiVars 每请求 20
-项)公开手册未逐条收录,依赖 python-snap7(含其 MAX_VARS),**待核**。
+依据:S7comm 无官方公开手册,帧面按「参考实现逐字节比对」铁律退档——
+python-snap7 3.2.0(纯 Python 重写版,MIT)为主源,Sally7/S7netplus 交叉,
+snap7 C++(LGPL)只比对行为不抄码;全部帧面事实与出处(文件 + 函数)
+归档 `docs/protocol/siemens/s7comm/README.md`(2026-10-03 抽取)。S7-1500
+Communication Function Manual §3.5 p.22(ISO-on-TCP 端口 102)、§7 p.50
+(PUT/GET 指令:仅绝对寻址数据块、需在 CPU 保护组态开启该服务)。
 
-S7comm 是完整私有协议栈(TPKT/COTP/S7 PDU、机架/槽位路由、
-S7-1200/1500 的 PUT-GET 授权与优化块限制),**不自研**,封装成熟库
-`python-snap7`,依赖按解释器版本二选一(``s7`` extra 环境标记自动生效,
-核心库本体仍为 3.7.9+):
-
-- Python 3.7~3.9 → **1.3**:C 库封装末版线,wheel 捆绑 64 位原生库,
-  32 位 Python 需自备 32 位 snap7.dll 并经 ``dll_path`` 指定
-- Python 3.10+ → **3.x**:3.0 起纯 Python 实现,不再需要原生 DLL
-
-两线 API 有差异,均在边界处适配:错误类 1.x/2.x 抛 RuntimeError、
-3.x 抛 ``S7Error`` 谱系(见 ``_SNAP7_ERRORS``);area 参数 1.x/2.x 要求
-``Areas`` 枚举成员、3.x 收裸 int(统一经 :func:`_snap7_area` 转换);
-``read_multi_vars`` 1.x/2.x 收 ctypes ``S7DataItem`` 数组、3.x 收 dict
-列表(内部优化器,``MAX_VARS=20`` 上限);构造参数 1.x/2.x 真实加载原生库、
-3.x 忽略 ``lib_location``。
+v0.53 起由 python-snap7 封装**整体替换为自研 S7comm 栈**(用户裁决:
+名字与 API 不变、依赖退役):`dll_path` 参数移除(snap7 DLL 按解释器
+分版本、32 位自备 DLL 的痛点正是替换动机);3.7~3.9 用户从此免装
+python-snap7 1.3 + setuptools。公开面冻结:构造参数 / rack·slot /
+通用读写全族 / `get_cpu_state` / `read_range` / `read_many` /
+`read_batch` / `read_wstring` / `write_wstring` 与地址语法全部不变。
 
 类继承::
 
     BaseClient
-    └── SiemensS7Client   S7 会话(默认 rack 0 / slot 1 / 端口 102;适配见 _S7Session)
+    └── SiemensS7Client   S7 会话(默认 rack 0 / slot 1 / 端口 102;会话适配见 _S7Session)
 
 地址语法见 :mod:`omniplc.plc.siemens.address`(DB/I/Q/M,尺寸由显式
 DataType 决定,大端序)。S7-1200/1500 侧需勾选"允许来自远程对象的
-PUT/GET 通信访问",且 DB 须为**非优化块**(绝对寻址)。
+PUT/GET 通信访问",且 DB 须为**非优化块**(绝对寻址;优化块访问报
+DeviceError 并附提示)。
 
-错误边界:snap7 抛错无统一类型区分,以 ``Cli_GetConnected``
-连接态判别——在线 → DeviceError(PLC 拒绝/地址错,不断线),断连 →
-OSError(惰性重连);连接建立失败 → OSError。
+错误边界:传输层故障(TCP 断/帧收发失败)抛 OSError(惰性重连);
+帧结构错(坏帧/序列号回显不符)抛内部协议错误(拆连重同步);
+PLC 侧拒绝(数据段返回码非 0xFF、协议 error_class)→ DeviceError
+(不断线,DB 访问附优化块提示)。
 
-v1 范围:单点读写(位读改写)+ S7 String/WString + 多变量批量读
-(``read_batch``/``read_many``,snap7 ``read_multi_vars`` 双线适配);
-块操作、SZL 系统状态留后续版本。
+范围:单点读写(位读改写)+ S7 String/WString + 多变量批量读
+(``read_batch``/``read_many``,S7 Read Var 多 Item 单 PDU,≤20 条)+
+``read_range`` + CPU 状态(SZL 0x0424,**待真机核证**);块操作、
+SZL 全家、时钟留后续版本。
 """
 from __future__ import annotations
 
-import os
 import struct
-from typing import Any, Dict, List, NoReturn, Optional, Sequence, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from ...core import convert
 from ...core.base_client import BaseClient, DEFAULT_STRING_ENCODING, validate_endpoint
@@ -56,12 +50,14 @@ from ...core.constants import (
     S7_SLOT_MAX,
     S7_WSTRING_DEFAULT_LENGTH,
 )
-from ...core.debug import log_op, log_warning
-from ...core.errors import DeviceError, OmniPLCInternalError, TransportClosedError
+from ...core.debug import log_op
+from ...core.errors import DeviceError, TransportClosedError
 from ...core.validation import require_bool, require_float, require_int
 from ...core.types import DataType, PrimitiveValue
 from ...transport.base import BaseTransport
+from ...transport.tcp import TcpTransport
 from .address import area_code, parse_s7_address
+from . import codec
 from ...core.i18n import _
 
 _SIZES = {
@@ -87,294 +83,141 @@ _INT_FORMATS = {
 }
 """整数 DataType → struct 大端格式(含符号语义)。"""
 
-_SNAP7_ERRORS: Tuple[Any, ...] = (RuntimeError,)
-"""snap7 错误类元组(会话边界捕获):1.x/2.x 抛 RuntimeError;3.x 纯
-Python 抛 ``S7Error`` 谱系(基类挂在 snap7.client 命名空间,由
-:func:`_new_client` 探测并入表)。"""
-
-_SNAP7_TRANSPORT_ERROR_CODES: Tuple[int, ...] = (
-    0x00090000,  # errIsoSendPacket:ISO-on-TCP 发送失败(链路死亡/半开)
-    0x000A0000,  # errIsoRecvPacket:ISO-on-TCP 接收失败(链路死亡/半开)
-    0x02000000,  # errCliJobTimeout:作业超时(响应未达,典型半开形态)
-)
-"""表示**传输层故障**的 snap7 错误码(经 snap7.error 错误码表核实):
-半开连接(拔线/断电)下 ``get_connected()`` 本地标志不翻转,这些码是
-判"真断连"的第一依据,命中即 OSError(惰性重连),不看连接标志。"""
-
-_SNAP7_ERROR_CODE_NAMES: Dict[int, str] = {
-    0x00090000: "errIsoSendPacket",
-    0x000A0000: "errIsoRecvPacket",
-    0x02000000: "errCliJobTimeout",
+_CPU_STATUS_NAMES: Dict[int, str] = {
+    0x08: "S7CpuStatusRun",
+    0x04: "S7CpuStatusStop",
 }
-"""传输类错误码 → snap7 官方名称(异常文本通常携带该名称)。"""
-
-_SNAP7_TRANSPORT_TEXT_PATTERNS: Tuple[str, ...] = (
-    "an error occurred during send",  # 1.x C 库 errIsoSendPacket 描述文本
-    "an error occurred during recv",  # 1.x C 库 errIsoRecvPacket 描述文本
-    "job timeout",  # 1.x C 库 errCliJobTimeout 描述文本
-)
-"""1.x(≤2.x)C 库 ``Cli_ErrorText`` 对上述传输码返回的**人类描述文本**
-小写子串(snap7 C 源 Cli_ErrorText 表;已知码不走 "Unknown error" 回退分支,
-故十六进制码与 err* 名在该线文本中恒不出现)。1.3 ``check_error`` 抛
-``RuntimeError(bytes)``,``str()`` 后即 bytes repr(如
-``b' ISO : An error occurred during recv'``),子串匹配不受影响。"""
-
-
-def _is_snap7_transport_error(exc: BaseException) -> bool:
-    """判断 snap7 异常是否携带传输类错误码(内部函数)。
-
-    错误码藏在异常文本里:1.x 的 ``RuntimeError`` 文本来自 **C 库
-    ``Cli_ErrorText`` 的人类描述**(形如 ``b' ISO : An error occurred
-    during recv'``,不含 err* 名与十六进制码);3.x ``S7Error`` 文本则
-    携带 err* 名或十六进制码。按码表(hex/名称/描述文本)三线匹配;
-    匹配不上返回 False(回退连接标志判据)。
-    """
-    text = str(exc).lower()
-    for code in _SNAP7_TRANSPORT_ERROR_CODES:
-        hex_text = "0x{:08X}".format(code)
-        name = _SNAP7_ERROR_CODE_NAMES.get(code, "")
-        if hex_text.lower() in text or (name and name.lower() in text):
-            return True
-    for pattern in _SNAP7_TRANSPORT_TEXT_PATTERNS:
-        if pattern in text:
-            return True
-    return False
-
-_AREAS_ENUM: Any = False
-"""snap7 ``Areas`` 枚举类缓存:False = 未探测,None = 探测失败(裸 int
-透传),否则为枚举类。1.x 在 ``snap7.types``、2.x/3.x 在 ``snap7.type``。"""
-
-
-_SNAP7_RECV_TIMEOUT_PARAM: Any = False
-"""snap7 RecvTimeout 参数号缓存:False = 未探测,None = 探测失败(跳过下发),
-否则为参数号。1.x 为 ``snap7.types.RecvTimeout = 5``(模块级 int),3.x 为
-``snap7.type.Parameter.RecvTimeout = 5``(枚举成员);数值同源 snap7 C 库
-``P_U16_RCV_TIMEOUT``,双轨键型不同必须分别取号(3.x ``set_param`` 按
-Parameter 枚举键存取 ``_params``,裸 int 不命中)。"""
-
-
-def _snap7_recv_timeout_param() -> Any:
-    """探测当前 snap7 轨道的 RecvTimeout 参数号(内部函数)。"""
-    global _SNAP7_RECV_TIMEOUT_PARAM
-    if _SNAP7_RECV_TIMEOUT_PARAM is False:
-        _SNAP7_RECV_TIMEOUT_PARAM = None
-        for module_name in ("snap7.types", "snap7.type"):
-            try:
-                module = __import__(module_name, fromlist=["Parameter"])
-            except ImportError:
-                continue
-            candidate = getattr(module, "RecvTimeout", None)
-            if candidate is not None:
-                _SNAP7_RECV_TIMEOUT_PARAM = candidate
-                break
-            parameter = getattr(module, "Parameter", None)
-            if parameter is not None and getattr(parameter, "RecvTimeout", None) is not None:
-                _SNAP7_RECV_TIMEOUT_PARAM = parameter.RecvTimeout
-                break
-    return _SNAP7_RECV_TIMEOUT_PARAM
-
-
-_SNAP7_1X_TYPES: Any = False
-"""snap7 1.x ctypes 多变量读类型对缓存:False = 未探测,None = 探测失败
-(1.x 类型面不可用),否则为 ``(S7DataItem, S7WLByte)``。仅 1.x/2.x(C 封装
-线)可达——``read_multi_vars`` 按 ``MAX_VARS`` 分流,3.x 纯 Python 线走
-dict 通道不取此类型;1.x 在 ``snap7.types``、2.x 在 ``snap7.type``。以
-``__import__`` 动态探测而非静态 import:python-snap7 3.2.0 已移除
-``snap7.types`` 模块,静态写法在 3.10+ 环境被类型检查器判未解析导入。"""
-
-
-def _snap7_1x_types() -> Any:
-    """探测当前 snap7 轨道的 ``(S7DataItem, S7WLByte)`` 类型对(内部函数)。"""
-    global _SNAP7_1X_TYPES
-    if _SNAP7_1X_TYPES is False:
-        _SNAP7_1X_TYPES = None
-        for module_name in ("snap7.types", "snap7.type"):
-            try:
-                module = __import__(module_name, fromlist=["S7DataItem"])
-            except ImportError:
-                continue
-            data_item = getattr(module, "S7DataItem", None)
-            wl_byte = getattr(module, "S7WLByte", None)
-            if data_item is not None and wl_byte is not None:
-                _SNAP7_1X_TYPES = (data_item, wl_byte)
-                break
-    if _SNAP7_1X_TYPES is None:
-        raise OmniPLCInternalError(
-            _("snap7 类型导入失败:{}").format("snap7.types/S7WLByte 不可用")
-        )
-    return _SNAP7_1X_TYPES
-
-
-def _snap7_area(area: int) -> Any:
-    """协议区码 int → snap7 ``Areas`` 枚举成员(内部函数)。
-
-    1.x 的 ``read_area`` 对 area 做枚举成员校验(裸 int 抛 ValueError)、
-    ``write_area`` 直接取 ``area.value``(裸 int 抛 AttributeError),
-    2.x 校验更严;3.x 虽收裸 int,统一转枚举全兼容。探测不到枚举时
-    (假 Client 单测环境)原样返回 int。
-
-    :param area: 协议区码(0x81 PE / 0x82 PA / 0x83 MK / 0x84 DB)
-    """
-    global _AREAS_ENUM
-    if _AREAS_ENUM is False:
-        _AREAS_ENUM = None
-        for module_name in ("snap7.type", "snap7.types"):
-            try:
-                module = __import__(module_name, fromlist=["Areas"])
-            except ImportError:
-                continue
-            areas = getattr(module, "Areas", None)
-            if areas is not None:
-                _AREAS_ENUM = areas
-                break
-    if _AREAS_ENUM is not None:
-        try:
-            return _AREAS_ENUM(area)
-        except ValueError:
-            pass
-    return area
-
-
-def _new_client(dll_path: str) -> Any:
-    """创建 snap7 Client(模块级,单测以假对象替换;内部函数)。
-
-    :param dll_path: 原生库路径(仅 1.x/2.x 生效;3.x 纯 Python 忽略)
-    :raises OSError: python-snap7 未安装或 snap7 原生库加载失败
-    """
-    global _SNAP7_ERRORS
-    try:
-        import snap7.client
-    except Exception as exc:
-        raise OSError(
-            _("python-snap7 加载失败(pip install omniplc[s7]):{}").format(exc)
-        ) from exc
-    error_base = getattr(snap7.client, "S7Error", None)
-    if error_base is not None:
-        _SNAP7_ERRORS = (RuntimeError, error_base)
-    try:
-        return snap7.client.Client(dll_path or None)
-    except (OSError, RuntimeError, TypeError) as exc:
-        # TypeError:dll_path 误传非 str 等 Client() 构造期类型错,同走
-        # 提示文案(review-1005 P3;原来仅捕 OSError/RuntimeError)
-        raise OSError(
-            _("snap7 原生库加载失败:{}(3.7~3.9 用 python-snap7 1.3:64 位"
-            " Python 可用捆绑 DLL,32 位需自备 32 位 snap7.dll 经 dll_path"
-            " 指定;3.10+ 为纯 Python 实现无需 DLL)").format(exc)
-        ) from exc
+"""SZL 0x0424 状态值 → 枚举名(snap7 `S7CpuStatus*`:0x08 Run / 0x04 Stop /
+其他 Unknown;**字节偏移待真机核证**,见模块 docstring 与 real-machine-checklist)。"""
 
 
 class _S7Session(BaseTransport):
-    """S7 会话适配器:snap7 Client 适配为传输对象外形(私有)。
+    """S7comm 会话(自研栈,适配为传输对象外形;私有)。
 
-    供 :class:`BaseClient` 的连接状态机直接管理——``connect`` 加载
-    snap7 库并连 CPU,``close`` 断开并销毁;无字节流收发,区域读写经
-    :meth:`read_area` / :meth:`write_area` 完成,snap7 错误(1.x/2.x
-    RuntimeError、3.x S7Error 谱系)在此边界按连接态翻译
-    (在线→DeviceError 不断线,断连→OSError 惰性重连)。
+    供 :class:`BaseClient` 的连接状态机直接管理——``connect`` 完成
+    TCP → COTP(CR/CC,TSAP 编码 rack/slot)→ S7 通信协商(PDU 长度)
+    三步,``close`` 尽力发 COTP DR 后关传输;区域读写经
+    :meth:`read_area` / :meth:`write_area`(统一 BYTE 传输尺寸,与
+    snap7 read_area/write_area 的 WORDLen=BYTE 口径一致),错误边界:
 
-    ``receive_timeout`` 经 snap7 ``SetParam(RecvTimeout)`` 下发(秒×1000,
-    C 库默认 5000 ms / 3.x 默认 3000 ms),连接建立时与属性修改时都生效
-    (第八轮 P2-4:原实现完全未接线)。
+    - TCP 层 OSError 透传(惰性重连)
+    - 帧结构错(codec :class:`.codec.S7ProtocolError`)→ 内部协议错误,
+      基类按 OmniPLCInternalError 拆连重同步
+    - PLC 侧拒绝(条目返回码非 0xFF)→ DeviceError 不断线,DB 访问附
+      优化块访问提示
+
+    ``receive_timeout`` 直接下发到底层 TCP 传输(已连接时立即生效)。
     """
 
-    def __init__(
-        self,
-        ip_address: str,
-        rack: int,
-        slot: int,
-        port: int,
-        dll_path: str,
-    ) -> None:
-        """S7 会话适配器。
+    def __init__(self, ip_address: str, rack: int, slot: int, port: int) -> None:
+        """初始化 S7 会话。
 
         :param ip_address: PLC 的 IP 或主机名
         :param rack: 机架号
         :param slot: 槽位号
         :param port: ISO-on-TCP 端口,标准 102
-        :param dll_path: snap7 原生库路径(1.x/2.x 生效,留空用捆绑库)
         """
         super().__init__()
         self._ip_address = ip_address
         self._rack = rack
         self._slot = slot
         self._port = port
-        self._dll_path = dll_path
-        self._client: Optional[Any] = None
+        # 远端 TSAP = 连接类型(PG)<<8 | rack<<5 | slot(python-snap7
+        # client.py L621;默认 0x0102 = rack 0 / slot 2)
+        self._remote_tsap = (codec.CONNECTION_TYPE_PG << 8) | (rack << 5) | slot
+        self._tcp: Optional[TcpTransport] = None
+        self._sequence = 0
+        self.pdu_size = codec.MAX_PDU_REQUEST
         self._debug_label = "s7://{}:{}(机架{}槽位{})".format(
             ip_address, port, rack, slot
         )
 
-    @property
-    def receive_timeout(self) -> float:
-        """单次收发超时(秒)。"""
-        return self._receive_timeout
-
-    @receive_timeout.setter
+    @BaseTransport.receive_timeout.setter  # type: ignore[attr-defined]
     def receive_timeout(self, seconds: float) -> None:
-        """单次收发超时(秒):存储并热下发 snap7 RecvTimeout(毫秒)。"""
+        """单次收发超时(秒);已连接时立即下发到底层 TCP 传输。"""
         if seconds <= 0:
             raise ValueError(_("receive_timeout 必须大于 0,收到:{}").format(seconds))
-        self._receive_timeout = float(seconds)
-        self._apply_recv_timeout()
+        BaseTransport.receive_timeout.fset(self, float(seconds))  # type: ignore[attr-defined]
+        tcp = self._tcp
+        if tcp is not None:
+            tcp.receive_timeout = float(seconds)
 
-    def _apply_recv_timeout(self) -> None:
-        """把当前 receive_timeout 下发为 snap7 RecvTimeout(内部方法)。
-
-        参数号按轨道探测(1.x int / 3.x Parameter 枚举);探测失败或
-        set_param 异常按告警降级(snap7 默认超时),不影响连接。
-        """
-        client = self._client
-        if client is None:
-            return
-        param = _snap7_recv_timeout_param()
-        if param is None:
-            return
-        try:
-            client.set_param(param, int(self._receive_timeout * 1000))
-        except Exception as exc:
-            log_warning(
-                self._debug_label,
-                "RecvTimeout 下发失败(按 snap7 默认超时):%s",
-                exc,
-            )
+    # ------------------------------------------------------------------
+    # 会话生命周期
+    # ------------------------------------------------------------------
 
     def connect(self) -> None:
-        """加载 snap7 库并连接 CPU(每次连接新建 Client)。
+        """三步建连:TCP → COTP(CR/CC)→ S7 协商。
 
-        :raises OSError: 库加载失败或连接失败(拒绝/超时/路由参数不符)
+        :raises OSError: TCP 连接失败或握手帧异常(连接期任何失败都按
+            断连语义抛 OSError,由基类惰性重连)
         """
-        client = _new_client(self._dll_path)
+        tcp = TcpTransport(self._ip_address, self._port)
         try:
-            client.connect(self._ip_address, self._rack, self._slot, self._port)
-        except _SNAP7_ERRORS as exc:
-            # 连接失败也须销毁 Client:1.x/3.x 均持 snap7 C 库句柄,不
-            # destroy 则句柄随反复失败重连在进程内累积(review-1005 P1)
+            tcp.connect()
+            tcp.receive_timeout = self._receive_timeout
+            self._tcp = tcp  # 先挂会话(协商事务经 _require_tcp 取传输)
+            tcp.send(codec.build_tpkt(codec.build_cotp_cr(self._remote_tsap)))
+            length = codec.parse_tpkt_header(tcp.recv(4))
+            codec.parse_cotp_cc(tcp.recv(length - 4))
+            self._sequence = 0
+            sequence = self._next_sequence()
+            response = self._transact(
+                codec.build_setup_comm(codec.MAX_PDU_REQUEST, sequence)
+            )
+            self.pdu_size = codec.parse_setup_comm(response, sequence)
+        except Exception as exc:
+            self._tcp = None
             try:
-                client.destroy()
-            except Exception:
+                tcp.close()
+            except OSError:
                 pass
-            raise OSError(
-                _("S7 连接失败:{}(可能原因:① IP/机架/槽位不符;② 网络/防火墙阻断 "
-                "ISO-on-TCP 102;③ 1200/1500 未开启 PUT/GET 访问授权)").format(exc)
-            ) from exc
-        self._client = client
-        self._apply_recv_timeout()
-        log_op(self._debug_label, "会话已建立")
+            if isinstance(exc, OSError):
+                raise
+            # 连接期坏帧按断连语义(基类重试即重连)
+            raise OSError(_("S7 握手失败:{}").format(exc)) from exc
+        log_op(self._debug_label, "会话已建立(PDU {}B)".format(self.pdu_size))
 
     def close(self) -> None:
-        """断开连接并销毁 Client,幂等。"""
-        client, self._client = self._client, None
-        if client is None:
+        """尽力发 COTP DR 后关闭传输,幂等。"""
+        tcp, self._tcp = self._tcp, None
+        if tcp is None:
             return
         try:
-            client.disconnect()
-        except Exception:
+            # COTP DR(断连请求,python-snap7 connection.py L431-450 同款)
+            dr = struct.pack(
+                ">BBHHBB", 6, 0x80, 0x0000, codec.SRC_REFERENCE, 0x00, 0x00
+            )
+            tcp.send(codec.build_tpkt(dr))
+        except OSError:
             pass
         try:
-            client.destroy()
-        except Exception:
+            tcp.close()
+        except OSError:
             pass
         log_op(self._debug_label, "会话已断开")
+
+    def _next_sequence(self) -> int:
+        """PDU 引用 u16 循环递增(内部方法,会话线程内调用)。"""
+        self._sequence = (self._sequence + 1) & 0xFFFF
+        return self._sequence
+
+    def _transact(self, request: bytes) -> bytes:
+        """完整事务:COTP DT 包裹发送 → 收 TPKT 剥 COTP 返回 S7 PDU(内部)。"""
+        tcp = self._require_tcp()
+        tcp.send(codec.build_tpkt(codec.build_cotp_dt(request)))
+        length = codec.parse_tpkt_header(tcp.recv(4))
+        return codec.parse_cotp_dt(tcp.recv(length - 4))
+
+    def _require_tcp(self) -> TcpTransport:
+        """取底层 TCP 传输,未建立则抛出(内部方法)。"""
+        if self._tcp is None:
+            raise TransportClosedError(_("S7 会话未建立"))
+        return self._tcp
+
+    # ------------------------------------------------------------------
+    # 会话调用(区域读写 / 状态 / 批量)
+    # ------------------------------------------------------------------
 
     def send(self, data: bytes) -> None:
         """S7 为会话型协议,无字节流收发(不调用)。"""
@@ -385,13 +228,13 @@ class _S7Session(BaseTransport):
         raise TransportClosedError(_("S7 走会话通道,无字节流收发"))
 
     def read_area(self, area: int, db_number: int, start: int, size: int) -> bytes:
-        """读一块区域字节(会话调用,异常在此翻译)。"""
-        try:
-            data = self._require_client().read_area(
-                _snap7_area(area), db_number, start, size
-            )
-        except _SNAP7_ERRORS as exc:
-            self._raise_link_aware(exc, db_number)
+        """读一块区域字节(会话调用;统一 BYTE 传输尺寸,与旧封装口径一致)。"""
+        sequence = self._next_sequence()
+        request = codec.build_read(
+            area, db_number, start * 8, codec.WORD_LEN_BYTE, size, sequence
+        )
+        response = self._transact(request)
+        data = codec.parse_read_response(response, sequence, 1, [size])[0]
         log_op(
             self._debug_label,
             "read area=0x%02X db=%d start=%d size=%d → %dB",
@@ -403,91 +246,14 @@ class _S7Session(BaseTransport):
         )
         return bytes(data)
 
-    def get_cpu_state(self) -> str:
-        """读 CPU 运行状态(snap7 GetCpuState,会话调用,异常在此翻译)。
-
-        返回 snap7 状态枚举名(``"S7CpuStatusRun"``/``"S7CpuStatusStop"``
-        等)——1.x 与 3.x 的枚举成员数值不一致,库只透传名字不解析数值。
-        零副作用,同时是探活探测命令(能应答即 CPU 会话存活)。
-        """
-        try:
-            state = self._require_client().get_cpu_state()
-        except _SNAP7_ERRORS as exc:
-            self._raise_link_aware(exc)
-        log_op(self._debug_label, "cpu state → %r", state)
-        return getattr(state, "name", str(state))
-
-    def read_multi_vars(
-        self, specs: "Sequence[Tuple[int, int, int, int]]"
-    ) -> "List[bytes]":
-        """多变量一次读(会话调用,异常在此翻译)。
-
-        :param specs: ``(区码, DB 号, 字节起点, 字节数)`` 列表,最多 20 条
-            (snap7 MAX_VARS 上限)
-        :return: 与 specs 顺序一致的逐条字节
-        :raises DeviceError: 在线但单条目读取失败(条目级 Result 非 0)
-        :raises OSError: 断连/整调用失败(惰性重连)
-
-        双线适配:1.x/2.x(C 封装线)``Cli_ReadMultiVars`` 收 **ctypes
-        ``S7DataItem`` 数组**(WordLen=BYTE,单 PDU 组包);3.x(纯 Python 线)
-        收 **dict 列表**(内部优化器合并相邻读,``MAX_VARS=20`` 上限)。
-        """
-        client = self._require_client()
-        if getattr(type(client), "MAX_VARS", None) is not None:
-            # 3.x 优化器路径单条目失败**不静默填零**:snap7 3.2.0 的
-            # extract_multi_read_data 对任一条目 return_code != 0xFF 即抛
-            # S7ProtocolError(∈ S7Error 谱系,被 _SNAP7_ERRORS 覆盖)——
-            # 「部分失败静默收零字节」系 review-1005 误报裁决,勿再报勿改
-            items = [
-                {
-                    "area": getattr(_snap7_area(area), "value", _snap7_area(area)),
-                    "db_number": db,
-                    "start": start,
-                    "size": size,
-                }
-                for area, db, start, size in specs
-            ]
-            try:
-                _rc, results = client.read_multi_vars(items)
-            except _SNAP7_ERRORS as exc:
-                self._raise_link_aware(exc)
-            return [bytes(item) for item in results]
-        import ctypes
-
-        data_item, wl_byte = _snap7_1x_types()
-        array = (data_item * len(specs))()
-        buffers = []
-        for index, (area, db, start, size) in enumerate(specs):
-            buffer = (ctypes.c_uint8 * size)()
-            array[index].Area = getattr(_snap7_area(area), "value", _snap7_area(area))
-            array[index].WordLen = int(wl_byte)
-            array[index].DBNumber = db
-            array[index].Start = start
-            array[index].Amount = size
-            array[index].pData = ctypes.cast(buffer, ctypes.POINTER(ctypes.c_uint8))
-            buffers.append(buffer)
-        try:
-            _rc, array = client.read_multi_vars(array)
-        except _SNAP7_ERRORS as exc:
-            self._raise_link_aware(exc)
-        for index, item in enumerate(array):
-            if item.Result != 0:
-                raise DeviceError(
-                    _("S7 多变量读条目 {} 失败,错误码 0x{:08X}").format(
-                        index, int(item.Result)
-                    ),
-                    0,
-                )
-        return [bytes(buffer) for buffer in buffers]
-
     def write_area(self, area: int, db_number: int, start: int, data: bytes) -> None:
-        """写一块区域字节(会话调用,异常在此翻译)。"""
-        try:
-            self._require_client().write_area(
-                _snap7_area(area), db_number, start, bytearray(data)
-            )
-        except _SNAP7_ERRORS as exc:
-            self._raise_link_aware(exc, db_number)
+        """写一块区域字节(会话调用)。"""
+        sequence = self._next_sequence()
+        request = codec.build_write(
+            area, db_number, start * 8, codec.WORD_LEN_BYTE, bytes(data), sequence
+        )
+        response = self._transact(request)
+        codec.parse_write_response(response, sequence, 1)
         log_op(
             self._debug_label,
             "write area=0x%02X db=%d start=%d %dB",
@@ -497,51 +263,46 @@ class _S7Session(BaseTransport):
             len(data),
         )
 
-    def _raise_link_aware(self, exc: BaseException, db_number: int = 0) -> NoReturn:
-        """按 snap7 错误码与连接态翻译错误(内部方法,恒抛出)。
+    def get_cpu_state(self) -> str:
+        """读 CPU 运行状态(SZL 0x0424,零副作用;同时是探活探测命令)。
 
-        分类依据(两层):
-        1. **snap7 错误码**(优先)——1.3 的 ``Cli_GetConnected`` 读的是
-           C 库本地标志,会话中途 socket 死亡(拔线/断电)时**不翻转**,
-           不能单独作为断连判据;``errIsoSendPacket(0x00090000)``/
-           ``errIsoRecvPacket(0x000A0000)``/``errCliJobTimeout(0x02000000)``
-           三个码表示发送/接收失败或作业超时,属**传输层故障** → OSError
-           (惰性重连)。
-        2. 其余错误 → 在线视为 PLC 侧拒绝(DeviceError,不断线),DB
-           访问附"优化块访问"提示;``get_connected()`` 为 False(显式
-           disconnect 后)时同样按断连处理。
+        返回状态枚举名(``"S7CpuStatusRun"``/``"S7CpuStatusStop"``/
+        ``"S7CpuStatusUnknown"``)。SZL 状态字节偏移**待真机核证**
+        (python-snap7 3.x 该实现为桩,按 snap7 C 家族口径自建)。
         """
-        if not self._is_connected() or _is_snap7_transport_error(exc):
-            raise OSError(_("S7 连接已断:{}").format(exc)) from exc
-        message = _("S7 错误:{}").format(exc)
-        if db_number:
-            message += (
-                _("(按绝对地址访问 DB 失败:若为 S7-1200/1500,请确认该 DB ")
-                + _("已在 TIA 中取消 Optimized block access)")
-            )
-        raise DeviceError(message, 0) from exc
+        sequence = self._next_sequence()
+        response = self._transact(codec.build_read_szl(0x0424, 0x0000, sequence))
+        entries = codec.parse_szl_response(response, sequence)
+        # 状态字节偏移待真机核证:取首条目首字节,非 0x04/0x08 时兼容
+        # 条目 u16 大端形态(低字节),均不识别按 Unknown
+        state = entries[0]
+        if state not in _CPU_STATUS_NAMES and len(entries) > 1 and entries[1] in _CPU_STATUS_NAMES:
+            state = entries[1]
+        name = _CPU_STATUS_NAMES.get(state, "S7CpuStatusUnknown")
+        log_op(self._debug_label, "cpu state → %r", name)
+        return name
 
-    def _is_connected(self) -> bool:
-        """取 snap7 本地连接态标志(不产生网络流量;异常视为断连)。
+    def read_multi_vars(
+        self, specs: "Sequence[Tuple[int, int, int, int]]"
+    ) -> "List[bytes]":
+        """多变量一次读(功能 0x04 多 Item 单 PDU,会话调用)。
 
-        注意:1.3 该标志在 socket 半开(拔线/断电)下不翻转,故
-        :meth:`_raise_link_aware` 以 snap7 传输类错误码优先判定,本标志
-        只兜底显式 disconnect 的场景;3.x 起为主动探测,两口径均安全。
+        :param specs: ``(区码, DB 号, 字节起点, 字节数)`` 列表
+            (≤ :data:`.codec.MAX_VARS`,S7 MAX_VARS 口径)
+        :return: 与 specs 顺序一致的逐条字节
+        :raises DeviceError: 在线但任一条目读取失败(条目级返回码非 0xFF)
         """
-        try:
-            return bool(self._require_client().get_connected())
-        except Exception:
-            return False
-
-    def _require_client(self) -> Any:
-        """取当前 snap7 Client,未建立则抛出(内部方法)。"""
-        if self._client is None:
-            raise TransportClosedError(_("S7 会话未建立"))
-        return self._client
+        sequence = self._next_sequence()
+        request = codec.build_multi_read(specs, sequence)
+        response = self._transact(request)
+        byte_lengths = [size for _area, _db, _start, size in specs]
+        blobs = codec.parse_read_response(response, sequence, len(specs), byte_lengths)
+        log_op(self._debug_label, "multi read %d 项 → %d 项", len(specs), len(blobs))
+        return [bytes(blob) for blob in blobs]
 
 
 class SiemensS7Client(BaseClient):
-    """西门子 S7 客户端(封装 python-snap7,rack/slot 路由)。
+    """西门子 S7 客户端(自研 S7comm 协议栈,rack/slot 路由,核心零依赖)。
 
     :example::
 
@@ -552,8 +313,8 @@ class SiemensS7Client(BaseClient):
         ok, text = client.read_string("DB1.DBS20", length=32)
     """
 
-    # 探活:snap7 GetCpuState(零副作用系统级读,见 _ping_probe)
     _has_ping = True
+    """支持探活(:meth:`get_cpu_state` SZL 读,零副作用)。"""
 
     def __init__(
         self,
@@ -561,7 +322,6 @@ class SiemensS7Client(BaseClient):
         port: int = S7_DEFAULT_PORT,
         rack: int = S7_DEFAULT_RACK,
         slot: int = S7_DEFAULT_SLOT,
-        dll_path: str = "",
     ) -> None:
         """初始化 S7 客户端。
 
@@ -569,10 +329,11 @@ class SiemensS7Client(BaseClient):
         :param port: ISO-on-TCP 端口,标准 102
         :param rack: 机架号,S7_DEFAULT_RACK(0)
         :param slot: 槽位号,1200/1500 常用 1;300/400 的 CPU 常在 2
-        :param dll_path: snap7 原生库路径显式覆盖,仅 1.x/2.x(C 封装线)
-            生效——32 位 Python 需自备 32 位 snap7.dll;3.x 纯 Python 实现
-            忽略此参数;留空用捆绑库
-        :raises ValueError: 参数非法(dll_path 非空但文件不存在)
+        :raises ValueError: 参数非法
+
+        .. note:: v0.52.x 的 ``dll_path`` 参数已随 python-snap7 依赖退役
+            移除(snap7 DLL 分发痛点正是自研动机);传递该参数会得到
+            TypeError,请删除该实参。
         """
         validate_endpoint(ip_address, port)
         super().__init__(ip_address, int(port))
@@ -582,11 +343,6 @@ class SiemensS7Client(BaseClient):
             raise ValueError(_("槽位号必须在 0~{} 之间,收到:{}").format(S7_SLOT_MAX, slot))
         self._rack = int(rack)
         self._slot = int(slot)
-        self._dll_path = dll_path.strip()
-        if self._dll_path and not os.path.isfile(self._dll_path):
-            raise ValueError(
-                _("dll_path 指定的 snap7 原生库不存在:{!r}").format(self._dll_path)
-            )
 
     @property
     def rack(self) -> int:
@@ -603,33 +359,33 @@ class SiemensS7Client(BaseClient):
     # ------------------------------------------------------------------
 
     def _session(self) -> _S7Session:
-        """取当前 S7 会话适配器(仅事务锁内调用,内部方法)。"""
-        link = self._require_transport()
-        if not isinstance(link, _S7Session):
-            raise TransportClosedError(_("内部错误:传输对象不是 S7 会话"))
-        return link
+        """取当前 S7 会话(仅事务锁内调用,内部方法)。"""
+        transport = self._require_transport()
+        if not isinstance(transport, _S7Session):
+            raise TransportClosedError(_("S7 会话未建立"))
+        return transport
 
     def _create_transport(self) -> BaseTransport:
         return _S7Session(
-            self._ip_address, self._rack, self._slot, self._port, self._dll_path
+            self._ip_address, self._rack, self._slot, self._port
         )
 
     # ------------------------------------------------------------------
-    # 状态读与探活(snap7 GetCpuState)
+    # 状态读与探活(SZL 0x0424)
     # ------------------------------------------------------------------
 
     def get_cpu_state(self) -> Tuple[bool, Optional[str]]:
-        """读 CPU 运行状态(snap7 GetCpuState;零副作用)。
+        """读 CPU 运行状态(SZL 0x0424;零副作用)。
 
         返回 ``(是否成功, 状态枚举名)``,如 ``"S7CpuStatusRun"``/
-        ``"S7CpuStatusStop"``(1.x/3.x 枚举数值不一致,统一按名字透传)。
+        ``"S7CpuStatusStop"``(状态字节偏移待真机核证,见模块 docstring)。
 
         同时是 :meth:`ping` 的探测命令:能应答即 CPU 会话存活。
         """
         return self._execute(lambda: self._session().get_cpu_state())
 
     def _ping_probe(self) -> str:
-        """探活探测命令:snap7 GetCpuState(内部方法)。"""
+        """探活探测命令:CPU 状态 SZL 读(内部方法)。"""
         return self._session().get_cpu_state()
 
     # ------------------------------------------------------------------
@@ -855,13 +611,13 @@ class SiemensS7Client(BaseClient):
         count: int,
         data_type: Union[DataType, str],
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
-        """连续批量读:同区域字节起点起连续 ``count`` 个元素,snap7 ``read_area`` 单事务。
+        """连续批量读:同区域字节起点起连续 ``count`` 个元素,Read Var 单事务。
 
         地址只定位**区域 + 字节起点**,总字节数 = ``count × 类型字节数``
         (SHORT/USHORT 2、INT/UINT/FLOAT 4、LONG/ULONG/DOUBLE 8,大端),
         按类型尺寸切片解码。
         总字节数不设入参上限(review-1002 P3):单事务容量受连接协商 PDU
-        约束,超限时 snap7 运行期报错、按整批容错 ``(False, None)`` 返回
+        约束,超限时 PLC 侧拒绝、按整批容错 ``(False, None)`` 返回
         (非入参期 ``ValueError``)——大跨度数据请调用方自行分段。
         BOOL 连续读无位语义(单个字节内的位不构成连续序列),不支持;
         STRING 变长不支持(请用 :meth:`read_string`)。
@@ -916,11 +672,11 @@ class SiemensS7Client(BaseClient):
     def read_many(
         self, addresses: Sequence[str], data_type: Union[DataType, str]
     ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
-        """批量读取:覆写为 snap7 ``read_multi_vars`` 单事务(多变量一次 PDU 组包)。
+        """批量读取:覆写为 Read Var 多 Item 单事务(一次 PDU 组包)。
 
         与基类逐点独立容错不同:任一地址非法或 PLC 拒绝则**整批失败**
         (原因见 :attr:`last_error`);需要逐点容错请逐点调用 :meth:`read`。
-        条目上限 20(snap7 MAX_VARS;超限入参期 ``ValueError``)。
+        条目上限 20(:data:`.codec.MAX_VARS`;S7 ReadMultiVars 每请求 20 项)。
         """
         data_type_enum = DataType.coerce(data_type)
         ok, values = self.read_batch(
@@ -933,11 +689,11 @@ class SiemensS7Client(BaseClient):
     def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
-        """多变量批量读取:snap7 ``read_multi_vars`` 单事务混读(DB/I/Q/M)。
+        """多变量批量读取:Read Var 多 Item 单 PDU 混读(DB/I/Q/M)。
 
         每个条目独立寻址(区域/DB/字节起点可不同);BOOL 读 1 字节后本地
         提位;STRING 为变长不支持批量(请用 :meth:`read_string`)。条目上限
-        **20**(snap7 ``MAX_VARS``;S7 ReadMultiVars 每请求 20 项)。
+        **20**(:data:`.codec.MAX_VARS`;S7 ReadMultiVars 每请求 20 项)。
 
         :param items: ``(地址, 数据类型)`` 序列
         :return: ``(是否成功, 与 items 顺序对应的值列表)``
@@ -947,7 +703,7 @@ class SiemensS7Client(BaseClient):
             raise ValueError(_("read_batch 至少需要一个 (地址, 数据类型) 项"))
         if len(items) > S7_MAX_MULTI_VARS:
             raise ValueError(
-                _("S7 多变量读条目数超出上限 {}:{}(snap7 MAX_VARS)").format(
+                _("S7 多变量读条目数超出上限 {}:{}(MAX_VARS)").format(
                     S7_MAX_MULTI_VARS, len(items)
                 )
             )

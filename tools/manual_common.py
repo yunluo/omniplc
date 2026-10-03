@@ -507,13 +507,10 @@ def build_client(conn):
                                        _p(conn, "connected_messaging", False),
                                        _p(conn, "rpi_us", 100000))
     if d == "siemens_s7":
-        # 全关键字传参:v0.32.0 起签名按全库惯例调整为
-        # (ip_address, port, rack, slot, dll_path),位置参数曾错位为
-        # port=0/rack=1/slot=102(S7 驱动完全不可用),关键字写法免疫再漂移
+        # 全关键字传参(v0.32.0 起防位置漂移);v0.53 自研栈后无 dll_path
         return SiemensS7Client(ip_address=ip, port=port or 102,
                                rack=_p(conn, "rack", 0),
-                               slot=_p(conn, "slot", 1),
-                               dll_path=_p(conn, "dll_path", ""))
+                               slot=_p(conn, "slot", 1))
     if d == "opcua":
         return OpcUaClient(ip, port or 4840, _p(conn, "path", ""),
                            _p(conn, "endpoint", ""))
