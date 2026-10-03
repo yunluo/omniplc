@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 import types
 from typing import Iterator
 
@@ -21,9 +22,10 @@ from omniplc.transport import TcpTransport, UdpTransport
 
 @pytest.fixture(autouse=True)
 def _restore_debug_state() -> Iterator[None]:
-    """每个用例后关闭调试,避免污染其他测试。"""
+    """每个用例后关闭调试与黑匣子,避免污染其他测试。"""
     yield
     debug.set_debug(False)
+    debug.set_frame_recorder(False)
 
 
 # ----------------------------------------------------------------------
@@ -234,3 +236,101 @@ def test_log_op_formats_args_when_enabled(caplog: pytest.LogCaptureFixture) -> N
         debug.log_op("opcua://x", "读 %s → %r", "ns=2;s=T", True)
     text = "\n".join(record.getMessage() for record in caplog.records)
     assert "opcua://x 读 ns=2;s=T → True" in text
+
+
+# ----------------------------------------------------------------------
+# 报文黑匣子(set_frame_recorder:环形缓冲只存不打印)
+# ----------------------------------------------------------------------
+
+def test_recorder_default_off() -> None:
+    """默认关闭:不记录、快照为空。"""
+    assert debug.frame_recorder_enabled() is False
+    debug.log_frame("tcp://1.2.3.4:502", debug.SEND_MARK, b"\x01")
+    assert debug.recorded_frames() == []
+
+
+def test_recorder_records_frames() -> None:
+    """开启后:方向/标识/原始字节/墙钟时间戳逐条留存,先旧后新。"""
+    debug.set_frame_recorder(True, capacity=10)
+    assert debug.frame_recorder_enabled() is True
+    before = time.time()
+    debug.log_frame("tcp://1.2.3.4:502", debug.SEND_MARK, b"\x01\x02")
+    debug.log_frame("tcp://1.2.3.4:502", debug.RECV_MARK, b"\x01\x02\x03\x04")
+    records = debug.recorded_frames()
+    assert len(records) == 2
+    assert [rec.direction for rec in records] == [debug.SEND_MARK, debug.RECV_MARK]
+    assert records[0].label == "tcp://1.2.3.4:502"
+    assert records[0].data == b"\x01\x02"
+    assert records[1].data == b"\x01\x02\x03\x04"
+    assert all(before - 1 <= rec.at <= time.time() + 1 for rec in records)
+
+
+def test_recorder_capacity_truncates() -> None:
+    """容量截断:只留最近 N 帧。"""
+    debug.set_frame_recorder(True, capacity=3)
+    for seq in range(4):
+        debug.log_frame("tcp://x", debug.SEND_MARK, bytes([seq]))
+    records = debug.recorded_frames()
+    assert [rec.data[0] for rec in records] == [1, 2, 3]
+
+
+def test_recorder_snapshot_is_copy() -> None:
+    """快照拷贝:取快照后新报文进缓冲,不影响已取列表。"""
+    debug.set_frame_recorder(True, capacity=10)
+    debug.log_frame("tcp://x", debug.SEND_MARK, b"\x01")
+    snapshot = debug.recorded_frames()
+    assert len(snapshot) == 1
+    debug.log_frame("tcp://x", debug.SEND_MARK, b"\x02")
+    assert len(snapshot) == 1
+    assert len(debug.recorded_frames()) == 2
+
+
+def test_recorder_independent_of_debug(caplog: pytest.LogCaptureFixture) -> None:
+    """黑匣子与实时日志相互独立:只开黑匣子 → 有留存无输出;只开日志 → 有输出无留存。"""
+    debug.set_frame_recorder(True)
+    with caplog.at_level(logging.DEBUG, logger="omniplc.debug"):
+        debug.log_frame("tcp://x", debug.SEND_MARK, b"\x01")
+    assert caplog.records == []
+    assert len(debug.recorded_frames()) == 1
+
+    caplog.clear()
+    debug.set_frame_recorder(False)
+    debug.set_debug(True)
+    with caplog.at_level(logging.DEBUG, logger="omniplc.debug"):
+        debug.log_frame("tcp://x", debug.SEND_MARK, b"\x01")
+    assert "→ 发送 1B: 01" in caplog.records[0].getMessage()
+    assert debug.recorded_frames() == []
+
+
+def test_recorder_disable_clears_reenable_keeps() -> None:
+    """关闭丢弃全部留存;重开从头记;同容量重复开启不清空历史(幂等)。"""
+    debug.set_frame_recorder(True, capacity=5)
+    debug.log_frame("tcp://x", debug.SEND_MARK, b"\x01")
+    debug.set_frame_recorder(False)
+    assert debug.recorded_frames() == []
+
+    debug.set_frame_recorder(True, capacity=5)
+    debug.log_frame("tcp://x", debug.SEND_MARK, b"\x02")
+    debug.set_frame_recorder(True, capacity=5)
+    records = debug.recorded_frames()
+    assert [rec.data for rec in records] == [b"\x02"]
+
+
+def test_recorder_capacity_validation() -> None:
+    """容量校验:非整数/越界拒绝,缓冲状态不变。"""
+    debug.set_frame_recorder(True, capacity=5)
+    for bad in (0, -1, debug.FRAME_RECORDER_MAX_CAPACITY + 1, True, 2.5, "10"):
+        with pytest.raises(ValueError):
+            debug.set_frame_recorder(True, capacity=bad)  # type: ignore[arg-type]
+    assert debug.frame_recorder_enabled() is True
+
+
+def test_clear_recorded_frames() -> None:
+    """clear 只清内容不关开关。"""
+    debug.set_frame_recorder(True)
+    debug.log_frame("tcp://x", debug.SEND_MARK, b"\x01")
+    debug.clear_recorded_frames()
+    assert debug.recorded_frames() == []
+    assert debug.frame_recorder_enabled() is True
+    debug.log_frame("tcp://x", debug.SEND_MARK, b"\x02")
+    assert len(debug.recorded_frames()) == 1

@@ -1295,6 +1295,12 @@ PORT_MAX: int = 65535
 DEBUG_MAX_DUMP_BYTES: int = 4096
 """单条日志十六进制转储的最大字节数(超出截断,防大块读写刷屏)。"""
 
+FRAME_RECORDER_DEFAULT_CAPACITY: int = 1000
+"""报文黑匣子默认容量(最近 N 帧;KB 级报文 × 1000 条 ≈ MB 级内存上界)。"""
+
+FRAME_RECORDER_MAX_CAPACITY: int = 100000
+"""报文黑匣子容量上限(构造期校验,防误配超大容量打爆内存)。"""
+
 # ---------------------------------------------------------------- MTConnect
 MTCONNECT_MAX_NUMERIC_TEXT: int = 64
 """MTConnect 数值文本解析的最大字符长度(py3.11 前 int/float 对超长数字串超线性,先按长度快拒)。"""

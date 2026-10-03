@@ -35,6 +35,12 @@ CNC 机床数采(MTConnect Agent,HTTP/XML 只读)、
 
     omniplc.set_debug(True)
 
+报文黑匣子(只存不打印,故障后取最近报文)::
+
+    omniplc.set_frame_recorder(True)            # 常驻留存最近 1000 帧
+    for rec in omniplc.recorded_frames():       # 故障后取现场
+        print(rec.at, rec.direction, rec.label, rec.data.hex())
+
 报错语言(全局开关,默认中文)::
 
     import omniplc
@@ -56,7 +62,13 @@ from __future__ import annotations
 
 from .core import convert
 from .core.base_client import BaseClient, ClientStats
-from .core.debug import set_debug
+from .core.debug import (
+    FrameRecord,
+    clear_recorded_frames,
+    recorded_frames,
+    set_debug,
+    set_frame_recorder,
+)
 from .core.errors import ErrorCategory
 from .core.i18n import set_lang
 from .core.monitor import (
@@ -195,6 +207,11 @@ __all__ = [
     "convert",
     # ---- 全局调试 ----
     "set_debug",
+    # ---- 报文黑匣子(环形缓冲留存最近报文) ----
+    "set_frame_recorder",
+    "FrameRecord",
+    "recorded_frames",
+    "clear_recorded_frames",
     # ---- 报错文案语言 ----
     "set_lang",
     # ---- 监视器(周期轮询采集) ----
