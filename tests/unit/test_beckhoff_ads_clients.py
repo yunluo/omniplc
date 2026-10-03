@@ -31,6 +31,7 @@ from omniplc.core.errors import (
 from omniplc.plc.beckhoff.ads import (
     _AdsSession,
     _build_net_id,
+    _load_pyads,
     _translate_ads_error,
 )
 
@@ -158,6 +159,20 @@ def test_write_string_declared_length_precheck(monkeypatch: pytest.MonkeyPatch) 
         client.write_string("MAIN.t", "X" * 81)
 
 
+def test_string_encoding_whitelist(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ADS STRING 编码白名单:非 utf-8 家族读写两侧显式拒绝(review-1005 P1)。"""
+    client = BeckhoffAdsClient("127.0.0.1")
+    fake = FakeAdsSession()
+    monkeypatch.setattr(client, "_create_transport", lambda: fake)
+    client.connect()
+    with pytest.raises(ValueError, match="编码固定 utf-8"):
+        client.write_string("MAIN.s", "hi", encoding="gb2312")
+    with pytest.raises(ValueError, match="编码固定 utf-8"):
+        client.read_string("MAIN.s", 8, encoding="gb2312")
+    client.write_string("MAIN.s", "hi", encoding="UTF-8")  # 大小写/连字符归一放行
+    assert fake.written == [("MAIN.s", "hi", "PLCTYPE_STRING")]
+
+
 def test_write_range_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     """写:整数越界/浮点超 float32 → ValueError(参数校验约定)。"""
     client = BeckhoffAdsClient("127.0.0.1")
@@ -265,6 +280,38 @@ def test_translate_ads_error(monkeypatch: pytest.MonkeyPatch) -> None:
     other = _translate_ads_error(ValueError("boom"))
     assert isinstance(other, OmniPLCInternalError)
     assert not isinstance(other, DeviceError)
+
+
+def test_translate_ads_error_non_numeric_err_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    """err_code 非数值(绑定/版本差异)→ 按 0 兜底,翻译函数自身不抛(review-1005 P1)。"""
+    ads_error_class = _install_pyads_stub(monkeypatch)
+    translated = _translate_ads_error(ads_error_class("not-a-number", "weird"))
+    assert isinstance(translated, DeviceError)
+    assert translated.code == 0
+
+
+def test_load_pyads_propagates_unexpected_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_load_pyads 只吞 ImportError/OSError;MemoryError 等上抛不静默(review-1005 P2)。"""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def _boom(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == "pyads":
+            raise MemoryError("oom")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _boom)
+    with pytest.raises(MemoryError):
+        _load_pyads()
+
+    def _missing(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == "pyads":
+            raise ImportError("no pyads")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _missing)
+    assert _load_pyads() is None
 
 
 def test_translate_ads_error_transport_codes(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -735,6 +735,7 @@ _TRANSLATIONS: Dict[str, str] = {
     'ADS 走会话通道,无字节流收发': 'ADS uses a session channel; there is no byte stream',
     'ADS 变量名不能为空': 'The ADS variable name must not be empty',
     'ADS 调用失败:{}:{}': 'ADS call failed: {0}: {1}',
+    'ADS STRING 编码固定 utf-8,收到:{}': 'ADS STRING encoding is fixed to utf-8, got: {0}',
     'pyads 加载失败(ADS 走线需 pip install omniplc[ads];Windows 还需 Beckhoff TcAdsDll 运行库)': 'Failed to load pyads (the ADS transport needs pip install omniplc[ads]; on Windows the Beckhoff TcAdsDll runtime is also required)',
     'ADS 连接未建立': 'The ADS connection is not established',
     'pyads 加载失败,无法读取 ADS 变量': 'pyads failed to load; cannot read the ADS variable',

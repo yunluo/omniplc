@@ -937,7 +937,9 @@ class BaseClient(ABC):
         if resolved.scale == 1.0 and resolved.offset == 0.0:
             return True, value
         if isinstance(value, int) and not isinstance(value, bool) and abs(value) > 2 ** 53:
-            # 非恒等缩放必经 float64:|值| > 2^53 时低位静默丢失,至少告警
+            # 非恒等缩放必经 float64:|值| > 2^53 时低位静默丢失,至少告警。
+            # not isinstance(value, bool) 在此恒真(bool 已在上方直通)——与
+            # monitor._apply_scale 同构,有意保留(review-1006 §九 D1)
             log_warning(
                 getattr(self, "_debug_label", "omniplc"),
                 "read_tag 点位 %s 为 64 位整数且 |值|>2^53,非恒等缩放将丢精度:%d",

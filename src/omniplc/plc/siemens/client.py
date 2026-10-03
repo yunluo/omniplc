@@ -253,7 +253,9 @@ def _new_client(dll_path: str) -> Any:
         _SNAP7_ERRORS = (RuntimeError, error_base)
     try:
         return snap7.client.Client(dll_path or None)
-    except (OSError, RuntimeError) as exc:
+    except (OSError, RuntimeError, TypeError) as exc:
+        # TypeError:dll_path 误传非 str 等 Client() 构造期类型错,同走
+        # 提示文案(review-1005 P3;原来仅捕 OSError/RuntimeError)
         raise OSError(
             _("snap7 原生库加载失败:{}(3.7~3.9 用 python-snap7 1.3:64 位"
             " Python 可用捆绑 DLL,32 位需自备 32 位 snap7.dll 经 dll_path"
@@ -345,6 +347,12 @@ class _S7Session(BaseTransport):
         try:
             client.connect(self._ip_address, self._rack, self._slot, self._port)
         except _SNAP7_ERRORS as exc:
+            # 连接失败也须销毁 Client:1.x/3.x 均持 snap7 C 库句柄,不
+            # destroy 则句柄随反复失败重连在进程内累积(review-1005 P1)
+            try:
+                client.destroy()
+            except Exception:
+                pass
             raise OSError(
                 _("S7 连接失败:{}(可能原因:① IP/机架/槽位不符;② 网络/防火墙阻断 "
                 "ISO-on-TCP 102;③ 1200/1500 未开启 PUT/GET 访问授权)").format(exc)
@@ -426,6 +434,10 @@ class _S7Session(BaseTransport):
         """
         client = self._require_client()
         if getattr(type(client), "MAX_VARS", None) is not None:
+            # 3.x 优化器路径单条目失败**不静默填零**:snap7 3.2.0 的
+            # extract_multi_read_data 对任一条目 return_code != 0xFF 即抛
+            # S7ProtocolError(∈ S7Error 谱系,被 _SNAP7_ERRORS 覆盖)——
+            # 「部分失败静默收零字节」系 review-1005 误报裁决,勿再报勿改
             items = [
                 {
                     "area": getattr(_snap7_area(area), "value", _snap7_area(area)),
@@ -500,14 +512,14 @@ class _S7Session(BaseTransport):
            disconnect 后)时同样按断连处理。
         """
         if not self._is_connected() or _is_snap7_transport_error(exc):
-            raise OSError(_("S7 连接已断:{}").format(exc))
+            raise OSError(_("S7 连接已断:{}").format(exc)) from exc
         message = _("S7 错误:{}").format(exc)
         if db_number:
             message += (
                 _("(按绝对地址访问 DB 失败:若为 S7-1200/1500,请确认该 DB ")
                 + _("已在 TIA 中取消 Optimized block access)")
             )
-        raise DeviceError(message, 0)
+        raise DeviceError(message, 0) from exc
 
     def _is_connected(self) -> bool:
         """取 snap7 本地连接态标志(不产生网络流量;异常视为断连)。
@@ -725,7 +737,9 @@ class SiemensS7Client(BaseClient):
 
         先读 1 字节取 PLC 侧声明长(STRING[x] 的 x),写入值超声明长时
         拒绝(防溢出污染相邻变量);声明长字节读得 0(未初始化区)时
-        按本次编码长度落盘(与旧版行为兼容)。
+        按本次编码长度落盘,且**回写的声明长字节 = 本次实际长**——等价
+        把 PLC 侧声明长改写为实际值(有意保留的旧版兼容口径,正常
+        STRING[x] 声明长非 0 不会走到;review-1005 §4.2 登记)。
         """
         parsed = parse_s7_address(address)
         if parsed.bit is not None:
@@ -806,6 +820,11 @@ class SiemensS7Client(BaseClient):
         return convert.decode_string(data[4:4 + actual * 2], "utf-16-be")
 
     def _write_wstring_impl(self, address: str, value: str) -> PrimitiveValue:
+        """写 S7 WString 实现(内部方法,异常经 :meth:`write_wstring` 翻译)。
+
+        声明长读得 0(未初始化区)时回写声明长 = 本次实际长——与
+        STRING 同款旧版兼容口径(有意保留,review-1005 §4.2 登记)。
+        """
         parsed = parse_s7_address(address)
         if parsed.bit is not None:
             raise ValueError(_("S7 字符串地址不带位号:{!r}").format(address))

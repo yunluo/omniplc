@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 import struct
+import sys
+import types
 from typing import Any, Iterator, Optional
 
 import pytest
@@ -16,6 +18,7 @@ from omniplc import SiemensS7Client
 from omniplc.aio import ASiemensS7Client
 from omniplc.plc.siemens import parse_s7_address
 from omniplc.plc.siemens import client as s7_module
+from omniplc.core.errors import DeviceError
 from omniplc.core.types import DataType
 
 _AREA_I, _AREA_Q, _AREA_M, _AREA_DB = 0x81, 0x82, 0x83, 0x84
@@ -725,6 +728,44 @@ def test_connect_failure_message_lists_causes(monkeypatch: pytest.MonkeyPatch) -
     client = SiemensS7Client("127.0.0.1")
     assert client.connect() is False
     assert client.last_error is not None and "PUT/GET" in client.last_error
+
+
+def test_connect_failure_destroys_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """连接失败也 destroy():C 库句柄不随反复失败重连进程级累积(review-1005 P1)。"""
+    fake = FakeS7Client()
+    fake.connect_error = RuntimeError("TCP : Connection refused")
+    monkeypatch.setattr(s7_module, "_new_client", lambda dll_path: fake)
+    client = SiemensS7Client("127.0.0.1")
+    assert client.connect() is False
+    assert fake.destroyed is True
+
+
+def test_link_aware_chains_original_cause(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_raise_link_aware 显式 from exc:DeviceError.__cause__ = snap7 原始异常(review-1005 P3)。"""
+    client, fake = _client(monkeypatch)
+    transport = client._transport
+    boom = RuntimeError("CPU : Address out of range")
+    fake.read_error = boom
+    with pytest.raises(DeviceError) as exc_info:
+        transport.read_area(_AREA_DB, 1, 0, 4)
+    assert exc_info.value.__cause__ is boom
+
+
+def test_new_client_type_error_translated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Client() 构造抛 TypeError(dll_path 误传非 str 等)→ 同走加载失败文案(review-1005 P3)。"""
+
+    class _BoomClient:
+        def __init__(self, *_args: Any) -> None:
+            raise TypeError("dll_path must be a string")
+
+    stub_pkg = types.ModuleType("snap7")
+    stub = types.ModuleType("snap7.client")
+    stub.Client = _BoomClient
+    stub_pkg.client = stub
+    monkeypatch.setitem(sys.modules, "snap7", stub_pkg)
+    monkeypatch.setitem(sys.modules, "snap7.client", stub)
+    with pytest.raises(OSError, match="snap7 原生库加载失败"):
+        s7_module._new_client(None)
 
 
 # ----------------------------------------------------------------------

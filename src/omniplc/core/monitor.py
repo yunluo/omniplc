@@ -70,7 +70,6 @@ from enum import Enum
 from itertools import count
 from typing import (
     TYPE_CHECKING,
-    Any,
     Callable,
     Dict,
     List,
@@ -288,6 +287,9 @@ class Monitor:
             raise ValueError(_("点位标识必须为非空字符串,收到:{!r}").format(tag_id))
         if not isinstance(address, str) or not address.strip():
             raise ValueError(_("点位 {!r} 的地址必须为非空字符串").format(tag_id))
+        # 校验仅以 strip() 拒"全空白",地址按原文存取:含首尾空白的地址由
+        # 各协议 parse 层裁断(多数 strip().upper(),个别显式报错),参数类
+        # 失败由 _cycle 组级兜底接住,线程不死(有意保留,review-1006 §九 D7)
         try:
             dtype = DataType.coerce(data_type)
         except ValueError as exc:
@@ -321,9 +323,7 @@ class Monitor:
         无锁拷贝(review-1006 P3⑤;单写者线程 + GIL,仅观测级撕裂):
         跨键可能读到跨周期中间态,单键恒一致。
         """
-        merged: Dict[str, Any] = dict(self._counters)
-        merged.update(self._timestamps)
-        return cast(MonitorStats, merged)
+        return cast(MonitorStats, dict(self._counters, **self._timestamps))
 
     # ------------------------------------------------------------------
     # 生命周期
@@ -418,6 +418,8 @@ class Monitor:
         while not self._stop_event.is_set():
             self._cycle()
             if self._stop_event.is_set():
+                # 显式短路:终拍不再落到下方慢周期记账(删之则末拍恰为慢
+                # 周期会多计一次 slow_cycles;有意保留,review-1006 §九 D2)
                 break
             now = _monotonic()
             if now >= next_deadline:
@@ -464,9 +466,11 @@ class Monitor:
                 continue
             for point, pair in zip(group, pairs):
                 ok, value = pair
+                # 防御性强制:read_many 契约返 bool,容忍驱动/打桩的非严格
+                # 返回(有意保留,review-1006 §九 D4)
                 ok = bool(ok)
                 results[point.tag_id] = (ok, value)
-                if ok and value is not None:
+                if self._is_good_read(ok, value):
                     any_ok = True
         self._timestamps["last_duration"] = _monotonic() - started
         self._counters["cycle_count"] += 1
@@ -489,6 +493,8 @@ class Monitor:
         for tag_id, point in self._points.items():
             previous = previous_snap[tag_id]
             ok, raw = results.get(tag_id, (False, None))
+            # 与 _is_good_read 同谓词(内联保 mypy 对 _apply_scale 非 None
+            # 实参收窄;互锚防漂移,review-1006 §九 D5)
             if ok and raw is not None:
                 quality = MonitorQuality.GOOD
                 value = self._apply_scale(point, raw)
@@ -512,6 +518,16 @@ class Monitor:
             self._fire_change(event)
 
     @staticmethod
+    def _is_good_read(ok: bool, value: Optional[PrimitiveValue]) -> bool:
+        """成功读判定(read_many 契约 ok=True 且值非 None)。
+
+        周期读循环(any_ok 记账)与快照循环(降质判定)两处同谓词:
+        读循环调本助手,快照循环保内联(mypy 为 ``_apply_scale`` 非 None
+        形参收窄)——互锚防漂移(review-1006 §九 D5)。
+        """
+        return bool(ok) and value is not None
+
+    @staticmethod
     def _changed(previous: PointSnapshot, current: PointSnapshot) -> bool:
         """变更判定:值变化(双 NaN 视为未变)或质量跨越 GOOD↔非GOOD 边界。"""
         if (previous.quality is MonitorQuality.GOOD) != (current.quality is MonitorQuality.GOOD):
@@ -528,7 +544,9 @@ class Monitor:
         if point.scale == 1.0 and point.offset == 0.0:
             return value
         if isinstance(value, int) and not isinstance(value, bool) and abs(value) > 2 ** 53:
-            # 非恒等缩放必经 float64:|值| > 2^53 时低位静默丢失,至少告警
+            # 非恒等缩放必经 float64:|值| > 2^53 时低位静默丢失,至少告警。
+            # not isinstance(value, bool) 在此恒真(bool 已在首分支直通)——
+            # 保留以求与 base_client.read_tag 同构(有意保留,review-1006 §九 D1)
             log_warning(
                 getattr(self._client, "_debug_label", "omniplc"),
                 "monitor 点位 %s 为 64 位整数且 |值|>2^53,非恒等缩放将丢精度:%d",

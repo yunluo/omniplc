@@ -412,7 +412,12 @@ def _expect_ok(response: str) -> None:
 
 
 def _truncate_hex(data: bytes, limit: int = 64) -> str:
-    """十六进制转储截断(内部函数):超长只显示前 ``limit`` 字节,防刷屏。"""
+    """十六进制转储截断(内部函数):超长只显示前 ``limit`` 字节,防刷屏。
+
+    有意本地薄封装:复用 :func:`omniplc.core.debug.format_hex`,仅多一层
+    64B 预截断(KV 行短,先截再转省一跳)——review-1005 §4.2 裁决不
+    上移不合并,勿再报重复。
+    """
     if len(data) <= limit:
         return format_hex(data)
     return "{}...(共 {} 字节,其余省略)".format(format_hex(data[:limit]), len(data))

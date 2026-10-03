@@ -83,16 +83,18 @@ _INT_RANGES = {
 
 
 def _load_pyads() -> Optional[Any]:
-    """加载 pyads 模块;任何失败(未安装/缺 TcAdsDll)返回 None(内部函数)。
+    """加载 pyads 模块;未安装/缺 TcAdsDll 返回 None(内部函数)。
 
-    注意 Windows 缺 Beckhoff 运行库时 ``import pyads`` 抛 OSError
-    而非 ImportError,故按 Exception 全量捕获。
+    只捕 ImportError(未安装)与 OSError(Windows 缺 Beckhoff 运行库时
+    ``import pyads`` 抛 OSError 而非 ImportError);其余异常(MemoryError
+    等)向上抛——真正的运行环境崩溃不得静默伪装成"pyads 不可用"
+    (review-1005 P2)。
     """
     try:
         import pyads
 
         return pyads
-    except Exception:
+    except (ImportError, OSError):
         return None
 
 
@@ -135,7 +137,14 @@ def _translate_ads_error(exc: BaseException) -> OmniPLCInternalError:
     pyads = _load_pyads()
     error_class = getattr(pyads, "ADSError", None) if pyads is not None else None
     if error_class is not None and isinstance(exc, error_class):
-        code = int(getattr(exc, "err_code", 0) or 0)
+        try:
+            code = int(getattr(exc, "err_code", 0) or 0)
+        except (TypeError, ValueError):
+            # err_code 非数值(pyads 版本差异/绑定变化)按 0 兜底:翻译函数
+            # 自身绝不能抛,否则 TypeError/ValueError 从 _execute 的
+            # OSError/OmniPLCInternalError/DeviceError 三分支之外逃逸
+            # (review-1005 P1)
+            code = 0
         if code in _ADS_TRANSPORT_ERROR_CODES:
             return TransportClosedError(
                 _("ADS 连接失效 0x{:08X}:{}(下次事务将重连)").format(code, exc)
@@ -210,7 +219,7 @@ class _AdsSession(BaseTransport):
         try:
             connection = pyads.Connection(self._net_id, self._ads_port)
         except Exception as exc:
-            raise OSError(_("ADS 连接对象创建失败:{}").format(exc))
+            raise OSError(_("ADS 连接对象创建失败:{}").format(exc)) from exc
         try:
             connection.open()
         except OSError:
@@ -220,7 +229,7 @@ class _AdsSession(BaseTransport):
             _safe_close(connection)
             raise OSError(
                 _("ADS 连接失败:{}({})").format(type(exc).__name__, exc)
-            )
+            ) from exc
         self._connection = connection
         try:
             connection.set_timeout(int(self._receive_timeout * 1000))
@@ -473,6 +482,13 @@ class BeckhoffAdsClient(BaseClient):
         常量即 1024,``STRING(120)`` 等可完整读回);>1023 字符才会截。
         ``length`` 是本库读出后的再截断,不影响传输。
         """
+        if encoding.lower().replace("-", "").replace("_", "") not in ("utf8", "u8", "ascii"):
+            # pyads 读串固定按 UTF-8 解码:显式多字节编码(gb2312 等)拒绝,
+            # 防"传 gb2312 静默按 utf-8 解码"的编码错配;ascii 为基类缺省且
+            # ASCII ⊂ UTF-8(纯 ASCII 内容无错配),放行保兼容(review-1005 P1)
+            raise ValueError(
+                _("ADS STRING 编码固定 utf-8,收到:{}").format(encoding)
+            )
         text = _check_address(address)
         value = self._session().read_by_name(text, _PLCTYPE_NAMES[DataType.STRING])
         if not isinstance(value, str):
@@ -486,10 +502,19 @@ class BeckhoffAdsClient(BaseClient):
 
         pyads 按 **UTF-8 字节**编码后写入,而声明长度按 **字符数** 口径——
         预检必须同样按字节数比较,否则 80 个汉字(240 字节)会以
-        ``len=80 <= 80`` 绕过检查,溢出污染相邻变量。
+        ``len=80 <= 80`` 绕过检查,溢出污染相邻变量。``encoding`` 仅接受
+        utf-8 家族与基类缺省 ``ascii``(ASCII ⊂ UTF-8,无错配),其余
+        ValueError(读侧同口径)。
         """
         if not isinstance(value, str):
             raise ValueError(_("字符串必须是 str,收到:{}").format(type(value).__name__))
+        if encoding.lower().replace("-", "").replace("_", "") not in ("utf8", "u8", "ascii"):
+            # pyads 写串固定按 UTF-8 编码:显式多字节编码(gb2312 等)拒绝,
+            # 防"传 gb2312 静默按 utf-8 落盘";ascii 为基类缺省且 ASCII ⊂
+            # UTF-8,放行保兼容(review-1005 P1)
+            raise ValueError(
+                _("ADS STRING 编码固定 utf-8,收到:{}").format(encoding)
+            )
         text = _check_address(address)
         declared = _declared_string_chars(self._session().symbol_type(text))
         byte_len = len(value.encode("utf-8"))
