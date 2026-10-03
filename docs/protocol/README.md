@@ -16,7 +16,6 @@ omniplc 实现的各品牌 / 协议族对应的**厂商手册与公开规范**,�
 
 ```
 docs/protocol/
-├── beckhoff/      倍福 — TwinCAT 3 ADS 基础 + TwinCAT 2 ADS
 ├── hikrobot/      海康机器人 — 智能读码器工业协议操作手册(五种从站模式)+ 通信指令手册 + ID2000/ID3000 用户手册 + MvCodeReaderSDK C 指南(Development 开发包)+ 固件版本要求
 ├── inovance/      汇川 — H3U/H3S + H5U/Easy 编程手册
 ├── keyence/       基恩士 — SR-2000 1D/2D 扫码枪用户手册(中文)
@@ -84,8 +83,6 @@ docs/protocol/
 | ABB | OPC Unified Architecture 厂商视角 | [opcua/ABB_OPC_Unified_Architecture.pdf](./opcua/ABB_OPC_Unified_Architecture.pdf) | ABB(经 SCADAhacker 镜像) |
 | Honeywell | OPC-UA Training Presentation | [opcua/Honeywell_OPC-UA_Training_Presentation.pdf](./opcua/Honeywell_OPC-UA_Training_Presentation.pdf) | Honeywell(经 SCADAhacker 镜像) |
 | Matrikon | Guide to OPC | [opcua/Matrikon_Guide_to_OPC.pdf](./opcua/Matrikon_Guide_to_OPC.pdf) | Matrikon(经 SCADAhacker 镜像) |
-| 倍福 | TwinCAT 3 ADS 基础(TE1000) | [beckhoff/Beckhoff_TwinCAT3_ADS_Basics_TE1000.pdf](./beckhoff/Beckhoff_TwinCAT3_ADS_Basics_TE1000.pdf) | Beckhoff |
-| 倍福 | TwinCAT 2 ADS(TX1000) | [beckhoff/Beckhoff_TwinCAT2_ADS_TX1000.pdf](./beckhoff/Beckhoff_TwinCAT2_ADS_TX1000.pdf) | Beckhoff |
 | 西门子 | S7 通讯系统(Industrial Ethernet) | [siemens/Siemens_S7_Communication_System_IndustrialEthernet.pdf](./siemens/Siemens_S7_Communication_System_IndustrialEthernet.pdf) | MN_s7-cps-ie_76 |
 | 西门子 | S7-1500 通讯功能手册 | [siemens/Siemens_S7-1500_Communication_Function_Manual.pdf](./siemens/Siemens_S7-1500_Communication_Function_Manual.pdf) | s71500_communication_function_manual |
 | 西门子 | CPU-CPU 通讯 Compendium | [siemens/Siemens_CPU-CPU_Communication_Compendium.pdf](./siemens/Siemens_CPU-CPU_Communication_Compendium.pdf) | 78028908 |
@@ -120,7 +117,6 @@ omniplc 已实现且**有部分覆盖**但关键官方手册仍缺的协议:
 omniplc 已实现且**完全覆盖**的协议(已从本表移除,详见「已收录」):
 
 - 欧姆龙 NJ/NX CIP — `omron/`(W506 + W627 + FINS W342)
-- 倍福 TwinCAT ADS — `beckhoff/`(TwinCAT 3 ADS TE1000 + TwinCAT 2 ADS TX1000)
 - 西门子 S7 — `siemens/`(S7 通讯系统 + S7-1500 + CPU-CPU Compendium + 精简版)
 - 汇川 — `inovance/`(H3U/H3S + H5U/Easy)
 

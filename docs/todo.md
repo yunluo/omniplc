@@ -44,7 +44,6 @@
 - **FINS** 32/64 位多字值字序(低字在前、字内大端)真机读回比对
 - **S7** 半开断连三形态(拔线/断电/路由黑洞)、1200/1500 PUT-GET 授权提示充分性、
   MAX_VARS=20 与 snap7 3.x 实际值
-- **ADS** `set_timeout` 实际生效平台、STRING_BUFFER=1024 随 pyads 升版变化
 - **TOYOPUC** X/Y 与 T/C 同址(第一优先)、M0100W/M0201L 字索引支持面、M0201.5 点号形式
 - **KV Host Link** 帧面三项(端口 8000 vs 8001、有无 FCS/BCC、有无 `##` 帧头)、
   KV MC 位组记号编号口径、0101 CPU 型号支持面
@@ -93,7 +92,7 @@
 - **protocol-features §4 MX**:
   `SetCpuStatus` 远程控制已在 §2/§4 标「有意不做」
 - **PLC 子包 `__init__.py`**:
-  公共 API 顶层导出统一(ABeckhoffAdsClient/ASiemensS7Client 等)
+  公共 API 顶层导出统一(ASiemensS7Client 等)
 - **constants.py**:
   `MX_MAX_BLOCK_WORDS=960` 数值依据注释、
   MX_BIT_DEVICES 表外 SD 字软元件分类口径

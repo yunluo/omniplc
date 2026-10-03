@@ -41,7 +41,6 @@
 | AB 0x0A 多服务包批量读  | AB Logix         | 已实现(超 32 条/480B 自动拆包),通用模拟器不支持,待真机核证 |
 | AB connected RPI  | AB Logix         | RPI 默认 100ms(`rpi_us` 可配)、CIP 0x01/0x07 重连,待真机核证 |
 | NJ CIP 0x0A 多服务包 | 欧姆龙 NJ/NX CIP    | 继承 AB,理论同,待真机核证                |
-| 倍福 ADS           | TwinCAT          | 封装 pyads,需 TwinCAT 运行时;transport 通断码依 TE1000 §8 修正(0x06/0x07/0x0D/0x12/0x1B/0x1D + Router 0x0500~0x050D)、`set_timeout` 告警待真机核证 |
 | 西门子 S7           | S7-300/1200/1500 | 封装 python-snap7,需 PLC 或 PLCSIM;STRING/WSTRING 读截断·写保留声明长、优化块访问错误提示待真机核证 |
 | NJ STRING / BOOL 数组 | 欧姆龙 NJ/NX CIP    | 已实现(STRING 按 `len(u32)+字符`、BOOL 按元素自描述,回 DWORD 时 `//32` 回退),待真机核证 |
 | MC 新设备码          | 三菱 Q/L/R         | L/F/SB/V/DX/DY/TS/TC/TN/CS/CC/CN/SM/SD/SW 已实现,待真机核证(TN=0xC3/CN=0xC6 为推定) |
@@ -58,7 +57,7 @@
 | 海康 ID 读码器 TCP 命令协议 | HikrobotIdTcpClient | 按通信指令手册 V1.0.3 + ID2000/ID3000 用户手册实现(命令应答/结果推送双通道),待真机核证(要点见核验记录表该行备注) |
 | 海康 ID 读码器 MvCodeReaderSDK | HikrobotIdSdkClient | 按 SDK V2.0.0 ctypes 封装(假函数表测试,真 DLL 未联测),待真机核证(要点见核验记录表该行备注) |
 | 海康 ID 读码器 RS-232 串口 | HikrobotIdSerialClient | 按 ID2000/ID3000 用户手册 + 通信指令手册实现(文本触发 + 结果行,SR 同型),待真机核证(要点见核验记录表该行备注) |
-| 心跳探测命令 ping/0601 | FINS / KV MC / 松下 MC / S7 / ADS | ①FINS 0601 状态读应答布局(Status/Mode 两字节分立 + 26 字节总数)按 W342 §5-3-17 印刷页 194-196 解码,Mode 高半字节合位的变体待真机抓包排除;②KV MC / 松下 MC 对 0101 CPU 型号读的支持面待真机(不支持则 ping 恒 False,心跳失败计数增长但不断线);③S7 `get_cpu_state` 与 ADS `read_state` 为 snap7/pyads 直传,随真机联测核证 |
+| 心跳探测命令 ping/0601 | FINS / KV MC / 松下 MC / S7 | ①FINS 0601 状态读应答布局(Status/Mode 两字节分立 + 26 字节总数)按 W342 §5-3-17 印刷页 194-196 解码,Mode 高半字节合位的变体待真机抓包排除;②KV MC / 松下 MC 对 0101 CPU 型号读的支持面待真机(不支持则 ping 恒 False,心跳失败计数增长但不断线);③S7 `get_cpu_state` 为 snap7 直传,随真机联测核证 |
 
 ---
 
@@ -81,7 +80,6 @@
 | 欧姆龙 | NJ/NX CIP(connected, Forward Open) | | | |
 | 罗克韦尔 | EtherNet/IP(unconnected) | | | 0x0A 多服务包自动拆包预算(≤32 条 / ≤480B)待真机核证(connected Large 4002 下 480B 偏保守,仅影响拆包次数) |
 | 罗克韦尔 | EtherNet/IP(connected, Forward Open) | | | RPI 默认 100ms(`rpi_us` 可覆盖)、CIP 0x01/0x07 断线重连、Forward Close 应答解析待真机核证 |
-| 倍福 | TwinCAT ADS | | | transport 通断码按 TE1000 §8 分流(v0.43.0 修正口径:0x06/0x07/0x0D/0x12/0x1A/0x1B/0x1D + Router 0x0500~0x050D)、`set_timeout` 返回值告警待真机核证;review-1005 补录:`set_timeout` 实际生效的平台/固件(TwinCAT 3 v4.x 多版本)、pyads 升版后 `STRING_BUFFER`(现钉 1024)是否变化 |
 | 西门子 | S7-300/1200/1500 | | | STRING/WSTRING 读超长按 `length` 截断、写保留 PLC 侧声明长(超声明长拒绝);优化块访问错误提示、PUT/GET 缺失文本细分待真机核证;review-1005 补录:半开断连三形态(拔线/断电/路由黑洞)C 库抛文本落点、`Cli_GetConnected` 1.x 半开不翻转、`MAX_VARS=20` 在 snap7 3.x 实际值、1200/1500 PUT/GET 提示充分性、`dll_path` 32 位 WinError 193 链路、WString 代理对(U+20000)拒绝路径 |
 | 汇川 | H3U/H5U Modbus TCP | 汇川 H5U 系列 ✓ | 汇川 H5U 系列 ✓ | 2026-09-28 真机读写通过(`InovanceTcpClient`,汇川 TCP/502) |
 | 汇川 | H3U/H5U Modbus RTU | | | |

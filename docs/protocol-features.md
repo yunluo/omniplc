@@ -75,7 +75,6 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 | 欧姆龙 FINS TCP/UDP | 0601 CPU Unit Status Read | W342 §5-3-17 印刷页 194-196;另公开 `read_cpu_unit_status()`(状态/模式/错误字解码) |
 | AB EtherNet/IP | Identity Object GetAttributesAll | CIP Vol 1 §5-4;复用 `get_plc_info()` |
 | 西门子 S7 | snap7 `GetCpuState` | 另公开 `get_cpu_state()`(枚举名透传,RUN/STOP);1.3/3.2 双轨核实 |
-| 倍福 ADS | pyads `read_state` | 另公开 `read_state()`((adsState, deviceState),5=RUN/7=STOP) |
 | OPC-UA | 读 `i=2258` Server 当前时间 | 0 命名空间标准变量(asyncua `nodes.current_time` 同款);顺带抑制空闲会话回收 |
 | MTConnect | GET `/probe` | Part1 §8.3.1 p.98-100 |
 | 海康 Modbus 模式 | FC03 读状态字 REG1 | 工业协议手册 V1.0.4 §3.5;不触发扫描握手 |
@@ -237,24 +236,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 
 ---
 
-## 8. 倍福 TwinCAT ADS(TE1000 / TX1000,pyads 封装)
-
-客户端:`BeckhoffAdsClient`
-
-| 功能 | 状态 | 备注 |
-|---|---|---|
-| 按符号名读/写(read_by_name / write_by_name) | ✅ | net_id 缺省由 IP 自动推导 |
-| 符号类型自描述 | ✅ | `symbol_type` |
-| DataType ↔ pyads PLCTYPE 映射 | ✅ | |
-| 字符串 | ✅ | 声明长度自适应 |
-| 按 index group/offset 裸读写 | ❌ | pyads 能力未暴露 |
-| SUM 读/写(0xF080/0xF081 多条打包) | ❌ | 未实现 |
-| 设备信息/状态(ReadDeviceInfo / ReadState / WriteControl) | ❌ | 未实现 |
-| ADS 通知(Add/DeleteDeviceNotification) | ❌ | 未实现 |
-
----
-
-## 9. 基恩士 KV Host Link(手册待补)
+## 8. 基恩士 KV Host Link(手册待补)
 
 客户端:`KeyenceHostLinkTcpClient` / `KeyenceHostLinkUdpClient`
 
@@ -270,7 +252,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 
 ---
 
-## 10. 基恩士 KV MC 兼容(SLMP 3E)
+## 9. 基恩士 KV MC 兼容(SLMP 3E)
 
 客户端:`KeyenceMcTcpClient` / `KeyenceMcUdpClient`(继承三菱 MC)
 
@@ -282,7 +264,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 
 ---
 
-## 11. 汇川 H3U/H5U(Modbus 映射)
+## 10. 汇川 H3U/H5U(Modbus 映射)
 
 客户端:`InovanceModbusTcpClient` / `InovanceRtuClient`(继承 Modbus)
 
@@ -294,7 +276,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 
 ---
 
-## 12. 汇川 MC 兼容(Easy/H5U)
+## 11. 汇川 MC 兼容(Easy/H5U)
 
 客户端:`InovanceMcTcpClient`(继承三菱 MC)
 
@@ -305,7 +287,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 
 ---
 
-## 13. 松下 MC 兼容(FP0H/FP7)
+## 12. 松下 MC 兼容(FP0H/FP7)
 
 客户端:`PanasonicMcTcpClient`(继承三菱 MC)
 
@@ -316,7 +298,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 
 ---
 
-## 14. 松下 MEWTOCOL(手册待补)
+## 13. 松下 MEWTOCOL(手册待补)
 
 客户端:`PanasonicMewtocolTcpClient` / `PanasonicMewtocolUdpClient`
 
@@ -331,7 +313,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 
 ---
 
-## 15. 基恩士 SR 扫码枪(SR-2000 手册 Rev6.0)
+## 14. 基恩士 SR 扫码枪(SR-2000 手册 Rev6.0)
 
 客户端:`KeyenceSrClient`
 
@@ -346,7 +328,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 
 ---
 
-## 15A. 海康机器人 ID 系列智能读码器(工业协议手册 V1.0.4)
+## 14A. 海康机器人 ID 系列智能读码器(工业协议手册 V1.0.4)
 
 客户端:`HikrobotIdModbusClient`(继承 `ModbusTcpClient`,读码器即 Modbus TCP 从站)
 
@@ -375,7 +357,7 @@ PROFINET 为设备侧,需 RT 控制器,库无 PROFINET ❌。
 
 ---
 
-## 15B. 海康机器人 ID 系列读码器(TCP 命令协议)
+## 14B. 海康机器人 ID 系列读码器(TCP 命令协议)
 
 客户端:`HikrobotIdTcpClient`(BaseClient 子类,双通道会话)
 
@@ -403,7 +385,7 @@ PROFINET 为设备侧,需 RT 控制器,库无 PROFINET ❌。
 
 ---
 
-## 15C. 海康机器人 ID 系列智能读码器(MvCodeReaderSDK ctypes 封装)
+## 14C. 海康机器人 ID 系列智能读码器(MvCodeReaderSDK ctypes 封装)
 
 客户端:`HikrobotIdSdkClient`(BaseClient 子类,SDK 会话型)
 
@@ -428,7 +410,7 @@ PROFINET 为设备侧,需 RT 控制器,库无 PROFINET ❌。
 
 ---
 
-## 15D. 海康机器人 ID 系列读码器(RS-232 串口)
+## 14D. 海康机器人 ID 系列读码器(RS-232 串口)
 
 客户端:`HikrobotIdSerialClient`(BaseClient 子类,串口走线,SR 同型)
 
@@ -450,12 +432,12 @@ start/stop,印刷页 45-47)+ §4.7.3 串口通讯协议(印刷页 52)+《极小�
 | 半行残留断线 | ✅ | 超时后 drain:读到字节未达行尾 → 断线重同步(SR P2-13 同口径) |
 | 结果行字节上限 | ✅ | 65536(格式化模板可含多码长文本) |
 | 串口命令协议(`<Exec,TriSoft>` 走串口) | ❌ | 「通信命令控制」选 Serial 的命令帧走线与文本触发混流需按现场角色二选一,本类按文本触发口径;如需命令帧另开形态 |
-| 元数据 | ⭕ | 「输出格式化」占位符随结果行透传(SR/TC同口径);结构化元数据走 SDK 封装(§15C) |
+| 元数据 | ⭕ | 「输出格式化」占位符随结果行透传(SR/TC同口径);结构化元数据走 SDK 封装(§14C) |
 | 波特率 | — | 手册未载出厂默认,构造默认 115200 以 IDMVS 配置为准(可配 4800~115200,TriSeriBaud 印刷页 8) |
 
 ---
 
-## 16. 丰田 TOYOPUC(手册待补,同源参考实现双向裁决)
+## 15. 丰田 TOYOPUC(手册待补,同源参考实现双向裁决)
 
 客户端:`ToyopucTcpClient` / `ToyopucUdpClient`
 
@@ -470,7 +452,7 @@ start/stop,印刷页 45-47)+ §4.7.3 串口通讯协议(印刷页 52)+《极小�
 
 ---
 
-## 17. OPC-UA(IEC 62541 概览;asyncua 1.1.5 封装)
+## 16. OPC-UA(IEC 62541 概览;asyncua 1.1.5 封装)
 
 客户端:`OpcUaClient`
 
@@ -488,7 +470,7 @@ start/stop,印刷页 45-47)+ §4.7.3 串口通讯协议(印刷页 52)+《极小�
 
 ---
 
-## 18. CNC MTConnect(ANSI/MTC1.4 概览;标准库 HTTP/XML)
+## 17. CNC MTConnect(ANSI/MTC1.4 概览;标准库 HTTP/XML)
 
 客户端:`MTConnectClient`(只读)
 
@@ -506,7 +488,7 @@ start/stop,印刷页 45-47)+ §4.7.3 串口通讯协议(印刷页 52)+《极小�
 
 ---
 
-## 19. 西门子 S7(python-snap7 封装)
+## 18. 西门子 S7(python-snap7 封装)
 
 客户端:`SiemensS7Client`
 

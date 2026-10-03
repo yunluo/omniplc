@@ -4,7 +4,7 @@
 [architecture.md](architecture.md) 为准;通用约定(读写返回形状、错误处理、
 超时/重试)见 [README](README.md)「错误处理」节。
 
-安装可选依赖:`pip install 'omniplc[serial|mx|opcua|ads|s7]'`(对应小节标注)。
+安装可选依赖:`pip install 'omniplc[serial|mx|opcua|s7]'`(对应小节标注)。
 
 ## Modbus(TCP / RTU)
 
@@ -90,15 +90,6 @@ ok, values = fins.read_batch([("D100", "short"), ("CIO0.5", "bool")])  # 0104 �
 from omniplc import OmronCipClient
 nj = OmronCipClient(ip_address="192.168.0.10", connected_messaging=True)  # 连接型可选
 ok, value = nj.read_int("TestVar")
-```
-
-## 倍福 TwinCAT ADS(需 omniplc[ads] + TcAdsDll 运行库)
-
-```python
-from omniplc import BeckhoffAdsClient
-bc = BeckhoffAdsClient(ip_address="192.168.0.10", ads_port=851)  # net_id 默认 IP+.1.1
-ok, value = bc.read_int("MAIN.nCounter")
-ok, text = bc.read_string("MAIN.sRecipe")  # ADS STRING 固定 UTF-8,encoding 参数不生效
 ```
 
 ## 罗克韦尔 AB EtherNet/IP(Logix 标签)

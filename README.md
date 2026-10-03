@@ -19,9 +19,8 @@ uv add omniplc            # 或 pip install omniplc
 uv add 'omniplc[serial]'  # Modbus RTU / 三菱 MC 串口帧(pyserial)
 uv add 'omniplc[mx]'      # 三菱 MX Component(Windows)
 uv add 'omniplc[opcua]'   # OPC-UA(asyncua)
-uv add 'omniplc[ads]'     # 倍福 TwinCAT ADS(pyads + TcAdsDll 运行库)
 uv add 'omniplc[s7]'      # 西门子 S7(python-snap7,按解释器自动二选一)
-uv add 'omniplc[all]'     # 全部可选扩展(serial/mx/opcua/ads/s7,不含测试工具)
+uv add 'omniplc[all]'     # 全部可选扩展(serial/mx/opcua/s7,不含测试工具)
 ```
 
 #### 快速上手
@@ -63,7 +62,6 @@ with ModbusTcpClient(ip_address="192.168.0.10", port=502, station=1) as client:
 | 欧姆龙 FINS | ✅ 9600 | ✅ 9600 | — | — |
 | 欧姆龙 NJ/NX CIP | ✅ 44818 | — | — | — |
 | 罗克韦尔 AB EtherNet/IP(Logix) | ✅ 44818 | — | — | — |
-| 倍福 TwinCAT ADS | ✅ 851 | — | — | — |
 | 基恩士 KV Host Link | ✅ 8000 | ✅ 8000 | — | — |
 | 基恩士 KV MC 兼容(SLMP 3E) | ✅ 5000 | ✅ 5000 | — | — |
 | 汇川 H3U/H5U(Modbus 映射) | ✅ 502 | — | ✅ 9600-8N2 | — |
@@ -150,7 +148,7 @@ stats = client.stats                      # heartbeat_ok / heartbeat_fail / last
 连接建立后由守护线程按间隔自动探测,失败走与读写相同的事务口径(`last_error`
 记录、传输失败拆连后下一 tick 自动重连自愈,退避门控防重连风暴);显式
 `disconnect()` 停止。探测命令逐协议落位:Modbus FC08 回显、MC 0101 CPU 型号、
-FINS 0601 状态读、AB Identity 读取、S7 `get_cpu_state`、ADS `read_state`、
+FINS 0601 状态读、AB Identity 读取、S7 `get_cpu_state`、
 OPC-UA `i=2258` Server 时间、MTConnect `/probe`、海康读码器状态查询等——
 逐协议依据与差异见 **[docs/protocol-features.md](docs/protocol-features.md)**
 「心跳保活」节。
