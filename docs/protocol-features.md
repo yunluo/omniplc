@@ -232,7 +232,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 | `generic_message`(任意服务/类/实例) | ✅ | |
 | 字符串(STRING 4 字头)/ BOOL 数组元素 | ✅ | |
 | 分片读/写(Read/Write Tag Fragmented 0x52/0x53) | ❌ | 超大字符串/数组受限 |
-| 标签列表枚举(Get_Instance_Attribute_List 0x55) | ❌ | 未实现 |
+| 标签列表枚举 `list_tags`(Get_Instance_Attribute_List 0x55) | ✅ | 自动分页(状态 0x06 以最大实例+1 续传,轮数上限防不收敛);属性 1(名)/2(类型)/8(维度),返回 `AbTagEntry`(含 is_struct/dims);帧面经 pycomm3 1.2.16 / pylogix 1.1.6 双参考实现对照,**1756-PM020 手册待补(docs/protocol「待补」)**;首期控制器域,程序域逐程序枚举未实现;NJ/NX 覆写为显式拒绝(Symbol Object 是 Logix 私有面) |
 | CIP Security | ➖ | 永不考虑(内网部署口径,项目红线) |
 
 ---

@@ -78,7 +78,7 @@
 | 欧姆龙 | FINS UDP | 欧姆龙 CP1H ✓ | 欧姆龙 CP1H ✓ | 32/64 位值(REAL/DINT/LINT/LREAL/UDINT)**读回核证**:2026-09-30 修正多字值字序为"低字在前、字内大端"(原误作整体大端),既往真机只核过位/单字;请以 CX-Programmer 写入 REAL(如 100.5 → D100=0/D101=0x42C9)后经库读回比对 |
 | 欧姆龙 | NJ/NX CIP(unconnected) | | | BOOL 数组按元素访问(应答类型自描述,回 DWORD 时按 Logix `//32` 回退)与 STRING(`len(u32)+字符`,写入回带模板号)待真机核证 |
 | 欧姆龙 | NJ/NX CIP(connected, Forward Open) | | | |
-| 罗克韦尔 | EtherNet/IP(unconnected) | | | 0x0A 多服务包自动拆包预算(≤32 条 / ≤480B)待真机核证(connected Large 4002 下 480B 偏保守,仅影响拆包次数) |
+| 罗克韦尔 | EtherNet/IP(unconnected) | | | 0x0A 多服务包自动拆包预算(≤32 条 / ≤480B)待真机核证(connected Large 4002 下 480B 偏保守,仅影响拆包次数);**`list_tags`(0x55)点位枚举待真机核证**:①应答布局(instance UDINT + SHORT_STRING 名 + type UINT + 3×UDINT 维度)与分页状态 0x06 语义(双参考实现对照裁决,1756-PM020 手册待补);②程序域 `Program:` 标签是否出现在控制器域枚举;③大点位表(>1 万)分页轮数实测 |
 | 罗克韦尔 | EtherNet/IP(connected, Forward Open) | | | RPI 默认 100ms(`rpi_us` 可覆盖)、CIP 0x01/0x07 断线重连、Forward Close 应答解析待真机核证 |
 | 西门子 | S7-300/1200/1500 | | | STRING/WSTRING 读超长按 `length` 截断、写保留 PLC 侧声明长(超声明长拒绝);优化块访问错误提示、PUT/GET 缺失文本细分待真机核证;review-1005 补录:半开断连三形态(拔线/断电/路由黑洞)C 库抛文本落点、`Cli_GetConnected` 1.x 半开不翻转、`MAX_VARS=20` 在 snap7 3.x 实际值、1200/1500 PUT/GET 提示充分性、`dll_path` 32 位 WinError 193 链路、WString 代理对(U+20000)拒绝路径 |
 | 汇川 | H3U/H5U Modbus TCP | 汇川 H5U 系列 ✓ | 汇川 H5U 系列 ✓ | 2026-09-28 真机读写通过(`InovanceTcpClient`,汇川 TCP/502) |
