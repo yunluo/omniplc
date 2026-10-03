@@ -287,3 +287,41 @@ ok, wtext = s7.read_wstring("DB1.DBW40", length=32) # S7 WString(UTF-16,中文/�
 | OPC-UA | UA Read 原生多节点(asyncua 单请求) |
 | MX Component | 16 位类型合并 ReadDeviceRandom;32/64 位类型各走一笔块读 |
 | Modbus | 按 (区域,类型) 分组、组内连续地址合并为单条 FC(K 笔,典型 1 笔) |
+
+## 采集 → MQTT 上行(可选,需 paho-mqtt)
+
+「读 PLC → 发消息队列」是平台化数采的常见形态(工业网关的核心场景)。
+omniplc 只负责采集,MQTT 客户端用任意库(下例 [paho-mqtt](https://pypi.org/project/paho-mqtt/)):
+`pip install paho-mqtt`。本库核心保持零第三方依赖,MQTT 永远不进依赖树。
+
+```python
+import json
+import time
+
+import paho.mqtt.client as mqtt
+
+from omniplc import ModbusTcpClient, Tag, TagTable
+
+POINT_TABLE = TagTable([
+    Tag(tag_id="furnace_temp", address="hr100", data_type="float", remark="炉温"),
+    Tag(tag_id="pump_running", address="c0",    data_type="bool",   remark="泵运行"),
+])
+
+mq = mqtt.Client(client_id="omniplc-collector")
+mq.connect("broker.local", 1883)            # 生产环境请加 TLS/凭据(由 broker 侧决定)
+mq.loop_start()
+
+with ModbusTcpClient("192.168.0.10", 502, 1) as client:
+    client.bind_tags(POINT_TABLE)
+    while True:
+        payload = {}
+        for tag_id in POINT_TABLE:                   # TagTable 是只读 Mapping
+            ok, value = client.read_tag(tag_id)
+            payload[tag_id] = value if ok else None  # 失败不中断整轮上报
+        mq.publish("shop1/line1/plc1", json.dumps(payload), qos=0)
+        time.sleep(1.0)                              # 采集周期
+```
+
+要点:失败点上报 `None` 而不是中断整轮(平台侧看得到"断点"才能告警);
+高频采集请改用 `create_monitor`(内置轮询 + 快照 + 变更事件)驱动上报,
+避免手工循环里轮询间隔漂移。上报通道的鉴权/TLS 属平台侧配置,与本库无关。
