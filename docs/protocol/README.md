@@ -96,6 +96,7 @@ omniplc 已实现且**仍完全无对应文档**的协议(需厂商账号或付�
 
 | 协议 | 缺口 | 关联客户端 |
 |---|---|---|
+| 日立/Via Mechanics MARK 系钻孔机 | Host 外部通信手册(SECS/GEM 选配说明、Host Link 报文格式)——向 Via 代理商索取(机种编号 + MARK 软件版本);公开渠道零文档。数采计划暂缓(todo 排期 #11,优先级:现场网关 OPC-UA/Modbus > Host Link 立项 > SECS 自研不做) | (未实现,暂缓) |
 | FANUC FOCAS | FOCAS 库手册 + `fwlib32.h`(FANUC 官方 Development 包,需账号/经销商渠道)——DLL 封装族待拿依据(todo 排期 #9) | (未实现,规划 `cnc/`) |
 | 三菱 CNC EZSocket | EZSocket 库手册 + SDK 头文件(三菱 CNC 渠道)——DLL 封装族待拿依据(todo 排期 #10) | (未实现,规划 `cnc/`) |
 | 松下 FP | FP0H/FP7 通信手册 MC 篇 / MEWTOCOL-COM 手册(拿到后一并核:TC/CC 位写线圈命令的码表,松下独有——review-1005) | `PanasonicMcTcpClient` / `PanasonicMewtocolTcpClient` |

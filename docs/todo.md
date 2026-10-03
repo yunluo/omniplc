@@ -30,6 +30,7 @@
 | 8 | README「AI 欢迎策略」章节 | P3 | libplctag AI Policy 先例:**承认本项目大量使用 AI**(实现/测试/文档全程 AI 辅助)并欢迎 AI 辅助贡献;协作指引指向 AGENTS.md(协议引用铁律/全中文/门禁)与 CONTRIBUTING.md | 待实现 |
 | 9 | FANUC FOCAS DLL 封装(`cnc/`) | P3 | **计划见下节「DLL 封装族」**;fwlib32/64.dll,厂商运行库前置;2026-10-03 用户拍板列计划 | 计划已列 |
 | 10 | 三菱 CNC EZSocket DLL 封装(`cnc/`) | P3 | **计划见下节「DLL 封装族」**;SDK/手册待拿,绑定形态(ctypes/comtypes)拿到后裁决 | 计划已列 |
+| 11 | 日立(Via Mechanics)MARK 30/50/55 钻孔机数采 | P3 | **计划见下节;暂缓**(2026-10-03 用户裁决:先列计划,暂不考虑实现);MARK = Via 自研 CNC,FOCAS/EZSocket 不适用,公开零文档 | 计划已列·暂缓 |
 
 ### S7comm 自研计划骨架(立项级,2026-10-03 拍板)
 
@@ -89,6 +90,27 @@ snap7 封装现状);协议无官方规范,帧面争议以抓包样本裁决。�
    走 comtypes(同 MX Component 先例)——两者库内都有成熟模板;
 3. 面向:CNC 数据采集(与 MTConnect 同域),首期只读;
 4. 真机前置(判据同 ADS:部署面复杂、厂商运行库)——真机清单登记后启动。
+
+### 日立/Via Mechanics MARK 系钻孔机数采计划(暂缓,2026-10-03)
+
+**背景**:MARK 30/50/55 = Via Mechanics(原日立産機,2021 分立)PCB 钻孔机
+自研 CNC 系统(ND-5/ND-6 系机身),**非 FANUC/MELDAS 通用数控**——DLL 封装
+族(#9/#10)不适用;通信规范(SECS/GEM 选配、Host Link 私有协议、FTP 程序
+传输)全部厂商 NDA 资料,公开渠道零文档。
+
+**三条路径与预裁决**:
+1. **现场网关优先(零开发)**:MARK 工控机形态,PCB 厂常配 KEPServer/
+   厂商网关把机台数据转 OPC-UA/Modbus 暴露——现有 `OpcUaClient`/
+   `ModbusTcpClient` 直接可采;**若现场确认有网关,本条目关闭**,转配置工作;
+2. **SECS/GEM 选配**:倾向**不做自研**(SEMI 大标准族与本库帧级定位差异大,
+   立项级),用现成 secsgem 栈对接;最终口径待用户裁决(可能进「有意不做」);
+3. **Host Link 私有协议**:需向 Via 代理商索取《外部通信/Host Interface
+   手册》(机种编号 + MARK 软件版本);拿到后按海康先例**依据先行**立项
+   (transport 层可复用,成帧按手册),拿不到不动。
+
+**启动条件(三选一)**:①现场确认网关形态(→ 走路径 1,关闭本条);
+②拿到 Host 通信手册(→ 走路径 3,正式立项);③用户另行拍板。
+`docs/protocol/README.md`「待补」表已登记文档缺口。
 
 ---
 
