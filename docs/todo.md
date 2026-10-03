@@ -28,6 +28,8 @@
 | 6 | 串口原生异步层(3.8+ 环境标记) | P3 | pymodbus RTU asyncio 先例(serial_asyncio);RTU 不需要数据报端点,"3.7 Proactor 限制"仅约束 UDP——需新增依赖线+环境标记+双循环测试,与 #5 同量级或更大 | 待实现 |
 | 7 | S7comm 自研(立项级,**计划见下节**) | P2 | 摆脱 python-snap7 C 库依赖(阻塞 DLL、按解释器双轨);Sally7 证明纯 asyncio 可行;2026-10-03 用户拍板立项,先列计划 | 计划已列 |
 | 8 | README「AI 欢迎策略」章节 | P3 | libplctag AI Policy 先例:**承认本项目大量使用 AI**(实现/测试/文档全程 AI 辅助)并欢迎 AI 辅助贡献;协作指引指向 AGENTS.md(协议引用铁律/全中文/门禁)与 CONTRIBUTING.md | 待实现 |
+| 9 | FANUC FOCAS DLL 封装(`cnc/`) | P3 | **计划见下节「DLL 封装族」**;fwlib32/64.dll,厂商运行库前置;2026-10-03 用户拍板列计划 | 计划已列 |
+| 10 | 三菱 CNC EZSocket DLL 封装(`cnc/`) | P3 | **计划见下节「DLL 封装族」**;SDK/手册待拿,绑定形态(ctypes/comtypes)拿到后裁决 | 计划已列 |
 
 ### S7comm 自研计划骨架(立项级,2026-10-03 拍板)
 
@@ -60,6 +62,33 @@ dissector 说明/pcap 样本按厂商新建 `docs/protocol/siemens/s7comm/` 收�
 **风险**:PUT/GET 授权与 1200/1500 优化块的行为差异只能真机核证(同
 snap7 封装现状);协议无官方规范,帧面争议以抓包样本裁决。工作量数周级,
 排 v1.x;非本期。
+
+### DLL 封装族计划(FOCAS / EZSocket,2026-10-03 列)
+
+**共同形态**(海康 MvCodeReaderSDK 先例 1:1 复制,`HikrobotIdSdkClient`
+即模板):ctypes 直绑(DLL 路径构造可配,按位数选 32/64 库)+ **厂商头文件
+为权威**(结构体 sizeof 对拍守卫——海康 EX2 漏 24 字节堆溢出的教训)+
+假函数表测试(不依赖 DLL 可测,真机核证人工)+ SDK 缺失明确报错
+(区分未安装/位数不符/导出缺失)+ 返回码表进 constants 与 i18n 双语 +
+可选 extra(`fanuc` / `ezsocket`),核心保持零依赖。定位 `cnc/` 包
+(与 MTConnect 同域,数采只读优先)。
+
+**#9 FANUC FOCAS**:
+1. 依据:`docs/protocol/fanuc/` 新建——FOCAS 库手册 + `fwlib32.h`
+   (官方 Development 包,需 FANUC 账号/经销商渠道,拿到前不写一行绑定代码);
+2. 绑定核心面:`cnc_allclibhndl3`/`cnc_freelibhndl`(句柄生命周期)+
+   首期只读三件:`cnc_rddynamic`(实时状态)/`cnc_rdprgnum`(程序号)/
+   `cnc_rdaxisdata`(轴数据)——与 MTConnect `/current` 同场景可互验;
+3. 测试:假函数表 + sizeof 守卫;真机:FANUC 0i 系列联测(登记真机清单);
+4. 依赖:fwlib32.dll/64.dll 按解释器位数装载,extra `fanuc`。
+
+**#10 三菱 CNC EZSocket**:
+1. 依据:EZSocket 库手册 + SDK 头文件(`docs/protocol/mitsubishi/` 收录;
+   需三菱 CNC 渠道,拿到前不立项动码);
+2. 绑定形态**拿到 SDK 后裁决**:纯 C 接口走 ctypes(同 FOCAS)、COM 组件
+   走 comtypes(同 MX Component 先例)——两者库内都有成熟模板;
+3. 面向:CNC 数据采集(与 MTConnect 同域),首期只读;
+4. 真机前置(判据同 ADS:部署面复杂、厂商运行库)——真机清单登记后启动。
 
 ---
 
