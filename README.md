@@ -65,7 +65,9 @@ with ModbusTcpClient(ip_address="192.168.0.10", port=502, station=1) as client:
   `client.stats` 提供连接健康统计(`ClientStats` TypedDict)。
 
 各协议全部 31 个客户端的用法示例(构造参数 / 地址语法 / 协议特有能力)见
-**[docs/examples.md](docs/examples.md)**。
+**[docs/examples.md](docs/examples.md)**;现场排障(失败分类 / 超时语义 /
+坏帧比对 / 轮询过载)见 **[docs/troubleshooting.md](docs/troubleshooting.md)**,
+已知固件/设备行为差异见 [docs/firmware-notes.md](docs/firmware-notes.md)。
 
 #### 客户端一览
 
