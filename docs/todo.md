@@ -50,6 +50,10 @@
 - native 层同期新增 `AsyncSiemensS7Client`(原生 asyncio,摆脱 ctypes
   阻塞裹线程——自研核心红利);aio `ASiemensS7Client` 已存在,自动随
   新同步实例;
+- **只实现客户端侧**(2026-10-03 用户补充约束,与 AGENTS「不引入库内
+  模拟器」红线同口径):不做服务端/模拟器/Partner;测试照旧黄金帧 +
+  ScriptedTransport + 真机核证(P5),**不引 python-snap7 的 Server 做
+  集成测试**(3.7 门禁环境也装不了);
 - **3.7 硬要求无障碍**:S7comm 纯 TCP 三层栈(TPKT→COTP→S7),无 UDP
   datagram,传输层复用 `TcpTransport`(TPKT 4 字节长度头与「读满 N 字节」
   语义吻合)零新代码;3.7~3.9 用户从此免装 python-snap7 1.3 + setuptools。
