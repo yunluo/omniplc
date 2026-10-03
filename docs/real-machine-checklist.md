@@ -71,31 +71,31 @@
 | 三菱 | MC 1C(串口) | | | |
 | 三菱 | MC 3C(串口) | | | |
 | 三菱 | MC 4C(串口) | | | |
-| 三菱 | MX Component | 三菱 FX3U ✓ | 三菱 FX3U ✓ | get_error_message(ActSupportMsg) 待核证 |
+| 三菱 | MX Component | 三菱 FX3U ✓ | 三菱 FX3U ✓ | get_error_message(ActSupportMsg) 待核证;review-1005 补录:高层包装盲区三处 `_raw_com_method` 修复(GetDevice/GetCpuType/GetClockData 高位 0 出错码,review-0929-3 遗留真机批)、`GetErrorMessage` 单参/双参形态、`_MxComLink.connect()` Open 返回 0 但网络层中途失败的清理路径 |
 | 欧姆龙 | FINS TCP | | | |
 | 欧姆龙 | FINS UDP | 欧姆龙 CP1H ✓ | 欧姆龙 CP1H ✓ | 32/64 位值(REAL/DINT/LINT/LREAL/UDINT)**读回核证**:2026-09-30 修正多字值字序为"低字在前、字内大端"(原误作整体大端),既往真机只核过位/单字;请以 CX-Programmer 写入 REAL(如 100.5 → D100=0/D101=0x42C9)后经库读回比对 |
 | 欧姆龙 | NJ/NX CIP(unconnected) | | | BOOL 数组按元素访问(应答类型自描述,回 DWORD 时按 Logix `//32` 回退)与 STRING(`len(u32)+字符`,写入回带模板号)待真机核证 |
 | 欧姆龙 | NJ/NX CIP(connected, Forward Open) | | | |
 | 罗克韦尔 | EtherNet/IP(unconnected) | | | 0x0A 多服务包自动拆包预算(≤32 条 / ≤480B)待真机核证(connected Large 4002 下 480B 偏保守,仅影响拆包次数) |
 | 罗克韦尔 | EtherNet/IP(connected, Forward Open) | | | RPI 默认 100ms(`rpi_us` 可覆盖)、CIP 0x01/0x07 断线重连、Forward Close 应答解析待真机核证 |
-| 倍福 | TwinCAT ADS | | | transport 类错误码 0x705/0x706/0x725 分流(断线惰性重连)、`set_timeout` 返回值告警待真机核证 |
-| 西门子 | S7-300/1200/1500 | | | STRING/WSTRING 读超长按 `length` 截断、写保留 PLC 侧声明长(超声明长拒绝);优化块访问错误提示、PUT/GET 缺失文本细分待真机核证 |
+| 倍福 | TwinCAT ADS | | | transport 通断码按 TE1000 §8 分流(v0.43.0 修正口径:0x06/0x07/0x0D/0x12/0x1A/0x1B/0x1D + Router 0x0500~0x050D)、`set_timeout` 返回值告警待真机核证;review-1005 补录:`set_timeout` 实际生效的平台/固件(TwinCAT 3 v4.x 多版本)、pyads 升版后 `STRING_BUFFER`(现钉 1024)是否变化 |
+| 西门子 | S7-300/1200/1500 | | | STRING/WSTRING 读超长按 `length` 截断、写保留 PLC 侧声明长(超声明长拒绝);优化块访问错误提示、PUT/GET 缺失文本细分待真机核证;review-1005 补录:半开断连三形态(拔线/断电/路由黑洞)C 库抛文本落点、`Cli_GetConnected` 1.x 半开不翻转、`MAX_VARS=20` 在 snap7 3.x 实际值、1200/1500 PUT/GET 提示充分性、`dll_path` 32 位 WinError 193 链路、WString 代理对(U+20000)拒绝路径 |
 | 汇川 | H3U/H5U Modbus TCP | 汇川 H5U 系列 ✓ | 汇川 H5U 系列 ✓ | 2026-09-28 真机读写通过(`InovanceTcpClient`,汇川 TCP/502) |
 | 汇川 | H3U/H5U Modbus RTU | | | |
-| 汇川 | H3U/H5U MC 协议兼容(3E) | | | |
-| 松下 | MEWTOCOL TCP/UDP | | | **两条终裁项**(第八轮 P1 候补,2026-09-30):①错误响应码宽度——现按 2 字符收(按 recv(5) 截断),公开参照多按 4 字符(类别 2+细分 2,如 4004);若 4 字符属实 TCP 会残留 2 字节脏缓冲;终裁法:人为触发一次错误(如读越界地址)抓包看 `!` 后字符数;②多字值"低字在前"+字符串字内字节序——写 `"ABCD"` 到 DT0 读回比对(现按字内大端拼,若读回 `"BADC"` 即需改) |
+| 汇川 | H3U/H5U MC 协议兼容(3E) | | | 真机核证要点(review-1005):①X/Y 上限(H5U 手册 X0~X1777 = 1024 点,MC 路径发帧 0x0~0x3FF);②R 编号上限(手册 16.4:R0~R32767 = D8000~D40767);③0101 CPU 型号读支持面(`_has_ping=False` 显式关闭,开启前先核证) |
+| 松下 | MEWTOCOL TCP/UDP | | | **两条终裁项**(第八轮 P1 候补,2026-09-30):①错误响应码宽度——现按 2 字符收(按 recv(5) 截断),公开参照多按 4 字符(类别 2+细分 2,如 4004);若 4 字符属实 TCP 会残留 2 字节脏缓冲;终裁法:人为触发一次错误(如读越界地址)抓包看 `!` 后字符数;②多字值"低字在前"+字符串字内字节序——写 `"ABCD"` 到 DT0 读回比对(现按字内大端拼,若读回 `"BADC"` 即需改);③`L` 双语境(链接继电器 L 位 vs 链接寄存器 LT/L 字)真机接受度(review-1005) |
 | 松下 | MC 协议兼容(3E) | | | |
 | 基恩士 | KV Host Link TCP | | | **帧面整体待核**(2026-09-30 降级,原"与官方手册一致"断言撤下):①端口 8000 vs 公开参照 8001;②带/不带 FCS(BCC);③有无 `##` 帧头/站号——须真机抓包核证(公开参照 pykeyence 等为 8001+`##`+BCC,与本库 8000+裸 `RD…\r` 互斥) |
 | 基恩士 | KV Host Link UDP | | | 同 TCP 行(帧面待核三项) |
-| 基恩士 | KV MC 协议兼容(SLMP 3E) | | | 位组记号核证(2026-09-26 复核后仍待真机,判据已定):本库按**记号数字原样**发帧(`R515` → 515)。核证法:**写 `R100`**,在 KV Studio 同时看 `R100`(组 1 位 0)与 `R604`(组 6 位 4 = 线性 100)——前者变化 = 现状正确;后者变化 = 需换算为 `组×16+位号`(那时改 `_translate_address` 并按行为变更记 CHANGELOG)。依据与反证详见 `plc/keyence/mc.py` 模块 docstring |
+| 基恩士 | KV MC 协议兼容(SLMP 3E) | | | 位组记号核证(2026-09-26 复核后仍待真机,判据已定):本库按**记号数字原样**发帧(`R515` → 515)。核证法:**写 `R100`**,在 KV Studio 同时看 `R100`(组 1 位 0)与 `R604`(组 6 位 4 = 线性 100)——前者变化 = 现状正确;后者变化 = 需换算为 `组×16+位号`(那时改 `_translate_address` 并按行为变更记 CHANGELOG)。依据与反证详见 `plc/keyence/mc.py` 模块 docstring;R 软元件字单位读支持面(`_bit_device_word_access_allowed=False` 默认)与 `R<BIG>` 编号口径(原样发帧,判据同上)一并待核(review-1005) |
 | 基恩士 | KV 的 MC 兼容走**三菱**客户端(`MelsecMcTcpClient` / `MelsecMcUdpClient`) | 基恩士 KV 系列 ✓ | 基恩士 KV 系列 ✓ | 2026-09-28 真机:该 KV 的 SLMP 兼容**接受标准三菱记号与软元件码**(至少 D/M/Y 已验),现场三色灯输出点 `Y90` 经 `MelsecMcUdpClient`(3E/UDP)读通;2026-10-02 补记:**写入亦已真机核证**(读写均通过)。**同一地址**用 `KeyenceMcUdpClient` 时在**组帧期被本库码表拒**(`Y` 不在 `R/B/W/DM/ZR` 五设备内,报 `不支持的 MC 软元件`,一帧未发出)——读 KV 的 X/Y 等设备请走三菱客户端。编号按三菱表为**十六进制**(`Y90` = 0x90 = 第 144 点;若该灯实为第 90 点须写 `Y5A`)。`KeyenceMc*` 的 X/Y 直读支持待手册或真机定论(未入库探针 `tools/_probe_kv_slmp.py`) |
 | 基恩士 | SR 扫码枪 | — | — | SR 扫码枪为读码设备,读=扫码触发,写=不适用 |
-| 丰田 | TOYOPUC 计算机链接 TCP/UDP | | | |
+| 丰田 | TOYOPUC 计算机链接 TCP/UDP | | | 真机核证要点(review-1005):①X/Y、T/C 基址表取自参考实现(官方手册缺),若实为分址则读写互踩——第一优先;②`M0100W`/`M0201L` 打包字/字节字索引真机支持面(闭区间校验已按参考实现 `plc-comm-toyopuc` 4.2.0);③`M0201.5` 点号形式手册是否支持 |
 | 海康机器人 | ID 系列读码器 Modbus TCP | | | `HikrobotIdModbusClient`,按工业协议手册 V1.0.4 §3.5/§3.6 实现;真机核证要点:①握手全流程(使能→Ready→触发→OK/NG→Ack→OK/NG 清零,时序 §3.6 印刷页 41-42);②结果区 `result_words` 与读码器「结果模块大小」一致;③从机地址(读码器默认 255 或 0,本库 0~247,不一致先改读码器侧);④「结果字节交换」开关与 `byte_swap` 对应;⑤General Fault→clear_error 闭环 |
 | 海康机器人 | ID 系列读码器 TCP 命令协议 | | | `HikrobotIdTcpClient`,按通信指令手册 V1.0.3 + ID2000/ID3000 用户手册实现;真机核证要点:①命令通道端口/结果通道端口与 IDMVS「通信命令控制」「通信配置>TCP服务器」配置一致且互不相同;②前置状态:触发模式开启+触发源=软触发+已开始采集(IDMVS 或 `<Set,Acq,1>`);③`<Exec,TriSoft>` 应答形态(OK/0/errno)与结果推送时序;④结果成帧(静默间隔 0.05s)与多码/前后缀模板输出匹配;⑤NoRead 文本与 `noread_text` 一致 |
 | 海康机器人 | ID 系列读码器 MvCodeReaderSDK | | | `HikrobotIdSdkClient`,按 SDK V2.0.0 头文件 + C 指南 V1.5.3 实现(ctypes);真机核证要点:①真 DLL 加载与结构体布局实测(内存布局按 MSVC 自然对齐,头文件行号对照);②枚举双路(EnumIDDevices 私有协议/EnumDevices GigE|USB)真机命中;③Ex2 帧 `UnparsedBcrList.pstCodeListEx2` 解析(多码/质量评分仅 ID5000 支持,其余全 0);④TriggerSoftware 前置(TriggerMode=On+TriggerSource=Software);⑤NODATA 超时口径与 `with_image` 图像复制 |
 | 海康机器人 | ID 系列读码器 RS-232 串口 | | | `HikrobotIdSerialClient`,按 ID2000/ID3000 用户手册串口节 + 通信指令手册 TriSeri* 实现;真机核证要点:①波特率出厂默认值(手册未载,本库默认 115200,以 IDMVS「串口通讯协议/串口触发」为准);②触发/停止文本与读码器配置一致且长度不等;③结果行 CR/LF 结尾(「输出条形码换行符使能」开启)与扫描窗内即时流出时序;④「输出无读」文本与 `noread_text` 一致;⑤单口角色(触发与输出共口)与现场接线一致 |
 | Modbus | Modbus TCP | 汇川 H5U 系列 ✓ | 汇川 H5U 系列 ✓ | 2026-09-28 基础读写通过(`ModbusTcpClient`,同机汇川 H5U);FC22 掩码写(字节序可配) / FC23 读写多寄存器 / FC24 FIFO / FC43·14 设备标识待真机核证 |
 | Modbus | Modbus RTU | | | FC22 掩码写 / FC23 读写多寄存器 / FC24 FIFO(按 byte count 增量收包) / FC43·14 设备标识(按对象头增量收包) / `inter_frame_delay` 帧间静默待真机核证 |
-| OPC-UA | opc.tcp | | | 订阅/Browse 为 v0.35 新增,待真机验证 |
-| CNC | MTConnect Agent HTTP/XML | | | |
+| OPC-UA | opc.tcp | | | 订阅/Browse 为 v0.35 新增,待真机验证;真机核证要点(review-1005):①真实服务器(西门子/罗克韦尔/施耐德)联测——单测用 asyncua.sync.Server 临时启停,真机零核证;②死区订阅(DataChangeFilter)走 asyncua 私有 API(`_subscribe`/`tloop.post`),跨版本兼容待核;③`subscribe_event` 的 `event_filter` 与 asyncua `_SubHandler.subscribe_events` 签名对照;④Read 多节点应答顺序(规范只"应当"按请求序) |
+| CNC | MTConnect Agent HTTP/XML | | | 真机核证要点(review-1005):①Agent keep-alive 超时异常类型与 `_STALE_CONNECTION_ERRORS` 覆盖面(真实 Agent 可能 Apache/自研);②业务数据是否嵌入 `Header` 元素(嵌入则解析路径需适配,P0 隐患);③`/sample`·`/asset`·多 Device 真机核证 |

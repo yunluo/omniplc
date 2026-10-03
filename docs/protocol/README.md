@@ -99,8 +99,9 @@ omniplc 已实现且**仍完全无对应文档**的协议(需厂商账号或付�
 
 | 协议 | 缺口 | 关联客户端 |
 |---|---|---|
-| 松下 FP | FP0H/FP7 通信手册 MC 篇 / MEWTOCOL-COM 手册 | `PanasonicMcTcpClient` / `PanasonicMewtocolTcpClient` |
-| 丰田 TOYOPUC | PC Link 通讯手册 | `ToyopucTcpClient` / `ToyopucUdpClient`(帧格式/命令码/基址表已由同源参考实现 `plc-comm-toyopuc` 4.2.0 双向裁决确认,打包字/字节编号口径缺陷已修,见 architecture.md §8.1;官方手册仍缺,拿到后须核:①扩展区 CMD 0x94/0x95、多站 0x60/0x61、状态/错误日志 0x70/0x7E 的帧格式;②PC10 CMD 0xC2~0xC6) |
+| 松下 FP | FP0H/FP7 通信手册 MC 篇 / MEWTOCOL-COM 手册(拿到后一并核:TC/CC 位写线圈命令的码表,松下独有——review-1005) | `PanasonicMcTcpClient` / `PanasonicMewtocolTcpClient` |
+| 丰田 TOYOPUC | PC Link 通讯手册 | `ToyopucTcpClient` / `ToyopucUdpClient`(帧格式/命令码/基址表已由同源参考实现 `plc-comm-toyopuc` 4.2.0 双向裁决确认,打包字/字节编号口径缺陷已修,见 architecture.md §8.1;官方手册仍缺,拿到后须核:①扩展区 CMD 0x94/0x95、多站 0x60/0x61、状态/错误日志 0x70/0x7E 的帧格式;②PC10 CMD 0xC2~0xC6;③`TOYOPUC_ERROR_TEXT` 完整码表——0x44~0x51/0x53~0x65/0x71 等 26 条之外条目,review-1005) |
+| 西门子 S7comm | S7comm 私有协议规范(PDU 格式/功能码/寻址规则) | `SiemensS7Client`——S7comm 为西门子私有协议,公开渠道无规范;`siemens/` 三份手册讲通讯架构而非 S7comm 报文格式,地址语法与 area 码全凭 python-snap7 绑定约定(review-1005 登记确认) |
 
 omniplc 已实现且**有部分覆盖**但关键官方手册仍缺的协议:
 
@@ -111,9 +112,9 @@ omniplc 已实现且**有部分覆盖**但关键官方手册仍缺的协议:
 | 海康机器人 ID 系列读码器(SDK 会话) | MvCodeReaderSDK C 开发指南 V1.5.3 PDF(`hikrobot/`) | **V2.0.0 头文件(MvCodeReaderParams.h)未归档**(review-1002 P3)——EX2 布局守卫 `test_ex2_struct_size_matches_header` 引用的行号(行 751-823)库内无从对拍;拿到 Development 包后摘录头文件片段 + 两分支 sizeof 对拍表归档本目录 |
 | 三菱 MC(QnA 兼容帧扩展命令) | SH-080008(0403 随机读/1402 随机写/0101 CPU 型号等已实现) | 时钟数据读/写(记法 0701/0702,QnACPU 串口扩展)在 SH-080008 与 SLMP 手册均无收录,需《QCPU 用户手册(基础系统篇)》;按铁律未实现,拿到手册后补 |
 | Allen-Bradley EtherNet/IP | ODVA 公开白皮书 + Rockwell 官方 5 份 + Schneider 第三方教程(`odva/`,15 份) | Logix 标签编程手册(1756-RMxxx 系列)+ **1756-PM020**(Get_Attributes_List 应答示例);完整 CIP Volume 1/2 规范(需 ODVA 会员)。本批 Get_Attribute_List 逐项布局按 CIP Vol 1 §5-4 章节号 + OpENer 一致性栈/pycomm3 参考实现对照裁决(见 review.md「AB EtherNet/IP(CIP)专项」);拿到全本后补页码级引用 |
-| 基恩士 KV PLC | SR-2000 扫码枪手册(`keyence/`);SLMP 参考手册(`mitsubishi/`,供 KV MC 兼容实现) | KV-8000/7500/7300 Host Link 通信命令手册 + KV MC 协议手册(需 MyKeyence 账号) |
-| OPC-UA | Part 1 概述(1.02)+ 安全通讯 + Brochure + Overview + OPCF/ABB/Honeywell/Matrikon/OPC-DA(`opcua/`,9 份) | Part 2-9 完整规范(需 OPC Foundation 付费会员);`asyncua` 实现已覆盖核心契约 |
-| MTConnect | Part 1 概述 + 架构白皮书 + 入门指南(`mtconnect/`,3 份) | ANSI/MTC1.4-2018 完整标准(`docs.mtconnect.org` 服务器拉不下来,需等站点恢复后重试);MTConnect Agent 部署手册 |
+| 基恩士 KV PLC | SR-2000 扫码枪手册(`keyence/`);SLMP 参考手册(`mitsubishi/`,供 KV MC 兼容实现) | KV-8000/7500/7300 Host Link 通信命令手册 + KV MC 协议手册(需 MyKeyence 账号);KV 主机错误码表(`.H` 读路径 EA/EB 等扩展错码与十六进制数据同形状,review-1005) |
+| OPC-UA | Part 1 概述(1.02)+ 安全通讯 + Brochure + Overview + OPCF/ABB/Honeywell/Matrikon/OPC-DA(`opcua/`,9 份) | Part 2-9 完整规范(需 OPC Foundation 付费会员);**Part 4 服务集**(Browse/Read/Write/Subscribe/TranslateBrowsePathsToNodeIds、Deadband DataChangeFilter §6.2.10)与 **Part 3 Address Space**(NodeId 编码规则)需页码级引用;`asyncua` 实现已覆盖核心契约(review-1005) |
+| MTConnect | Part 1 概述 + 架构白皮书 + 入门指南(`mtconnect/`,3 份) | ANSI/MTC1.4-2018 完整标准(`docs.mtconnect.org` 服务器拉不下来,需等站点恢复后重试);MTConnect Agent 部署手册;**Part 3 Catalog**(条件/可用性数据项目录、Fault/Warning/Normal 三层级、Condition 值域)——当前以 Part 1 双口径并收,与标准 Agent 输出一致性待核(review-1005) |
 | 欧姆龙 FINS | W342 命令帧/存储区码/结束码(`omron/`,FINS 本体,已按 §5-1-3/§5-2-2/§5-3-x 逐项核对) | **FINS/TCP 封装与节点分配握手**(魔数 `FINS`、命令 0/2、错误域、24 字节握手响应)不在 W342 范围,需欧姆龙以太网单元手册(如 W420/W465/W344);库内 `codec.py` 该段已标「依据待补」,拿到手册后补页码级引用 |
 
 omniplc 已实现且**完全覆盖**的协议(已从本表移除,详见「已收录」):
