@@ -176,8 +176,22 @@ omniplc.set_debug(True)   # 进程级:所有协议收发报文十六进制转储
 - 输出走标准 `logging`(logger 名 `omniplc.debug`),接自己的 handler
   落盘;`Monitor` 的组级异常、心跳异常也走这条通道(WARNING 级);
 - 报错文案语言用 `omniplc.set_lang("en")` 切英文(默认中文),进程级;
-- `set_debug` 是实时打印——进程崩溃后历史报文不保留(环形缓冲
-  「黑匣子」模式在计划里,`docs/todo.md`)。
+- `set_debug` 是实时打印,进程崩溃后历史报文不保留——生产环境建议改用
+  **报文黑匣子**(只存不打印,常驻无刷屏):故障后取最近报文逐字节比对。
+
+```python
+import omniplc
+
+omniplc.set_frame_recorder(True)   # 常驻留存最近 1000 帧(容量可配,1~100000)
+...
+for rec in omniplc.recorded_frames():   # 故障后取现场(墙钟时间升序)
+    print(rec.at, rec.direction, rec.label, rec.data.hex())
+omniplc.clear_recorded_frames()    # 只清内容不关开关
+```
+
+黑匣子覆盖全部走线型协议(TCP/UDP/串口,与 `set_debug` 同一挂点);
+会话型(OPC-UA/MX)无字节流不进缓冲。与 `set_debug` 相互独立,推荐
+生产组合 = 黑匣子常驻 + 实时日志关闭。
 
 ## 五、关联文档
 
