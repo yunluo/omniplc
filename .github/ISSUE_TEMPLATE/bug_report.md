@@ -13,7 +13,7 @@ assignees: ""
 - **操作系统**:
 - **PLC 型号 / 固件版本**(协议类必填):
 - **走线**(TCP/UDP/串口 + 协议):
-- **相关 extras**(comtypes / pyads / python-snap7 / asyncua 任一):______
+- **相关 extras**(comtypes / asyncua 任一;pyads 与 python-snap7 已随驱动退役移除):______
 
 ## 复现步骤
 

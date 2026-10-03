@@ -65,7 +65,7 @@ uv pip install --python "%LOCALAPPDATA%\omniplc_py312\Scripts\python.exe" -e ".[
 "%LOCALAPPDATA%\omniplc_py312\Scripts\python.exe" -m pytest tests -q
 ```
 
-依赖线差异按需跳过:仅存在于单一 snap7 轨道的用例(如 1.x 的 `snap7.types`
+依赖线差异按需跳过:仅存在于单一扩展依赖轨道的用例(如历史 snap7 双轨期的 `snap7.types`,该双轨已随 S7 自研退役)
 ctypes 线)须在入口用 `importlib.util.find_spec` 探测并 `pytest.skip`,保证两条
 腿各自全绿(3.7:0 skipped;3.12:仅依赖线跳过)。
 

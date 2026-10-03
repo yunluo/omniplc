@@ -138,7 +138,7 @@ flowchart TB
     MxComLink["_MxComLink<br/>COM 会话(Open/Close)适配为传输对象外形"]
     OpcUaSession["_OpcUaSession<br/>asyncua 同步会话适配;UaError 在会话边界翻译为 DeviceError"]
     MtcSession["_MtConnectSession<br/>http.client keep-alive 连接适配;HTTP/MTConnectError 在会话边界翻译"]
-    S7Session["_S7Session<br/>snap7 Client 适配;snap7 错误(1.x/2.x RuntimeError、3.x S7Error)按连接态翻译(在线 DeviceError/断连 OSError)"]
+    S7Session["_S7Session<br/>自研 S7comm 会话(TPKT/COTP/S7 三层);帧错拆连重同步、PLC 拒绝 DeviceError 不断线"]
 
     %% ═══ CNC 机床数采(MTConnect) ═══
     MTConnectClient["MTConnectClient — cnc/mtconnect.py<br/>CNC 只读数采(HTTP/XML,Agent 默认端口 5000,标准库零依赖)<br/>地址=数据项 id/name;read_* 类型化 + snapshot() + read_conditions() + probe()"]
@@ -703,36 +703,25 @@ Normal 条件项)+ ``probe()``;写入、/sample 历史流留后续。FANUC
 FOCAS(fwlib32.dll)与三菱 CNC EZSocket 的 DLL 封装走 v1.x(判据:
 部署面复杂、厂商运行库,真机联测前置)。
 
-西门子 S7 说明(2026-09):**选封装不自研(用户指示)**——S7comm 为
-完整私有协议栈(TPKT/COTP/S7 PDU、机架/槽位路由、1200/1500 的
-PUT-GET 授权与优化块限制),封装 `python-snap7`。**依赖按解释器版本
-二选一(``s7`` extra 环境标记,目标环境 3.7 与 3.12)**:3.7~3.9 →
-`1.3`(C 库封装末版线,wheel 捆绑 **64 位** 原生库;32 位 py3.7 venv
-实测捆绑库不可用(WinError 193),``dll_path`` 参数透传
-``Client(lib_location=)`` 供自备 32 位 DLL;**1.3 导入期依赖
-pkg_resources** → extra 显式带 ``setuptools``);3.10+ → `3.x`(当前钉
-`3.2.0`)(3.0 起纯 Python 实现不再需要 DLL,官方最低 3.10;2.x 线仅 py3.9
-且 area 校验更严,窗口窄不单独适配)。结构对标 OPC-UA 驱动:
-`_S7Session(BaseTransport)` 适配 snap7 Client。**双线 API 差异在边界
-适配**(v0.24.1,均经真库实测核证):① 错误类——1.x/2.x 抛
-RuntimeError、3.x 抛 `S7Error` 谱系(`_new_client` 探测
-`snap7.client.S7Error` 并入错误表),以 **``Cli_GetConnected`` 连接态
-判别**——在线 → DeviceError(PLC 拒绝/地址错,不断线),断连 →
-OSError 惰性重连(连接建立失败 → OSError);② 区码——地址层出协议
-区码 int,会话边界统一转 snap7 `Areas` 枚举成员(1.x `read_area` 对
-area 做枚举成员校验,裸 int 抛 ValueError、`write_area` 取
-`area.value` 抛 AttributeError,3.x 虽收 int 也统一转,转换在
-`_snap7_area` 探测 `snap7.type`/`snap7.types` 缓存);③ 构造——
-无 dll_path 时 `Client()` 无参调用(1.x 默认参、3.x 兼容),
-dll_path 位置透传仅 C 封装线生效。地址只定区域+字节起点,
-尺寸由 DataType 决定(SHORT 2B/INT 4B/LONG 8B/REAL 4B/LREAL 8B,
-大端 int.from_bytes/struct);位为锁内读-改-写;S7 String 头 2 字节
-(声明长/实际长),写头部按实际长度(建议 ≤ PLC 声明长)。1200/1500
-须开启 PUT-GET 授权且 DB 为非优化块(docstring 注明)。多变量组包/
-块操作/SZL 留后续。**真机联测待做**;测试以假 Client 注入内存字节数组,
-不依赖 snap7 安装与 64 位环境(1.3 枚举转换路径在装真 1.3 的 venv 中
-顺带实测,3.1.2 全路径经 uv 临时 py3.12 环境冒烟核证——该处为 v0.24.1
-当时的核证记录,当前 3.10+ 行已钉 `3.2.0`)。
+西门子 S7 说明(2026-10 更新):**自研 S7comm 协议栈(2026-10-03 用户
+裁决,直接替换 python-snap7 封装)**——帧面依据 = python-snap7 3.2.0
+(纯 Python 重写版,MIT)逐字节比对 + Sally7/S7netplus 交叉裁决 +
+snap7 C++(LGPL)行为对照,事实档案 `docs/protocol/siemens/s7comm/README.md`;
+真机 pcap 为黄金帧唯一权威(P5 待做)。三层结构:`codec.py`(TPKT/COTP/S7
+纯函数编解码 + 黄金帧测试)→ `_S7Session(BaseTransport)`(组合
+`TcpTransport`:connect = TCP → COTP CR/CC(TSAP = `(PG<<8)|(rack<<5)|slot`)
+→ S7 协商功能 0xF0(PDU 长度取对端确认);read_area/write_area 统一
+BYTE 传输尺寸;multi read = Read Var 多 Item 单 PDU ≤20 项)→
+`SiemensS7Client`(API 冻结面与旧封装一致)。错误边界:TCP OSError /
+帧错(codec `S7ProtocolError`)拆连重同步;PLC 拒绝(数据段返回码非
+0xFF)→ DeviceError 不断线。地址只定区域+字节起点,尺寸由 DataType
+决定(大端);位为锁内读-改-写;S7 String 头 2 字节(声明长/实际长)。
+1200/1500 须开启 PUT-GET 授权且 DB 为非优化块(docstring 注明)。
+CPU 状态走 SZL 0x0424(python-snap7 3.x 该实现为桩,按 snap7 C 家族
+口径自建,**状态字节偏移待真机核证**)。**真机联测待做(P5:与
+python-snap7 3.2.0 独立脚本对拍)**;测试为 codec 黄金帧(参考实现
+字节锁定)+ 假 TCP 全流程,不依赖 snap7。`dll_path` 参数随依赖退役
+移除(破坏性,CHANGELOG 披露)。
 
 KV Host Link 说明:``KeyenceHostLinkTcpClient/UdpClient`` 使用 ASCII 行式命令
 (RD/RDS/WR/WRS,CR 结束;响应行以 CR/LF 结束,出错应答 ``E0``~``E9`` 记入
@@ -917,7 +906,7 @@ MBAP 事务号/协议号/站号校验、RTU CRC16(0xA001 反射,低字节在前)
 | 丰田 TOYOPUC 计算机链接(已实现) | 协议要点:帧格式 `00 00 LL LH CMD`/`80 RC LL LH CMD`、CMD=1C~21 基础区字/字节/位命令、软元件字/字节/位基地址与编号段、RC=10 出错码表、低字在前多字节序;架构沿用本库 BaseClient/Transport 模式。**同源参考实现双向裁决(2026-09-27)**:`plc-comm-toyopuc` 4.2.0(临时环境 `pip install plc-comm-toyopuc` 后 `toyopuc.address/protocol`)与本库逐字段一致——`FT_COMMAND=0x00`/`FT_RESPONSE=0x80`、`build_command=[00 00 LL LH cmd]+data`、CMD 1C/1D/1E/1F/20/21、`_BIT_BASE`/`_WORD_BASE`/`_BYTE_BASE` 与位段表完全相同;并据其 `_validate_packed_index`(字索引**直接**校验打包段,无 `>>4`)裁决本库校验多移 4 位的缺陷(位软元件 L/H/W 编号=**字索引**;编码方向一致,校验已订正)。官方 PC Link 手册仍缺(见 `docs/protocol/README.md`「待补」) |
 | OPC-UA(已实现) | 依赖库 `asyncua==1.1.5`(封装):sync.Client 会话、`ua.VariantType` 类型表、`ua.uaerrors` 异常层次 |
 | MTConnect(已实现) | MTConnect 官方规范(<https://www.mtconnect.org/>;MTConnectStreams/Devices/Error 文档结构与数据项语义);FOCAS 函数参考留作后续封装备查 |
-| 西门子 S7(已实现) | 依赖库 `python-snap7`(封装;3.7~3.9 → 1.3,3.10+ → 3.x 纯 Python):Client 会话、`check_error` 约定、`Areas` 枚举码表(裸 int 区码被拒) |
+| 西门子 S7(已实现) | **无依赖**(v0.53 自研 S7comm 栈直接替换 python-snap7 封装;帧面依据见 docs/protocol/siemens/s7comm/) |
 | 欧姆龙 FINS(TCP/UDP,已实现) | 欧姆龙 FINS 手册 W342(帧组装/解析、存储区码、TCP 握手/帧长;2026-09 复审见 §8 对照结论) |
 | 罗克韦尔 AB EtherNet/IP(已实现) | ODVA CIP/EtherNet/IP 规范(RegisterSession、0x4C·0x4D·0x4E 服务、IOI 路径段 0x91·0x28·0x29·0x2A、位字与 BOOL 数组词操作、STRING 0xA0 布局、Unconnected Send 恒包 UC Send、ListIdentity 应答 CPF 布局 = 头 24 + ItemCount(2)+Type 0x000C(2)+Length(2)+EncapVer(2)+SocketAddr(16)+Identity;依据 Rockwell《Explicit Messaging Guide》p.20-21 + pycomm3 1.2.16 `ListIdentityObject` 裁决,原「2 字节兼容前缀」口径系误判;协议帧层为本库原生纯函数实现 `plc/ab/codec_cip.py`) |
 | 欧姆龙 NJ/NX CIP(已实现) | 协议要点:Forward Open 连接路径 = cip_path + MSG_ROUTER_PATH(空路由时只剩消息路由对象 20 02 24 01)、unconnected 直发不包 UC Send(目标即消息路由器本体);协议帧层零新增,复用 `plc/ab/codec_cip.py` + 三钩子覆写;NJ STRING 布局与真机行为待真机联测 |
