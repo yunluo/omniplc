@@ -31,43 +31,61 @@
 | 7 | examples 范例丰富化:各协议对外 API 全展示 | P3 | 2026-10-03 用户指令:「使用范例要丰富,把本库对外 API 都展示下」;已落地——新增「通用 API 面」大节(读写原语/超时重试退避心跳/告警分级/stats/点位表/Monitor/批量读写/全局开关含黑匣子/异步两层),各协议节补缺(MC random 双组签名+MX 时钟/错误码、FINS 0101、AB list_tags/list_identity/属性/GenericMessage、NJ 拒绝披露、S7 get_cpu_state/write_wstring、SR bank/reset、MTConnect sample/assets),新增「批量写」与「默认端口对照」两节(S 跨协议语义提示);API 清单经 inspect 全量盘点防漏 | 已完成 |
 | 8 | FANUC FOCAS DLL 封装(`cnc/`) | P3 | **计划见下节「DLL 封装族」**;fwlib32/64.dll,厂商运行库前置——模板现成(海康 SDK 先例),卡在外部物料(FOCAS 手册+头文件) | 计划已列 |
 | 9 | 三菱 CNC EZSocket DLL 封装(`cnc/`) | P3 | **计划见下节「DLL 封装族」**;SDK/手册待拿,绑定形态(ctypes/comtypes)拿到后裁决——比 FOCAS 多一层形态不确定 | 计划已列 |
-| 10 | S7comm 自研(立项级,**计划见下节**) | P2 | 摆脱 python-snap7 C 库依赖(阻塞 DLL、按解释器双轨);Sally7 证明纯 asyncio 可行;2026-10-03 用户拍板立项;2026-10-03 跨语言复看确认 S7 开源圈集体停更(nodeS7/Sharp7/S7netplus),空窗期正当其时——数周级最大件 | 计划已列 |
+| 10 | S7comm 自研(**直接替换** snap7 封装,计划见下节) | P2 | 2026-10-03 用户四点拍板:`SiemensS7Client` 名字与 API 不变、内部重写为纯 Python S7comm 栈、python-snap7 依赖整体退役、S7 回归核心零依赖;参考源定稿 python-snap7 3.2.0(纯 Python 重写,MIT)为主 + Sally7/S7netplus 交叉;3.7 无障碍(纯 TCP 三层栈)——数周级最大件 | 计划已列 |
 | 11 | 日立(Via Mechanics)MARK 30/50/55 钻孔机数采 | P3 | **计划见下节;暂缓**(2026-10-03 用户裁决:先列计划,暂不考虑实现);MARK = Via 自研 CNC,FOCAS/EZSocket 不适用,公开零文档——启动条件未定(网关确认/手册到手),外部依赖最深 | 计划已列·暂缓 |
 | 12 | FINS 时钟读/写(0701/0702) | P2 | W342 §5-3-19/20(印刷页 197-198)有明确依据;sync/native/aio 三层 + 10 例测试已落地 | 已完成 |
 | 13 | README PLC 安全警示 | P3 | libplctag 先例(开篇免责:写操作失误可致生产/财产损失);已落地(a31c236,顺带修简介残留) | 已完成 |
 | 14 | examples「采集→MQTT」上行示例 | P3 | neuron/thingsboard 核心场景;paho-mqtt 可选示例已落地(93db9ed) | 已完成 |
 
-### S7comm 自研计划骨架(立项级,2026-10-03 拍板)
+### S7comm 自研计划骨架(2026-10-03 拍板:直接替换 snap7 封装)
 
-**动机**:摆脱 python-snap7——C 库按解释器双轨(3.7→1.3 带 DLL/3.10+→3.x)、
-ctypes 阻塞调用只能裹线程进 aio;自研后原生 asyncio 单栈、核心回归零第三方
-依赖、Windows/ARM 部署免 TcAdsDll 式运行库纠缠。Sally7(C#,MIT)证明纯
-asyncio S7 完全可行。
+**动机与形态**(2026-10-03 用户四点拍板):
+- **直接替换,不并存**:`SiemensS7Client` 名字与 API 不变(构造参数 /
+  rack·slot / 通用读写全族 / `get_cpu_state` / `read_range` /
+  `read_many` / `read_batch` / `read_wstring` / `write_wstring`),
+  内部从 snap7 封装重写为纯 Python S7comm 栈;python-snap7 依赖
+  (s7 extra 双轨线)整体退役,S7 回归**核心零第三方依赖**;
+- `dll_path` 参数移除(破坏性,CHANGELOG 披露)——snap7 DLL 按解释器
+  分版本、32 位自备 DLL 的痛点正是自研动机;
+- native 层同期新增 `AsyncSiemensS7Client`(原生 asyncio,摆脱 ctypes
+  阻塞裹线程——自研核心红利);aio `ASiemensS7Client` 已存在,自动随
+  新同步实例;
+- **3.7 硬要求无障碍**:S7comm 纯 TCP 三层栈(TPKT→COTP→S7),无 UDP
+  datagram,传输层复用 `TcpTransport`(TPKT 4 字节长度头与「读满 N 字节」
+  语义吻合)零新代码;3.7~3.9 用户从此免装 python-snap7 1.3 + setuptools。
 
-**依据先行(铁律)**:S7comm 无官方公开手册——依据源 = Wireshark
-s7comm dissector 源码(协议树即规范)+ snap7 文档 + **真机抓包样本**(黄金帧
-的唯一权威);`docs/protocol/README.md` 待补表 S7comm 行已登记,收集的
-dissector 说明/pcap 样本按厂商新建 `docs/protocol/siemens/s7comm/` 收录。
-出处口径退一档:手册页码级不可得时,标注「Wireshark dissector 函数名 +
-抓包样本字节偏移」(铁律允许的"明确引用位置"形态,与「手册待补」同级披露)。
+**依据先行**(退档口径,2026-10-03 定稿):python-snap7 3.2.0(2026-03
+纯 Python 重写,MIT,**3.10+**)= 首要帧面参考源(内部 `Connection`/
+`S7Protocol`/`S7Function`/`S7PDUType`/`S7Area`/`S7WordLen`/`Tags` 模块
+即帧面与地址语法权威);Sally7(C#,MIT)与 S7netplus(MIT)交叉双向
+裁决(新重写自身或有 bug,勿单源盲信);snap7 C++ 源码(LGPL)**只比对
+行为不抄码**;Wireshark s7comm dissector 中立仲裁;真机 pcap 为黄金帧
+唯一权威。代码就近注释「参考实现文件 + 函数 + 逐字节比对日期」。
 
 **分阶段**:
-1. **P1 依据与建帧**:收 dissector/pcap;TPKT(RFC 1006)/COTP(CC/CR/DT)
-   /S7 头(ROSCTP)三层建帧,黄金帧测试先行(样本字节锁定);
-2. **P2 单点读写**:S7 PDU 读/写变长(Read/Write Var),DB/I/Q/M 绝对寻址,
-   rack/slot 路由,PDU 协商;
-3. **P3 能力补齐**:STRING/WSTRING(头 2 字节布局)、read_multi_vars
-   (S7 VarFun MultiRead)、位读写、优化块访问错误识别;
-4. **P4 对拍**:与 snap7 封装双轨同批响应对拍(帧语义一致 + 错误口径映射
-   对齐——`_SNAP7_ERRORS`/S7Error 谱系翻译表);
-5. **P5 并存**:新驱动命名 `S7CommClient`(或按命名惯例定),snap7 封装
-   `SiemensS7Client` 保留不撤(对拍期两轨),aio/native 同面;
-6. **P6 默认切换**:真机核证(S7-300/1200/1500,PUT/GET 授权与优化块
-   访问——真机清单已有对应项)后另行裁决是否默认,不自动换。
+1. **P1 依据与建帧**:抽 python-snap7 3.2.0 建帧源码要点归档
+   `docs/protocol/siemens/s7comm/`;TPKT/COTP/S7 三层建帧,黄金帧测试
+   先行(参考实现字节锁定);
+2. **P2 连接与单点读写**:连接序列(TPKT CR → COTP CC → S7 协商
+   ROSCTR/ACK_DATA,PDU 大小协商);Read/Write Var(区域 PE/PA/MK/DB/C/T
+   × BIT/BYTE/WORD/DWORD/REAL);rack/slot → TSAP 计算;错误码 →
+   DeviceError 映射 + i18n 双语;
+3. **P3 API 冻结面补齐**:STRING/WSTRING(头 2 字节布局)、multi read
+   (0xF0)→ `read_batch`/`read_many`(MAX_VARS=20 口径保持)、
+   `read_range`(read_area 连续)、`get_cpu_state`(SZL 0x0424——现有
+   封装 ping 探活依赖它,必做)、native `AsyncSiemensS7Client`;
+4. **P4 清除与披露**:pyproject 撤 python-snap7 双轨线(s7 extra 删除)、
+   `dll_path` 移除、snap7 相关 helper/测试全删重写(黄金帧 +
+   ScriptedTransport,3.7 门禁环境装不了 3.10+ 的 python-snap7,不可能
+   引它做测试依赖)、文档四件(README/protocol-features/architecture/
+   examples)口径同步;
+5. **P5 真机核证**:封装已删无双轨对拍 → 改为与 python-snap7 3.2.0
+   独立脚本对拍(真机 S7-300/1200/1500;PUT/GET 授权、优化 DB 行为——
+   真机清单既有项),pcap 样本归档补黄金帧。
 
-**风险**:PUT/GET 授权与 1200/1500 优化块的行为差异只能真机核证(同
-snap7 封装现状);协议无官方规范,帧面争议以抓包样本裁决。工作量数周级,
-排 v1.x;非本期。
+**风险**:帧面争议无官方文档(多实现交叉 + 真机抓包裁决);python-snap7
+3.x 全新重写自身或有 bug(交叉裁决兜底);优化 DB 绝对寻址不可用(与
+snap7 封装现状一致,遇到明确报错);工作量数周级。
 
 ### DLL 封装族计划(FOCAS / EZSocket,2026-10-03 列)
 
