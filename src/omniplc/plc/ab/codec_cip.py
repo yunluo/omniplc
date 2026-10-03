@@ -104,13 +104,23 @@ CIP_STATUS_PARTIAL_TRANSFER: int = 0x06
 
 0x55 点位枚举的**分页续传信号**(非错误):应答数据域解析完后,以本页
 最大 instance + 1 作为下一页起始实例继续请求,直至状态 0x00。"""
-AB_SYMBOL_OBJECT_CLASS: int = 0x6B20
-"""Logix Symbol Object 类码(list_tags 枚举对象;pycomm3/pylogix 双源一致)。"""
+AB_SYMBOL_OBJECT_CLASS: int = 0x6B
+"""Logix Symbol Object 类码(list_tags 枚举对象)= **0x6B**(单字节)。
+
+注意:pylogix 源码里的 ``0x6B20`` 是「8 位段头 0x20 + 类码 0x6B」拼成 u16
+的助记写法(``pack('<H', 0x6B20)`` 小端 = 字节 ``20 6B``),**不是类码**;
+pycomm3 的 ``ClassCode.symbol_object = b'k'``(0x6B)同理。线上段编码 =
+8 位类段 ``0x20`` + 类码 ``0x6B``,与两参考实现逐字节一致(review-1007
+P0-1:曾误把 0x6B20 当真类码按 16 位段组帧,真机必失败)。"""
 AB_TAG_LIST_ATTRIBUTES: "tuple" = (0x0001, 0x0002, 0x0008)
 """0x55 请求的属性集:1=符号名 / 2=符号类型 / 8=数组维度(pylogix 同款
-最小集;pycomm3 的 7 属性含未公开语义字段,不取)。应答按此序逐实例回值。"""
+最小集;pycomm3 的 7 属性含未公开语义字段,不取)。**应答只含所请求的
+属性**(pylogix 请求同款 3 属性、条目步长 = 名长 + 20 字节且真机可用;
+pycomm3 请求 7 属性其应答多 3 个地址类 UDINT——两源布局各与自己的请求集
+自洽,不作全量假设)。"""
 AB_TAG_LIST_MAX_PAGES: int = 1000
-"""0x55 分页轮数上限(防不收敛;百万点级控制器也不应触顶)。"""
+"""0x55 分页轮数上限(防不收敛)。每页受 unconnected 包 ~500 字节约束约
+十几~几十条,上限内可枚举数万点位;更大规模请按程序域分批(待真机核证)。"""
 _CONNECTION_RESET_STATUSES: "frozenset" = frozenset(
     (CIP_STATUS_CONNECTION_FAILURE, CIP_STATUS_CONNECTION_LOST)
 )
@@ -468,7 +478,7 @@ def build_get_attribute_list(
 
 
 class AbTagEntry(NamedTuple):
-    """AB 控制器点位枚举条目(:meth:`list_tags` 返回元素)。。
+    """AB 控制器点位枚举条目(:meth:`list_tags` 返回元素)。
 
     :ivar name: 标签名(控制器域,如 ``MyDint`` / ``MyArray[5]`` /
         ``Program:prog.Tag``——程序域标签带 ``Program:`` 前缀)
@@ -489,20 +499,21 @@ class AbTagEntry(NamedTuple):
 def build_tag_list_request(instance: int) -> bytes:
     """构造 0x55 Get_Instance_Attribute_List 请求(Logix Symbol Object)。
 
-    路径 = Symbol Object 类段(16 位段头 ``0x21`` + 类码 0x6B20)+
+    路径 = Symbol Object 类段(8 位段头 ``0x20`` + 类码 0x6B)+
     实例段(起始实例 ≤255 用 8 位段头 ``0x24``,否则 16 位 ``0x25``),
     奇长度补齐字节(CIP 字对齐);body = 属性数 + :data:`AB_TAG_LIST_ATTRIBUTES`。
 
-    依据:pycomm3 1.2.16 ``_get_instance_attribute_list_service`` 与
-    pylogix 1.1.6 ``_build_tag_list_request`` 双源逐字节一致(类段/实例段
-    编码、属性号 1/2/8);1756-PM020 手册待补(见 docs/protocol/README.md)。
+    依据:pycomm3 1.2.16 ``ClassCode.symbol_object = b'k'``(0x6B)与
+    pylogix 1.1.6 ``eip._build_tag_list_request`` 的 ``pack('<H', 0x6B20)``
+    (小端 = ``20 6B``)双源逐字节一致;实例段/属性号两源同款;
+    1756-PM020 手册待补(见 docs/protocol/README.md)。
 
     :param instance: 起始实例号(分页续传游标;首页 0)
     :raises ValueError: 实例号超出 0~65535
     """
     if not 0 <= instance <= 0xFFFF:
         raise ValueError(_("CIP 实例号超出 0~65535:{}").format(instance))
-    path = struct.pack("<BBH", 0x21, 0x20, AB_SYMBOL_OBJECT_CLASS)
+    path = struct.pack("<BB", 0x20, AB_SYMBOL_OBJECT_CLASS)
     if instance <= 0xFF:
         path += struct.pack("<BB", 0x24, instance)
     else:
@@ -564,10 +575,14 @@ def _parse_service_payload_with_status(
 def parse_tag_list_payload(data: bytes) -> List[AbTagEntry]:
     """解析 0x55 应答数据域为点位条目列表(单页)。
 
-    每条 = 实例号(UDINT)+ 符号名(CIP SHORT_STRING:1 字节长度 + 字符)
-    + 符号类型(UINT)+ 三个数组维度(UDINT × 3)——与请求属性序
-    1(名)/2(类型)/8(维度)对应;布局经 pycomm3 1.2.16 / pylogix 1.1.6
-    双源对照,真机核证待做。
+    每条 = 实例号(UDINT)+ 符号名(CIP STRING:**UINT 2 字节长度** + 字符,
+    utf-8)+ 符号类型(UINT)+ 三个数组维度(UDINT × 3)——与请求属性序
+    1(名)/2(类型)/8(维度)对应。依据:pylogix 1.1.6 ``lgx_tag.Tag.parse``
+    (``unpack_from('<H', packet, 4)`` 名长 + utf-8,条目步长 ``tag_len + 20``
+    = 4 + 2 + 名 + 2 + 12)与 pycomm3 1.2.16 ``_parse_instance_attribute_list``
+    (``STRING.decode`` = UINT 长度前缀)双源一致;pycomm3 应答另有的
+    symbol_address 等 3 个 UDINT 是其请求属性 3/5/6 的回值,本库未请求
+    故不出现。真机核证待做。
 
     :raises ProtocolFrameError: 数据域长度/字段越界不符(坏帧,带原始数据)
     """
@@ -583,15 +598,21 @@ def parse_tag_list_payload(data: bytes) -> List[AbTagEntry]:
             )
         instance_id = int.from_bytes(data[offset:offset + 4], "little")
         offset += 4
-        name_len = data[offset]
-        offset += 1
+        if offset + 2 > total:
+            raise ProtocolFrameError(
+                _("点位枚举应答不完整:名字长度域被截断(收到的原始数据:{})").format(
+                    format_hex(data)
+                )
+            )
+        name_len = int.from_bytes(data[offset:offset + 2], "little")
+        offset += 2
         if offset + name_len + 2 + 12 > total:
             raise ProtocolFrameError(
                 _("点位枚举应答不完整:名字/类型/维度被截断(收到的原始数据:{})").format(
                     format_hex(data)
                 )
             )
-        name = data[offset:offset + name_len].decode("ascii", errors="replace")
+        name = data[offset:offset + name_len].decode("utf-8", errors="replace")
         offset += name_len
         symbol_type = int.from_bytes(data[offset:offset + 2], "little")
         offset += 2

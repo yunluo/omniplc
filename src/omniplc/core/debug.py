@@ -30,8 +30,9 @@
 - 走线型(Modbus/MC/FINS/Host Link/TOYOPUC/EtherNet/IP/CIP/SR/通用 TCP,
   TCP/UDP/串口):在传输层统一挂钩,``send``/``recv`` 的原始字节即
   请求/响应报文(TCP 应答分多段到达时按段输出)
-- 会话型(OPC-UA / MX Component):无字节流,输出操作级日志
-  (读写了哪个节点/变量、按什么类型、返回什么值)
+- 会话型(OPC-UA / MX Component / MTConnect):无字节流,输出操作级日志
+  (读写了哪个节点/变量、按什么类型、返回什么值;MTConnect 输出 GET
+  请求与 HTTP 状态)
 """
 from __future__ import annotations
 
@@ -91,6 +92,8 @@ def set_frame_recorder(
 
     - 同容量重复开启**不清空**历史(幂等);变更容量才重建缓冲;
       只清空不关停用 :func:`clear_recorded_frames`;
+    - 关闭(``enabled=False``)**不校验容量**(直接丢弃已留存内容;
+      review-1007 P3:关闭语义与容量无关);
     - 与 :func:`set_debug` 相互独立,可单独开启(黑匣子常驻、日志关闭
       是生产环境的推荐组合);
     - 记录路径无锁(:class:`~collections.deque` append 原子),替换/关闭
@@ -98,17 +101,19 @@ def set_frame_recorder(
 
     :param enabled: True = 开始留存;False = 关闭并清空
     :param capacity: 环形容量(帧数),1~100000
-    :raises ValueError: capacity 非整数或越界
+    :raises ValueError: 开启时 capacity 非整数或越界
     """
     global _recorder
-    if isinstance(capacity, bool) or not isinstance(capacity, int):
-        raise ValueError(_("capacity 必须为整数,收到:{!r}").format(capacity))
-    if not 1 <= capacity <= FRAME_RECORDER_MAX_CAPACITY:
-        raise ValueError(
-            _("capacity 必须在 1~{} 之间,收到:{}").format(
-                FRAME_RECORDER_MAX_CAPACITY, capacity
+    enabled = bool(enabled)
+    if enabled:
+        if isinstance(capacity, bool) or not isinstance(capacity, int):
+            raise ValueError(_("capacity 必须为整数,收到:{!r}").format(capacity))
+        if not 1 <= capacity <= FRAME_RECORDER_MAX_CAPACITY:
+            raise ValueError(
+                _("capacity 必须在 1~{} 之间,收到:{}").format(
+                    FRAME_RECORDER_MAX_CAPACITY, capacity
+                )
             )
-        )
     with _recorder_lock:
         if enabled:
             if _recorder is None or _recorder.maxlen != capacity:

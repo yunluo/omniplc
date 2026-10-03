@@ -301,6 +301,45 @@ def test_mc_read_parity_xy_octal(monkeypatch: pytest.MonkeyPatch, loop: Any) -> 
     assert holder["sent"] == expected, "X17(八进制)应按 XF(十六进制)组帧"
 
 
+def test_mc_read_range_xy_octal(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
+    """read_range X17:入口不再预换算(review-1007 P1-2),与单点读同帧。
+
+    修复前:native read_range 入口 ``_translate_address`` 预换算(X17→XF)
+    后 ``_build_frame`` 内二次换算 ``int('F', 8)`` 抛 ValueError——同步层
+    review-1002 P1-1 同款缺陷在 native 复活,且旧测试零 read_range 覆盖。
+    """
+    # 位单位读 1 点:响应数据 = 1 字节半字节打包(第 1 点在高半字节,SH-080008)
+    resp = b"\xd0\x00" + b"\x00\xff\xff\x03\x00" + (3).to_bytes(2, "little") + (0).to_bytes(2, "little") + b"\x10"
+    chunks = list(_split_3e(resp))
+
+    sync_client = InovanceMcTcpClient("127.0.0.1", 2000)
+    sync_scripted = ScriptedTransport(chunks)
+    monkeypatch.setattr(sync_client, "_create_transport", lambda: sync_scripted)
+    sync_client.connect()
+    sync_result = sync_client.read_range("X17", 1, DataType.BOOL)
+
+    holder: Dict[str, Any] = {}
+
+    async def scenario() -> None:
+        client = AsyncInovanceMcTcpClient("127.0.0.1", 2000)
+        scripted = ScriptedAsyncTransport(chunks)
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        holder["result"] = await client.read_range("X17", 1, DataType.BOOL)
+        holder["sent"] = bytes(scripted.sent)
+        await client.close()
+
+    loop.run_until_complete(scenario())
+
+    assert holder["result"] == sync_result == (True, [True])
+    assert holder["sent"] == bytes(sync_scripted.sent)
+    expected = codec_qna.build_request(
+        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("XF"), 1, True, False,
+    )
+    assert holder["sent"] == expected, "read_range X17 应按 XF 恰好一次换算组帧"
+
+
 def test_mc_ping_disabled(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
     """探活显式关闭(H5U 手册 16.4 无 0101):ping 恒 False 不发包,与同步同口径。"""
 

@@ -1237,19 +1237,28 @@ def test_chunk_batch_requests_counts_offset_table() -> None:
 def _tag_entry_bytes(
     instance: int, name: str, symbol_type: int, dims: tuple = (0, 0, 0)
 ) -> bytes:
-    """0x55 应答单条点位(instance UDINT + SHORT_STRING + type UINT + dims)。"""
-    raw = name.encode("ascii")
+    """0x55 应答单条点位(instance UDINT + STRING 名长 UINT + 名 + type UINT + dims)。
+
+    布局按 pylogix ``lgx_tag.Tag.parse`` 逐字节锁定(review-1007 P0-2):
+    名长 = **UINT 2 字节**,名字 utf-8,尾接 3×UDINT 维度(请求属性 1/2/8)。
+    """
+    raw = name.encode("utf-8")
     return (
         struct.pack("<I", instance)
-        + bytes((len(raw),)) + raw
+        + struct.pack("<H", len(raw)) + raw
         + struct.pack("<H", symbol_type)
         + b"".join(struct.pack("<I", d) for d in dims)
     )
 
 
 def test_list_tags_request_golden() -> None:
-    """0x55 请求帧黄金:服务 0x55 + Symbol Object 路径(类 16 位段 + 实例 8 位段)+ 属性 1/2/8。"""
-    expected = bytes.fromhex("55 03 21 20 20 6b 24 00 03 00 01 00 02 00 08 00".replace(" ", ""))
+    """0x55 请求帧黄金:服务 0x55 + Symbol Object 路径(8 位类段 20 6B + 实例 8 位段)+ 属性 1/2/8。
+
+    类段字节 ``20 6B`` 与两参考逐字节一致:pycomm3 ``ClassCode.symbol_object
+    = b'k'``(0x6B)走 8 位段;pylogix ``pack('<H', 0x6B20)`` 小端即 ``20 6B``
+    (review-1007 P0-1:0x6B20 是助记写法,非类码)。
+    """
+    expected = bytes.fromhex("55 02 20 6b 24 00 03 00 01 00 02 00 08 00".replace(" ", ""))
     assert codec_cip.build_tag_list_request(0) == expected
 
 
@@ -1302,7 +1311,7 @@ def test_list_tags_paging(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_list_tags_bad_frame_truncated(monkeypatch: pytest.MonkeyPatch) -> None:
     """应答数据域截断(名字越界):按坏帧拆连,last_error 带原始数据。"""
     client = AllenBradleyEthIpClient("127.0.0.1", 44818)
-    truncated = struct.pack("<I", 1) + bytes((10,)) + b"AB"  # 名长 10 实给 2
+    truncated = struct.pack("<I", 1) + struct.pack("<H", 10) + b"AB"  # 名长 10 实给 2
     scripted = ScriptedTransport(
         _session_chunks()
         + _reply_chunks(truncated, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST)
@@ -1312,6 +1321,35 @@ def test_list_tags_bad_frame_truncated(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.list_tags() == (False, None)
     assert client.connected is False
     assert client.last_error is not None and "点位枚举应答不完整" in client.last_error
+
+
+def test_list_tags_name_len_field_truncated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """实例号后名字长度域(u16)本身被截断:独立报错分支。"""
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818)
+    truncated = struct.pack("<I", 1) + b"\x5a"  # 实例号后只剩 1 字节,不足 u16 名长域
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _reply_chunks(truncated, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST)
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.list_tags() == (False, None)
+    assert client.last_error is not None and "名字长度域被截断" in client.last_error
+
+
+def test_list_tags_utf8_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    """非 ASCII 标签名按 utf-8 解码(pylogix Tag.parse 同口径),名长按字节计。"""
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818)
+    payload = _tag_entry_bytes(1, "温度Tag", 0xC4)
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _reply_chunks(payload, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST)
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, tags = client.list_tags()
+    assert ok is True
+    assert tags[0].name == "温度Tag"
 
 
 def test_list_tags_stalled_page(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -407,8 +407,9 @@ class AllenBradleyEthIpClient(BaseClient):
         """CIP 事务(保留通用状态版):0x06「还有数据」不抛,返回 ``(状态, 数据域)``。
 
         通道封装与 :meth:`_transact` 完全一致(unconnected UC-Send 包裹 /
-        connected SendUnitData),解析换 lenient 版——供 0x55 点位枚举分页
-        使用;其余非 0 状态照常抛 :class:`DeviceError`(不断线)。
+        connected SendUnitData + **同款连接失效拆连转换**),解析换 lenient
+        版——供 0x55 点位枚举分页使用;其余非 0 状态照常抛
+        :class:`DeviceError`(不断线)。
         """
         transport = self._require_transport()
         if self._ot_connection_id is None:
@@ -424,9 +425,18 @@ class AllenBradleyEthIpClient(BaseClient):
             self._session_handle, self._ot_connection_id, sequence, cip_request
         )
         transport.send(frame)
-        return codec_cip.parse_service_reply_with_status(
-            self._recv_frame(), request_service
-        )
+        try:
+            return codec_cip.parse_service_reply_with_status(
+                self._recv_frame(), request_service
+            )
+        except DeviceError as exc:
+            if codec_cip.is_connection_reset_status(exc.code):
+                # connected 会话已被 PLC 丢弃:按坏帧拆连,下次事务惰性
+                # 重连并重新 Forward Open(与 _transact 同款,review-1007 P1-1)
+                raise ProtocolFrameError(
+                    _("connected 连接失效(CIP 状态 0x{:02X}):{}").format(exc.code, exc)
+                ) from exc
+            raise
 
     def list_tags(self) -> Tuple[bool, Optional[List[codec_cip.AbTagEntry]]]:
         """枚举控制器域全部点位(Logix Symbol Object,服务 0x55)。

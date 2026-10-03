@@ -317,12 +317,16 @@ def test_recorder_disable_clears_reenable_keeps() -> None:
 
 
 def test_recorder_capacity_validation() -> None:
-    """容量校验:非整数/越界拒绝,缓冲状态不变。"""
+    """容量校验:开启时非整数/越界拒绝,缓冲状态不变;关闭不校验容量(P3)。"""
     debug.set_frame_recorder(True, capacity=5)
     for bad in (0, -1, debug.FRAME_RECORDER_MAX_CAPACITY + 1, True, 2.5, "10"):
         with pytest.raises(ValueError):
             debug.set_frame_recorder(True, capacity=bad)  # type: ignore[arg-type]
     assert debug.frame_recorder_enabled() is True
+    # 关闭语义与容量无关:enabled=False 时 capacity 任意(含非法值)都直接关闭
+    debug.set_frame_recorder(False, capacity=0)
+    assert debug.frame_recorder_enabled() is False
+    assert debug.recorded_frames() == []
 
 
 def test_clear_recorded_frames() -> None:

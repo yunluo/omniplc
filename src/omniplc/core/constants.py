@@ -638,7 +638,11 @@ FINS_DAY_OF_WEEK_TEXT: Dict[int, str] = {
     6: "星期六",
 }
 """0701/0702 星期字段值 → 文本(W342 §5-3-19 印刷页 198:00=Sunday ~
-06=Saturday;PLC 不校验星期与日期一致,由调用方保证)。"""
+06=Saturday;PLC 不校验星期与日期一致,由调用方保证)。
+
+**备查表**:生产路径当前无消费点(`read_clock` 返回原始 ``day_of_week``
+整数);需要展示时由调用方查本表,多语言场景请自行过 `omniplc.set_lang`
+同款的 `_()` 取词(表本体保留中文,review-1007 P2 口径标注)。"""
 FINS_MAX_MULTIPLE_ELEMENTS: int = 167
 """0104 多存储区读单命令条目上限(Ethernet/Controller Link;SYSMAC LINK/
 DeviceNet 为 89;W342 §5-3-5 p.178)。"""

@@ -253,7 +253,10 @@ class AsyncMelsecMcBase(AsyncBaseClient):
                     limit, self._frame.value, count
                 )
             )
-        parsed = self._translate_address(parse_mc_address(address))
+        # 入口只解析不换算(与同步层同口径,review-1002 P1-1 / review-1007
+        # P1-2):记号换算由 _build_frame 内恰好执行一次,入口预换算会使
+        # 汇川等覆写 _build_frame 的子类发生二次换算(X17 八进制→F→再解析抛错)
+        parsed = parse_mc_address(address)
         if data_type_enum is not DataType.BOOL and parsed.bit is not None:
             raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         _code, is_bit_device, _base = self._device_info(parsed.device)

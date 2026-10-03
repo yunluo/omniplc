@@ -931,6 +931,7 @@ _TRANSLATIONS: Dict[str, str] = {
     '点位枚举分页轮数超过上限 {}': 'Tag list pagination exceeded the page limit of {0}',
     'CIP 实例号超出 0~65535:{}': 'CIP instance id out of range 0-65535: {0}',
     '点位枚举应答不完整:实例号被截断(收到的原始数据:{})': 'Tag list response incomplete: instance id truncated (raw data received: {0})',
+    '点位枚举应答不完整:名字长度域被截断(收到的原始数据:{})': 'Tag list response incomplete: name length field truncated (raw data received: {0})',
     '点位枚举应答不完整:名字/类型/维度被截断(收到的原始数据:{})': 'Tag list response incomplete: name/type/dimensions truncated (raw data received: {0})',
     'FINS 0701 时钟字段非 BCD 编码:0x{:02X}(收到的原始帧:{})': 'FINS 0701 clock field is not BCD-encoded: 0x{0:02X} (raw frame received: {1})',
     '时钟年份须为右两位 0~99,收到:{}': 'The clock year must be the rightmost two digits 0-99, got: {0}',
