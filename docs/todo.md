@@ -22,7 +22,7 @@
 
 | # | 项 | 优先级 | 依据 / 出处 | 状态 |
 |---|---|---|---|---|
-| 1 | README「AI 欢迎策略」章节 | P3 | libplctag AI Policy 先例:**承认本项目大量使用 AI**(实现/测试/文档全程 AI 辅助)并欢迎 AI 辅助贡献;协作指引指向 AGENTS.md(协议引用铁律/全中文/门禁)与 CONTRIBUTING.md——纯文档一段,分钟级 | 待实现 |
+| 1 | README「AI 欢迎策略」章节 | P3 | libplctag AI Policy 先例;已落地——**不排斥 AI 开发,但必须知道自己的代码有什么作用和干嘛的,对自己提交的代码负责;对待 AI 和对待 IDE 一样,都是工具**(用户口径,2026-10-03) | 已完成 |
 | 2 | AB `list_tags` 点位枚举 | P2 | CIP Get Tag List 服务(0x55),依 Rockwell 1756-PM020;pylogix/gologix/libplctag 均有,现场"看 PLC 里有哪些标签"刚需(2026-10-03 GitHub 同类库调研唯一确凿功能缺口)——新服务封装+分页续传+变长解析,单驱动功能,依据手册已有 | 待实现 |
 | 3 | 串口原生异步层(3.8+ 环境标记) | P3 | pymodbus RTU asyncio 先例(serial_asyncio);RTU 不需要数据报端点,"3.7 Proactor 限制"仅约束 UDP——常规工程:新增依赖线+AsyncSerialTransport+RTU 客户端+双循环测试 | 待实现 |
 | 4 | 连接池 / 并行采集原语 | P2 | S7netplus #49/#238/#295 实证单连接串行是吞吐瓶颈、用户自建多连接池;v1.x 履历已排期——并发生命周期设计与退避/锁模型交互,属设计题,待实现里最大件;短期可先落 README「多实例并行」指引 | 待实现 |
