@@ -1,0 +1,150 @@
+# S7comm 帧面事实档案(自研 SiemensS7Client 依据)
+
+> 依据铁律退档口径:S7comm 无官方公开手册,帧面依据 = 参考实现逐字节比对。
+> 本文记录 python-snap7 3.2.0(纯 Python 重写版,MIT,2026-03 发布)各层帧面
+> 事实与出处(文件 + 函数),供 `plc/siemens/codec.py` 实现就近引用;交叉
+> 裁决源:Sally7(C#,MIT)、S7netplus(MIT)、nodeS7(MIT);snap7 C++
+> 源码(LGPL)只比对行为不抄码;Wireshark s7comm dissector 中立仲裁。
+> 真机 pcap 是黄金帧的唯一权威——落地后随 P5 补抓包样本。
+>
+> 抽取日期:2026-10-03;python-snap7 3.2.0(PyPI sdist/wheel)。
+
+## 1. 传输层:TPKT(RFC 1006)
+
+出处:`snap7/connection.py::ISOTCPConnection._build_tpkt / receive_data`
+
+- 头 4 字节 `>BBH`:版本 `0x03`、保留 `0x00`、**总长 u16 大端(含头)**
+- 合法长度 7~65535;应答流 = 循环「读 4 字节头 → 读 总长-4」
+
+## 2. 传输层:COTP(ISO 8073)
+
+出处:`connection.py::_build_cotp_cr / _parse_cotp_cc / _build_cotp_dt / _parse_cotp_data`
+
+PDU 类型:CR=`0xE0`、CC=`0xD0`、DT=`0xF0`、DR=`0x80`。
+
+**CR(连接请求)**:
+- 固定头 `>BBHHB`:PDU 长(= 6 + 参数长,不含本字节)、`0xE0`、dst_ref `0x0000`、
+  src_ref `0x0001`、class `0x00`
+- 参数(TLV:code 1B + len 1B + value):
+  - `0xC1` Calling TSAP:len 2,值 = `0x0100`(本库固定)
+  - `0xC2` Called TSAP:len 2,值 = **`(connection_type << 8) | (rack << 5) | slot`**,
+    connection_type = 1(PG)——即 rack 3 位(bit7~5)+ slot 5 位(bit4~0)。
+    出处:`snap7/client.py::Client.connect`(L621)`remote_tsap = (connection_type << 8) | (rack << 5) | slot`;
+    默认 `0x0102` = rack 0 / slot 2(300/400 CPU 惯例)
+  - `0xC0` PDU Size:len 1,值 = 指数(2^值,`0x0A` = 1024)
+
+**CC(确认)**:固定头 7 字节 `>BBHHB`(校验 type = `0xD0`),参数区可含
+`0xC0` TPDU size(len 1 指数 或 len 2 原值)。
+
+**DT(数据)**:头 3 字节 `>BBB`:`0x02`、`0xF0`、`0x80`(EOT 位 + 序号 0);
+数据 = S7 PDU。应答侧校验:pdu_len == 2、type == 0xF0、序号位(`& 0x7F`)为 0。
+
+## 3. S7 报文头
+
+出处:`snap7/s7protocol.py::S7Protocol.parse_response`(L1523-1554)
+
+| PDU 类型 | 值 | 头长 |
+|---|---|---|
+| Request(Job) | `0x01` | 10 字节 `>BBHHHH` |
+| ACK(写应答) | `0x02` | **12 字节** `>BBHHHHBB` |
+| ACK_DATA(读/协商应答) | `0x03` | **12 字节** `>BBHHHHBB` |
+| USERDATA | `0x07` | **10 字节**(无 error_class/error_code 两字节) |
+
+头字段:协议 ID `0x32`、PDU 类型、冗余 `0x0000`、**PDU 引用 u16(序列号,
+循环 +1)**、参数长 u16、数据长 u16(ACK/ACK_DATA 尾接 error_class+error_code
+各 1 字节,error_class ≠ 0 即协议错误)。
+
+## 4. 协商(SETUP_COMMUNICATION,功能 0xF0)
+
+出处:`s7protocol.py::build_setup_communication_request`(L373-398)
+
+- 参数 8 字节 `>BBHHH`:`0xF0`、`0x00`、max AMQ caller `1`、max AMQ callee `1`、
+  PDU 长度(默认 480;按对端确认值生效)
+- 应答:ACK_DATA,参数同形(`0xF0 0x00` + caller/callee/PDU 长 u16×3),
+  **PDU 长度以应答为准**
+
+## 5. 地址规范(12 字节 Any 指针)
+
+出处:`snap7/datatypes.py::S7DataTypes.encode_address`(L55-96)
+
+`>BBBBHHB3s`:
+
+| 偏移 | 值 | 说明 |
+|---|---|---|
+| 0 | `0x12` | 变量规范类型 |
+| 1 | `0x0A` | 后续长度 10 |
+| 2 | `0x10` | 语法 ID S7-Any |
+| 3 | 传输尺寸 | 见下表 |
+| 4-5 | count u16 | 元素个数 |
+| 6-7 | DB 号 u16 | 仅 DB 区非 0,其余区 0 |
+| 8 | 区域码 | 见下表 |
+| 9-11 | 地址 3 字节大端 | BIT:`byte<<3\|bit`;字类:`字节地址×8`;TM/CT:元素号 |
+
+**区域码**(`S7Area`):PE `0x81`、PA `0x82`、MK `0x83`、DB `0x84`、
+CT `0x1C`、TM `0x1D`。
+
+**WordLen**(`S7WordLen`,地址规范用):BIT `0x01`、BYTE `0x02`、CHAR `0x03`、
+WORD `0x04`、INT `0x05`、DWORD `0x06`、DINT `0x07`、REAL `0x08`、
+COUNTER `0x1C`、TIMER `0x1D`。
+
+## 6. 读变量(READ_AREA,功能 0x04;multi 即多项同功能)
+
+出处:`s7protocol.py::build_read_request / build_multi_read_request`(L151-226)
+
+- 参数 = `0x04` + 项数 1B + N × (地址规范 12 字节);multi 时 word_len 统一
+  取 BYTE、count = 字节长(按地址规范的字节跨度编)
+- 头的数据长 = 0
+
+**读应答**(ACK_DATA)数据段逐项:返回码 1B(`0xFF`=成功)+ 传输尺寸 1B +
+位长 u16 + 数据(传输尺寸 `0x04`=BIT 时位长/8 字节,否则按字节)+
+**奇数长的项后跟 1 字节填充(非末项)**。
+出处:`extract_multi_read_data`(L228-285)。
+
+## 7. 写变量(WRITE_AREA,功能 0x05)
+
+出处:`s7protocol.py::build_write_request`(L287-371)
+
+- 参数 = `0x05` + 项数 1B + 地址规范 12 字节
+- 数据段 = `>BBH`(保留 `0x00` + 数据传输尺寸 + 数据长)+ 数据
+- **数据传输尺寸映射**(与地址规范的 WordLen 不同码):BIT→`0x03`(数据长
+  =字节数)、BYTE/WORD/DWORD→`0x04`(数据长 = **位数**)、INT/DINT→`0x05`
+  (位数)、REAL→`0x07`(位数)、CHAR/COUNTER/TIMER→`0x09`(字节数)
+- 写应答:ACK,数据段 = 逐项返回码 1 字节(`0xFF` 成功)
+
+## 8. S7 数据段返回码
+
+出处:`s7protocol.py::S7_RETURN_CODES`(L78-100)
+
+`0xFF` 成功;`0x01` 硬件错误、`0x03` 不允许访问、`0x05` 地址非法、
+`0x06` 类型不支持、`0x07` 类型不一致、`0x0A` 对象不存在、`0x21` PG 资源
+耗尽(连接数满)等(全表见源码)。
+
+## 9. USERDATA(SZL / 时钟 / 安全;首期只取 SZL 0x0424)
+
+出处:`s7protocol.py::build_read_szl_request`(L1075-1120)
+
+- 参数 8 字节 `>BBBBBBBB`:`0x00`、项数 `0x01`、`0x12`、长 `0x04`、
+  方法 `0x11`(请求)、**type|group**(`0x40 | group`,SZL group `0x04` →
+  `0x44`;时钟 group `0x07` → `0x47`;安全 group `0x05` → `0x45`)、
+  子功能(SZL 读 = `0x01`)、DataRef(续传序号,首帧 `0x00`)
+- 数据段 `>BBHHH`:返回码 `0x0A`(请求占位)、传输尺寸 `0x00`、长 u16、
+  SZL ID u16、SZL Index u16
+- USERDATA 应答:头 10 字节;参数区同构(方法 `0x12`=响应);应答数据段
+  = 返回码 1B + 传输尺寸 1B + 长 u16 + 载荷
+
+**CPU 状态(SZL 0x0424)**:python-snap7 3.2.0 的 `build_cpu_state_request/
+extract_cpu_state`(L1486-1521)是**纯 Python 服务端桩实现**(源码自注
+"in real S7 this would be a userdata function",`extract_cpu_state` 恒返
+`"S7CpuStatusRun"`)——**不可作帧面依据**。自研按 snap7 C 家族行为
+(`Cli_GetCpuStatus` = `ReadSZL(0x0424, 0x0000)`,返回状态字节 `0x08`=Run /
+`0x04`=Stop / 其他 Unknown)实现;SZL 应答的 AddLen/AddCount 字段与状态
+字节偏移**待真机核证**(登记 real-machine-checklist)。
+
+## 10. 会话级参数(python-snap7 默认值)
+
+出处:`snap7/client.py`(L333-341、L619-646)
+
+- local TSAP `0x0100`、connection_type `1`(PG)、src_ref `0x0001`
+- PDU 长度请求 480(协商后取对端确认值)
+- 序列号 u16 循环(+1),应答校验 PDU 引用一致
+- TCP:TCP_NODELAY + SO_KEEPALIVE(snap7 3.x 同款)

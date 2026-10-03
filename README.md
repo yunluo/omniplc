@@ -34,8 +34,7 @@ uv add omniplc            # 或 pip install omniplc
 uv add 'omniplc[serial]'  # Modbus RTU / 三菱 MC 串口帧(pyserial)
 uv add 'omniplc[mx]'      # 三菱 MX Component(Windows)
 uv add 'omniplc[opcua]'   # OPC-UA(asyncua)
-uv add 'omniplc[s7]'      # 西门子 S7(python-snap7,按解释器自动二选一)
-uv add 'omniplc[all]'     # 全部可选扩展(serial/mx/opcua/s7,不含测试工具)
+uv add 'omniplc[all]'     # 全部可选扩展(serial/mx/opcua,不含测试工具)
 ```
 
 #### 快速上手

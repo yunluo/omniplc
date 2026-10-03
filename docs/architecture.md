@@ -24,7 +24,7 @@ flowchart TB
         InovanceD["plc/inovance/<br/>address(汇川→Modbus 映射)+ client(继承 Modbus)<br/>mc(MC 协议兼容,继承 MelsecMcTcpClient)"]
         PanasonicD["plc/panasonic/<br/>mc(MC 协议兼容,继承 MelsecMcTcpClient)<br/>address + codec_mewtocol + mewtocol(TCP/UDP)"]
         Toyopuc["plc/toyopuc/<br/>codec + address + client"]
-        SiemensD["plc/siemens/<br/>address(DB/I/Q/M 解析)+ client(封装 python-snap7)"]
+        SiemensD["plc/siemens/<br/>address(DB/I/Q/M 解析)+ codec(S7comm 三层)+ client(自研栈)"]
         Opcua["plc/opcua/<br/>address + client(封装 asyncua)"]
     end
     subgraph TransportLayer["传输层 transport(可插拔)"]
@@ -144,7 +144,7 @@ flowchart TB
     MTConnectClient["MTConnectClient — cnc/mtconnect.py<br/>CNC 只读数采(HTTP/XML,Agent 默认端口 5000,标准库零依赖)<br/>地址=数据项 id/name;read_* 类型化 + snapshot() + read_conditions() + probe()"]
 
     %% ═══ 西门子 S7 ═══
-    SiemensS7Client["SiemensS7Client — plc/siemens/client.py<br/>S7-300/400/1200/1500(封装 python-snap7:3.7~3.9→1.3,3.10+→3.x 纯 Python)<br/>rack/slot 102;DB/I/Q/M 绝对寻址,尺寸由 DataType 决定大端序;位读改写;S7 String"]
+    SiemensS7Client["SiemensS7Client — plc/siemens/client.py<br/>S7-300/400/1200/1500(自研 S7comm 栈,零第三方依赖)<br/>rack/slot 102;DB/I/Q/M 绝对寻址,尺寸由 DataType 决定大端序;位读改写;S7 String"]
 
     %% ═══ 继承关系 ═══
     BaseClient --> ModbusBaseClient
@@ -591,7 +591,7 @@ class BaseClient(ABC):
 | 丰田 TOYOPUC 计算机链接 | ✅ `ToyopucTcpClient` | ✅ `ToyopucUdpClient` | — | — |
 | OPC-UA(opc.tcp) | ✅ `OpcUaClient`(封装 asyncua) | — | — | — |
 | CNC 机床数采(MTConnect) | ✅ `MTConnectClient`(Agent 5000,HTTP/XML 只读) | — | — | — |
-| 西门子 S7(DB/I/Q/M) | ✅ `SiemensS7Client`(102,封装 python-snap7) | — | — | — |
+| 西门子 S7(DB/I/Q/M) | ✅ `SiemensS7Client`(102,自研 S7comm 栈) | — | — | — |
 
 MX Component 说明:``MelsecMxClient`` 经三菱 MX Component 的 ``ActUtlType``
 COM 控件(实用程序设置型)通信,通信参数在**通信设置实用程序**中配置为逻辑站号
@@ -1102,7 +1102,7 @@ FINS 协议复审(2026-09,对照欧姆龙 FINS 手册 W342):FINS 帧头 10 字�
 | v0.52.1 | **原生异步层新增汇川两走线(f0537cb,纯新增)**——`AsyncInovanceTcpClient`(继承 Modbus 原生,覆写四单点钩子换汇川地址翻译)+ `AsyncInovanceMcTcpClient`(继承 MC 原生,覆写码表/R 统一编址/X·Y 八进制三个纯编解码点,探活按 H5U 16.4 显式关闭);能力面随父类全量继承,RTU 串口不进;+18 例对拍/偏移锚定/门控/守卫,原生类 5→7。门禁 3.7.9 **1639 passed** / ruff / mypy(79 files) / ty 全零 | ✅ 完成 |
 | v0.52.2 | **AB 点位枚举 list_tags + 报文黑匣子 + 排障文档三件(eabed28/e4ec5c6/c8cbdb7/803fce6)**——AB `list_tags()`:CIP 0x55 + Symbol Object 0x6B20,状态 0x06 自动分页续传,`AbTagEntry` 根包导出,aio 镜像,NJ/NX 裁决拒绝(Logix 私有面),帧面 pycomm3/pylogix 双参考逐字节裁决(手册待补);报文黑匣子:`set_frame_recorder`(进程级,只存不打印,容量 1~100000)+ `recorded_frames`/`clear_recorded_frames`/`FrameRecord` 根包导出,挂点 `log_frame` 走线型全量覆盖,与 `set_debug` 相互独立;文档三件:`docs/troubleshooting.md` 现场排障指南(六路现场调研变现)+ `docs/firmware-notes.md` 固件/设备差异清单(九条)+ examples 丰富化(通用 API 面大节/批量写/端口对照,API 面 inspect 全量盘点);「有意不做」新增披露:FINS 运维命令、连接池(方案要点存档 todo)。**行为变更提示**:纯新增;根包新导出五名。门禁 3.7.9 **1664 passed** / ruff / mypy(80 files) / ty 全零 | ✅ 完成 |
 | v0.52.3 | **review-1007 修复批(cb764ad/2a66621,零误报全确认)**——P0×2 AB list_tags 帧面(0.52.2 遗留真机必失败):类段 0x6B20 助记误读修正 → 8 位段 `20 6B`、名长 u8 → CIP STRING(UINT 长)+ utf-8、应答布局按「应答=请求集」修正(不取 pycomm3 的地址类 UDINT);P1×2:`_transact_with_status` connected 分支补拆连转换、native MC read_range 双换算(同步 review-1002 P1-1 复活,X17 实测复现)修 + 对拍回归;P3 黑匣子关闭容量校验;文档批:README 16 族/30 客户端(两处漏减)、protocol-features/architecture 登记黑匣子与 list_tags 裁决、ADS 残留清理。**行为变更提示**:list_tags 修复后帧面与 0.52.2 完全不同(无兼容负担);`set_frame_recorder(False, capacity=非法)` 改直接关闭。门禁 3.7.9 **1668 passed** / ruff / mypy(79 files) / ty 全零 | ✅ 完成 |
-| v1.x | MC 2C 帧(A 兼容串口)、FINS Host Link、FINS 时钟读/写(**0701/0702 已随本批落地**——W342 §5-3-19/20 印刷页 197-198,`read_clock`/`write_clock` + `FinsClock` 类型,sync/native/aio 三层)与 EM bank≥16 扩展区、TOYOPUC 扩展区/PC10/中继/时钟、AB UDT 整体读取与分片读写(0x52)与 `list_tags`(CIP 0x55,**已随 v0.52.2 落地,v0.52.3 帧面修正**——双参考实现裁决,1756-PM020 待补)、松下 MEWTOCOL-COM 串口、Modbus ASCII 走线与报告类功能码(11/17;诊断 07/08/0B/0C 与文件记录 14/15、FIFO 18 已实现)、FANUC FOCAS 与三菱 CNC EZSocket DLL 封装、S7comm 自研(**直接替换 snap7 封装**,2026-10-03 拍板);FINS 运维命令(0103/0105/0401/0402/2301)与连接池已按 2026-10-03 裁决移入「有意不做」 | 规划 |
+| v1.x | MC 2C 帧(A 兼容串口)、FINS Host Link、FINS 时钟读/写(**0701/0702 已随本批落地**——W342 §5-3-19/20 印刷页 197-198,`read_clock`/`write_clock` + `FinsClock` 类型,sync/native/aio 三层)与 EM bank≥16 扩展区、TOYOPUC 扩展区/PC10/中继/时钟、AB UDT 整体读取与分片读写(0x52)与 `list_tags`(CIP 0x55,**已随 v0.52.2 落地,v0.52.3 帧面修正**——双参考实现裁决,1756-PM020 待补)、松下 MEWTOCOL-COM 串口、Modbus ASCII 走线与报告类功能码(11/17;诊断 07/08/0B/0C 与文件记录 14/15、FIFO 18 已实现)、FANUC FOCAS 与三菱 CNC EZSocket DLL 封装、S7comm 自研(**v0.53 同步栈已落地**——直接替换 snap7 封装、依赖退役;native AsyncSiemensS7Client 随下批,真机核证 P5 待做);FINS 运维命令(0103/0105/0401/0402/2301)与连接池已按 2026-10-03 裁决移入「有意不做」 | 规划 |
 | v2 | 更多品牌/协议按需扩展(drivers 插槽沿用 BaseClient 原语模式) | 规划 |
 
 ## 12. 原生异步层(`omniplc.native`)
@@ -1229,7 +1229,7 @@ BaseClient(ABC,模板方法:连接状态机 / 事务锁 / 惰性重连 / 类型�
 ├── ToyopucUdpClient —— TOYOPUC 同帧 over UDP(1025)
 ├── OpcUaClient —— OPC-UA opc.tcp 会话(4840,封装 asyncua)
 ├── MTConnectClient —— CNC 机床数采(HTTP/XML 只读,Agent 默认 5000)
-└── SiemensS7Client —— 西门子 S7(102,rack/slot 路由,封装 python-snap7)
+└── SiemensS7Client —— 西门子 S7(102,rack/slot 路由,自研 S7comm 栈)
 
 异步镜像(omniplc.aio):类名 = 同步类名前加 A,签名同名同型,共 30 个
 AModbusTcpClient / AModbusRtuClient / AInovanceTcpClient / AInovanceRtuClient / AInovanceMcTcpClient

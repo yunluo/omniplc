@@ -75,7 +75,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 | MC 1E / 3C / 4C、KV HostLink、MEWTOCOL、TOYOPUC、汇川 MC、SR、海康串口、SDK | 无探测命令,不启用 | ping 恒 False;心跳不运行 |
 | 欧姆龙 FINS TCP/UDP | 0601 CPU Unit Status Read | W342 §5-3-17 印刷页 194-196;另公开 `read_cpu_unit_status()`(状态/模式/错误字解码) |
 | AB EtherNet/IP | Identity Object GetAttributesAll | CIP Vol 1 §5-4;复用 `get_plc_info()` |
-| 西门子 S7 | snap7 `GetCpuState` | 另公开 `get_cpu_state()`(枚举名透传,RUN/STOP);1.3/3.2 双轨核实 |
+| 西门子 S7 | SZL 0x0424 读(自研栈) | 另公开 `get_cpu_state()`(枚举名透传,RUN/STOP);状态字节偏移待真机核证 |
 | OPC-UA | 读 `i=2258` Server 当前时间 | 0 命名空间标准变量(asyncua `nodes.current_time` 同款);顺带抑制空闲会话回收 |
 | MTConnect | GET `/probe` | Part1 §8.3.1 p.98-100 |
 | 海康 Modbus 模式 | FC03 读状态字 REG1 | 工业协议手册 V1.0.4 §3.5;不触发扫描握手 |
@@ -490,7 +490,7 @@ start/stop,印刷页 45-47)+ §4.7.3 串口通讯协议(印刷页 52)+《极小�
 
 ---
 
-## 18. 西门子 S7(python-snap7 封装)
+## 18. 西门子 S7(自研 S7comm 协议栈,v0.53 直接替换 python-snap7 封装)
 
 客户端:`SiemensS7Client`
 
@@ -500,12 +500,12 @@ start/stop,印刷页 45-47)+ §4.7.3 串口通讯协议(印刷页 52)+《极小�
 | I / Q / M 读写(位 / 字节 / 字 / 双字) | ✅ | |
 | 位写 | ✅ | 本地读-改-写(非设备原子) |
 | S7 String / WString | ✅ | |
-| 存储区覆盖 | ✅ | DB(0x84)/ I=PE(0x81)/ Q=PA(0x82)/ M=MK(0x83);`read_batch`(read_multi_vars,≤20 项)与 `read_range`(read_area 同区域按类型字节数一次读回)为跨协议覆写,见 §0 |
-| T / C 定时器计数器区 | ❌ | snap7 支持,地址面未暴露 |
-| SZL 系统状态列表读 | ❌ | 未实现 |
-| CPU 控制(RUN/STOP)/ 时钟 / 组态 | ❌ | 未实现 |
+| 存储区覆盖 | ✅ | DB(0x84)/ I=PE(0x81)/ Q=PA(0x82)/ M=MK(0x83);`read_batch`(Read Var 多 Item,≤20 项)与 `read_range`(Read Var 同区域按类型字节数一次读回)为跨协议覆写,见 §0 |
+| T / C 定时器计数器区 | ❌ | 协议支持(区码 0x1C/0x1D),地址面未暴露 |
+| SZL 系统状态列表读 | ⭕ | 仅 CPU 状态(SZL 0x0424,`get_cpu_state`/探活);状态字节偏移**待真机核证**;SZL 全家未实现 |
+| CPU 控制(RUN/STOP)/ 时钟 / 组态 | ❌ | 未实现(运维/控制面,与 MC/MX 同口径) |
 | S7-1200/1500 优化 DB | ➖ | 经典 S7comm 协议边界(优化块需符号访问);DB 访问失败的错误消息已带指引 |
-| 依赖双轨 | ✅ | 3.7~3.9 → snap7 1.3 / 3.10+ → 3.x;错误双线翻译 |
+| 依赖 | ✅ | **核心零第三方依赖**(v0.53 自研栈直接替换 python-snap7 双轨线);帧面依据 python-snap7 3.2.0 逐字节比对(docs/protocol/siemens/s7comm/);**真机核证待做**(P5:与 python-snap7 独立脚本对拍) |
 
 ---
 

@@ -6,7 +6,7 @@
 [architecture.md](architecture.md) 为准;失败分类与现场排障见
 [troubleshooting.md](troubleshooting.md)。
 
-安装可选依赖:`pip install 'omniplc[serial|mx|opcua|s7]'`(对应小节标注)。
+安装可选依赖:`pip install 'omniplc[serial|mx|opcua]'`(对应小节标注)。
 
 ## 通用 API 面(所有客户端共享)
 
@@ -432,12 +432,12 @@ ok, page = cnc.read_sample(from_sequence=100)   # /sample 历史样本(序列号
 ok, assets = cnc.read_assets()         # 资产(刀具等)
 ```
 
-## 西门子 S7(需 omniplc[s7];封装 python-snap7)
+## 西门子 S7(自研 S7comm 栈,零第三方依赖)
 
 ```python
 from omniplc import SiemensS7Client
 # S7-1200/1500 需勾选「允许来自远程对象的 PUT/GET 通信访问」,DB 须为非优化块
-# 依赖按解释器自动二选一:3.7~3.9 → 1.3(C 封装);3.10+ → 3.x(纯 Python)
+# v0.53 起为自研 S7comm 协议栈(核心零依赖,无需安装任何扩展)
 s7 = SiemensS7Client("192.168.0.1", rack=0, slot=1)  # 300/400 的 CPU 常在槽位 2
 ok, temp = s7.read_float("DB1.DBD6")   # DB 双字起点,REAL
 ok = s7.write_bool("DB1.DBX0.3", True) # DB 位(非原子读-改-写;多写者请 write 整字节)
