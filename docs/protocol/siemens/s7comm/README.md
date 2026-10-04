@@ -25,13 +25,30 @@ PDU 类型:CR=`0xE0`、CC=`0xD0`、DT=`0xF0`、DR=`0x80`。
 **CR(连接请求)**:
 - 固定头 `>BBHHB`:PDU 长(= 6 + 参数长,不含本字节)、`0xE0`、dst_ref `0x0000`、
   src_ref `0x0001`、class `0x00`
-- 参数(TLV:code 1B + len 1B + value):
-  - `0xC1` Calling TSAP:len 2,值 = `0x0100`(本库固定)
+- 参数(TLV:code 1B + len 1B + value;顺序恒 Calling → Called → PDU Size,
+  与 IoTClient 标准帧「PDU Size 在前」的排序不同——TLV 序不敏感,不影响语义):
+  - `0xC1` Calling TSAP:len 2,值按型号预设(缺省 `0x0100`)
   - `0xC2` Called TSAP:len 2,值 = **`(connection_type << 8) | (rack << 5) | slot`**,
-    connection_type = 1(PG)——即 rack 3 位(bit7~5)+ slot 5 位(bit4~0)。
-    出处:`snap7/client.py::Client.connect`(L621)`remote_tsap = (connection_type << 8) | (rack << 5) | slot`;
-    默认 `0x0102` = rack 0 / slot 2(300/400 CPU 惯例)
+    connection_type 缺省 1(PG)——即 rack 3 位(bit7~5)+ slot 5 位(bit4~0)。
+    出处:`snap7/client.py::Client.connect`(L621)`remote_tsap = (connection_type << 8) | (rack << 5) | slot`
   - `0xC0` PDU Size:len 1,值 = 指数(2^值,`0x0A` = 1024)
+
+**型号连接预设**(2026-10-04 型号参数化批;依据链「参考实现逐字节比对」
+退档,全部待真机核证;落库表 `core/constants.py::S7_CPU_PRESETS`):
+
+| 型号 | Calling | Called | 资源类型 | 缺省 rack/slot | TPDU | 依据 |
+|---|---|---|---|---|---|---|
+| S7-300/400 | `0x0100` | `0x0102` | PG(1) | 0/2 | `0x0A` | python-snap7 L334/L621(缺省 PG);slot 2 = 300/400 CPU 惯例 |
+| S7-1200/1500 | `0x0100` | `0x0101` | PG(1) | 0/1 | `0x0A` | 同上;slot 1 = 1200/1500 惯例(S7netplus 同) |
+| S7-200 SMART | `0x1000` | `0x0300` | S7 基本(3) | 0/0 | `0x0A` | IoTClient `SiemensConstant.cs::Command1_200Smart`(L36-41)字节黄金;交叉 S7netplus `CpuType.S7200Smart`(rack0/slot1)与社区 `0x0301` 口径——分歧在槽位位,`slot` 覆写可切,真机裁决 |
+| S7-200(经 CP243-1) | `0x4D57`("MW") | `0x4D57`("MW") | — | 0/0 | `0x09`(512) | IoTClient `SiemensConstant.cs::Command1_200`(L56-61)字节黄金;TSAP = Micro/WIN 记号 ASCII。S7-200 无内置以太网,仅限 CP243-1 模块接入 |
+
+- IoTClient 标准型帧(300/400/1200/1500)与本库口径不同:其 Calling =
+  `0x0102`、Called = `0x0100|rack<<5|slot`(资源类型恒 0x01,与 snap7 的
+  Calling/Called 角色互换)——双方均被 CPU 接受(Calling TSAP 通常不被
+  校验),本库从 python-snap7 主源口径。
+- 经典 S7-200 的串口 PPI 与本档案无关(PPI 帧格式另议,官方无公开文档,
+  未实现,见 `docs/protocol/README.md` 待补表)。
 
 **CC(确认)**:固定头 7 字节 `>BBHHB`(校验 type = `0xD0`),参数区可含
 `0xC0` TPDU size(len 1 指数 或 len 2 原值)。
@@ -161,6 +178,8 @@ real-machine-checklist)。
 出处:`snap7/client.py`(L333-341、L619-646)
 
 - local TSAP `0x0100`、connection_type `1`(PG)、src_ref `0x0001`
+  (python-snap7 缺省,即 S7-300~1500 预设;200 SMART/200-CP243 按上节
+  型号预设表覆写,见 `core/constants.py::S7_CPU_PRESETS`)
 - PDU 长度请求 480(协商后取对端确认值;本库 read_area/write_area 按
   协商值自动分片:读侧容量 = PDU−18、写侧 = PDU−35,`client_base.py`
   L199-219 同款公式)

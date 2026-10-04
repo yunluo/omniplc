@@ -41,7 +41,7 @@
 | AB 0x0A 多服务包批量读  | AB Logix         | 已实现(超 32 条/480B 自动拆包),通用模拟器不支持,待真机核证 |
 | AB connected RPI  | AB Logix         | RPI 默认 100ms(`rpi_us` 可配)、CIP 0x01/0x07 重连,待真机核证 |
 | NJ CIP 0x0A 多服务包 | 欧姆龙 NJ/NX CIP    | 继承 AB,理论同,待真机核证                |
-| 西门子 S7           | S7-300/1200/1500 | **v0.53 自研 S7comm 栈**(依赖已退役),需 PLC 或 PLCSIM;全功能待真机核证(P5:与 python-snap7 3.2.0 独立脚本对拍),要点见核验记录表 |
+| 西门子 S7           | S7-200/200SMART/300/400/1200/1500 | **v0.53 自研 S7comm 栈**(依赖已退役),2026-10-04 型号批:`model=S7Cpu` 选型(SMART/200-CP243 连接预设 + V 区记号),需 PLC 或 PLCSIM;全功能待真机核证(P5:与 python-snap7 3.2.0 独立脚本对拍),要点见核验记录表 |
 | NJ STRING / BOOL 数组 | 欧姆龙 NJ/NX CIP    | 已实现(STRING 按 `len(u32)+字符`、BOOL 按元素自描述,回 DWORD 时 `//32` 回退),待真机核证 |
 | MC 新设备码          | 三菱 Q/L/R         | L/F/SB/V/DX/DY/TS/TC/TN/CS/CC/CN/SM/SD/SW 已实现,待真机核证(TN=0xC3/CN=0xC6 为推定) |
 | KV MC 0406 批量读   | 基恩士 KV MC        | 继承 MelsecMc,码表已覆写,待真机          |
@@ -80,7 +80,7 @@
 | 欧姆龙 | NJ/NX CIP(connected, Forward Open) | | | |
 | 罗克韦尔 | EtherNet/IP(unconnected) | | | 0x0A 多服务包自动拆包预算(≤32 条 / ≤480B)待真机核证(connected Large 4002 下 480B 偏保守,仅影响拆包次数);**`list_tags`(0x55)点位枚举待真机核证**:①应答布局(instance UDINT + SHORT_STRING 名 + type UINT + 3×UDINT 维度)与分页状态 0x06 语义(双参考实现对照裁决,1756-PM020 手册待补);②程序域 `Program:` 标签是否出现在控制器域枚举;③大点位表(>1 万)分页轮数实测 |
 | 罗克韦尔 | EtherNet/IP(connected, Forward Open) | | | RPI 默认 100ms(`rpi_us` 可覆盖)、CIP 0x01/0x07 断线重连、Forward Close 应答解析待真机核证 |
-| 西门子 | S7-300/1200/1500 | | | **v0.53 自研 S7comm 栈待真机核证(P5,review-1008 修复后)**:①帧面——连接序列(TSAP 编码/PDU 协商)与读写字节与 python-snap7 3.2.0 独立脚本对拍(写请求 count 已按 `len(data)//元素宽` 修正,review-1008 P0),pcap 归档补黄金帧;②**SZL 0x0424 状态字节 = 记录区[3] bzu_id**(snap7 C `opGetPlcStatus` opData[7] + Wireshark dissector 双源,0x08=Run/0x04=Stop/0x03=Stop 老CPU/其余 Unknown;真机 pcap 复核保留);SZL 请求前缀两字节三源分歧(本库 0x0A/00 vs C/Sharp7 0xFF/09)若被拒首先怀疑此字段;③STRING/WSTRING 读超长按 `length` 截断、写保留 PLC 侧声明长(超声明长拒绝);④优化块访问错误提示、PUT/GET 缺失文本;⑤半开断连三形态(拔线/断电/路由黑洞)拆连重连;⑥multi read(MAX_VARS=20)真机条目上限与奇数填充;⑦大跨度读写自动分片(读 PDU−18/写 PDU−35)真机对拍;⑧历史遗留(snap7 封装时代):`dll_path` 32 位 WinError 193 链路已随依赖退役作废 |
+| 西门子 | S7-300/1200/1500/200SMART/200 | | | **v0.53 自研 S7comm 栈待真机核证(P5,review-1008 修复后;2026-10-04 型号批扩 200SMART/200)**:①帧面——连接序列(TSAP 编码/PDU 协商)与读写字节与 python-snap7 3.2.0 独立脚本对拍(写请求 count 已按 `len(data)//元素宽` 修正,review-1008 P0),pcap 归档补黄金帧;②**SZL 0x0424 状态字节 = 记录区[3] bzu_id**(snap7 C `opGetPlcStatus` opData[7] + Wireshark dissector 双源,0x08=Run/0x04=Stop/0x03=Stop 老CPU/其余 Unknown;真机 pcap 复核保留);SZL 请求前缀两字节三源分歧(本库 0x0A/00 vs C/Sharp7 0xFF/09)若被拒首先怀疑此字段;③STRING/WSTRING 读超长按 `length` 截断、写保留 PLC 侧声明长(超声明长拒绝);④优化块访问错误提示、PUT/GET 缺失文本;⑤半开断连三形态(拔线/断电/路由黑洞)拆连重连;⑥multi read(MAX_VARS=20)真机条目上限与奇数填充;⑦大跨度读写自动分片(读 PDU−18/写 PDU−35)真机对拍;⑧历史遗留(snap7 封装时代):`dll_path` 32 位 WinError 193 链路已随依赖退役作废。**型号批专项(2026-10-04)**:⑨200 SMART 连接预设(本端 0x1000/远端 0x0300,IoTClient 字节黄金;若被拒先试 `slot=1` → 0x0301,再试资源类型 PG)与 V 区记号= DB1 读写;⑩经典 S7-200 经 CP243-1(两侧 TSAP "MW"/TPDU 512)连接与 V 区读写;⑪300/400 slot 2 惯例与老 CPU SZL 行为 |
 | 汇川 | H3U/H5U Modbus TCP | 汇川 H5U 系列 ✓ | 汇川 H5U 系列 ✓ | 2026-09-28 真机读写通过(`InovanceTcpClient`,汇川 TCP/502) |
 | 汇川 | H3U/H5U Modbus RTU | | | |
 | 汇川 | H3U/H5U MC 协议兼容(3E) | | | 真机核证要点(review-1005):①X/Y 上限(H5U 手册 X0~X1777 = 1024 点,MC 路径发帧 0x0~0x3FF);②R 编号上限(手册 16.4:R0~R32767 = D8000~D40767);③0101 CPU 型号读支持面(`_has_ping=False` 显式关闭,开启前先核证) |

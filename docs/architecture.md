@@ -725,6 +725,24 @@ python-snap7 3.2.0 独立脚本对拍)**;测试为 codec 黄金帧(参考实现
 字节锁定)+ 假 TCP 全流程,不依赖 snap7。`dll_path` 参数随依赖退役
 移除(破坏性,CHANGELOG 披露)。
 
+西门子 S7 型号参数化(2026-10-04 用户裁决,对标三菱 MC 的 ``McFrame``
+形态):构造签名第 3 参起为 ``model=S7Cpu``(types 枚举,六款
+200/200SMART/300/400/1200/1500,缺省 S7_1200 与原 rack0/slot1 行为
+逐字节一致),型号驱动连接预设 ``S7_CPU_PRESETS``(本端 TSAP / 连接
+类型 / 缺省 rack·slot / TPDU 尺寸,``rack``/``slot`` 可显式覆写;
+``resolve_s7_connection`` 单点解析,三面共用)。依据链(退档,全部
+待真机核证):300/400/1200/1500 = python-snap7 主源;200 SMART =
+IoTClient ``Command1_200Smart`` 字节黄金(本端 0x1000/远端 0x0300
+S7 基本资源类型),交叉 S7netplus ``CpuType.S7200Smart`` 与社区
+0x0301 口径(分歧在槽位位,覆写可切);经典 200 = IoTClient
+``Command1_200`` 黄金(两侧 TSAP "MW" + TPDU 512,**仅限 CP243-1
+以太网模块接入**,S7-200 无内置以太网)。200/200SMART 额外支持
+``V`` 区记号(= DB1,IoTClient ``ConvertArg`` + python-snap7
+ppi.py 双源;其余型号显式拒)。串口 PPI 无官方公开帧文档,按铁律
+不实现(登记 `docs/protocol/README.md` 待补表),经典 S7-200 无
+CP243 时走官方 Modbus 从站库 + 本库 Modbus RTU。构造签名第 3 参
+由 rack 改为 model(破坏性,位置实参须改键字,CHANGELOG 披露)。
+
 KV Host Link 说明:``KeyenceHostLinkTcpClient/UdpClient`` 使用 ASCII 行式命令
 (RD/RDS/WR/WRS,CR 结束;响应行以 CR/LF 结束,出错应答 ``E0``~``E9`` 记入
 ``last_error``)。地址语法:位软元件 ``R515``(位组:组号+两位位号)/``B1F``、

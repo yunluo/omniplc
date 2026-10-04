@@ -102,6 +102,7 @@ omniplc 已实现且**仍完全无对应文档**的协议(需厂商账号或付�
 | 松下 FP | FP0H/FP7 通信手册 MC 篇 / MEWTOCOL-COM 手册(拿到后一并核:TC/CC 位写线圈命令的码表,松下独有——review-1005) | `PanasonicMcTcpClient` / `PanasonicMewtocolTcpClient` |
 | 丰田 TOYOPUC | PC Link 通讯手册 | `ToyopucTcpClient` / `ToyopucUdpClient`(帧格式/命令码/基址表已由同源参考实现 `plc-comm-toyopuc` 4.2.0 双向裁决确认,打包字/字节编号口径缺陷已修,见 architecture.md §8.1;官方手册仍缺,拿到后须核:①扩展区 CMD 0x94/0x95、多站 0x60/0x61、状态/错误日志 0x70/0x7E 的帧格式;②PC10 CMD 0xC2~0xC6;③`TOYOPUC_ERROR_TEXT` 完整码表——0x44~0x51/0x53~0x65/0x71 等 26 条之外条目,review-1005) |
 | 西门子 S7comm | S7comm 私有协议规范(PDU 格式/功能码/寻址规则) | `SiemensS7Client`——S7comm 为西门子私有协议,公开渠道无规范;`siemens/` 三份手册讲通讯架构而非 S7comm 报文格式。帧面依据已按参考实现退档铁律归档 `siemens/s7comm/`(python-snap7 3.2.0 逐字节抽取为主源,Sally7/S7netplus 交叉,Snap7 C 源与 Wireshark dissector 中立仲裁;v0.53 自研栈落地) |
+| 西门子 S7-200 PPI(串口) | PPI 帧格式官方公开文档缺失(《S7-200 系统手册》只讲网络参数与主从关系,不含帧面);参考实现 python-snap7 3.2.0 `ppi.py`(libnodave 风格 PROFIBUS SD1/SD2 帧,V 区按 DB1 上线)——按铁律不新增实现,真机/物料到位前不立项;经典 S7-200 无 CP243 时的替代路径 = 官方 Modbus 从站指令库 + 本库 Modbus RTU | (未实现,登记待补;经 CP243-1 的 S7comm 接入已随 2026-10-04 型号批支持,`model=S7Cpu.S7_200`) |
 
 omniplc 已实现且**有部分覆盖**但关键官方手册仍缺的协议:
 
