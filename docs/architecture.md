@@ -1099,14 +1099,23 @@ FINS 协议复审(2026-09,对照欧姆龙 FINS 手册 W342):FINS 帧头 10 字�
 与 `omniplc.aio`(同步 I/O + 线程池包装)**并存**的第二套异步实现:原生
 `asyncio` 协议栈,零第三方依赖,覆盖 Modbus TCP / 三菱 MC(以太网 1E·3E·4E,
 TCP+UDP)/ 汇川(H3U/H5U Modbus TCP + MC 兼容 3E TCP,子类化复用前两者)/
-欧姆龙 FINS(TCP+UDP)。**能力面与同步层逐项对齐**(2026-09-27
-平展完成):单点读写、类型化方法、字符串、点位表、批量(`read_many`/
-`write_many`/`read_batch`/`write_batch`)、扩展命令(MC 0406·0403·1402·0101、
-FINS 0104、Modbus FC 07/08/11/12/17/20/21/22/23/24 与 FC 43/14 设备标识);
-守卫测试 `tests/unit/test_native_surface.py` 以"同步公开面 = 原生已镜像面 ∪
+欧姆龙 FINS(TCP+UDP)/ 西门子 S7(自研 S7comm 栈,2026-10-04)。**能力面与
+同步层逐项对齐**(2026-09-27 平展完成):单点读写、类型化方法、字符串、
+点位表、批量(`read_many`/`write_many`/`read_batch`/`write_batch`)、扩展命令
+(MC 0406·0403·1402·0101、FINS 0104、Modbus FC 07/08/11/12/17/20/21/22/23/24 与
+FC 43/14 设备标识);守卫测试 `tests/unit/test_native_surface.py` 以"同步公开面 = 原生已镜像面 ∪
 显式声明的未到批次表(现为空集)"逐协议锁定,漏镜像或漏删表项都会变红。
 **未进本层**的是串口走线(Modbus RTU / MC 1C·3C·4C)与其余协议。
 并发模型(锁纪律、属性直读)见 §3 第 8 条;选型对比见 README「异步」节。
+
+**S7 会话型适配(2026-10-04)**:S7 是首个进入原生层的**非走线协议**——
+`AsyncS7Session` 逐方法镜像同步 `_S7Session`(三步握手 / TPKT 会话事务 /
+读写按协商 PDU 自动分片 / SZL 状态),帧面全部复用共享 `codec.py` 纯函数,
+对拍断言两侧 `sent` 全序列逐字节一致;`send`/`recv` 字节流接口显式拒绝。
+COTP DR 语义拆分:显式 `disconnect` 经 `_disconnect_locked` 钩子在链路存活时
+发送(告知 PLC 释放 PG 连接资源);传输失败拆连路径(基类直调同步 `close`)
+**不发 DR**——半开链路上 DR 本就不可达,同步侧该路径发送的 DR 同样被静默吞掉
+(等效空操作),行为差异已在会话 docstring 披露。
 
 **复用边界(为什么异步侧只有薄薄一层)**:协议逻辑与传输的交界在每个驱动里
 只有一个方法(MC/Modbus/FINS 的 `_transact`),组帧/解析/地址/字序早已是纯
@@ -1131,9 +1140,11 @@ Modbus 的 (区,类型) 合笔、MC 0406 的位块合并、FINS 0104 的条目�
 FC43(含翻页)/FC07·08·11·12·17·20·21/24;MC 4E 帧 + 0406 + 0403 + 1402 +
 0101;FINS 0104 与 0701/0702 时钟读/写(2026-10-03);**汇川两走线(2026-10-03,子类化 `AsyncInovanceTcpClient`
 继承 Modbus 原生、`AsyncInovanceMcTcpClient` 继承 MC 原生,只覆写汇川地址
-翻译/码表/记号三个纯编解码点,能力面随两个父类全量继承;RTU 串口不进)**。
+翻译/码表/记号三个纯编解码点,能力面随两个父类全量继承;RTU 串口不进)**;
+**S7 会话型(2026-10-04,`AsyncS7Session` 镜像同步 `_S7Session` + 复用共享
+codec 纯函数,读写自动分片/SZL 状态/优化块提示全对齐)**。
 **未进本层**的是串口走线(Modbus RTU / MC 1C·3C·4C,需要串口
-传输层)与其余协议(AB / S7 / OPC-UA / 基恩士 / 松下 / TOYOPUC /
+传输层)与其余协议(AB / OPC-UA / 基恩士 / 松下 / TOYOPUC /
 MTConnect)。
 
 **超时与取消**:
@@ -1229,11 +1240,12 @@ APanasonicMewtocolUdpClient / AKeyenceSrClient / AToyopucTcpClient / AToyopucUdp
 AMTConnectClient / ASiemensS7Client / AHikrobotIdModbusClient / AHikrobotIdTcpClient
 AHikrobotIdSdkClient / AHikrobotIdSerialClient
 
-原生异步(omniplc.native):独立层,类名 = 同步类名前加 Async,覆盖四协议 7 个
+原生异步(omniplc.native):独立层,类名 = 同步类名前加 Async,覆盖五协议 8 个
 AsyncBaseClient(异步基类,事务模板与同步层同口径)
 AsyncModbusTcpClient
 AsyncMelsecMcTcpClient / AsyncMelsecMcUdpClient(1E/3E/4E)
 AsyncOmronFinsTcpClient / AsyncOmronFinsUdpClient
 AsyncInovanceTcpClient(继承 AsyncModbusTcpClient,换汇川地址翻译)
 AsyncInovanceMcTcpClient(继承 AsyncMelsecMcTcpClient,换汇川码表/记号)
+AsyncSiemensS7Client(会话型,AsyncS7Session 镜像同步 _S7Session,复用共享 codec)
 ```

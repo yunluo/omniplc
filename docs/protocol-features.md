@@ -42,7 +42,7 @@
 | 报错中英双语 `set_lang` + 错误分类 `last_error_category`/`last_error_code` | ✅ | 9 张协议码表全覆盖翻译 |
 | `with` 上下文管理器 | ✅ | |
 | aio 异步包装层(`omniplc.aio`) | ✅ | 同步客户端全镜像(类名前加 `A`) |
-| native 原生 asyncio 层(`omniplc.native`) | ⭕ | 7 客户端:Modbus TCP / 三菱 MC 1E·3E·4E(TCP+UDP)/ FINS(TCP+UDP)/ 汇川两走线;真中断语义、批量合并复用同步纯助手 |
+| native 原生 asyncio 层(`omniplc.native`) | ⭕ | 8 客户端:Modbus TCP / 三菱 MC 1E·3E·4E(TCP+UDP)/ FINS(TCP+UDP)/ 汇川两走线 / 西门子 S7(会话型);真中断语义、批量合并复用同步纯助手 |
 
 ### 心跳保活(ping / 自动心跳)
 

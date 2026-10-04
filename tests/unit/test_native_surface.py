@@ -31,6 +31,9 @@ _MELSEC_PENDING: set = {"create_monitor"}
 _FINS_PENDING: set = {"create_monitor"}
 """同步 FINS 客户端里尚未进入原生层的公开面(监视器经基类继承,原生版后置)。"""
 
+_S7_PENDING: set = {"create_monitor"}
+"""同步 S7 客户端里尚未进入原生层的公开面(监视器经基类继承,原生版后置)。"""
+
 
 def _public(cls: type) -> set:
     """类上的公开名(方法/属性,排除下划线内部)。"""
@@ -92,6 +95,12 @@ def test_fins_clients_surface_mirrored_or_pending() -> None:
         assert gap == _FINS_PENDING, "{},实际 {}".format(
             sync_cls.__name__, sorted(gap)
         )
+
+
+def test_s7_client_surface_mirrored_or_pending() -> None:
+    """S7 客户端公开面 = 原生已镜像面 ∪ 声明的未到批次表(会话型首个入原生层)。"""
+    gap = _public(pkg.SiemensS7Client) - _public(native.AsyncSiemensS7Client)
+    assert gap == _S7_PENDING, "S7,实际 {}".format(sorted(gap))
 
 
 def test_melsec_native_supports_ethernet_frames_only() -> None:
