@@ -67,9 +67,9 @@ def test_build_client_smoke_all_drivers(conn: dict) -> None:
 
 
 def test_s7_positional_order_matches_current_signature() -> None:
-    """S7 专项:显式给 rack/slot/port,断言按现行签名 (ip, port, rack, slot, dll)。"""
+    """S7 专项:显式给 rack/slot/port,断言按现行签名 (ip, port, rack, slot)。"""
     conn = {"ip": "192.0.2.10", "port": 102, "driver": "siemens_s7",
-            "params": {"rack": 3, "slot": 5, "dll_path": ""}}
+            "params": {"rack": 3, "slot": 5}}
     client = manual_common.build_client(conn)
     assert client.rack == 3
     assert client.slot == 5

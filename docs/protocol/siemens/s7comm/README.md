@@ -65,7 +65,7 @@ PDU 类型:CR=`0xE0`、CC=`0xD0`、DT=`0xF0`、DR=`0x80`。
 
 ## 5. 地址规范(12 字节 Any 指针)
 
-出处:`snap7/datatypes.py::S7DataTypes.encode_address`(L55-96)
+出处:`snap7/datatypes.py::S7DataTypes.encode_address`(L76-122)
 
 `>BBBBHHB3s`:
 
@@ -108,7 +108,11 @@ COUNTER `0x1C`、TIMER `0x1D`。
 - 数据段 = `>BBH`(保留 `0x00` + 数据传输尺寸 + 数据长)+ 数据
 - **数据传输尺寸映射**(与地址规范的 WordLen 不同码):BIT→`0x03`(数据长
   =字节数)、BYTE/WORD/DWORD→`0x04`(数据长 = **位数**)、INT/DINT→`0x05`
-  (位数)、REAL→`0x07`(位数)、CHAR/COUNTER/TIMER→`0x09`(字节数)
+  (位数)、REAL→`0x07`(**字节数**;review-1008 P2 订正,原误记位数——
+  参考 `build_write_request` L357-358 的 `0x03/0x07/0x09` 同归字节数分支)、
+  CHAR/COUNTER/TIMER→`0x09`(字节数)
+- 地址规范 count = 数据长 // 元素宽(`build_write_request` L301-305),
+  与数据段长度自洽(review-1008 P0-1:曾恒写 1,多字节写真机必拒绝)
 - 写应答:ACK,数据段 = 逐项返回码 1 字节(`0xFF` 成功)
 
 ## 8. S7 数据段返回码
@@ -129,22 +133,40 @@ COUNTER `0x1C`、TIMER `0x1D`。
   子功能(SZL 读 = `0x01`)、DataRef(续传序号,首帧 `0x00`)
 - 数据段 `>BBHHH`:返回码 `0x0A`(请求占位)、传输尺寸 `0x00`、长 u16、
   SZL ID u16、SZL Index u16
-- USERDATA 应答:头 10 字节;参数区同构(方法 `0x12`=响应);应答数据段
-  = 返回码 1B + 传输尺寸 1B + 长 u16 + 载荷
+  - **前缀两字节三源分歧(review-1008 登记)**:本库与 python-snap7 3.2.0
+    同款发 `0x0A/0x00`;snap7 C(`s7_micro_client.cpp` opReadSZL 的
+    `ReqDataFirst`)与 Sharp7(`S7Client.cs` SZL 请求帧)发 `0xFF/0x09`
+    (Ret=0xFF / TS=Octet)。两派真机均可用(PLC 不严格校验该占位);
+    **真机核证时若 SZL 被拒,首先怀疑此字段**
+- USERDATA 应答:头 10 字节;**参数区 12 字节**(python-snap7 3.2.0
+  `_parse_userdata_response_params` L1663-1678:`[3]=0x08` 响应长、
+  `[4]=0x12`、`[5]=0x84`(响应位 0x8|组)、`[6]` 子功能、`[10:12]`
+  **参数级错误码**,与数据段返回码是两条错误通道,`check_userdata_response`
+  L1460-1476 分别校验);应答数据段 = 返回码 1B + 传输尺寸 1B(参考桩
+  `0x09`)+ 长 u16 + 载荷(SZL ID/Index/AddLen/AddCount + 记录区)
 
 **CPU 状态(SZL 0x0424)**:python-snap7 3.2.0 的 `build_cpu_state_request/
 extract_cpu_state`(L1486-1521)是**纯 Python 服务端桩实现**(源码自注
 "in real S7 this would be a userdata function",`extract_cpu_state` 恒返
-`"S7CpuStatusRun"`)——**不可作帧面依据**。自研按 snap7 C 家族行为
-(`Cli_GetCpuStatus` = `ReadSZL(0x0424, 0x0000)`,返回状态字节 `0x08`=Run /
-`0x04`=Stop / 其他 Unknown)实现;SZL 应答的 AddLen/AddCount 字段与状态
-字节偏移**待真机核证**(登记 real-machine-checklist)。
+`"S7CpuStatusRun"`)——**不可作帧面依据**。状态字节偏移按 snap7 C 家族
+`opGetPlcStatus` L2038(`opData[7]`;opData = AddLen/AddCount + 记录区,
+即**记录区 [3] = bzu_id**:ereig 2B + ae 1B 之后)取值;0x08=Run /
+0x04=Stop / 0x03=Stop(老 CPU 兼容)/ 其余 Unknown(有意不照搬 C 的
+「未知一律按 STOP」,坏帧误报停机更危险,分歧点登记);Wireshark SZL
+dissector 0x0424 记录布局交叉一致。**真机 pcap 复核保留**(登记
+real-machine-checklist)。
 
 ## 10. 会话级参数(python-snap7 默认值)
 
 出处:`snap7/client.py`(L333-341、L619-646)
 
 - local TSAP `0x0100`、connection_type `1`(PG)、src_ref `0x0001`
-- PDU 长度请求 480(协商后取对端确认值)
+- PDU 长度请求 480(协商后取对端确认值;本库 read_area/write_area 按
+  协商值自动分片:读侧容量 = PDU−18、写侧 = PDU−35,`client_base.py`
+  L199-219 同款公式)
 - 序列号 u16 循环(+1),应答校验 PDU 引用一致
+- connect_timeout:连接期下发至 TCP 传输(review-1008 P1:曾漏下发恒用
+  默认值;receive_timeout 同口径)
+- COTP DR 断连帧 dst_ref = CC 应答回显值(`_send_cotp_disconnect`
+  L431-450;review-1008 P2:曾恒 0)
 - TCP:TCP_NODELAY + SO_KEEPALIVE(snap7 3.x 同款)

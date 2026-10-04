@@ -92,14 +92,14 @@ with ModbusTcpClient(ip_address="192.168.0.10", port=502, station=1) as client:
 | 丰田 TOYOPUC 计算机链接 | ✅ 1025 | ✅ 1025 | — | — |
 | OPC-UA | ✅ 4840 | — | — | — |
 | CNC MTConnect | ✅ 5000 | — | — | — |
-| 西门子 S7(DB/I/Q/M) | ✅ 102 | — | — | — |
+| 西门子 S7(DB/I/Q/M) | ✅ 102 | — | — | — |(自研 S7comm 栈,核心零依赖)
 
 #### 异步(两套)
 
 | | `omniplc.aio`(类名前加 `A`) | `omniplc.native`(类名前加 `Async`) |
 |---|---|---|
 | 实现 | 同步 I/O + 单线程池包装 | 原生 asyncio 协议栈(零依赖) |
-| 覆盖面 | 全部协议 | Modbus TCP / 三菱 MC(1E·3E·4E)/ FINS |
+| 覆盖面 | 全部协议 | Modbus TCP / 三菱 MC(1E·3E·4E)/ 汇川(H3U/H5U Modbus TCP + MC 兼容 3E)/ FINS |
 | 取消 | 超时只放弃等待,已提交事务照跑完 | 真中断(按是否已发出决定拆连) |
 
 ```python

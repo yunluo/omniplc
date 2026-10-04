@@ -47,7 +47,7 @@
   (s7 extra 双轨线)整体退役,S7 回归**核心零第三方依赖**;
 - `dll_path` 参数移除(破坏性,CHANGELOG 披露)——snap7 DLL 按解释器
   分版本、32 位自备 DLL 的痛点正是自研动机;
-- native 层同期新增 `AsyncSiemensS7Client`(原生 asyncio,摆脱 ctypes
+- native 层下批新增 `AsyncSiemensS7Client`(原生 asyncio,摆脱 ctypes
   阻塞裹线程——自研核心红利);aio `ASiemensS7Client` 已存在,自动随
   新同步实例;
 - **只实现客户端侧**(2026-10-03 用户补充约束,与 AGENTS「不引入库内
@@ -79,7 +79,7 @@
 3. **P3 API 冻结面补齐**:STRING/WSTRING(头 2 字节布局)、multi read
    (0xF0)→ `read_batch`/`read_many`(MAX_VARS=20 口径保持)、
    `read_range`(read_area 连续)、`get_cpu_state`(SZL 0x0424——现有
-   封装 ping 探活依赖它,必做)、native `AsyncSiemensS7Client`;
+   封装 ping 探活依赖它,必做)、native `AsyncSiemensS7Client`(下批);
 4. **P4 清除与披露**:pyproject 撤 python-snap7 双轨线(s7 extra 删除)、
    `dll_path` 移除、snap7 相关 helper/测试全删重写(黄金帧 +
    ScriptedTransport,3.7 门禁环境装不了 3.10+ 的 python-snap7,不可能

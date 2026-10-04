@@ -226,7 +226,7 @@ flowchart TB
     BaseClient -.->|"bind_tags"| TagNode
 
     subgraph AsyncMirror["异步镜像(omniplc.aio):ABaseClient 组合同步实例 + 单线程 ThreadPoolExecutor,签名同名同型"]
-        AsyncList["AModbusBaseClient → AModbusTcpClient / AModbusRtuClient<br/>AInovanceTcpClient / AInovanceRtuClient(configure_serial 对称暴露)/ AInovanceMcTcpClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient<br/>AOmronFinsTcpClient / AOmronFinsUdpClient / AOmronCipClient / AAllenBradleyEthIpClient<br/>AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient<br/>APanasonicMcTcpClient / APanasonicMewtocolTcpClient / APanasonicMewtocolUdpClient<br/>AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient / AMTConnectClient / ASiemensS7Client / AKeyenceSrClient"]
+        AsyncList["AModbusBaseClient → AModbusTcpClient / AModbusRtuClient<br/>AInovanceTcpClient / AInovanceRtuClient(configure_serial 对称暴露)/ AInovanceMcTcpClient<br/>AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient<br/>AOmronFinsTcpClient / AOmronFinsUdpClient / AOmronCipClient / AAllenBradleyEthIpClient<br/>AKeyenceHostLinkTcpClient / AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient<br/>APanasonicMcTcpClient / APanasonicMewtocolTcpClient / APanasonicMewtocolUdpClient<br/>AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient / AMTConnectClient / ASiemensS7Client / AKeyenceSrClient<br/>AHikrobotIdModbusClient / AHikrobotIdTcpClient / AHikrobotIdSdkClient / AHikrobotIdSerialClient"]
     end
     BaseClient -.->|"组合 + 镜像"| AsyncList
 
@@ -939,7 +939,7 @@ FINS 协议复审(2026-09,对照欧姆龙 FINS 手册 W342):FINS 帧头 10 字�
   (0104 多存储区读原列本项,已于 v0.27 交付为 `read_many` 覆写 +
   `read_batch`,见 §7 FINS 地址行与 §11 v0.27 履历。)
 
-### 8.1 多字值字序对照表(2026-09-30 增,第八轮 P0-1 结构性整改)
+### 8.2 多字值字序对照表(2026-09-30 增,第八轮 P0-1 结构性整改;review-1008 编号订正——原与 §8.1 参考资料重号)
 
 "字序"是本库曾系统性出错的面(松下对、TOYOPUC 对、FINS 错——同型数据
 三种口径)。各协议 32/64 位多字值的线上字节布局对照如下,新增协议/排查
@@ -1226,7 +1226,8 @@ AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClien
 AOmronFinsUdpClient / AOmronCipClient / AAllenBradleyEthIpClient / AKeyenceHostLinkTcpClient
 AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient / APanasonicMcTcpClient / APanasonicMewtocolTcpClient
 APanasonicMewtocolUdpClient / AKeyenceSrClient / AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient
-AMTConnectClient / ASiemensS7Client
+AMTConnectClient / ASiemensS7Client / AHikrobotIdModbusClient / AHikrobotIdTcpClient
+AHikrobotIdSdkClient / AHikrobotIdSerialClient
 
 原生异步(omniplc.native):独立层,类名 = 同步类名前加 Async,覆盖四协议 7 个
 AsyncBaseClient(异步基类,事务模板与同步层同口径)
