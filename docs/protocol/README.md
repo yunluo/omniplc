@@ -97,7 +97,7 @@ omniplc 已实现且**仍完全无对应文档**的协议(需厂商账号或付�
 | 协议 | 缺口 | 关联客户端 |
 |---|---|---|
 | 日立/Via Mechanics MARK 系钻孔机 | Host 外部通信手册(SECS/GEM 选配说明、Host Link 报文格式)——向 Via 代理商索取(机种编号 + MARK 软件版本);公开渠道零文档。数采计划暂缓(todo 排期 #11,优先级:现场网关 OPC-UA/Modbus > Host Link 立项 > SECS 自研不做) | (未实现,暂缓) |
-| 三菱 CNC EZSocket | EZSocket 库手册 + SDK 头文件(三菱 CNC 渠道)——DLL 封装族待拿依据(todo 排期 #10) | (未实现,规划 `cnc/`) |
+| 三菱 CNC EZSocket(GIOP 帧面) | **GIOP 线上协议官方公开文档缺失**(手册 FCSB1224W000 IB-1501208 只覆盖 OLE/COM 接口层,已取得并存档 `mitsubishi/`;传输层帧格式不对外)——帧面依据已按参考实现退档铁律归档 `mitsubishi/m70-ezsocket/`(wqliceman C 库逐字节参照为主源,**单源**;freedomikeppp COM 样例交叉机型枚举;section/sub_section 编号值无官方出处)。首批只读面已随 `MitsubishiEzSocketClient` 落地(TCP 683 直连);真机核证必做(真机清单六项),二批候选:写面/文件操作/倍率 | `MitsubishiEzSocketClient`(首批只读,零依赖) |
 | FANUC FOCAS 二批面 | FOCAS 库手册(FANUC 官方 Development 包,需账号/经销商渠道;社区打包仓库 strangesast/fwlib 的 `fwlib32.h` 已归档 `fanuc/` 作主源并登记出处差异)——首批只读面已随 `FanucFocasClient` 落地(连接生命周期/sysinfo/rddynamic2/statinfo2);二批候选:`cnc_rdprgnum`/`cnc_rdaxisdata`/PMC 族/参数族,PMC 与参数写面需官方手册页码级依据 | `FanucFocasClient`(首批只读,Windows 专用) |
 | 松下 FP | FP0H/FP7 通信手册 MC 篇 / MEWTOCOL-COM 手册(拿到后一并核:TC/CC 位写线圈命令的码表,松下独有——review-1005) | `PanasonicMcTcpClient` / `PanasonicMewtocolTcpClient` |
 | 丰田 TOYOPUC | PC Link 通讯手册 | `ToyopucTcpClient` / `ToyopucUdpClient`(帧格式/命令码/基址表已由同源参考实现 `plc-comm-toyopuc` 4.2.0 双向裁决确认,打包字/字节编号口径缺陷已修,见 architecture.md §8.1;官方手册仍缺,拿到后须核:①扩展区 CMD 0x94/0x95、多站 0x60/0x61、状态/错误日志 0x70/0x7E 的帧格式;②PC10 CMD 0xC2~0xC6;③`TOYOPUC_ERROR_TEXT` 完整码表——0x44~0x51/0x53~0x65/0x71 等 26 条之外条目,review-1005) |

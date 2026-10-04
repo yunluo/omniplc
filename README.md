@@ -9,7 +9,8 @@
 
 面向多品牌、多协议 PLC 的 Python 统一通信库:三菱 / 欧姆龙 / 基恩士 / 汇川 /
 松下 / 丰田 / 罗克韦尔(AB)/ 西门子(S7)/ SR 扫码枪 /
-海康读码器 / OPC-UA / CNC(MTConnect + 发那科 FOCAS),共 17 族协议、31 个同步客户端。
+海康读码器 / OPC-UA / CNC(MTConnect + 发那科 FOCAS + 三菱 EZSocket),
+共 18 族协议、32 个同步客户端。
 **一次编写,同一套 API。**
 源码:[GitHub](https://github.com/yunluo/omniplc) · [Gitee 镜像](https://gitee.com/yunluo/omniplc) ·
 发布:[PyPI](https://pypi.org/project/omniplc/)
@@ -69,7 +70,7 @@ with ModbusTcpClient(ip_address="192.168.0.10", port=502, station=1) as client:
 - 连接失败自动进入指数退避门控(默认开,`reconnect_backoff = False` 关闭);
   `client.stats` 提供连接健康统计(`ClientStats` TypedDict)。
 
-各协议全部 31 个客户端的用法示例(构造参数 / 地址语法 / 协议特有能力)见
+各协议全部 32 个客户端的用法示例(构造参数 / 地址语法 / 协议特有能力)见
 **[docs/examples.md](docs/examples.md)**;现场排障(失败分类 / 超时语义 /
 坏帧比对 / 轮询过载)见 **[docs/troubleshooting.md](docs/troubleshooting.md)**,
 已知固件/设备行为差异见 [docs/firmware-notes.md](docs/firmware-notes.md)。
@@ -98,6 +99,7 @@ with ModbusTcpClient(ip_address="192.168.0.10", port=502, station=1) as client:
 | OPC-UA | ✅ 4840 | — | — | — |
 | CNC MTConnect | ✅ 5000 | — | — | — |
 | 发那科 FOCAS(数采只读) | ✅ 8193(Windows) | — | — | — |(fwlib32.dll ctypes 封装,需厂商运行库)
+| 三菱 CNC EZSocket(M70/M700 数采只读) | ✅ 683 | — | — | — |(GIOP 直连,零依赖)
 | 西门子 S7(200/200SMART/300/400/1200/1500;DB/I/Q/M + V 区记号) | ✅ 102 | — | — | — |(自研 S7comm 栈,核心零依赖)
 
 > **西门子 S7 型号**:`SiemensS7Client(ip, model=S7Model.S7_1200)` 按型号自动套连接预设——
@@ -182,7 +184,7 @@ stats = client.stats                      # heartbeat_ok / heartbeat_fail / last
 `disconnect()` 停止。探测命令逐协议落位:Modbus FC08 回显、MC 0101 CPU 型号、
 FINS 0601 状态读、AB Identity 读取、S7 `get_cpu_state`、
 OPC-UA `i=2258` Server 时间、MTConnect `/probe`、FOCAS `cnc_statinfo2` 状态读、
-海康读码器状态查询等——
+EZSocket 读系统数、海康读码器状态查询等——
 逐协议依据与差异见 **[docs/protocol-features.md](docs/protocol-features.md)**
 「心跳保活」节。
 

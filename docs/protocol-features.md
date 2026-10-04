@@ -80,6 +80,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 | OPC-UA | 读 `i=2258` Server 当前时间 | 0 命名空间标准变量(asyncua `nodes.current_time` 同款);顺带抑制空闲会话回收 |
 | MTConnect | GET `/probe` | Part1 §8.3.1 p.98-100 |
 | 发那科 FOCAS | `cnc_statinfo2` 状态读(零副作用) | 另公开 `read_status()`(13 位命名展开);fwlib32.h L2928-2942/L12146 |
+| 三菱 CNC EZSocket | 读系统数(section 2/1,T_CHAR,1 字节) | 零副作用最轻读;C 库无专门探活命令,取最轻数据读 |
 | 海康 Modbus 模式 | FC03 读状态字 REG1 | 工业协议手册 V1.0.4 §3.5;不触发扫描握手 |
 | 海康 TCP 命令 | `<Get,Acq>` 采集状态查询 | 通信指令手册 V1.0.3 §3;命令通道探活 |
 | 三菱 MX(COM) | 有意不做 | COM 套间亲和 + GetCpuType 高位 0 出错码盲区(第八轮 P1-2) |
@@ -532,6 +533,36 @@ start/stop,印刷页 45-47)+ §4.7.3 串口通讯协议(印刷页 52)+《极小�
 | 写面 | ❌ | 数采只读口径(与 MTConnect 同域);FOCAS 写函数一律不做 |
 | 平台 | ➖ | **仅 Windows**(WinDLL/__stdcall);Linux .so 留后续(加载期显式报不支持);HSSB 走线与系列限定 DLL 构建不支持(Ethernet 通用 DLL 口径,系列宏全不定义,MAX_AXIS=32) |
 | 依赖 | ✅ | ctypes 直调**无 Python 侧依赖**(不加 extra,海康 SDK 同款);fwlib32.dll 运行库现场自备(`sdk_dir`/`dll_path` 二选一);头文件主源 = strangesast/fwlib 社区仓库(**与官方 Development 包 diff 待做**);真机核证待做(0i 系,真机清单六项) |
+
+---
+
+## 20. 三菱 CNC EZSocket(GIOP 直连,首批只读)
+
+客户端:`MitsubishiEzSocketClient`(aio 镜像 `AMitsubishiEzSocketClient`);
+依据档案 `docs/protocol/mitsubishi/m70-ezsocket/README.md`(**关键披露**:
+线上 GIOP 帧格式无官方公开文档,帧面 = 参考实现 wqliceman C 库单源,
+真机核证必做;语义层锚官方手册 FCSB1224W000 IB-1501208,PDF 本地留存)。
+
+| 功能 | 状态 | 备注 |
+|---|---|---|
+| 连接生命周期 | ✅ | 纯 TCP 683,**连接 = 三次握手无握手帧**,断开即 TCP close;`request_id` 建连随机会话恒定(C 库不递增);**响应回显校验为 omniplc 加严**(C 库不校验) |
+| 系统/轴数五件 `read_system_count` 等 | ✅ | section 2/1~5(T_CHAR):系统数/NC 轴数/全轴数/主轴数/PLC 轴数;**读系统数兼探活**(`_has_ping=True`) |
+| 版本三件 + 机床类型 | ✅ | NC 版本(67/1)/NC 名称版本(68/1)/PLC 版本(67/2),T_STR;机床类型(2/100,1=车床) |
+| 运行状态 `read_run_state` | ✅ | 三段拼合(模式 35/11 + 自动运转 35/20 + 状态 35/10,C 库 `m70_cnc_read_status` 同构):RUN/IDLE/STOP/DEBUG;另公开 `read_run_mode`/`read_run_status`/`read_auto_operation` |
+| 轴位置 `read_axis_position` / 全轴 | ✅ | section 37 + 位置种类 1~6(工件/机械/当前/相对/程序/残指令),T_FLOATBIN 16 字节解 float64;单轴位标志 |
+| 轴名 `read_axis_names` | ✅ | 先读轴数(2/2)再逐轴 (127/1,T_STR) |
+| 主轴转速/负载、伺服负载 | ✅ | (34/1)、(63/4) T_DLONG、(59/4) T_SHORT,按轴位标志 |
+| 进给速度 `read_feed_speed` | ✅ | FA/FM/FS/FE = (42/1~4),FC = (33/1),T_FLOATBIN |
+| 程序面 | ✅ | 主/子程序号(45/101、45/201,T_STR)、程序块(mochaGetCurrentPrgBlockFirst,取首条)、程序文件信息(25/1~10) |
+| 报警 `read_alarms` / `read_is_alarm` | ✅ | mochaGetCurrentAlarmMsgFirst,17 种报警类别(0x000~0x10B),264 字节定长逐条;请求 1~10 条 |
+| 时间统计六件 + 日期时刻 | ✅ | section 40/1~8、100(T_UINT32);日期/时刻原始 u32(打包格式待真机核) |
+| 计数器/当前刀号 | ✅ | (126/8002);刀号走 R 寄存器路由 (55/100536 = R536,C 库 `#if true` 分支) |
+| 通用地址读写 | ❌ | 结构化数采面:`_read`/`_write` 显式 DeviceError 拒绝 |
+| 写面(mochaSetData) | ❌ | 二批:帧布局已在 C 库(§2 备查);CNC 写面危险性高不随首批 |
+| 文件操作(mochaFS* 十一操作) | ❌ | 二批:DNC 程序传输场景(COM 样例 m700.py 有 read/write/delete/find_dir 用法可交叉) |
+| 主轴/进给倍率 | ❌ | 二批:三段 PLC 设备路由拼合(Y 区判别 + 码表),C 库注释单源 |
+| 平台 | ✅ | 纯协议零依赖(TCP,任何平台);机型枚举含 700L/C70/800M/800L 但帧面一致性待真机,不承诺 |
+| 依据链 | ➖ | **帧面单源**(wqliceman C 库 MIT,作者声明 M70 真机验证)+ 语义层官方手册(§2.3~§2.10 方法语义、§3 表 3-1 官方错误码);section/sub_section 编号值无官方文档,真机核证必做(真机清单) |
 
 ---
 

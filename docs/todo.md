@@ -29,7 +29,7 @@
 | 5 | OPC-UA 断线自动重订(选项) | P3 | 2026-10-03 现场调研:会话/订阅恢复是 OPC-UA 现场普遍痛点(TransferSubscriptions 失败、订阅 stale,常见解法竟是重启服务);已落地——构造选项 `auto_resubscribe`(默认关):订阅成功登记**订阅意图**,重连成功(显式/惰性)后 best-effort 按序重建,单项失败记日志;语义拆分「退订 vs 断开」(`unsubscribe()` 移除意图,disconnect 联动 `release()` 保留意图);aio 镜像;+6 例测试。**2026-10-03 讨论定调:封装层解法,优先于栈自研(栈自研裁决见「有意不做」#7)** | 已完成 |
 | 6 | examples 范例丰富化:各协议对外 API 全展示 | P3 | 2026-10-03 用户指令:「使用范例要丰富,把本库对外 API 都展示下」;已落地——新增「通用 API 面」大节(读写原语/超时重试退避心跳/告警分级/stats/点位表/Monitor/批量读写/全局开关含黑匣子/异步两层),各协议节补缺(MC random 双组签名+MX 时钟/错误码、FINS 0101、AB list_tags/list_identity/属性/GenericMessage、NJ 拒绝披露、S7 get_cpu_state/write_wstring、SR bank/reset、MTConnect sample/assets),新增「批量写」与「默认端口对照」两节(S 跨协议语义提示);API 清单经 inspect 全量盘点防漏 | 已完成 |
 | 7 | FANUC FOCAS DLL 封装(`cnc/`) | P3 | **首批已落地(2026-10-05,`FanucFocasClient`)**:`docs/protocol/fanuc/` 物料归档(strangesast/fwlib 的 `fwlib32.h` 主源 + 帧面档案)、连接生命周期 + sysinfo/rddynamic2/statinfo2 只读三件、仅 Windows、端口 8193、假函数表 25 例 + sizeof 守卫、aio 镜像;详情见下节「DLL 封装族」#7 | 首批完成(二批候选见待补表) |
-| 8 | 三菱 CNC EZSocket DLL 封装(`cnc/`) | P3 | **计划见下节「DLL 封装族」**;SDK/手册待拿,绑定形态(ctypes/comtypes)拿到后裁决——比 FOCAS 多一层形态不确定 | 计划已列 |
+| 8 | 三菱 CNC EZSocket 封装(`cnc/`) | P3 | **首批已落地(2026-10-05,`MitsubishiEzSocketClient`,GIOP 直连 TCP 683 零依赖)**:官方手册 IB-1501208 + wqliceman C 库双物料归档,首批只读面 + 31 例测试 + aio 镜像;真机 M70 联测待现场(帧面单源是最大风险点);二批候选见下节 #8 | 首批完成(真机核证待做) |
 | 9 | S7comm 自研(**直接替换** snap7 封装,计划见下节) | P2 | 2026-10-03 用户四点拍板:`SiemensS7Client` 名字与 API 不变、内部重写为纯 Python S7comm 栈、python-snap7 依赖整体退役、S7 回归核心零依赖;参考源定稿 python-snap7 3.2.0(纯 Python 重写,MIT)为主 + Sally7/S7netplus 交叉;3.7 无障碍(纯 TCP 三层栈)——2026-10-03 开工:**P1~P4 已落地**(codec 三层建帧+黄金帧、连接/读写、API 冻结面、`dll_path` 移除、依赖退役、测试重写 33 例、文档四件;帧面依据 docs/protocol/siemens/s7comm/);review-1008 修复批落地(2026-10-04);**native `AsyncSiemensS7Client` 已落地(2026-10-04,会话型适配,对拍守卫)**;余 P5 真机核证(SZL 待核) | 待实现(P5 真机核证) |
 | 10 | 日立(Via Mechanics)MARK 30/50/55 钻孔机数采 | P3 | **计划见下节;暂缓**(2026-10-03 用户裁决:先列计划,暂不考虑实现);MARK = Via 自研 CNC,FOCAS/EZSocket 不适用,公开零文档——启动条件未定(网关确认/手册到手),外部依赖最深 | 计划已列·暂缓 |
 | 11 | FINS 时钟读/写(0701/0702) | P2 | W342 §5-3-19/20(印刷页 197-198)有明确依据;sync/native/aio 三层 + 10 例测试已落地 | 已完成 |
@@ -117,13 +117,29 @@ snap7 封装现状一致,遇到明确报错);工作量数周级。
 5. 依赖:ctypes 直调无 Python 侧依赖(不加 extra,海康同款);
    fwlib32.dll 运行库现场自备,`sdk_dir`/`dll_path` 二选一。
 
-**#8 三菱 CNC EZSocket**:
-1. 依据:EZSocket 库手册 + SDK 头文件(`docs/protocol/mitsubishi/` 收录;
-   需三菱 CNC 渠道,拿到前不立项动码);
-2. 绑定形态**拿到 SDK 后裁决**:纯 C 接口走 ctypes(同 FOCAS)、COM 组件
-   走 comtypes(同 MX Component 先例)——两者库内都有成熟模板;
-3. 面向:CNC 数据采集(与 MTConnect 同域),首期只读;
-4. 真机前置(判据同海康 SDK 先例:部署面复杂、厂商运行库;原「判据同 ADS」随 v0.52.0 ADS 移除改口)——真机清单登记后启动。
+**#8 三菱 CNC EZSocket(首批已落地,2026-10-05)**:
+1. 依据:双级依据链——语义层 = 官方手册 FCSB1224W000 リファレンス
+   IB-1501208(262 页 OLE/COM 接口,issue 附件渠道取得,PDF 本地留存
+   `docs/protocol/mitsubishi/`);帧面层 = **GIOP 线上格式无官方公开文档**,
+   逐字节参照 wqliceman/mitsubishi_cnc_m70_ezsocket_net(MIT,作者声明
+   M70 真机验证;单源,真机核证必做)+ freedomikeppp/mitsubishi-cnc-m700
+   官方 COM 组件真机样例(机型枚举 6=MELDAS700M 双源);档案
+   `docs/protocol/mitsubishi/m70-ezsocket/README.md`;
+2. 形态裁决:**纯协议 GIOP 直连(TCP 683,零依赖),不走 COM/DLL**——
+   官方 FCSB1224W000 是商业 COM SDK(产品 ID 激活,部署门槛远高于
+   FOCAS 免费下载),而 C 参考库已把线上帧面完整反向并真机验证,与 S7
+   自研退役 snap7 同方向;黄金帧离线测试与库测试范式全兼容;
+3. 首批只读面已落地(`cnc/ezsocket.py`):系统/轴数五件(读系统数兼
+   探活)+ 版本三件/机床类型 + run_state 三段拼合 + 轴位置六种
+   (FLOATBIN)+ 轴名/主轴转速负载/进给速度/主子程序号/程序块/报警
+   (17 类)/时间统计六件/计数器/当前刀号(R536 路由)/程序文件信息;
+   omniplc 加严:响应 request_id 回显校验(C 库不校验)、GIOP 头强校验、
+   data_length 16KB 钳制、T_DLONG i64 全宽解码;测试 31 例(黄金帧 +
+   脚本化传输全链路 + aio 镜像);
+4. 真机:M70/M700 系联测(端口 683,真机清单登记——GIOP 帧面/编号表
+   单源是最大风险点,真机比对是最终裁决);
+5. 二批候选:写面(mochaSetData)、文件操作(mochaFS* 十一操作,DNC
+   程序传输)、主轴/进给倍率(Y/R 设备路由拼合);M800/C70 帧面一致性。
 
 ### 日立/Via Mechanics MARK 系钻孔机数采计划(暂缓,2026-10-03)
 

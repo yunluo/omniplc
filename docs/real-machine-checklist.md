@@ -49,6 +49,7 @@
 | OPC-UA           | opc.tcp          | 封装 asyncua,需 OPC-UA 服务器        |
 | MTConnect        | MTConnect Agent  | 标准库 HTTP/XML,需 CNC 端 Agent     |
 | FANUC FOCAS 首批只读面 | FANUC 0i 系(内嵌以太网口) | `FanucFocasClient`(fwlib32.dll ctypes 封装,2026-10-05 首批),需现场 FOCAAS 运行库;全流程待真机核证(要点见核验记录表该行备注) |
+| 三菱 EZSocket 首批只读面 | 三菱 M70/M700 系(EZSocket 服务,端口 683) | `MitsubishiEzSocketClient`(GIOP 直连,2026-10-05 首批);**帧面/编号表为参考实现单源,真机比对是最终裁决**(要点见核验记录表该行备注) |
 | MX Component     | 三菱 MX            | 读写/批量/CPU 型号/时钟已真机核证;get_error_message(ActSupportMsg)待核证 |
 | Modbus FC22/23/24/43·14 | Modbus TCP/RTU | FC22 掩码写(可配字节序)、FC23 读写多寄存器、FC24 FIFO、FC43·14 设备标识均需设备支持,待真机核证 |
 | Modbus FC07/08/11/12/17/20/21 | Modbus TCP/RTU | 异常状态(FC07)/诊断/事件计数·日志/报告从站 ID(FC17)/文件记录(FC20/21)按规范实现,设备支持情况待真机核证 |
@@ -102,3 +103,4 @@
 | OPC-UA | opc.tcp | | | 订阅/Browse 为 v0.35 新增,待真机验证;真机核证要点(review-1005):①真实服务器(西门子/罗克韦尔/施耐德)联测——单测用 asyncua.sync.Server 临时启停,真机零核证;②死区订阅(DataChangeFilter)走 asyncua 私有 API(`_subscribe`/`tloop.post`),跨版本兼容待核;③`subscribe_event` 的 `event_filter` 与 asyncua `_SubHandler.subscribe_events` 签名对照;④Read 多节点应答顺序(规范只"应当"按请求序) |
 | CNC | MTConnect Agent HTTP/XML | | | 真机核证要点(review-1005):①Agent keep-alive 超时异常类型与 `_STALE_CONNECTION_ERRORS` 覆盖面(真实 Agent 可能 Apache/自研);②业务数据是否嵌入 `Header` 元素(嵌入则解析路径需适配,P0 隐患);③`/sample`·`/asset`·多 Device 真机核证 |
 | FANUC | FOCAS(fwlib32.dll,首批只读) | | | `FanucFocasClient`(2026-10-05 首批),需现场 FOCAS 运行库 + 0i 系真机;核证要点:①连接闭环(allclibhndl3 端口 8193/rdcncid 身份/freelibhndl 释放,机床「系统→内嵌→公共」配 IP);②rddynamic2 全轴与单轴坐标值与 CNC 屏幕显示比对(alarm/prgnum/actf/acts);③statinfo2 状态位语义(aut/run/emergency/alarm)与实际模式联动;④EW 错误分流实测(拔线→EW_SOCKET 拆连重连、读越界→EW_DATA 不断线);⑤错误码 0 = EW_OK 正常完成与元素上限手册待补;⑥头文件来源为社区仓库 strangesast/fwlib,与官方 Development 包 diff 待做(拿到官方包第一优先) |
+| 三菱 | EZSocket(GIOP 直连,首批只读) | | | `MitsubishiEzSocketClient`(2026-10-05 首批),M70/M700 系真机 + 机床侧开启 EZSocket 以太网服务(端口 683);**帧面为参考实现单源,真机比对是最终裁决**;核证要点:①连接与首读(TCP 683 直连,read_system_count 应答;确认无握手帧口径);②GIOP 请求帧逐字节抓包比对(wireshark/tcpdump,'GIOP' 魔数 + request_id 恒定 + mochaGetData 布局,对照档案 §2);③section/sub_section 编号表抽查(35/10-11-20 状态、37 位置、34 主轴、40 时间,值与 CNC 屏幕比对——编号值单源,错则全错);④T_FLOATBIN 坐标值标度(位段数 int/dec_nos 与实际值关系)与 T_STR 版本文本;⑤错误体布局(is_error=1 时 desc_len/mel_error_code 偏移,C 库解析照录存疑)与官方错误码对照;⑥request_id 回显行为(omniplc 校验响应回显,若真机不回显则需放宽——加严点唯一待证伪处) |

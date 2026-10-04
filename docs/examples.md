@@ -488,6 +488,45 @@ client.close()
 (EW_SOCKET 等链路段拆连重连,EW_DATA 等功能错误不断线);写族不做,
 `cnc_rdprgnum`/`cnc_rdaxisdata`/PMC/参数族留后续批次。
 
+## 三菱 CNC EZSocket(GIOP 直连,数采只读,零依赖)
+
+```python
+from omniplc import (
+    MitsubishiEzSocketClient,
+    EzSocketMachine,
+    EzPositionType,
+    EzFeedSpeedType,
+    EzAlarmType,
+)
+# 面向 M70/M70V/M700/M700V(加工中心系);机床侧开启 EZSocket 以太网服务
+client = MitsubishiEzSocketClient("192.168.1.10")            # 默认端口 683
+client.connect()
+ok, version = client.read_nc_version()       # NC 版本
+ok, state = client.read_run_state()          # 综合状态:模式/运转状态/自动运转
+if ok:
+    print(state.mode, state.run_status, state.device_status)
+ok, pos = client.read_axis_position(axis=1)  # 机械坐标(缺省);EzPositionType 换工件/相对等
+ok, positions = client.read_all_axis_positions(position=EzPositionType.WORKPIECE)
+ok, names = client.read_axis_names()         # 轴名列表
+ok, speed = client.read_spindle_speed()      # 主轴转速 rpm
+ok, load = client.read_spindle_load(absolute=True)
+ok, feed = client.read_feed_speed(feed=EzFeedSpeedType.FC)   # 自动有效进给
+ok, prog = client.read_main_program_name()   # 当前主程序号
+ok, block = client.read_program_block()      # 当前程序块(块号/行号/文本)
+ok, alarms = client.read_alarms(count=5, alarm_type=EzAlarmType.ALL)
+ok, power_on = client.read_power_on_time()   # 时间统计六件同型
+ok = client.ping()                           # 探活 = 读系统数(1 字节零副作用)
+client.close()
+
+# 车床系:
+lathe = MitsubishiEzSocketClient("192.168.1.11", machine=EzSocketMachine.MELDAS700L)
+```
+
+要点:纯协议零依赖(帧面为参考实现单源,真机核证项见
+`docs/real-machine-checklist.md`);`read_run_state` 三段拼合与
+C 参考实现同构;`read_all_axis_positions`/`read_axis_names` 先读轴数
+再逐轴读,轴多时是多次事务;写面/文件操作/倍率留后续批次。
+
 ## 西门子 S7(自研 S7comm 栈,零第三方依赖)
 
 ```python
@@ -572,6 +611,7 @@ ok = smart.write_bool("V10.3", True)     # V 位,= DB1.DBX10.3
 | `OpcUaClient` | OPC-UA | 4840 |
 | `MTConnectClient` | MTConnect Agent | 5000 |
 | `FanucFocasClient` | FANUC FOCAS(数采只读) | 8193(Windows,需 fwlib32.dll) |
+| `MitsubishiEzSocketClient` | 三菱 CNC EZSocket(数采只读) | 683(GIOP 直连,零依赖) |
 | 海康读码器四客户端 | Modbus / TCP 命令 / SDK / 串口 | 读码器侧配置(无出厂统一口) |
 
 > **`S` 跨协议语义提示**:MEWTOCOL 的 `S10` 是**定时器设定值区**(SV,
