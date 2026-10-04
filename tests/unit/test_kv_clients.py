@@ -307,6 +307,43 @@ def test_udp_missing_terminator_is_protocol_error(
     assert client.connected is False  # 坏帧拆连重同步
 
 
+def test_tcp_write_w_word_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """W 链接寄存器字写(十六进制编址设备)字节级断言:WR W100 <十进制值>。"""
+    client = KeyenceHostLinkTcpClient("127.0.0.1", 8000)
+    scripted = ScriptedTransport(_chunks(b"OK\r\n"))
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.write_ushort("W100", 1234) is True
+    # W 设备地址按十六进制编址(parse 层),字写带 .U 后缀,值文本十进制
+    assert bytes(scripted.sent) == b"WR W100.U 1234\r"
+
+
+def test_udp_glued_responses_is_protocol_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """UDP 粘包(两条响应挤同一数据报):令牌数不符按坏帧拒绝(盲点清缴)。"""
+    client = KeyenceHostLinkUdpClient("127.0.0.1", 8000)
+    scripted = ScriptedTransport([b"20\r\n20\r\n"], datagram=True)
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("DM100") == (False, None)
+    assert client.last_error_category is ErrorCategory.PROTOCOL
+    assert client.last_error is not None and "令牌" in client.last_error
+
+
+def test_udp_leading_noise_is_protocol_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """UDP 数据报首字节混入非 ASCII 噪声 → 非 ASCII 拒绝(盲点清缴)。"""
+    client = KeyenceHostLinkUdpClient("127.0.0.1", 8000)
+    scripted = ScriptedTransport([b"\xff\xfe20\r\n"], datagram=True)
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("DM100") == (False, None)
+    assert client.last_error_category is ErrorCategory.PROTOCOL
+    assert client.last_error is not None and "ASCII" in client.last_error
+
+
 def test_async_mirror_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """异步镜像:TCP 客户端单工作线程往返。"""
     import asyncio

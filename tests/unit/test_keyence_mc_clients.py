@@ -297,3 +297,45 @@ def test_async_mirror_udp_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
         await client.close()
 
     asyncio.run(scenario())
+
+
+def test_read_batch_mixed_devices(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_batch 多设备组合:DM(十进制)/W(十六进制)单笔 0406(盲点清缴)。"""
+    client = KeyenceMcTcpClient("127.0.0.1", 5000)
+    data = (5).to_bytes(2, "little") + (1).to_bytes(2, "little")
+    frame = _frame_tail(data)
+    scripted = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_batch([("DM100", "short"), ("W10", "ushort")]) == (
+        True,
+        [5, 1],
+    )
+    assert bytes(scripted.sent) == codec_qna.build_random_read(
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        [(0xA8, 100, 1), (0xB4, 0x10, 1)],
+        [],
+    )
+
+
+def test_word_bit_suffix_out_of_range_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """字软元件位号 16 越界入参期拦截,不发包(盲点清缴)。
+
+    位号校验在事务内的解析层:须先挂脚本传输让连接成功,才能触达。
+    """
+    client = KeyenceMcTcpClient("127.0.0.1", 5000)
+    scripted = ScriptedTransport([])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    with pytest.raises(ValueError, match="0~15"):
+        client.read_bool("DM100.16")
+    assert bytes(scripted.sent) == b""
+
+
+def test_has_ping_matches_disclosure() -> None:
+    """探活披露一致:0101 探活开启(protocol-features 披露 KV 支持待真机核证)。"""
+    assert KeyenceMcTcpClient()._has_ping is True

@@ -159,10 +159,13 @@ def test_read_range_ints_low_word_first(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_read_range_rejects() -> None:
-    """read_range 入参校验:接点区/位号/count/STRING。"""
+    """read_range 入参校验:接点区/数据区 BOOL/位号/count/STRING;消息含地址。"""
     client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
-    with pytest.raises(ValueError):
-        client.read_range("R1F", 4, "bool")  # 接点区无批量接点命令
+    with pytest.raises(ValueError, match="R1F") as exc_info:
+        client.read_range("R1F", 4, "bool")  # 接点区无批量接点命令(消息含地址)
+    assert "R1F" in str(exc_info.value)
+    with pytest.raises(ValueError, match="D100"):
+        client.read_range("D100", 4, "bool")  # 数据区 BOOL 连续读不支持
     with pytest.raises(ValueError):
         client.read_range("D100.3", 2, "bool")  # 字软元件位号不支持
     with pytest.raises(ValueError):
@@ -173,6 +176,29 @@ def test_read_range_rejects() -> None:
         client.read_range("D100", 2, "string")
     with pytest.raises(ValueError):
         client.read_range("D99990", 20, "short")  # 99990+20 > 99999 越界
+
+
+def test_address_forms_l0f_t10_t1f() -> None:
+    """地址形态:L0F/T10/T1F(末位十六进制位号,字号十进制)(盲点清缴)。
+
+    位语境按接点区解析(末位=位号可 0~F);字语境按数据区(纯十进制
+    编号)——含十六进制位号的接点串在字语境非法。
+    """
+    from omniplc.plc.panasonic.address import parse_mewtocol_address
+
+    # L0F:位语境 = 链接继电器 L 字 0 位 F;字语境非法(L 字访问写 L10 十进制)
+    bit = parse_mewtocol_address("L0F", True)
+    assert bit.area == "L" and bit.word == 0 and bit.bit == 0xF
+    with pytest.raises(ValueError, match="不支持字访问"):
+        parse_mewtocol_address("L0F", False)
+    # T10/T1F:接点语境 = 定时器接点 字 1 位 0/F
+    t10 = parse_mewtocol_address("T10", True)
+    assert t10.area == "T" and t10.word == 1 and t10.bit == 0
+    t1f = parse_mewtocol_address("T1F", True)
+    assert t1f.area == "T" and t1f.word == 1 and t1f.bit == 0xF
+    # T 字访问(当前值)不支持 → 提示 S/K 区
+    with pytest.raises(ValueError, match="S 区"):
+        parse_mewtocol_address("T10", False)
 
 
 def test_write_words_wd(monkeypatch: pytest.MonkeyPatch) -> None:

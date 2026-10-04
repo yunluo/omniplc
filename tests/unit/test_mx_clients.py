@@ -384,6 +384,43 @@ def test_async_mirror_roundtrip(fake: FakeActUtlType) -> None:
     assert fake.logical_station_number == 3
 
 
+def test_aio_two_clients_isolated_stations(
+    fake: FakeActUtlType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """aio 双 MX 客户端:各用独立控件实例与工作线程,内存互不串(盲点清缴)。
+
+    ActUtlType 是 STA 控件——aio 层每实例单工作线程,COM 控件按逻辑站号
+    各建一份;本用例以按站隔离的内存控件锁"双客户端并发采集互不串数据"。
+    """
+    import asyncio
+
+    from omniplc.aio import AMelsecMxClient
+
+    acts: dict = {}
+
+    def factory(station: int) -> FakeActUtlType:
+        if station not in acts:
+            acts[station] = FakeActUtlType()
+        return acts[station]
+
+    monkeypatch.setattr(mx_module, "_new_com_object", factory)
+    factory(1).put("D0", 11)
+    factory(2).put("D0", 22)
+
+    async def scenario() -> None:
+        client_a = AMelsecMxClient(1)
+        client_b = AMelsecMxClient(2)
+        first, second = await asyncio.gather(
+            client_a.read_ushort("D0"), client_b.read_ushort("D0")
+        )
+        assert first == (True, 11)
+        assert second == (True, 22)
+        await client_a.close()
+        await client_b.close()
+
+    asyncio.run(scenario())
+
+
 def test_device_error_type() -> None:
     with pytest.raises(OmniPLCInternalError):
         mx_module._check_rc(0xC0500100, "GetDevice")
@@ -887,3 +924,25 @@ def test_connect_comerror_releases_com_initialization(
     # 基类 connect 吞建连异常记 last_error(契约:连接失败不抛),断言 False + 释放
     assert client.connect() is False
     assert released, "COM 初始化计数未配对释放"
+
+
+def test_connect_disconnect_cycles_balance_com_init(
+    fake: FakeActUtlType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """connect/disconnect 多次循环 COM init 计数配平(盲点清缴)。
+
+    每轮成功 connect 恰一次 ``_com_initialize``、disconnect 恰一次
+    ``_com_uninitialize``——循环 N 轮后两侧计数相等(防重连场景泄漏
+    CoInitialize 引用计数)。
+    """
+    inits: list = []
+    releases: list = []
+    monkeypatch.setattr(mx_module, "_com_initialize", lambda: inits.append(1))
+    monkeypatch.setattr(mx_module, "_com_uninitialize", lambda: releases.append(1))
+    client = MelsecMxClient(0)
+    for _ in range(3):
+        assert client.connect() is True
+        assert client.disconnect() is True
+    assert fake.calls.count(("Open",)) == 3
+    assert fake.calls.count(("Close",)) == 3
+    assert inits == releases == [1, 1, 1]

@@ -182,25 +182,32 @@ snap7 封装现状一致,遇到明确报错);工作量数周级。
 
 ## 测试覆盖盲点
 
-> 来源 review-1005 §7.3,采纳前主会话再核。
+> 来源 review-1005 §7.3;**2026-10-04 已清缴**(逐条再核后补测/确认已覆盖,
+> 详见各测试文件「盲点清缴」标注用例)。
 
-- **MX**:
-  GetDevice/GetCpuType/GetClockData 高位 0 静默路径模拟、
-  read_many 拒绝路径、connect/disconnect 循环 COM init 平衡、aio 双客户端 STA 隔离
-- **KV HL**:
-  W 字软元件写字节级断言、低速滴流对端、UDP 粘包首字节
-- **KV MC**:
-  read_batch 多设备组合、位号越界拦截、_has_ping 与披露一致
-- **松下 MC**:
-  TN 字写/CS 位写、R0005+R9005 同事务、SM 字单位读
-- **MEWTOCOL**:
-  RFF 裸 ValueError 消息含地址、read_range 数据区 BOOL 拒绝、L0F/T10/T1F 形态
-- **TOYOPUC**:
-  read_range INT×257 边界、write_string 空串、ErrorCategory 分类
-- **汇川**:
-  random_read/random_write 记号换算、T300 字越界
-- **小驱动族**:
-  `last_error_category` 在 ProtocolFrameError 时的分类
+- **MX**:GetDevice/GetCpuType/GetClockData 高位 0 静默路径——**不采纳**:
+  已知盲区待真机批(docstring 已披露),单独补测只能锁错误行为,随真机批
+  修+测一起落;read_many 拒绝路径——已由 read_batch 拒绝测试覆盖(委托同路);
+  connect/disconnect 循环 COM init 平衡——**已补**(3 轮循环计数配平);
+  aio 双客户端 STA 隔离——**已补**(双站独立控件实例并发不串数据)
+- **KV HL**:W 字软元件写字节级断言——**已补**(`WR W100.U`);低速滴流
+  对端——已覆盖(dribble deadline);UDP 粘包首字节——**已补**(粘包双响应/
+  非 ASCII 首部噪声两形态)
+- **KV MC**:read_batch 多设备组合——**已补**(DM+W 单笔 0406);位号越界
+  拦截——**已补**(位号 16 拒绝不发包);`_has_ping` 与披露一致——**已补**
+  (0101 探活开启 ↔ protocol-features 待真机核证口径)
+- **松下 MC**:TN 字写/CS 位写——**已补**(C2/C4 帧锚定);R0005+R9005
+  同事务——**已补**(SM 换算单笔 0406);SM 字单位读——已覆盖(D≥90000→SD)
+- **MEWTOCOL**:RFF 消息含地址——**已补**(match 断言);read_range 数据区
+  BOOL 拒绝——**已补**;L0F/T10/T1F 形态——**已补**(位/字语境分流解析)
+- **TOYOPUC**:read_range INT×257 边界——**已补**(514 字拒/512 字界放行);
+  write_string 空串——**已补**(基类空串拒绝不发包);ErrorCategory 分类
+  ——**已补**(DEVICE/PROTOCOL 断言)
+- **汇川**:random_read/random_write 记号换算——read_batch 已覆盖,
+  random_write **已补**(1402 路径 R100→D8100);T300 字越界——**已补**
+  (按 review-1011 裁决:T/C 不在码表,拦截形态 = 不支持软元件)
+- **小驱动族**:`last_error_category` 在 ProtocolFrameError 时的分类——
+  已覆盖(基类 `_categorize` 全表测试 + 各驱动断言)
 
 ---
 
@@ -216,6 +223,9 @@ snap7 封装现状一致,遇到明确报错);工作量数周级。
   `SetCpuStatus` 远程控制已在 §2/§4 标「有意不做」——**已完成**
 - **PLC 子包 `__init__.py`**:
   公共 API 顶层导出统一(ASiemensS7Client 等)
+  ——**已完成(2026-10-04):OpcUaSubscription 进根包(公共返回类型口径
+  与 AbTagEntry/FinsClock 对齐)+ test_package_exports 新增「返回类型 ⊆ 根包」
+  守卫;地址解析助手(parse_*)有意留子包**
 - **constants.py**:
   `MX_MAX_BLOCK_WORDS=960` 数值依据注释、
   MX_BIT_DEVICES 表外 SD 字软元件分类口径

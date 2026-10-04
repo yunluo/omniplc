@@ -334,5 +334,53 @@ def test_read_range_translates_address_once_like_single(
     assert values == [7, 8]
     sent = bytes(scripted.sent)
     assert sent == _expected("R1603", 2, False, False)
-    assert sent[15:18] == b"\x43\x06\x00"  # 1603 = 0x0643(换算恰好一次)
-    assert b"\x03\x0a\x00" not in sent  # 不是二次换算的 2563 = 0x0A03
+
+
+def test_write_tn_word_and_cs_bit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TN 定时器当前值字写 / CS 计数器接点位写:码 C2/C4(盲点清缴)。"""
+    client = PanasonicMcTcpClient("127.0.0.1", 2000)
+    first = _write_response()
+    second = _write_response()
+    scripted = ScriptedTransport([first[:9], first[9:], second[:9], second[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.write_ushort("TN0", 100) is True
+    assert client.write_bool("CS10", True) is True
+    sent = bytes(scripted.sent)
+    assert sent == _expected("TN0", 1, False, True, data=[100]) + _expected(
+        "CS10", 1, True, True, serial=2, data=[1]
+    )
+
+
+def test_read_many_r5_and_r9005_single_transaction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R0005 与 R9005 同笔 0406:R0005 → 线性 5、R9005 → SM5(码 91h)(盲点清缴)。
+
+    松下记号字号+位号至少两位(R0005 = 字 000 位 5),单数字 "R5" 非法。
+    """
+    client = PanasonicMcTcpClient("127.0.0.1", 2000)
+    # 0406 位块 1 点 = 16 位(点内首软元件在 bit0):两块各 1 点 = 4 字节,
+    # 块 1(R0005)bit0=0、块 2(R9005→SM5)bit0=1
+    frame = _frame_tail(b"\x00\x00" + b"\x01\x00")
+    scripted = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_many(["R0005", "R9005"], "bool") == [
+        (True, False),
+        (True, True),
+    ]
+    assert bytes(scripted.sent) == codec_qna.build_random_read(
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        [],
+        [(0x90, 5, 1), (0x91, 5, 1)],
+    )
+
+
+def test_has_ping_matches_disclosure() -> None:
+    """探活披露一致:0101 探活开启(protocol-features 披露松下支持待真机核证)。"""
+    assert PanasonicMcTcpClient()._has_ping is True

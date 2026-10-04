@@ -16,7 +16,7 @@ import struct
 import pytest
 
 from omniplc import ToyopucTcpClient, ToyopucUdpClient
-from omniplc.core.errors import DeviceError, ProtocolFrameError
+from omniplc.core.errors import DeviceError, ErrorCategory, ProtocolFrameError
 from omniplc.plc.toyopuc import codec
 from omniplc.plc.toyopuc.address import (
     encode_bit_address,
@@ -301,8 +301,8 @@ def test_tcp_read_range_64bit_types(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bytes(scripted2.sent) == codec.build_word_read(0x1100, 4)
 
 
-def test_tcp_read_range_rejects() -> None:
-    """read_range 入参校验:位软元件 BOOL/位地址/count/STRING/超限。"""
+def test_tcp_read_range_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range 入参校验:位软元件 BOOL/位地址/count/STRING/超限(含 INT×257)。"""
     client = ToyopucTcpClient("127.0.0.1", 1025)
     with pytest.raises(ValueError):
         client.read_range("M0201", 4, "bool")  # 位软元件无批量位读命令
@@ -316,6 +316,25 @@ def test_tcp_read_range_rejects() -> None:
         client.read_range("D0100", 2, "string")
     with pytest.raises(ValueError):
         client.read_range("D0100", 513, "short")  # 513 字 > 512 上限
+    with pytest.raises(ValueError, match="字数超上限"):
+        client.read_range("D0100", 257, "int")  # INT×257 = 514 字 > 512(盲点清缴)
+    # 边界放行:INT×256 = 512 字恰在上限(无应答脚本,仅证入口不拒)
+    boundary = ToyopucTcpClient("127.0.0.1", 1025)
+    scripted = ScriptedTransport([])
+    monkeypatch.setattr(boundary, "_create_transport", lambda: scripted)
+    boundary.connect()
+    assert boundary.read_range("D0100", 256, "int") == (False, None)
+
+
+def test_write_string_empty_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """write_string 空串:基类"不能为空字符串"入参期拒绝且不发包(盲点清缴)。"""
+    client = ToyopucTcpClient("127.0.0.1", 1025)
+    scripted = ScriptedTransport([])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    with pytest.raises(ValueError, match="空字符串"):
+        client.write_string("D0100", "")
+    assert bytes(scripted.sent) == b""
 
 
 def test_tcp_read_packed_word(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -431,7 +450,7 @@ def test_typed_address_errors(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> None:
-    """出错代码(0x40 地址越界)→ DeviceError 不断线。"""
+    """出错代码(0x40 地址越界)→ DeviceError(分类 DEVICE)不断线。"""
     client = ToyopucTcpClient("127.0.0.1", 1025)
     scripted = ScriptedTransport(
         _chunks(bytes((0x80, 0x10, 0x01, 0x00, 0x40)))
@@ -442,11 +461,12 @@ def test_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.read_ushort("D0100") == (False, None)
     assert client.connected is True
     assert client.last_error is not None and "0x40" in client.last_error
+    assert client.last_error_category is ErrorCategory.DEVICE
     assert client.read_ushort("D0100") == (True, 20)
 
 
 def test_bad_response_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
-    """帧长不符的坏响应 → 标记断开等待惰性重连。"""
+    """帧长不符的坏响应 → 分类 PROTOCOL + 标记断开等待惰性重连。"""
     client = ToyopucTcpClient("127.0.0.1", 1025)
     scripted = ScriptedTransport(_chunks(_response(0x1C, b"\x00") + b"\x00"))
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
@@ -454,16 +474,18 @@ def test_bad_response_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> Non
     assert client.read_ushort("D0100") == (False, None)
     assert client.connected is False
     assert client.last_error is not None and "帧长" in client.last_error
+    assert client.last_error_category is ErrorCategory.PROTOCOL
 
 
 def test_command_mismatch_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
-    """响应命令字与请求不符 → 坏帧处理,标记断开。"""
+    """响应命令字与请求不符 → 分类 PROTOCOL + 坏帧处理,标记断开。"""
     client = ToyopucTcpClient("127.0.0.1", 1025)
     scripted = ScriptedTransport(_chunks(_response(0x1E, b"\x14\x00")))
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     assert client.read_ushort("D0100") == (False, None)
     assert client.connected is False
+    assert client.last_error_category is ErrorCategory.PROTOCOL
 
 
 # ----------------------------------------------------------------------

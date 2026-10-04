@@ -306,3 +306,42 @@ def test_read_range_translates_address_once_like_single(
     assert sent == _expected("XF", 3, True, False)
     assert sent[18] == 0x9C
     assert sent[15:18] == b"\x0f\x00\x00"  # 八进制 17 = 0x0F,换算恰好一次
+
+
+def test_random_write_translates_addresses(monkeypatch: pytest.MonkeyPatch) -> None:
+    """随机写(1402)经换算钩子:R100 → D8100(盲点清缴)。
+
+    与 read_batch(0403)对偶:写路径同样只经 ``_translate_address``
+    换算一次;计数域 1 字节(review-1009 P0-1)。
+    """
+    client = InovanceMcTcpClient("127.0.0.1", 2000)
+    frame = _write_response()
+    scripted = ScriptedTransport([frame[:9], frame[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.random_write([("R100", 5)], []) is True
+    assert bytes(scripted.sent) == codec_qna.build_random_write_devices(
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        [(0xA8, INOVANCE_MC_R_BASE + 100, 5)],
+        [],
+    )
+
+
+def test_t_device_out_of_support_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """T/C 不在 H5U MC 命令支持面(手册 16.4 码表无 T/C):明确拒绝不发包。
+
+    盲点清缴复核:review-1005 时的"T300 字越界"预设 T 在码表内;现按
+    review-1011 裁决码表无 T/C——越界形态收敛为"软元件不支持",拦截
+    语义不变(明确 ValueError,零字节发送)。
+    """
+    client = InovanceMcTcpClient("127.0.0.1", 2000)
+    scripted = ScriptedTransport([])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    with pytest.raises(ValueError):
+        client.read_ushort("T300")
+    assert bytes(scripted.sent) == b""
