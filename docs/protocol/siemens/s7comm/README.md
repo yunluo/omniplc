@@ -47,6 +47,15 @@ PDU 类型:CR=`0xE0`、CC=`0xD0`、DT=`0xF0`、DR=`0x80`。
   `0x0102`、Called = `0x0100|rack<<5|slot`(资源类型恒 0x01,与 snap7 的
   Calling/Called 角色互换)——双方均被 CPU 接受(Calling TSAP 通常不被
   校验),本库从 python-snap7 主源口径。
+- **HSL 7.0.1 交叉源坐实(2026-10-04,用户供源 `HslCommunication_Net45/
+  Profinet/Siemens/SiemensS7Net.cs` L711-748)**:其 `plcHead1`/
+  `plcHead1_200smart`/`plcHead1_200`/`plcHead2` 四组帧与 IoTClient
+  `SiemensConstant.cs` **逐字节完全一致**——本库 SMART(0x1000/0x0300)
+  与 200-CP243("MW"/TPDU 512)预设由两份独立分发的 C# 实现共同锁定。
+  HSL 的型号槽位口径为旁证:1200/1500 用 slot **0**、400 用 slot **3**
+  (本库从 snap7/S7netplus 的 1/2)——slot 位现场相关、CPU 宽容,`slot`
+  覆写可切;V 区映射 HSL 不分型号(本库限 200/200SMART,防 1200+ 的
+  DB1 静默别名);HSL 自注 T/C 读「未测试通过」(旁证本库暂不暴露 T/C)。
 - 经典 S7-200 的串口 PPI 与本档案无关(PPI 帧格式另议,官方无公开文档,
   未实现,见 `docs/protocol/README.md` 待补表)。
 
@@ -150,11 +159,14 @@ COUNTER `0x1C`、TIMER `0x1D`。
   子功能(SZL 读 = `0x01`)、DataRef(续传序号,首帧 `0x00`)
 - 数据段 `>BBHHH`:返回码 `0x0A`(请求占位)、传输尺寸 `0x00`、长 u16、
   SZL ID u16、SZL Index u16
-  - **前缀两字节三源分歧(review-1008 登记)**:本库与 python-snap7 3.2.0
-    同款发 `0x0A/0x00`;snap7 C(`s7_micro_client.cpp` opReadSZL 的
-    `ReqDataFirst`)与 Sharp7(`S7Client.cs` SZL 请求帧)发 `0xFF/0x09`
-    (Ret=0xFF / TS=Octet)。两派真机均可用(PLC 不严格校验该占位);
-    **真机核证时若 SZL 被拒,首先怀疑此字段**
+  - **前缀两字节四源分歧(review-1008 登记;2026-10-04 补 HSL 第四源)**:
+    本库与 python-snap7 3.2.0 同款发 `0x0A/0x00`;snap7 C
+    (`s7_micro_client.cpp` opReadSZL 的 `ReqDataFirst`)、Sharp7
+    (`S7Client.cs` SZL 请求帧)、**HSL 7.0.1**(`SiemensS7Net.cs`
+    `plcOrderNumber` L721-726,数据段 `FF 09 00 04 00 11 00 00`)
+    发 `0xFF/0x09`(Ret=0xFF / TS=Octet)——**四源中三源 FF/09**,
+    两派真机均可用(PLC 不严格校验该占位);**真机核证时若 SZL 被拒,
+    首先改此字段为 FF/09**
 - USERDATA 应答:头 10 字节;**参数区 12 字节**(python-snap7 3.2.0
   `_parse_userdata_response_params` L1663-1678:`[3]=0x08` 响应长、
   `[4]=0x12`、`[5]=0x84`(响应位 0x8|组)、`[6]` 子功能、`[10:12]`
@@ -189,3 +201,48 @@ real-machine-checklist)。
 - COTP DR 断连帧 dst_ref = CC 应答回显值(`_send_cotp_disconnect`
   L431-450;review-1008 P2:曾恒 0)
 - TCP:TCP_NODELAY + SO_KEEPALIVE(snap7 3.x 同款)
+
+## 11. 中文逆向帖交叉对照(2026-10-04,itpub thread-2052649《西门子 PLC 的
+S7 协议破解格式说明》,用户提供全文;第四方独立抓包口径,只作交叉不作依据)
+
+原帖为 1200/300(314/315)真机抓包归纳,全部字节与本库帧面/参考实现互证:
+
+- **COTP CR(L713 同帧)**:原帖 1200 交互一 PC 帧
+  `03 00 00 16 11 E0 00 00 00 01 00 C1 02 01 00 C2 02 01 01 C0 01 09`
+  ——与本库组帧逐字段一致(LI=0x11/CR/src_ref 0x0001/Calling 0x0100/
+  Called=(类型<<8)|slot/TPDU 参数);**其 TPDU 报价 0x09(512)、本库
+  0x0A(1024)**——均为合法报价、以对端 CC 确认为准,非分歧(snap7 亦
+  0x0A)。CC 应答帧 `11 D0 00 01 00 06/04 00 C0 01 09 C1 02 01 00
+  C2 02 01 01`:dst_ref 回显、CPU 小型号字节(1200=06/314=04/315=03)
+  原帖自注「写程序不要校验此字节」——本库 `parse_cotp_cc` 只校验类型
+  0xD0 与长度,不校验该字节,一致。
+- **协商(0xF0)**:原帖交互二请求 `…F0 00 00 01 00 01 07 80`(AMQ 1/1
+  + PDU 0x0780=1920)与本库 `build_setup_comm` 同构(功能 0xF0/参数 8B
+  /PDU 请求值可变),回复取对端确认——本库请求 480 与 1920 皆合法口径。
+  原帖「第二个初始化报文 1200/314/315 完全一致可固化」与本库协商帧不
+  含型号参数一致。
+- **读请求(A 帧规律)**:A[24:26]=count(字节)、A[26:28]=DB 号、
+  A[28]=区域码(0x81 Input/0x82 Output/0x83 Flag/0x84 DB)、
+  A[29:32]=偏移(**位地址 = 字节×8**)——与 `build_address_spec`
+  `>BBBBHHB3s` 逐字段一致;「Input/Output/Flag 的 DB 号可乱写」与
+  本库非 DB 区 DB 号恒 0 一致(PLC 不校验);demo6/7/8 的 X/Y/M 读帧
+  区域码与 `_AREA_CODES` 全对上。
+- **读应答(B 帧规律)**:B[14:16]=参数长(0x000E 请求↔0x0002 应答,
+  原帖「02+0E=10 补码感」实为 ACK_DATA 头 12B + 参数 2B 的必然)、
+  B[18:24]=`00 00 04 01 FF 04` + 位长 u16——即本库条目解析
+  返回码 0xFF/传输尺寸 0x04/位长 = count×8;「B[16:18]=请求数+4」
+  = 数据段长(条目 4B 头 + 数据);奇数 count 的应答(demo3:16 字节
+  数据)无需填充位长按字节,与本库 BYTE 口径一致。
+- **写请求**:demo1 字写 `…12 0A 10 02 00 02 …84 …00 04 00 10 FF FE`
+  与 `build_write`(WORD_LEN_BYTE:参数 count=2、数据段传输尺寸 0x04、
+  数据长=位数 0x10=2×8)逐字节同构;demo2 位写(方式 0x01/数据段方式
+  0x03/位长 1/数据 0x01)与 `_WRITE_TRANSPORT_SIZES[BIT]=0x03` 一致;
+  「A[16:18]=写长+4」= 参数长 12×N+2 的单条目特例。原帖写应答
+  `03 00 00 16 02 F0 80 32 03 00 00 00 05 00 02 00 01 00 00 05 01 FF`
+  = ACK + 数据段 1 字节 0xFF,与 `parse_write_response` 单条目口径
+  一致。
+- **结论**:原帖全部帧面事实与本库实现零冲突;其「按 bit 连续写实践
+  有问题,建议逐个写」与本库位写走读-改-写(按字节写)的既有取舍一致;
+  型号差异仅 CPUSlot(交互一 A[18])与 CC 小型号字节——与本库
+  `S7_CPU_PRESETS` 的 slot 惯例口径同源。本节仅登记交叉,帧面依据仍
+  以参考实现逐字节档案(§2~§9)与真机 pcap 为准。
