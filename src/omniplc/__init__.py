@@ -83,7 +83,7 @@ from .core.tag import Tag, TagTable
 from .core.types import ByteOrder, DataType, McFrame, SerialParity, WordOrder
 from .cnc import MTConnectClient
 from .plc.modbus import ModbusArea, ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
-from .plc.opcua import OpcUaClient
+from .plc.opcua import OpcUaClient, OpcUaSubscription
 from .plc.melsec import (
     MelsecMcSerialClient,
     MelsecMcTcpClient,
@@ -190,6 +190,7 @@ __all__ = [
     "SiemensS7Client",
     # ---- OPC-UA 客户端 ----
     "OpcUaClient",
+    "OpcUaSubscription",
     # ---- CNC 机床数采客户端 ----
     "MTConnectClient",
     # ---- 传输层 ----

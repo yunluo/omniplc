@@ -46,6 +46,35 @@ def test_all_async_clients_have_mirror() -> None:
     assert sync_clients == mirror_names
 
 
+def test_public_result_types_exported_at_root() -> None:
+    """出现在公共 API 返回签名里的类型必须统一在根包可导入。
+
+    口径(review-1005 §7.4「顶层导出统一」):客户端返回的句柄/记录类型
+    与 Monitor 事件家族、读码器结果类型同级——AB 的 ``AbTagEntry``、
+    欧姆龙的 ``FinsClock`` 已在根包,OPC-UA 的 ``OpcUaSubscription`` 原
+    只能从 ``omniplc.plc.opcua`` 导入(标注返回类型要深路径),本用例
+    把"返回类型 ⊆ 根包"锁成门禁。地址解析助手(parse_*/*Address)有意
+    留子包,不入本清单。
+    """
+    required = (
+        "OpcUaSubscription",
+        "AbTagEntry",
+        "FinsClock",
+        "Monitor",
+        "MonitorEvent",
+        "MonitorQuality",
+        "MonitorStats",
+        "PointSnapshot",
+        "HikrobotSdkFrame",
+        "HikrobotSdkCode",
+        "HikrobotSdkQuality",
+        "HikrobotStatus",
+        "FrameRecord",
+    )
+    missing = [name for name in required if name not in omniplc.__all__]
+    assert not missing, "根包缺少公共返回类型导出:{}".format(missing)
+
+
 def test_aio_star_import_surface() -> None:
     """aio 星号导入面 == __all__:同步客户端/常量/内部名不得公开。"""
     namespace: dict = {}
