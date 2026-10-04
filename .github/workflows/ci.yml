@@ -1,6 +1,7 @@
 name: ci
 
 # 每次提交强制门禁:pytest(3.7.9 + 3.12 双版本)/ ruff format / ruff / mypy / ty
+# + audit job(pip-audit 依赖漏洞扫描,与 test 并行,见文件尾)
 # 与 build-release.yml 互补(本工作流 push+PR 触发,发布仍走 tag 触发的 build-release.yml)
 #
 # 版本矩阵说明:项目 `requires-python = ">=3.7.9"`,`3.7` 是**必保**底线
@@ -82,3 +83,34 @@ jobs:
         # 第二类型检查器(Astral 的 Rust 实现的 mypy 替代):与 mypy 互补,
         # 抓不同的检查侧。配置见 pyproject.toml [tool.ty.src];两条腿都跑
         run: uvx ty check src/omniplc
+
+  audit:
+    # 依赖漏洞扫描(pip-audit):对 uv.lock 锁定依赖集查 PyPI 漏洞库。
+    # 与上面五件套互补——五件套管"我们写的代码",本 job 管"我们装的依赖";
+    # 与 test job 并行,每周一定时空跑也复用(新漏洞公告自动暴露)
+    name: pip-audit
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Export locked dependencies
+        # --frozen 只读 uv.lock 不改写;--no-emit-project 排除 omniplc 自身
+        # (开发期未发布版本号在 PyPI 查不到,会误报包缺失);--extra dev 与
+        # 门禁环境同口径(dev 定义在 [project.optional-dependencies],非
+        # [dependency-groups],见上面 sync 步的说明)
+        run: uv export --frozen --no-hashes --format requirements-txt --extra dev --no-emit-project -o requirements-audit.txt
+
+      - name: pip-audit
+        # runner 必须是 windows:comtypes 带 sys_platform=='win32' 标记,linux
+        # 审计环境会把这行整条跳过、漏审运行时依赖;与 test job 平台口径一致。
+        # --disable-pip --no-deps:导出全为 name==version 钉死行,免 venv 解析
+        # (pip-audit 的解析模式在 uv 托管解释器上自升级 pip 会失败);
+        # --python 3.13 使环境标记求值确定:只审 >=3.10 + win32 腿——运行时
+        # 依赖(asyncua/comtypes/pyserial 及传递)全在此。3.7~3.9 腿仅测试
+        # 工具版本差异,不在范围(已知 3.9 腿 pytest 8.4.2 有 PYSEC-2026-1845,
+        # 修复版 pytest 9 不支持 3.9;dev-only,门禁两腿用 7.4.4/9.1.1 均干净)
+        run: uvx --python 3.13 pip-audit --disable-pip --no-deps --strict -r requirements-audit.txt

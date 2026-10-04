@@ -1,0 +1,43 @@
+name: codeql
+
+# GitHub 原生代码安全扫描(CodeQL,Python):扫我们自己的代码面
+# (注入/反序列化/路径遍历等规则集),与 ci.yml 的 audit job 互补——
+# pip-audit 管"装的依赖有没有洞",CodeQL 管"我们写的代码有没有洞"。
+# 公共仓库免费;push/PR 触发 + 每周四定时全量(与 ci.yml 每周一定期
+# 空跑错开)。结果上传 GitHub 代码扫描(Security 标签页),默认不挡合并。
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    # 每周四 UTC 04:41(北京时间 12:41)
+    - cron: '41 4 * * 4'
+
+permissions:
+  contents: read
+  security-events: write # 上传 SARIF 结果到代码扫描需要
+  actions: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: analyze (python)
+    # CodeQL 对纯 Python 直接对源码建库,无需装依赖、无需 autobuild
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: python
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:python"
