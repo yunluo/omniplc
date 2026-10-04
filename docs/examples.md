@@ -65,15 +65,16 @@ from omniplc import Tag, TagTable
 
 table = TagTable([
     Tag(tag_id="furnace_temp", address="hr100", data_type="float",
-        scale=0.1, remark="炉温"),        # 读值 = 原始 × scale + offset
+        scale=0.1, offset=-5.0, remark="炉温"),   # 读值 = 原始 × scale + offset
     Tag(tag_id="pump_running", address="c0", data_type="bool", remark="泵运行"),
 ])
 client.bind_tags(table)
 ok, value = client.read_tag("furnace_temp")    # 按点位标识读写,自动套缩放
-ok = client.write_tag("pump_running", True)
+ok = client.write_tag("pump_running", True)    # 写 = (目标值 − offset) / scale 反算
 ```
 
-表构造后严格只读(不提供 add);`Monitor` 直接收 `TagTable`。
+`data_type` 传字符串自动转 `DataType`(float/short/bool/…);表构造后
+严格只读(不提供 add);`Monitor` 直接收 `TagTable`。
 
 ### 监视器(周期轮询 + 本地快照 + 变更事件)
 
@@ -93,7 +94,9 @@ mon.stats                  # cycle_count / consecutive_fails / slow_cycles /
 mon.stop()
 ```
 
-质量三态:`INITIAL`(从未成功)/ `GOOD`(最新值)/ `STALE`(失败期保留的
+`points` 也可直接传 `TagTable`(工程量缩放与 `read_tag` 同口径);回调在
+监视器线程执行,异常被吞掉只计数,勿在回调里做重活。质量三态:
+`INITIAL`(从未成功)/ `GOOD`(最新值)/ `STALE`(失败期保留的
 旧值)——**消费方必须检查 quality**,拿 STALE 旧值当最新值是采集系统常见
 自伤。STRING 不支持(批量读不收变长);建议监视器独占客户端实例。
 
@@ -200,6 +203,22 @@ ok = client.write_file_record([(4, 1, [0x0001, 0x0002])])
 RTU(串口,需 pyserial):`ModbusRtuClient(station=1)` + `configure_serial("COM3",
 baud_rate=9600)`;`inter_frame_delay` 帧间静默(默认 0)与广播后
 `broadcast_turnaround`(默认 200ms)可配。
+
+```python
+from omniplc import ModbusRtuClient
+
+with ModbusRtuClient(station=1) as rtu:          # 上下文管理器:退出自动断开
+    rtu.configure_serial("COM3", baud_rate=9600)  # 须在 connect 前配置
+    rtu.receive_timeout = 1.0                     # 串口超时:部分字节截断即断线重同步
+    ok, value = rtu.read_ushort("hr100")
+
+# 广播:站号 0 即广播地址(仅写;发出后不等应答,走 broadcast_turnaround 静默)
+bcast = ModbusRtuClient(station=0)
+bcast.configure_serial("COM3", baud_rate=9600)
+bcast.connect()
+bcast.write_ushort("hr100", 7)     # 全体从站落盘;读操作在站号 0 下显式拒
+bcast.disconnect()
+```
 
 ## 三菱 MC(3E/4E/1E 以太网 / 1C/3C/4C 串口 / MX Component)
 
@@ -463,7 +482,8 @@ ok, current = s7.read_ushort("MW10")   # Merker 字
 ok, text = s7.read_string("DB1.DBS20", length=32)   # S7 String(头 2 字节声明/实际长)
 ok, wtext = s7.read_wstring("DB1.DBW40", length=32) # S7 WString(仅 1200/1500;UTF-16 中文/日文)
 ok = s7.write_wstring("DB1.DBW60", "中文")
-ok, state = s7.get_cpu_state()                      # CPU 状态(Run/Stop/...)
+ok, state = s7.get_cpu_state()                      # CPU 状态(SZL 0x0424:Run/Stop/Unknown)
+                                                    # 也是探活命令:ping() 与心跳走这里
 
 # 200 SMART 的 V 区记号(= DB1;仅 S7_200 / S7_200_SMART 型号放行):
 ok, speed = smart.read_ushort("VW100")   # V 存储器字,= DB1.DBW100
