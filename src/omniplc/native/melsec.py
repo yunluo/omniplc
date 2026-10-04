@@ -40,6 +40,7 @@ from ..core.constants import (
     MC_DEFAULT_PORT,
     MC_MAX_DATAGRAM,
     MC_1E_MAX_POINTS,
+    MC_1E_MAX_WORD_READ_POINTS,
     MC_MAX_TRANSFER_POINTS,
     MC_RESPONSE_HEAD_SIZE,
 )
@@ -251,17 +252,23 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         data_type_enum = DataType.coerce(data_type)
         if data_type_enum is DataType.STRING:
             raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
-        # 帧型上限分流(与同步层同口径,review-1002 P2):1E 实际 255,
-        # 入口统一 900 会放行超限帧让 codec ValueError 在锁内穿透
-        limit = (
+        # 帧型上限分流(与同步层同口径,review-1002 P2;review-1009 P2-1:
+        # 1E 位/字分口 = 位 256/字 64,Appendix 5 印刷页 466)——入口统一
+        # 900 会放行超限帧让 codec ValueError 在锁内穿透
+        bit_limit = (
             MC_1E_MAX_POINTS
             if self._frame is McFrame.FRAME_1E
             else MC_MAX_TRANSFER_POINTS
         )
-        if count > limit:
+        word_limit = (
+            MC_1E_MAX_WORD_READ_POINTS
+            if self._frame is McFrame.FRAME_1E
+            else MC_MAX_TRANSFER_POINTS
+        )
+        if count > bit_limit:
             raise ValueError(
                 _("MC read_range 点数超上限 {}(帧型 {}):{}").format(
-                    limit, self._frame.value, count
+                    bit_limit, self._frame.value, count
                 )
             )
         # 入口只解析不换算(与同步层同口径,review-1002 P1-1 / review-1007
@@ -295,10 +302,10 @@ class AsyncMelsecMcBase(AsyncBaseClient):
             width = 2
         elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             width = 4
-        if count * width > limit:
+        if count * width > word_limit:
             raise ValueError(
                 _("MC read_range 字数超上限 {}(帧型 {}):{}×{}={}").format(
-                    limit, self._frame.value, count, width, count * width
+                    word_limit, self._frame.value, count, width, count * width
                 )
             )
 

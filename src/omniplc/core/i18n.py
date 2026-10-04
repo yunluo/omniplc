@@ -963,6 +963,7 @@ _TRANSLATIONS: Dict[str, str] = {
     "FINS/TCP 长度域超限:{} > {}(收到的原始帧头:{})": "FINS/TCP length field over the limit: {0} > {1} (raw frame header received: {2})",
     "FINS/TCP 握手响应不完整:期望 {} 字节,实际 {}(收到的原始帧:{})": "FINS/TCP handshake response incomplete: expected {0} bytes, got {1} (raw frame received: {2})",
     "FINS/TCP 握手失败,错误码 0x{:08X}(收到的原始帧:{})": "FINS/TCP handshake failed, error code 0x{:08X} (raw frame received: {})",
+    "FINS/TCP 握手响应命令码回显不符:期望 0x00000001,收到 0x{:08X}(收到的原始帧:{})": "FINS/TCP handshake response command echo mismatch: expected 0x00000001, got 0x{0:08X} (raw frame received: {1})",
     "FINS/TCP 数据帧过短:{} 字节(收到的原始数据:{})": "FINS/TCP data frame too short: {} bytes (raw data received: {})",
     "FINS/TCP 错误码 0x{:08X}(收到的原始数据:{})": "FINS/TCP error code 0x{:08X} (raw data received: {})",
     "、": ", ",

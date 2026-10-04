@@ -37,6 +37,7 @@ from ...core.constants import (
     MC_1C_MAX_BIT_READ_POINTS,
     MC_1C_MAX_WORD_POINTS,
     MC_1E_MAX_POINTS,
+    MC_1E_MAX_WORD_READ_POINTS,
     MC_MAX_DATAGRAM,
     MC_MAX_TRANSFER_POINTS,
     MC_MODULE_IO_MAX,
@@ -282,7 +283,8 @@ class _MelsecMcBase(BaseClient):
 
         位软元件 = 位单位成批读(SH-080008 §8.2;3E/4E/3C/4C 按
         :data:`MC_MAX_TRANSFER_POINTS` 分块口径收紧为**单笔直读**,1E 帧
-        上限 255、1C 帧 BR 上限 256——帧型分流,超限入参期拒绝);字软元件
+        位上限 256/字上限 64 字、1C 帧 BR 上限 256——帧型分流,超限入参期
+        拒绝);字软元件
         = 字单位成批读,16 位类型 1 字/元素、32 位 2 字、64 位 4 字
         (SH-080008 §8.2 成批读;1C 帧 WR 上限 64 字)。所有帧型
         (3E/4E/1E/3C/4C)均支持——0401 是各帧共有的核心命令
@@ -301,12 +303,14 @@ class _MelsecMcBase(BaseClient):
         data_type_enum = DataType.coerce(data_type)
         if data_type_enum is DataType.STRING:
             raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
-        # 帧型上限分流(review-1002 P2):入口统一 900 会放行 1E(实际
-        # 255)/1C(BR 256/WR 64)的超限帧——codec ValueError 在事务锁内
-        # 抛出穿透 _execute(其不捕 ValueError),违反整批 (False, None)
-        # 契约,故按帧型在入参期拒绝
+        # 帧型上限分流(review-1002 P2;review-1009 P2-1:1E 位/字分口——
+        # Appendix 5 印刷页 466 位单位 256/字单位 64,原共用 255 会把 65~255
+        # 字超限帧放行给 PLC 拒)——入口统一 900 会放行 1E/1C 超限帧——
+        # codec ValueError 在事务锁内抛出穿透 _execute(其不捕 ValueError),
+        # 违反整批 (False, None) 契约,故按帧型在入参期拒绝
         if self._frame is McFrame.FRAME_1E:
-            bit_limit = word_limit = MC_1E_MAX_POINTS
+            bit_limit = MC_1E_MAX_POINTS
+            word_limit = MC_1E_MAX_WORD_READ_POINTS
         elif self._frame is McFrame.FRAME_1C:
             bit_limit = MC_1C_MAX_BIT_READ_POINTS
             word_limit = MC_1C_MAX_WORD_POINTS
@@ -699,8 +703,11 @@ class _MelsecMcBase(BaseClient):
                     )
                 code, is_bit_device, base = self._device_info(parsed.device)
                 number = codec_qna.device_number(parsed.device, parsed.number, base)
-                if is_bit_device and not 0 <= number <= 0xFFFFFF - 15:
-                    # 位软元件按 16 点/字指定:编号 + 15 不得超过 3 字节域
+                # 位软元件按访问宽度指定点数:字访问 16 点/设备、双字访问
+                # 32 点/设备——末编号 = 编号 + (每设备点数 - 1) 不得超过
+                # 3 字节域(review-1009 P3-1:原双字分支误用字访问的 -15,
+                # 偏保守不越规,顺手对齐)
+                if is_bit_device and not 0 <= number <= 0xFFFFFF - (byte_count * 8 - 1):
                     raise ValueError(
                         _("MC 随机写位软元件编号越界:{}{}").format(
                             parsed.device, parsed.number

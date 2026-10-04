@@ -230,12 +230,14 @@ def test_build_random_read_response_budget() -> None:
 
 
 def test_build_random_read_golden() -> None:
-    """多块批量读请求字面字节(SH-080008 §8.4 印刷页 114 二进制通信例原样)。
+    """多块批量读请求字面字节(SH-080008 §8.4 印刷页 114-116 二进制通信例原样)。
 
     手册例 = 2 字块 + 3 位块:条目序为**编号 3B 小端 → 码 1B → 点数 2B 小端**
     (列头 Device number → code → Number of device points),字块
     ``(A8H, D0, 4)``/``(B4H, W100, 8)``,位块 ``(90H, M0, 2)``/
-    ``(90H, M128, 2)``/``(A0H, B256, 3)``。
+    ``(90H, M128, 2)``/``(A0H, B256, 3)``。命令级块数域为 **1 字节**
+    (印刷页 115-116 请求例「06H 04H | 00H 00H | 02H | 03H | …」;
+    review-1009 P0-1:原 2 字节错编致帧整体错位,真机必拒)。
     """
     request = codec_qna.build_random_read(
         "3E",
@@ -246,10 +248,8 @@ def test_build_random_read_golden() -> None:
         [(0xA8, 0x000000, 4), (0xB4, 0x000100, 8)],
         [(0x90, 0x000000, 2), (0x90, 0x000080, 2), (0xA0, 0x000100, 3)],
     )
-    core = (
-        "060400000200000000a80400000100b408000300000000900200800000900200000100a00300"
-    )
-    expected = "500000ffff030028000a00" + core
+    core = "0604000002000000a80400000100b4080003000000900200800000900200000100a00300"
+    expected = "500000ffff030026000a00" + core
     assert request == bytes.fromhex(expected)
 
 
@@ -437,10 +437,12 @@ _D, _TN, _M, _X, _Y = 0xA8, 0xC2, 0x90, 0x9C, 0x9D
 
 
 def test_build_random_read_devices_golden() -> None:
-    """随机读请求字面字节(SH-080008 §8.3 印刷页 101 二进制通信例原样)。
+    """随机读请求字面字节(SH-080008 §8.3 印刷页 101-103 二进制通信例原样)。
 
     条目序为**编号 3B 小端 → 码 1B**:字块 D0/T0/M100/X20、双字块
     D1500/Y160/M1111(X/Y 编号十六进制,故 X20 → 0x20、Y160 → 0x160)。
+    字访问点数/双字访问点数为 **1 字节**(印刷页 102-103 请求例
+    「03H 04H | 00H 00H | 04H | 03H | …」;review-1009 P0-1)。
     """
     request = codec_qna.build_random_read_devices(
         "3E",
@@ -451,9 +453,9 @@ def test_build_random_read_devices_golden() -> None:
         [(_D, 0), (_TN, 0), (_M, 100), (_X, 0x20)],
         [(_D, 1500), (_Y, 0x160), (_M, 1111)],
     )
-    core = "0304000004000300000000a8000000c2640000902000009cdc0500a86001009d57040090"
-    # 副头部 5000 + 网络 00 + PC ff + IO ff03 + 局 00 + 长度 2600 + 定时器 0000
-    assert request == bytes.fromhex("500000ffff030026000000" + core)
+    core = "030400000403000000a8000000c2640000902000009cdc0500a86001009d57040090"
+    # 副头部 5000 + 网络 00 + PC ff + IO ff03 + 局 00 + 长度 2400 + 定时器 0000
+    assert request == bytes.fromhex("500000ffff030024000000" + core)
 
 
 def test_parse_random_read_devices_response_golden() -> None:
@@ -510,10 +512,12 @@ def test_build_random_read_devices_validation() -> None:
 
 
 def test_build_random_write_devices_golden() -> None:
-    """随机写请求字面字节(SH-080008 §8.3 印刷页 107 二进制通信例原样)。
+    """随机写请求字面字节(SH-080008 §8.3 印刷页 107-109 二进制通信例原样)。
 
     4 字 + 3 双字,条目序**编号 3B 小端 → 码 1B → 写数据**(字 2B/双字 4B
-    小端):字块 D0/D256/M100/X20,双字块 D1500/Y160/M1111。
+    小端):字块 D0/D256/M100/X20,双字块 D1500/Y160/M1111。字访问点数/
+    双字访问点数为 **1 字节**(印刷页 109 请求例
+    「02H 14H | 00H 00H | 04H | 03H | …」;review-1009 P0-1)。
     """
     request = codec_qna.build_random_write_devices(
         "3E",
@@ -531,8 +535,8 @@ def test_build_random_write_devices_golden() -> None:
     )
     core = (
         "02140000"
-        "0400"
-        "0300"
+        "04"
+        "03"
         "000000a8"
         "5005"
         "000100a8"
@@ -548,7 +552,7 @@ def test_build_random_write_devices_golden() -> None:
         "57040090"
         "75042504"
     )
-    assert request == bytes.fromhex("500000ffff03003a000000" + core)
+    assert request == bytes.fromhex("500000ffff030038000000" + core)
 
 
 def test_build_random_write_devices_validation() -> None:

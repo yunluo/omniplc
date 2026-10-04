@@ -51,6 +51,7 @@ from ...core.constants import (
     FINS_RSV,
     FINS_TCP_COMMAND_DATA,
     FINS_TCP_COMMAND_HANDSHAKE,
+    FINS_TCP_COMMAND_HANDSHAKE_RESPONSE,
     FINS_TCP_HEADER_SIZE,
     FINS_TCP_MAGIC,
 )
@@ -689,7 +690,7 @@ def parse_tcp_head(head: bytes) -> int:
 def parse_handshake_response(frame: bytes) -> Tuple[int, int]:
     """解析握手响应,返回 ``(本地节点号, PLC 节点号)``。
 
-    :raises ProtocolFrameError: 帧不完整或握手错误码非 0
+    :raises ProtocolFrameError: 帧不完整、命令码回显不符或握手错误码非 0
         (消息带**收到的原始帧**十六进制转储,便于现场与抓包比对)
     """
     if len(frame) < FINS_HANDSHAKE_RESPONSE_SIZE:
@@ -697,6 +698,17 @@ def parse_handshake_response(frame: bytes) -> Tuple[int, int]:
             _("FINS/TCP 握手响应不完整:期望 {} 字节,实际 {}(收到的原始帧:{})").format(
                 FINS_HANDSHAKE_RESPONSE_SIZE, len(frame), format_hex(frame)
             )
+        )
+    command = int.from_bytes(frame[8:12], "big")
+    if command != FINS_TCP_COMMAND_HANDSHAKE_RESPONSE:
+        # 命令码回显校验(review-1010 P3-1):握手**响应**命令码 = 1
+        # (黄金样本命令域 00000001 + libfins fins_io.c L311 校验 == 1;
+        # 请求 0 / 响应 1 是同一次握手的两侧,勿按请求常量比对)——TCP 虽有
+        # 连接语义,响应头错位/非握手帧落入时早失败优于按错位字段取节点号
+        raise ProtocolFrameError(
+            _(
+                "FINS/TCP 握手响应命令码回显不符:期望 0x00000001,收到 0x{:08X}(收到的原始帧:{})"
+            ).format(command, format_hex(frame))
         )
     error = int.from_bytes(frame[12:16], "big")
     if error != 0:

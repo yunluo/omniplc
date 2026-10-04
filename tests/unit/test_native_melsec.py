@@ -1109,5 +1109,11 @@ def test_read_range_1e_and_rejects(monkeypatch: pytest.MonkeyPatch, loop: Any) -
             await plain.read_range("D100", 901, DataType.SHORT)
         with pytest.raises(ValueError):
             await plain.read_range("D100", 2, DataType.STRING)
+        # 1E 位/字分口(review-1009 P2-1,与同步层同口径):位 256/字 64
+        one_e = AsyncMelsecMcTcpClient("127.0.0.1", 2000, "1E")
+        with pytest.raises(ValueError, match="字数超上限"):
+            await one_e.read_range("D100", 65, DataType.SHORT)
+        with pytest.raises(ValueError, match="点数超上限"):
+            await one_e.read_range("M0", 257, DataType.BOOL)
 
     loop.run_until_complete(scenario())

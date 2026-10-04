@@ -266,10 +266,13 @@ def build_random_read(
         )
     core = bytearray(MC_COMMAND_BATCH_READ_BLOCKS.to_bytes(2, "big"))
     core += MC_SUBCOMMAND_WORD_UNITS.to_bytes(2, "little")
-    core += len(word_blocks).to_bytes(2, "little")
+    # 字块数/位块数:命令级计数域为 1 字节(依据:SH-080008 印刷页 115-116
+    # 0406 通信例「06H 04H | 00H 00H | 02H | 03H | …」——块数各 1 字节;
+    # 对比块内「每块点数」才是 2 字节如 04H 00H;pymcprotocol type3e 同 byte 模式)
+    core += len(word_blocks).to_bytes(1, "little")
     for code, number, points in word_blocks:
         core += _random_block(code, number, points)
-    core += len(bit_blocks).to_bytes(2, "little")
+    core += len(bit_blocks).to_bytes(1, "little")
     for code, number, points in bit_blocks:
         core += _random_block(code, number, points)
     return _wrap_request(
@@ -435,8 +438,11 @@ def build_random_read_devices(
         )
     core = bytearray(MC_COMMAND_RANDOM_READ.to_bytes(2, "big"))
     core += MC_SUBCOMMAND_WORD_UNITS.to_bytes(2, "little")
-    core += len(word_devices).to_bytes(2, "little")
-    core += len(double_word_devices).to_bytes(2, "little")
+    # 字访问点数/双字访问点数:命令级计数域为 1 字节(依据:SH-080008 印刷页
+    # 102-103 0403 通信例「03H 04H | 00H 00H | 04H | 03H | …」——字 4 点 + 双字
+    # 3 点各 1 字节;对比 0401「软元件点数」域才是 2 字节;pymcprotocol type3e 同)
+    core += len(word_devices).to_bytes(1, "little")
+    core += len(double_word_devices).to_bytes(1, "little")
     for code, number in word_devices:
         core += _random_device(code, number)
     for code, number in double_word_devices:
@@ -517,8 +523,11 @@ def build_random_write_devices(
         )
     core = bytearray(MC_COMMAND_RANDOM_WRITE.to_bytes(2, "big"))
     core += MC_SUBCOMMAND_WORD_UNITS.to_bytes(2, "little")
-    core += len(word_items).to_bytes(2, "little")
-    core += len(double_word_items).to_bytes(2, "little")
+    # 字访问点数/双字访问点数:命令级计数域为 1 字节(依据:SH-080008 印刷页
+    # 109 1402 通信例「02H 14H | 00H 00H | 04H | 03H | …」——各 1 字节;
+    # pymcprotocol type3e 同)
+    core += len(word_items).to_bytes(1, "little")
+    core += len(double_word_items).to_bytes(1, "little")
     for code, number, value in word_items:
         core += _random_device(code, number)
         core += _random_word_value(value)

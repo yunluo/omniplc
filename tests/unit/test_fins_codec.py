@@ -146,6 +146,19 @@ def test_golden_handshake() -> None:
     assert codec.parse_handshake_response(response) == (11, 5)
 
 
+def test_handshake_rejects_wrong_command_echo() -> None:
+    """握手响应命令码回显校验(review-1010 P3-1):命令域非 0 → 坏帧拒绝。
+
+    参考实现 libfins fins_io.c L311 同校验(其命令 1);防响应头错位/
+    非握手帧落入时按错位字段取节点号。
+    """
+    data = _load("fins_tcp_handshake_001")
+    response = bytearray(bytes.fromhex(data["response_hex"]))
+    response[8:12] = (2).to_bytes(4, "big")  # 命令域改为数据帧命令 2
+    with pytest.raises(ProtocolFrameError, match="命令码回显不符"):
+        codec.parse_handshake_response(bytes(response))
+
+
 def test_memory_codes_and_em_bank() -> None:
     """存储区码表:D/E/T/C 区换算与非法区校验。"""
     assert codec.memory_codes("D") == (0x02, 0x82)
