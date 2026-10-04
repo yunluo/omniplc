@@ -97,10 +97,51 @@ def test_write_request_golden() -> None:
 
 
 def test_write_request_real_uses_byte_length() -> None:
-    """REAL 写:传输尺寸 0x07,数据长 = 字节数(4)。"""
-    frame = codec.build_write(codec.AREA_DB, 1, 6, codec.WORD_LEN_REAL, b"\x42\xc9\x00\x00", 1)
+    """REAL 写:传输尺寸 0x07,数据长 = 字节数(4);地址 = 字节×8(review-1008 P3 修正脚手架错帧)。"""
+    frame = codec.build_write(codec.AREA_DB, 1, 6 * 8, codec.WORD_LEN_REAL, b"\x42\xc9\x00\x00", 1)
     assert frame[-6:-4] == b"\x00\x04"  # 数据长 u16 = 4(REAL 按字节数)
     assert frame[-4:] == b"\x42\xc9\x00\x00"
+    assert frame[21:24] == b"\x00\x00\x30"  # 位地址 48 = 0x30
+
+
+def test_write_request_multi_byte_golden() -> None:
+    """多字节写:地址规范 count = 数据长 // 元素宽(review-1008 P0-1,曾恒 1)。
+
+    DB1.DBD6 写 4 字节:参数区 count=0x0004、数据段长 0x0020 位 +
+    4 字节数据,与 python-snap7 3.2.0 `build_write_request` 逐字节一致
+    (count 与数据段长度必须自洽,否则真机按条目返回码拒绝)。
+    """
+    frame = codec.build_write(
+        codec.AREA_DB, 1, 6 * 8, codec.WORD_LEN_BYTE, b"\x01\x02\x03\x04", 9
+    )
+    expected = bytes.fromhex(
+        "32 01 00 00 00 09 00 0e 00 08 05 01 12 0a 10 02 00 04 00 01 84 00 00 30"
+        " 00 04 00 20 01 02 03 04".replace(" ", "")
+    )
+    assert frame == expected
+
+
+def test_write_request_rejects_ungolled_data() -> None:
+    """写数据长非元素宽整数倍:入参期 ValueError(参考 L233-234 同款)。"""
+    with pytest.raises(ValueError):
+        codec.build_write(codec.AREA_DB, 1, 0, codec.WORD_LEN_WORD, b"\x01\x02\x03", 1)
+
+
+def test_build_address_spec_bit_overflow() -> None:
+    """位地址超 3 字节字段:ValueError(旧实现 pack 截断静默别名,review-1008 P1)。"""
+    with pytest.raises(ValueError):
+        codec.build_address_spec(codec.AREA_DB, 1, 0x1000000, codec.WORD_LEN_BYTE, 1)
+    # 边界:0xFFFFFF(字节起点 2097151 ×8)恰好占满 3 字节,合法
+    spec = codec.build_address_spec(codec.AREA_DB, 1, 0xFFFFFF, codec.WORD_LEN_BYTE, 1)
+    assert spec[9:12] == b"\xff\xff\xff"
+
+
+def test_byte_index_limit_address() -> None:
+    """字节起点上限 = 2^21−1(线上 3 字节是位地址,字节×8 恰占满)。"""
+    parsed = parse_s7_address("DB1.DBB2097151")
+    assert parsed.byte_index == 2097151
+    with pytest.raises(ValueError):
+        parse_s7_address("DB1.DBB2097152")
 
 
 def test_multi_read_golden() -> None:
@@ -135,6 +176,16 @@ def test_szl_request_golden() -> None:
     assert frame == expected
 
 
+def test_szl_response_echo_mismatch() -> None:
+    """SZL 应答 ID/Index 回显校验(review-1008 P3:旧实现不比对)。"""
+    pdu = _szl_ack(1, b"\x08\x00")
+    assert codec.parse_szl_response(pdu, 1, 0x0424, 0x0000) == b"\x08\x00"
+    with pytest.raises(codec.S7ProtocolError):
+        codec.parse_szl_response(pdu, 1, szl_id=0x0425)
+    with pytest.raises(codec.S7ProtocolError):
+        codec.parse_szl_response(pdu, 1, szl_index=1)
+
+
 def test_parse_read_response_golden() -> None:
     """读应答解析:单项 返回码 FF + 传输尺寸 04 + 位长 0x20 + 4 字节数据。"""
     pdu = bytes.fromhex(
@@ -155,7 +206,7 @@ def test_parse_read_response_odd_fill() -> None:
 
 
 def test_parse_read_entry_error() -> None:
-    """条目返回码非 0xFF(地址非法 0x05):DeviceError 不断线语义。"""
+    """条目返回码非 0xFF(地址非法 0x05):DeviceError 携带返回码不断线。"""
     from omniplc.core.errors import DeviceError
 
     pdu = bytes.fromhex(
@@ -163,7 +214,30 @@ def test_parse_read_entry_error() -> None:
     )
     with pytest.raises(DeviceError) as exc_info:
         codec.parse_read_response(pdu, 1, 1)
-    assert exc_info.value.code == 0
+    assert exc_info.value.code == 0x05
+
+
+def test_parse_read_response_length_mismatch() -> None:
+    """线上声明长度与请求期望不符:S7ProtocolError(review-1008 P2)。
+
+    旧实现按期望覆盖线上推导,短回时把填充/下一项头切进数据
+    (先产出污染数据才失败)——改为交叉校验直接坏帧。
+    """
+    pdu = bytes.fromhex(
+        "32 03 00 00 00 01 00 02 00 05 00 00 04 01 ff 04 00 08 11".replace(" ", "")
+    )
+    with pytest.raises(codec.S7ProtocolError):
+        codec.parse_read_response(pdu, 1, 1, [4])
+
+
+def test_parse_read_response_u16_count_guard() -> None:
+    """读/写元素数超 u16:入参期 ValueError(防裸 struct.error 穿透)。"""
+    with pytest.raises(ValueError):
+        codec.build_read(codec.AREA_DB, 1, 0, codec.WORD_LEN_BYTE, 65536, 1)
+    with pytest.raises(ValueError):
+        codec.build_write(
+            codec.AREA_DB, 1, 0, codec.WORD_LEN_BYTE, b"\x00" * 65536, 1
+        )
 
 
 def test_parse_response_sequence_mismatch() -> None:
@@ -234,7 +308,7 @@ def _negotiate_ack(sequence: int, pdu_size: int = 480) -> bytes:
 def _read_ack(
     sequence: int, blobs: List[bytes], wire_bits: "List[int] | None" = None
 ) -> bytes:
-    """读应答:单项/多项(自动加奇数填充)。
+    """读应答:单项/多项(自动加奇数填充;参数区条目数按实际项数)。
 
     :param wire_bits: 逐项 bit_length 字段(默认 = len(blob)×8;PLC 实际
         应答与请求数一致,wstring 等部分读取场景需显式给请求字节数×8)
@@ -246,7 +320,9 @@ def _read_ack(
         if index < len(blobs) - 1 and len(blob) % 2:
             data += b"\x00"
     header = struct.pack(">BBHHHHBB", 0x32, 0x03, 0, sequence, 2, len(data), 0, 0)
-    return header + b"\x04\x02" + data
+    # 参数区 = 功能码 0x04 + 实际条目数(review-1008 P2:真机回显请求数,
+    # 曾硬编码 02 掩盖「应答项数与请求不符」异常形态)
+    return header + b"\x04" + bytes([len(blobs)]) + data
 
 
 def _write_ack(sequence: int, count: int = 1) -> bytes:
@@ -255,10 +331,27 @@ def _write_ack(sequence: int, count: int = 1) -> bytes:
 
 
 def _szl_ack(sequence: int, entries: bytes) -> bytes:
-    data = b"\xff\x04" + struct.pack(">H", len(entries) + 8) + b"\x04\x24\x00\x00\x00\x02\x00\x01" + entries
-    header = struct.pack(">BBHHHH", 0x32, 0x07, 0, sequence, 8, len(data))
-    param = struct.pack(">BBBBBBBB", 0x00, 0x01, 0x12, 0x04, 0x12, 0x44, 0x01, 0x00)
+    """SZL 应答(参考桩真机形态):USERDATA 应答参数 12 字节 + 传输尺寸 0x09。
+
+    参数区布局(python-snap7 3.2.0 `_parse_userdata_response_params`
+    L1663-1678 / server 桩 L2193-2208):[3]=0x08 响应长、[4]=0x12、
+    [5]=0x84(响应位 0x8|SZL 组 0x4)、[6]=0x01 子功能、[10:12]=参数级
+    错误码(0)——review-1008 P2:曾按请求形态 8 字节伪造且传输尺寸 0x04。
+    """
+    data = b"\xff\x09" + struct.pack(">H", len(entries) + 8) + b"\x04\x24\x00\x00\x00\x02\x00\x01" + entries
+    header = struct.pack(">BBHHHH", 0x32, 0x07, 0, sequence, 12, len(data))
+    param = struct.pack(">BBBBBBBBBBBB", 0x00, 0x01, 0x12, 0x08, 0x12, 0x84, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00)
     return header + param + data
+
+
+def _szl_cpu_record(bzu_id: int) -> bytes:
+    """0x0424 标准记录 20 字节:bereig(2)+ae(1)+bzu_id(1)+res(4)+anlinfo(4)+time(8)。
+
+    bzu_id 在记录区 [3](snap7 C `opGetPlcStatus` L2038 读 opData[7],
+    opData = AddLen/AddCount + 记录区,即记录区 [3])——review-1008 P1
+    之前 fixture 按「记录首字节=状态」自造帧,固化错误偏移。
+    """
+    return b"\x00\x00\x00" + bytes([bzu_id]) + b"\x00" * 16
 
 
 def _tpkt(payload: bytes) -> bytes:
@@ -372,18 +465,40 @@ def test_read_batch_multi_with_fill(s7: Any) -> None:
 
 
 def test_get_cpu_state_run_and_ping(s7: Any) -> None:
-    """CPU 状态 SZL:0x08 → Run;ping 走同命令。"""
+    """CPU 状态 SZL:bzu_id(记录区[3])0x08 → Run / 0x04 → Stop;ping 同命令。"""
     client, fake = s7
     _connect_ready(client, fake)
     assert client.ping_supported is True
-    fake.queue(_tpkt(_dt(_szl_ack(2, b"\x08\x00"))))
+    fake.queue(_tpkt(_dt(_szl_ack(2, _szl_cpu_record(0x08)))))
     ok, state = client.get_cpu_state()
     assert (ok, state) == (True, "S7CpuStatusRun")
-    fake.queue(_tpkt(_dt(_szl_ack(3, b"\x04\x00"))))
+    fake.queue(_tpkt(_dt(_szl_ack(3, _szl_cpu_record(0x04)))))
     ok, state = client.get_cpu_state()
     assert (ok, state) == (True, "S7CpuStatusStop")
-    fake.queue(_tpkt(_dt(_szl_ack(4, b"\x08\x00"))))
+    fake.queue(_tpkt(_dt(_szl_ack(4, _szl_cpu_record(0x08)))))
     assert client.ping() is True
+
+
+def test_get_cpu_state_unknown_status(s7: Any) -> None:
+    """bzu_id 非已知值:Unknown 兜底(不照搬 C 的「未知一律 STOP」)。"""
+    client, fake = s7
+    _connect_ready(client, fake)
+    fake.queue(_tpkt(_dt(_szl_ack(2, _szl_cpu_record(0x77)))))
+    ok, state = client.get_cpu_state()
+    assert (ok, state) == (True, "S7CpuStatusUnknown")
+
+
+def test_szl_param_level_error(s7: Any) -> None:
+    """USERDATA 参数级错误码(0x8104):DeviceError(与数据段返回码双通道)。"""
+    client, fake = s7
+    _connect_ready(client, fake)
+    data = b"\xff\x09" + struct.pack(">H", 8) + b"\x04\x24\x00\x00\x00\x02\x00\x01"
+    header = struct.pack(">BBHHHH", 0x32, 0x07, 0, 2, 12, len(data))
+    param = struct.pack(">BBBBBBBBBBBB", 0x00, 0x01, 0x12, 0x08, 0x12, 0x84, 0x01, 0x00, 0x00, 0x00, 0x81, 0x04)
+    fake.queue(_tpkt(_dt(header + param + data)))
+    ok, state = client.get_cpu_state()
+    assert ok is False
+    assert client.last_error is not None and "参数级错误码 0x8104" in client.last_error
 
 
 def test_device_error_keeps_connection(s7: Any) -> None:
@@ -424,6 +539,186 @@ def test_receive_timeout_flows_to_tcp(s7: Any) -> None:
     client.receive_timeout = 3.0
     # 基类 setter 即时传播到当前传输(热下发,与 TCP 走线同口径)
     assert fake.receive_timeout == 3.0
+
+
+def test_connect_timeout_flows_to_tcp(s7: Any) -> None:
+    """connect_timeout:建会话时下发到底层 TCP 传输(review-1008 P1,曾漏)。"""
+    client, fake = s7
+    client.connect_timeout = 2.0
+    _connect_ready(client, fake)
+    assert fake.connect_timeout == 2.0
+
+
+def test_close_dr_carries_dst_ref(s7: Any) -> None:
+    """COTP DR 的 dst_ref = CC 应答回显值(_cotp_cc 固定 0x000A)。"""
+    client, fake = s7
+    _connect_ready(client, fake)
+    assert client.disconnect() is True
+    # DR 帧:LI 6 + 0x80 + dst_ref 0x000A + src_ref 0x0001 + class 0
+    assert b"\x06\x80\x00\x0a\x00\x01\x00\x00" in fake.sent
+
+
+def test_read_area_auto_split(s7: Any) -> None:
+    """读跨 PDU 自动分片(pdu=20 → 片容量 2):5 字节 = 2+2+1 三事务。
+
+    与 python-snap7 read_area 自动分片行为对齐(review-1008 P2:旧实现
+    单事务硬发,超 PDU 被 PLC 拒绝)。
+    """
+    client, fake = s7
+    _connect_ready(client, fake, pdu_size=20)
+    session = client._transport
+    fake.queue(_tpkt(_dt(_read_ack(2, [b"\x11\x22"]))))
+    fake.queue(_tpkt(_dt(_read_ack(3, [b"\x33\x44"]))))
+    fake.queue(_tpkt(_dt(_read_ack(4, [b"\x55"]))))
+    data = session.read_area(codec.AREA_DB, 1, 0, 5)
+    assert data == b"\x11\x22\x33\x44\x55"
+    assert fake.sent.count(b"\x04\x01") == 3  # 三片各发一次单 Item 读
+    # 第三片:count=1、字节起点 4(位地址 0x20)
+    assert bytes.fromhex("0401120a10020001000184000020") in fake.sent
+
+
+def test_write_area_auto_split(s7: Any) -> None:
+    """写跨 PDU 自动分片(pdu=60 → 片容量 25):30 字节 = 25+5 两事务。"""
+    client, fake = s7
+    _connect_ready(client, fake, pdu_size=60)
+    session = client._transport
+    fake.queue(_tpkt(_dt(_write_ack(2))))
+    fake.queue(_tpkt(_dt(_write_ack(3))))
+    session.write_area(codec.AREA_DB, 1, 0, bytes(range(30)))
+    assert fake.sent.count(b"\x05\x01") == 2
+    # 第一片:count=25(0x0019);第二片:count=5、字节起点 25(位地址 0xC8)
+    assert bytes.fromhex("0501120a10020019000184000000") in fake.sent
+    assert bytes.fromhex("0501120a100200050001840000c8") in fake.sent
+
+
+def test_get_cpu_state_empty_records(s7: Any) -> None:
+    """SZL 应答零记录:拆连重同步(公开面 (False, None)),不再裸 IndexError。"""
+    client, fake = s7
+    _connect_ready(client, fake)
+    fake.queue(_tpkt(_dt(_szl_ack(2, b""))))
+    ok, state = client.get_cpu_state()
+    assert ok is False
+    assert client.last_error is not None and "无记录" in client.last_error
+
+
+def test_connect_refused(s7: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """TCP 拒连:connect() False + last_error(review-1008 C 路 P1 覆盖)。"""
+    client, _fake = s7
+    monkeypatch.setattr(
+        "omniplc.plc.siemens.client.TcpTransport",
+        lambda ip, port: _RaiseOnConnect(),
+    )
+    assert client.connect() is False
+    assert client.connected is False
+    assert client.last_error is not None
+
+
+class _RaiseOnConnect:
+    """connect() 即抛的假传输(拒连/超时形态)。"""
+
+    def __init__(self) -> None:
+        self.closed = False
+        self.receive_timeout: Any = None
+
+    def connect(self) -> None:
+        raise ConnectionRefusedError("connection refused")
+
+    def close(self) -> None:
+        self.closed = True
+
+    def send(self, data: bytes) -> None:
+        raise ConnectionRefusedError("connection refused")
+
+    def recv(self, size: int) -> bytes:
+        raise ConnectionRefusedError("connection refused")
+
+
+def test_connect_bad_cc_frame(s7: Any) -> None:
+    """CC 帧类型非法:握手失败包装为 OSError(断连语义,基类重试)。"""
+    client, fake = s7
+    fake.queue(_tpkt(b"\x06\xe0\x00\x0a\x00\x01\x00"))  # 误发 CR 形态 0xE0
+    assert client.connect() is False
+    assert client.last_error is not None and "握手失败" in client.last_error
+    assert client.connected is False
+
+
+def test_parse_read_response_function_mismatch() -> None:
+    """读应答功能码/条目数不符:S7ProtocolError(review-1008 P1,跨功能应答曾被误收)。"""
+    # 功能码 0x05(写应答)喂读解析;条目数 3 与请求 1 不符
+    bad_func = bytes.fromhex(
+        "32 03 00 00 00 01 00 02 00 04 00 00 05 01 ff 00 00 00".replace(" ", "")
+    )
+    with pytest.raises(codec.S7ProtocolError):
+        codec.parse_read_response(bad_func, 1, 1)
+    bad_count = bytes.fromhex(
+        "32 03 00 00 00 01 00 02 00 04 00 00 04 03 ff 00 00 00".replace(" ", "")
+    )
+    with pytest.raises(codec.S7ProtocolError):
+        codec.parse_read_response(bad_count, 1, 1)
+
+
+def test_parse_write_response_rejects_extra_bytes() -> None:
+    """写应答数据段多字节:坏帧(review-1008 P2,参考 check_write_response 恰 1 字节)。"""
+    ack = bytes.fromhex(
+        "32 03 00 00 00 01 00 02 00 02 00 00 05 01 ff ff".replace(" ", "")
+    )
+    with pytest.raises(codec.S7ProtocolError):
+        codec.parse_write_response(ack, 1, 1)
+
+
+def test_read_range_float_multi(s7: Any) -> None:
+    """read_range:FLOAT×2 连续读(单 Item 8 字节事务),切片解码正确(C 路 P1 覆盖)。"""
+    client, fake = s7
+    _connect_ready(client, fake)
+    fake.queue(_tpkt(_dt(_read_ack(2, [b"\x42\xc9\x00\x00\x3f\x80\x00\x00"]))))
+    ok, values = client.read_range("DB1.DBD0", 2, "FLOAT")
+    assert ok is True
+    assert values == [100.5, 1.0]
+
+
+def test_read_range_rejects_string_and_bit(s7: Any) -> None:
+    """read_range:STRING 与位地址入参期 ValueError(docstring :raises 口径)。"""
+    client, _fake = s7
+    with pytest.raises(ValueError):
+        client.read_range("DB1.DBS0", 2, "STRING")
+    with pytest.raises(ValueError):
+        client.read_range("DB1.DBX0.3", 2, "SHORT")
+
+
+def test_read_batch_over_max_items(s7: Any) -> None:
+    """read_batch 超 20 条:入参期 ValueError(client 层上限,review-1008 C 路)。"""
+    client, _fake = s7
+    with pytest.raises(ValueError):
+        client.read_batch([("DB1.DBB0", "SHORT")] * 21)
+
+
+def test_read_batch_item_error_whole_batch(s7: Any) -> None:
+    """multi 中一项返回码 0x05:整批 (False, None) 且连接保持(docstring 契约)。"""
+    client, fake = s7
+    _connect_ready(client, fake)
+    # 两项各 2 字节(SHORT):项 1 正常、项 2 返回码 0x05(均偶长无填充)
+    data = b"\xff\x04\x00\x10\x00\x11" + b"\x05\x04\x00\x10\x00\x00"
+    header = struct.pack(">BBHHHHBB", 0x32, 0x03, 0, 2, 2, len(data), 0, 0)
+    fake.queue(_tpkt(_dt(header + b"\x04\x02" + data)))
+    results = client.read_batch([("DB1.DBB0", "SHORT"), ("DB1.DBB2", "SHORT")])
+    assert results == (False, None)
+    assert client.connected is True
+    assert client.last_error is not None and "S7 读条目 1" in client.last_error
+    assert client.last_error_code == 0x05
+
+
+def test_write_plc_reject_carries_code(s7: Any) -> None:
+    """写应答条目 0x07(类型不一致):DeviceError 携带返回码。"""
+    client, fake = s7
+    _connect_ready(client, fake)
+    ack = bytes.fromhex(
+        "32 03 00 00 00 02 00 02 00 01 00 00 05 01 07".replace(" ", "")
+    )
+    fake.queue(_tpkt(_dt(ack)))
+    assert client.write_float("DB1.DBD0", 1.5) is False
+    assert client.last_error_code == 0x07
+    # DB 区拒绝附优化块提示(review-1008 P2 行为回归恢复)
+    assert "Optimized block access" in client.last_error
 
 
 def test_constructor_validation() -> None:

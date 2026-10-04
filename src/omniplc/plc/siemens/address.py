@@ -118,7 +118,7 @@ def _check_bit(bit: int, address: str) -> None:
 
 
 def _check_byte_index(byte_index: int, address: str) -> None:
-    """字节起点范围校验 0~24 位上限(内部函数)。"""
+    """字节起点范围校验(内部函数;上限 = 线上 3 字节位地址字段 ÷ 8)。"""
     if not 0 <= byte_index <= S7_BYTE_INDEX_MAX:
         raise ValueError(
             _("S7 字节起点必须在 0~{} 之间,收到:{!r}").format(S7_BYTE_INDEX_MAX, address)

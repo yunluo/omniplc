@@ -86,9 +86,12 @@ _INT_FORMATS = {
 _CPU_STATUS_NAMES: Dict[int, str] = {
     0x08: "S7CpuStatusRun",
     0x04: "S7CpuStatusStop",
+    0x03: "S7CpuStatusStop",
 }
-"""SZL 0x0424 状态值 → 枚举名(snap7 `S7CpuStatus*`:0x08 Run / 0x04 Stop /
-其他 Unknown;**字节偏移待真机核证**,见模块 docstring 与 real-machine-checklist)。"""
+"""SZL 0x0424 状态值(bzu_id)→ 枚举名:0x08 Run / 0x04 Stop / 0x03 Stop
+(老 CPU 兼容,snap7 C `opGetPlcStatus` L2044-2048 注「STOP 有时编为 0x03」;
+其余 Unknown 兜底——**有意不照搬 C 的「未知一律按 STOP」**:把坏帧/新值
+误报成停机比 Unknown 更危险,分歧点已记帧面档案;**偏移待真机核证**)。"""
 
 
 class _S7Session(BaseTransport):
@@ -128,6 +131,9 @@ class _S7Session(BaseTransport):
         self._tcp: Optional[TcpTransport] = None
         self._sequence = 0
         self.pdu_size = codec.MAX_PDU_REQUEST
+        self._dst_ref = 0
+        """CC 应答回显的对端引用,close 发 COTP DR 时回填(connection.py
+        L431-450 用 CC 回给的 dst_ref;默认 0,DR 为尽力而为语义)。"""
         self._debug_label = "s7://{}:{}(机架{}槽位{})".format(
             ip_address, port, rack, slot
         )
@@ -149,17 +155,29 @@ class _S7Session(BaseTransport):
     def connect(self) -> None:
         """三步建连:TCP → COTP(CR/CC)→ S7 协商。
 
+        连接超时取 :attr:`connect_timeout`(基类在创建会话时已同步到本
+        会话属性,此处下发到底层 TCP 传输;review-1008 P1:曾漏下发,
+        恒用传输层默认值)。
+
         :raises OSError: TCP 连接失败或握手帧异常(连接期任何失败都按
             断连语义抛 OSError,由基类惰性重连)
         """
+        stale = self._tcp
+        if stale is not None:  # 防御:重复 connect 先清旧传输防泄漏
+            self._tcp = None
+            try:
+                stale.close()
+            except OSError:
+                pass
         tcp = TcpTransport(self._ip_address, self._port)
         try:
+            tcp.connect_timeout = self._connect_timeout
             tcp.connect()
             tcp.receive_timeout = self._receive_timeout
             self._tcp = tcp  # 先挂会话(协商事务经 _require_tcp 取传输)
             tcp.send(codec.build_tpkt(codec.build_cotp_cr(self._remote_tsap)))
             length = codec.parse_tpkt_header(tcp.recv(4))
-            codec.parse_cotp_cc(tcp.recv(length - 4))
+            self._dst_ref = codec.parse_cotp_cc(tcp.recv(length - 4))
             self._sequence = 0
             sequence = self._next_sequence()
             response = self._transact(
@@ -184,9 +202,10 @@ class _S7Session(BaseTransport):
         if tcp is None:
             return
         try:
-            # COTP DR(断连请求,python-snap7 connection.py L431-450 同款)
+            # COTP DR(断连请求,python-snap7 connection.py L431-450 同款;
+            # dst_ref = CC 应答回显的对端引用,src_ref 恒本端缺省)
             dr = struct.pack(
-                ">BBHHBB", 6, 0x80, 0x0000, codec.SRC_REFERENCE, 0x00, 0x00
+                ">BBHHBB", 6, 0x80, self._dst_ref, codec.SRC_REFERENCE, 0x00, 0x00
             )
             tcp.send(codec.build_tpkt(dr))
         except OSError:
@@ -228,13 +247,22 @@ class _S7Session(BaseTransport):
         raise TransportClosedError(_("S7 走会话通道,无字节流收发"))
 
     def read_area(self, area: int, db_number: int, start: int, size: int) -> bytes:
-        """读一块区域字节(会话调用;统一 BYTE 传输尺寸,与旧封装口径一致)。"""
-        sequence = self._next_sequence()
-        request = codec.build_read(
-            area, db_number, start * 8, codec.WORD_LEN_BYTE, size, sequence
-        )
-        response = self._transact(request)
-        data = codec.parse_read_response(response, sequence, 1, [size])[0]
+        """读一块区域字节(会话调用;统一 BYTE 传输尺寸,与旧封装口径一致)。
+
+        跨度超过单请求 PDU 容量(协商值 - 18 字节读侧开销,至少 1)时
+        **自动分片**循环读回拼接(python-snap7 3.2.0 client.py L997-1063
+        `read_area` 同款行为,client_base.py L199-208 容量公式);任一片
+        失败即整块失败(异常上抛,调用方按各自容错口径处理)。
+        """
+        chunks = []
+        offset = 0
+        while offset < size:
+            chunk = min(size - offset, max(1, self.pdu_size - 18))
+            chunks.append(
+                self._read_area_once(area, db_number, start + offset, chunk)
+            )
+            offset += chunk
+        data = b"".join(chunks)
         log_op(
             self._debug_label,
             "read area=0x%02X db=%d start=%d size=%d → %dB",
@@ -244,16 +272,39 @@ class _S7Session(BaseTransport):
             size,
             len(data),
         )
+        return data
+
+    def _read_area_once(
+        self, area: int, db_number: int, start: int, size: int
+    ) -> bytes:
+        """单事务读一块区域字节(分片原子操作,内部方法)。"""
+        sequence = self._next_sequence()
+        request = codec.build_read(
+            area, db_number, start * 8, codec.WORD_LEN_BYTE, size, sequence
+        )
+        response = self._transact(request)
+        try:
+            data = codec.parse_read_response(response, sequence, 1, [size])[0]
+        except DeviceError as exc:
+            raise self._with_db_hint(area, db_number, exc) from exc
         return bytes(data)
 
     def write_area(self, area: int, db_number: int, start: int, data: bytes) -> None:
-        """写一块区域字节(会话调用)。"""
-        sequence = self._next_sequence()
-        request = codec.build_write(
-            area, db_number, start * 8, codec.WORD_LEN_BYTE, bytes(data), sequence
-        )
-        response = self._transact(request)
-        codec.parse_write_response(response, sequence, 1)
+        """写一块区域字节(会话调用)。
+
+        跨度超过单请求 PDU 容量(协商值 - 35 字节写侧开销,至少 1)时
+        **自动分片**顺序写(python-snap7 3.2.0 `write_area` 同款行为,
+        client_base.py L210-219 容量公式);分片中途失败时前片已落盘
+        (部分写,协议无跨片原子性),调用方按整块异常感知。
+        """
+        data = bytes(data)
+        offset = 0
+        while offset < len(data):
+            chunk = min(len(data) - offset, max(1, self.pdu_size - 35))
+            self._write_area_once(
+                area, db_number, start + offset, data[offset:offset + chunk]
+            )
+            offset += chunk
         log_op(
             self._debug_label,
             "write area=0x%02X db=%d start=%d %dB",
@@ -263,22 +314,59 @@ class _S7Session(BaseTransport):
             len(data),
         )
 
+    def _write_area_once(
+        self, area: int, db_number: int, start: int, data: bytes
+    ) -> None:
+        """单事务写一块区域字节(分片原子操作,内部方法)。"""
+        sequence = self._next_sequence()
+        request = codec.build_write(
+            area, db_number, start * 8, codec.WORD_LEN_BYTE, data, sequence
+        )
+        response = self._transact(request)
+        try:
+            codec.parse_write_response(response, sequence, 1)
+        except DeviceError as exc:
+            raise self._with_db_hint(area, db_number, exc) from exc
+
+    @staticmethod
+    def _with_db_hint(area: int, db_number: int, exc: DeviceError) -> DeviceError:
+        """DB 区绝对访问被 PLC 拒绝时附优化块访问提示(旧封装同口径)。
+
+        S7-1200/1500 默认优化块无绝对地址,报错常被误读为通信故障——
+        提示指向 TIA 设置(review-1008 P2:自研重写时曾丢失该提示)。
+        """
+        if area == codec.AREA_DB and db_number:
+            return DeviceError(
+                str(exc)
+                + _("(按绝对地址访问 DB 失败:若为 S7-1200/1500,请确认该 DB ")
+                + _("已在 TIA 中取消 Optimized block access)"),
+                exc.code,
+            )
+        return exc
+
     def get_cpu_state(self) -> str:
         """读 CPU 运行状态(SZL 0x0424,零副作用;同时是探活探测命令)。
 
         返回状态枚举名(``"S7CpuStatusRun"``/``"S7CpuStatusStop"``/
-        ``"S7CpuStatusUnknown"``)。SZL 状态字节偏移**待真机核证**
-        (python-snap7 3.x 该实现为桩,按 snap7 C 家族口径自建)。
+        ``"S7CpuStatusUnknown"``)。状态取记录区第 4 字节 bzu_id——
+        snap7 C `opGetPlcStatus` L2038 读 ``opData[7]``,opData =
+        AddLen/AddCount + 记录区,即记录区 [3](ereig 2B + ae 1B 之后);
+        review-1008 P1:曾取记录区 [0](ereig 首字节,与状态字段错位,
+        真机近乎必错)。**偏移仍待真机核证**(C 源 + 参考桩双源,pcap
+        落地后回填帧面档案)。
         """
         sequence = self._next_sequence()
-        response = self._transact(codec.build_read_szl(0x0424, 0x0000, sequence))
-        entries = codec.parse_szl_response(response, sequence)
-        # 状态字节偏移待真机核证:取首条目首字节,非 0x04/0x08 时兼容
-        # 条目 u16 大端形态(低字节),均不识别按 Unknown
-        state = entries[0]
-        if state not in _CPU_STATUS_NAMES and len(entries) > 1 and entries[1] in _CPU_STATUS_NAMES:
-            state = entries[1]
-        name = _CPU_STATUS_NAMES.get(state, "S7CpuStatusUnknown")
+        response = self._transact(
+            codec.build_read_szl(codec.SZL_CPU_STATUS_ID, 0x0000, sequence)
+        )
+        entries = codec.parse_szl_response(
+            response, sequence, codec.SZL_CPU_STATUS_ID, 0x0000
+        )
+        if len(entries) < 4:
+            # 0x0424 记录 20 字节,不足 4 字节视为应答异常(防 IndexError 逃逸)
+            raise codec.S7ProtocolError(_("S7 SZL 应答无记录(0x0424 状态读)"))
+        # 记录区布局:ereig(2) + ae(1) + bzu_id(1) + res(4) + anlinfo(4) + time(8)
+        name = _CPU_STATUS_NAMES.get(entries[3], "S7CpuStatusUnknown")
         log_op(self._debug_label, "cpu state → %r", name)
         return name
 
@@ -507,6 +595,12 @@ class SiemensS7Client(BaseClient):
         declared_max = head[0] if head else 0
         if declared_max == 0:
             # 未初始化区(声明长为 0 非法):退回旧口径,声明长=实际长
+            # (review-1005 §4.2 登记);超 1 字节声明长字段显式拒绝,
+            # 防裸 ValueError(review-1008 P3)
+            if len(encoded) > 255:
+                raise ValueError(
+                    _("S7 String 写入值超出声明长字段上限 255,收到:{} 字符").format(len(encoded))
+                )
             declared_max = len(encoded)
         if len(encoded) > declared_max:
             raise ValueError(
@@ -592,6 +686,11 @@ class SiemensS7Client(BaseClient):
         )
         declared_max = int.from_bytes(head[:2], "big") if len(head) >= 2 else 0
         if declared_max == 0:
+            # 回退口径与 STRING 同款;超 2 字节声明长字段显式拒绝(review-1008 P3)
+            if len(value) > 65535:
+                raise ValueError(
+                    _("S7 WString 写入值超出声明长字段上限 65535,收到:{} 字符").format(len(value))
+                )
             declared_max = len(value)
         if len(value) > declared_max:
             raise ValueError(
@@ -616,9 +715,9 @@ class SiemensS7Client(BaseClient):
         地址只定位**区域 + 字节起点**,总字节数 = ``count × 类型字节数``
         (SHORT/USHORT 2、INT/UINT/FLOAT 4、LONG/ULONG/DOUBLE 8,大端),
         按类型尺寸切片解码。
-        总字节数不设入参上限(review-1002 P3):单事务容量受连接协商 PDU
-        约束,超限时 PLC 侧拒绝、按整批容错 ``(False, None)`` 返回
-        (非入参期 ``ValueError``)——大跨度数据请调用方自行分段。
+        总字节数不设入参上限(review-1002 P3):超出单请求 PDU 容量时经
+        会话层自动分片循环读回拼接(review-1008:与旧封装行为对齐),
+        任一片失败即整批 ``(False, None)``(非入参期 ``ValueError``)。
         BOOL 连续读无位语义(单个字节内的位不构成连续序列),不支持;
         STRING 变长不支持(请用 :meth:`read_string`)。
 

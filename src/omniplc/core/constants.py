@@ -847,7 +847,7 @@ MX 手册对批量读/写未给固定点数上限——§5.2.3 ReadDeviceBlock(�
 与 §5.2.4 WriteDeviceBlock(印刷页 324)的 ``lSize`` 仅约束
 「起址+点数 ≤ 最终软元件编号」,§5.2.5 ReadDeviceRandom(印刷页 328)
 的 ``lSize`` 上限为 0x7FFFFFFF 点。960 取底层 MC 通道字单位批量读/写
-协议上限(同册 Appendix 5 印刷页 466:iQ-R/iQ-L/Q/L 960 点、QnA 480 点,
+协议上限(SH-080008 Appendix 5 印刷页 466:iQ-R/iQ-L/Q/L 960 点、QnA 480 点,
 A 系 64 点;QnA/A 超限由 PLC 异常码裁决),兼防超大块拖死 COM 调用;
 与 MC 驱动自定的 MC_MAX_TRANSFER_POINTS=900(偏保守分块)各自独立。
 """
@@ -1283,8 +1283,12 @@ S7_SLOT_MAX: int = AB_EIP_SLOT_MAX
 """S7 槽位号上限(与 AB/CIP 端口段 link 单字节口径一致,0~31)。"""
 S7_DB_NUMBER_MAX: int = 65535
 """S7 DB 编号上限(1~65535;DB0 不是合法数据块)。"""
-S7_BYTE_INDEX_MAX: int = 0xFFFFFF
-"""S7 字节起点上限(协议地址字段 24 位,0~16777215)。"""
+S7_BYTE_INDEX_MAX: int = 0x1FFFFF
+"""S7 字节起点上限(0~2097151,即 2^21−1 字节)。
+
+线上 any-ptr 地址字段 3 字节是**位地址**(字节起点 ×8,review-1008 P1:
+旧值 0xFFFFFF 按「字节起点」理解,×8 后溢出线上字段被静默截断别名到
+低位地址;字节起点真实上限 = 2^21−1)。"""
 S7_WSTRING_DEFAULT_LENGTH: int = 64
 """S7 WSTRING 默认读取字符数(UTF-16,单字符 2 字节)。"""
 S7_MAX_MULTI_VARS: int = 20
