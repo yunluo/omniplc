@@ -42,7 +42,15 @@ from typing import (
 from ..core.base_client import BaseClient, ClientStats
 from ..core.errors import ErrorCategory, _CANCELLED_ERRORS
 from ..core.monitor import Monitor, MonitorEvent
-from ..cnc import FanucFocasClient, MTConnectClient
+from ..cnc import FanucFocasClient, MitsubishiEzSocketClient, MTConnectClient
+from ..cnc.ezsocket import (
+    EZSOCKET_DEFAULT_PORT,
+    EzAlarmType,
+    EzFeedSpeedType,
+    EzPositionType,
+    EzProgramFileInfo,
+    EzSocketMachine,
+)
 from ..cnc.focas import FOCAS_DEFAULT_PORT
 from ..core.constants import (
     AB_EIP_DEFAULT_PORT,
@@ -197,6 +205,7 @@ __all__ = [
     # ---- CNC 机床数采客户端 ----
     "AMTConnectClient",
     "AFanucFocasClient",
+    "AMitsubishiEzSocketClient",
 ]
 
 
@@ -2335,6 +2344,233 @@ class AFanucFocasClient(ABaseClient):
     async def read_status(self) -> Tuple[bool, Optional[object]]:
         """读 CNC 状态位(语义同同步版)。"""
         return await self._run(lambda: self._client().read_status())
+
+
+class AMitsubishiEzSocketClient(ABaseClient):
+    """三菱 CNC EZSocket 异步客户端(GIOP 直连 TCP 683,数采只读)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        port: int = EZSOCKET_DEFAULT_PORT,
+        *,
+        machine: EzSocketMachine = EzSocketMachine.MELDAS700M,
+    ) -> None:
+        """初始化 EZSocket 异步客户端(参数语义同同步版)。
+
+        :param ip_address: CNC 的 IP
+        :param port: EZSocket 端口,默认 683
+        :param machine: NC 机型(:class:`EzSocketMachine`,缺省 MELDAS700M)
+        :raises ValueError: 参数非法
+        """
+        super().__init__(MitsubishiEzSocketClient(ip_address, port, machine=machine))
+
+    def _client(self) -> MitsubishiEzSocketClient:
+        """取 EZSocket 同步实例(内部方法)。"""
+        return self._typed(MitsubishiEzSocketClient)
+
+    @property
+    def machine(self) -> EzSocketMachine:
+        """NC 机型(转发同步实例)。"""
+        return self._client().machine
+
+    async def read_nc_version(self) -> Tuple[bool, Optional[object]]:
+        """读 NC 版本(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_nc_version())
+
+    async def read_nc_name_version(self) -> Tuple[bool, Optional[object]]:
+        """读 NC 名称版本(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_nc_name_version())
+
+    async def read_plc_version(self) -> Tuple[bool, Optional[object]]:
+        """读 PLC 版本(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_plc_version())
+
+    async def read_nc_type(self) -> Tuple[bool, Optional[object]]:
+        """读机床类型(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_nc_type())
+
+    async def read_system_count(self) -> Tuple[bool, Optional[object]]:
+        """读系统数(语义同同步版;探活命令)。"""
+        return await self._run(lambda: self._client().read_system_count())
+
+    async def read_nc_axis_count(self) -> Tuple[bool, Optional[object]]:
+        """读 NC 控制轴数(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_nc_axis_count())
+
+    async def read_all_axis_count(self) -> Tuple[bool, Optional[object]]:
+        """读全轴数(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_all_axis_count())
+
+    async def read_spindle_axis_count(self) -> Tuple[bool, Optional[object]]:
+        """读主轴数(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_spindle_axis_count())
+
+    async def read_plc_axis_count(self) -> Tuple[bool, Optional[object]]:
+        """读 PLC 轴数(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_plc_axis_count())
+
+    async def read_run_mode(self, system_no: int = 1) -> Tuple[bool, Optional[object]]:
+        """读运转模式(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_run_mode(system_no))
+
+    async def read_run_status(
+        self, system_no: int = 1
+    ) -> Tuple[bool, Optional[object]]:
+        """读运转状态(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_run_status(system_no))
+
+    async def read_auto_operation(
+        self, system_no: int = 1
+    ) -> Tuple[bool, Optional[object]]:
+        """读自动运转中(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_auto_operation(system_no))
+
+    async def read_svo_load(
+        self, system_no: int = 1, axis: int = 1, absolute: bool = False
+    ) -> Tuple[bool, Optional[object]]:
+        """读伺服负载(语义同同步版)。"""
+        return await self._run(
+            lambda: self._client().read_svo_load(system_no, axis, absolute)
+        )
+
+    async def read_sub_program_name(
+        self, system_no: int = 1
+    ) -> Tuple[bool, Optional[object]]:
+        """读当前子程序号(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_sub_program_name(system_no))
+
+    async def read_program_file_info(
+        self,
+        system_no: int = 1,
+        info: EzProgramFileInfo = EzProgramFileInfo.REGISTERED,
+    ) -> Tuple[bool, Optional[object]]:
+        """读程序文件信息(语义同同步版;缺省已登录程序数)。"""
+        return await self._run(
+            lambda: self._client().read_program_file_info(system_no, info)
+        )
+
+    async def read_counter(self, system_no: int = 1) -> Tuple[bool, Optional[object]]:
+        """读计数器(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_counter(system_no))
+
+    async def read_current_tool_no(
+        self, system_no: int = 1
+    ) -> Tuple[bool, Optional[object]]:
+        """读当前主轴刀号(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_current_tool_no(system_no))
+
+    async def read_power_on_time(self) -> Tuple[bool, Optional[object]]:
+        """读电源通电时间(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_power_on_time())
+
+    async def read_auto_operation_time(self) -> Tuple[bool, Optional[object]]:
+        """读自动运转时间(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_auto_operation_time())
+
+    async def read_auto_startup_time(self) -> Tuple[bool, Optional[object]]:
+        """读自动启动时间(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_auto_startup_time())
+
+    async def read_cycle_time(self) -> Tuple[bool, Optional[object]]:
+        """读周期时间(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_cycle_time())
+
+    async def read_cutting_time(self) -> Tuple[bool, Optional[object]]:
+        """读切削时间(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_cutting_time())
+
+    async def read_external_accumulative_time(
+        self,
+    ) -> Tuple[bool, Optional[object]]:
+        """读外部累计时间(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_external_accumulative_time())
+
+    async def read_system_datetime(self) -> Tuple[bool, Optional[object]]:
+        """读 NC 日期/时刻(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_system_datetime())
+
+    async def read_run_state(self, system_no: int = 1) -> Tuple[bool, Optional[object]]:
+        """读综合运行状态(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_run_state(system_no))
+
+    async def read_axis_position(
+        self,
+        system_no: int = 1,
+        axis: int = 1,
+        position: EzPositionType = EzPositionType.MACHINE,
+    ) -> Tuple[bool, Optional[object]]:
+        """读轴位置(语义同同步版;缺省机械坐标)。"""
+        return await self._run(
+            lambda: self._client().read_axis_position(system_no, axis, position)
+        )
+
+    async def read_all_axis_positions(
+        self,
+        system_no: int = 1,
+        position: EzPositionType = EzPositionType.MACHINE,
+    ) -> Tuple[bool, Optional[object]]:
+        """读全轴位置(语义同同步版)。"""
+        return await self._run(
+            lambda: self._client().read_all_axis_positions(system_no, position)
+        )
+
+    async def read_axis_names(
+        self, system_no: int = 1
+    ) -> Tuple[bool, Optional[object]]:
+        """读轴名列表(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_axis_names(system_no))
+
+    async def read_spindle_speed(
+        self, system_no: int = 1, axis: int = 1
+    ) -> Tuple[bool, Optional[object]]:
+        """读主轴转速(语义同同步版)。"""
+        return await self._run(
+            lambda: self._client().read_spindle_speed(system_no, axis)
+        )
+
+    async def read_spindle_load(
+        self, system_no: int = 1, axis: int = 1, absolute: bool = False
+    ) -> Tuple[bool, Optional[object]]:
+        """读主轴负载(语义同同步版)。"""
+        return await self._run(
+            lambda: self._client().read_spindle_load(system_no, axis, absolute)
+        )
+
+    async def read_feed_speed(
+        self, system_no: int = 1, feed: EzFeedSpeedType = EzFeedSpeedType.FC
+    ) -> Tuple[bool, Optional[object]]:
+        """读进给速度(语义同同步版;缺省自动有效 FC)。"""
+        return await self._run(lambda: self._client().read_feed_speed(system_no, feed))
+
+    async def read_main_program_name(
+        self, system_no: int = 1
+    ) -> Tuple[bool, Optional[object]]:
+        """读当前主程序号(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_main_program_name(system_no))
+
+    async def read_program_block(
+        self, system_no: int = 1, rows: int = 10
+    ) -> Tuple[bool, Optional[object]]:
+        """读当前程序块(语义同同步版)。"""
+        return await self._run(
+            lambda: self._client().read_program_block(system_no, rows)
+        )
+
+    async def read_alarms(
+        self,
+        system_no: int = 1,
+        count: int = 10,
+        alarm_type: EzAlarmType = EzAlarmType.ALL,
+    ) -> Tuple[bool, Optional[object]]:
+        """读当前报警(语义同同步版;缺省全部)。"""
+        return await self._run(
+            lambda: self._client().read_alarms(system_no, count, alarm_type)
+        )
+
+    async def read_is_alarm(self, system_no: int = 1) -> Tuple[bool, Optional[object]]:
+        """读是否报警中(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_is_alarm(system_no))
 
 
 class AAllenBradleyEthIpClient(ABaseClient):

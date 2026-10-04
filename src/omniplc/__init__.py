@@ -11,7 +11,8 @@ KV Host Link over TCP/UDP、KV MC 协议兼容(SLMP 3E)、
 松下 MC 协议兼容(3E)与 MEWTOCOL(TCP/UDP)、
 SR 扫码枪、TOYOPUC 计算机链接 over TCP/UDP、EtherNet/IP(Logix 标签读写)、
 OPC-UA(封装 asyncua,opc.tcp 会话)、
-CNC 机床数采(MTConnect Agent,HTTP/XML 只读)、
+CNC 机床数采(MTConnect Agent,HTTP/XML 只读;
+三菱 CNC EZSocket GIOP 直连,M70/M700 系数采只读)、
 西门子 S7(自研 S7comm 协议栈,DB/I/Q/M 绝对寻址,零第三方依赖)。
 
 同步客户端::
@@ -81,7 +82,20 @@ from .core.monitor import (
 )
 from .core.tag import Tag, TagTable
 from .core.types import ByteOrder, DataType, McFrame, S7Model, SerialParity, WordOrder
-from .cnc import FanucFocasClient, MTConnectClient
+from .cnc import FanucFocasClient, MitsubishiEzSocketClient, MTConnectClient
+from .cnc.ezsocket import (
+    EzAlarm,
+    EzAlarmType,
+    EzDeviceStatus,
+    EzFeedSpeedType,
+    EzPositionType,
+    EzProgramBlock,
+    EzProgramFileInfo,
+    EzRunMode,
+    EzRunState,
+    EzRunStatus,
+    EzSocketMachine,
+)
 from .cnc.focas import FocasCncId, FocasDynamic, FocasStatus, FocasSysInfo
 from .plc.modbus import ModbusArea, ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from .plc.opcua import OpcUaClient, OpcUaSubscription
@@ -133,7 +147,7 @@ from .transport import (
 
 __version__ = "0.54.0"
 __author__ = "云落"
-__description__ = "多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC 3E/4E/1E 与串口 1C/3C/4C / MX Component / 欧姆龙 FINS / NJ/NX CIP / 基恩士 KV Host Link / KV MC 兼容 / 汇川 H3U/H5U / 松下 MC 兼容/MEWTOCOL / 丰田 TOYOPUC / AB EtherNet/IP / 西门子 S7 / OPC-UA / CNC MTConnect)"
+__description__ = "多品牌多协议 PLC 统一通信库(Modbus / 三菱 MC 3E/4E/1E 与串口 1C/3C/4C / MX Component / 欧姆龙 FINS / NJ/NX CIP / 基恩士 KV Host Link / KV MC 兼容 / 汇川 H3U/H5U / 松下 MC 兼容/MEWTOCOL / 丰田 TOYOPUC / AB EtherNet/IP / 西门子 S7 / OPC-UA / CNC MTConnect / 三菱 CNC EZSocket)"
 
 __all__ = [
     # ---- 客户端基类 ----
@@ -199,6 +213,18 @@ __all__ = [
     "FocasDynamic",
     "FocasStatus",
     "FocasCncId",
+    "MitsubishiEzSocketClient",
+    "EzSocketMachine",
+    "EzRunState",
+    "EzRunMode",
+    "EzRunStatus",
+    "EzDeviceStatus",
+    "EzPositionType",
+    "EzFeedSpeedType",
+    "EzAlarmType",
+    "EzProgramFileInfo",
+    "EzAlarm",
+    "EzProgramBlock",
     # ---- 传输层 ----
     "BaseTransport",
     "TcpTransport",
