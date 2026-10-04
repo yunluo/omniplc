@@ -33,6 +33,7 @@
 | `read_batch` / `write_batch` 批量合并 | ✅ | 本库实现的跨协议封装:同批地址按区/连续合并为协议原生单事务(Modbus `_classify`/`_coalesce_group` FC01~04·15·16 / MC 0406 / FINS 0104 / S7 read_multi_vars / MX ReadDeviceRandom / AB 0x0A);无原生合并面的协议回落基类逐点 |
 | 连续批量读 `read_range(起始地址, count, 类型)` | ⭕ | 本库实现的跨协议封装:有块读原语的驱动覆写为**单事务**(Modbus FC01~04 / MC 0401 / FINS 0101 / S7 read_area / MX ReadDeviceBlock / TOYOPUC 1C / MEWTOCOL RD 及其兼容子类);其余驱动明确抛 `ValueError`(标签/节点寻址协议无"连续地址"概念,不猜地址递增) |
 | 点位表 `TagTable`(`from_json` / `from_csv` / `bind_tags` / `read_tag` / `write_tag`) | ✅ | tag_id → 地址+类型,自动 scale/offset;表构造后严格只读 |
+| 监视器 `create_monitor`(周期轮询 + 本地快照 + 变更事件) | ✅ | 质量三态 INITIAL/GOOD/STALE;`deadband` 值变化死区(默认 0 = 关,数值全点统一 / Dict 逐点)专治浮点抖动误报;语义见 `omniplc.core.monitor` |
 | 惰性自动重连 + 指数退避门控 | ✅ | `reconnect_backoff` 默认开;`next_connect_in` 可查 |
 | 超时/重试(`connect_timeout` / `receive_timeout` / `retries` / `write_retries`) | ✅ | |
 | 连接健康统计 `stats`(ClientStats) | ✅ | |
@@ -461,8 +462,8 @@ start/stop,印刷页 45-47)+ §4.7.3 串口通讯协议(印刷页 52)+《极小�
 | 功能 | 状态 | 备注 |
 |---|---|---|
 | 读 / 写(单点,NodeId 字符串) | ✅ | |
-| DataChange 订阅 | ✅ | `subscribe_data_change`(间隔 / 队列 / 死区) |
-| 事件订阅 | ✅ | `subscribe_event`;asyncua 默认过滤器聚合 BaseEventType 全部属性(**含 SourceNode/Time**);自定义 `event_filter` 透传 |
+| DataChange 订阅 | ✅ | `subscribe_data_change`(间隔 / 队列 / 死区);构造 `auto_resubscribe=True` 断线重连后按意图自动重订(默认关) |
+| 事件订阅 | ✅ | `subscribe_event`;asyncua 默认过滤器聚合 BaseEventType 全部属性(**含 SourceNode/Time**);自定义 `event_filter` 透传;同入自动重订意图表 |
 | Browse | ✅ | 别名表 + 递归;不存在节点返回空树不报错 |
 | DataValue 时间戳 / 质量 | ❌ | 仅取值 |
 | 方法调用(Call) | ❌ | 未实现 |

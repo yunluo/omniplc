@@ -24,18 +24,17 @@
 |---|---|---|---|---|
 | 1 | README「AI 欢迎策略」章节 | P3 | libplctag AI Policy 先例;已落地——**不排斥 AI 开发,但必须知道自己的代码有什么作用和干嘛的,对自己提交的代码负责;对待 AI 和对待 IDE 一样,都是工具**(用户口径,2026-10-03) | 已完成 |
 | 2 | AB `list_tags` 点位枚举 | P2 | CIP Get Instance Attribute List(服务 0x55)+ Symbol Object(0x6B20);帧面经 pycomm3/pylogix 双参考实现对照裁决(1756-PM020 手册待补,protocol「待补」已登记);sync+aio 双层、自动分页、`AbTagEntry` 根包导出;+6 例测试(黄金帧/分页/坏帧/停滞/aio);真机核证项入清单 | 已完成(v0.52.2 发布 / 0.52.3 修复) |
-| 3 | Monitor 点位级死区(deadband) | P3 | 2026-10-03 现场调研「数据质量三害」:当前 `_changed` 严格不等比较,浮点传感器抖动逐周期误发 `on_change`;质量三态(INITIAL/GOOD/STALE)已有(review-1006),仅缺值变化死区——设计点:点位级 `deadband` 参数(|新-旧| < deadband 视为未变,快照照常刷新) | 待实现 |
+| 3 | Monitor 点位级死区(deadband) | P3 | 2026-10-03 现场调研「数据质量三害」:当前 `_changed` 严格不等比较,浮点传感器抖动逐周期误发 `on_change`;已落地——`Monitor`/`create_monitor` 新增 `deadband` 参数(数值=全点统一,`Dict[tag_id, 死区]`=逐点指定,0=关闭),锚点=该点上次报告值(OPC-UA DataChangeFilter 同款,防单步差压线漏报),死区内快照照常刷新仅压事件;首拍/质量跨界/bool/NaN 不受压制;aio 镜像透传;+11 例测试 | 已完成 |
 | 4 | 错误现场环形缓冲(报文黑匣子) | P3 | 2026-10-03 现场调研:`set_debug` 是实时打印,进程崩溃后报文现场丢失,现场无人盯日志时无从排查;已落地——`set_frame_recorder(enabled, capacity=1000)` 只存不打印(1~100000 帧构造期校验),`recorded_frames()`/`clear_recorded_frames()`/`FrameRecord`(墙钟时间+方向+标识+原始字节),挂点与实时日志同在 `log_frame`(走线型全量覆盖,会话型不进),+8 例测试;排障指南 §四同步用法 | 已完成 |
-| 5 | 串口原生异步层(3.8+ 环境标记) | P3 | pymodbus RTU asyncio 先例(serial_asyncio);RTU 不需要数据报端点,"3.7 Proactor 限制"仅约束 UDP——常规工程:新增依赖线+AsyncSerialTransport+RTU 客户端+双循环测试 | 待实现 |
-| 6 | OPC-UA 断线自动重订(选项) | P3 | 2026-10-03 现场调研:会话/订阅恢复是 OPC-UA 现场普遍痛点(TransferSubscriptions 失败、订阅 stale,常见解法竟是重启服务);现状=断线不自动重订已披露(`plc/opcua/client.py`)——设计点:重连成功后自动重建订阅的选项(默认关),注意死区订阅 asyncua 私有 API 跨版本兼容坑先例;**2026-10-03 讨论定调:此为 OPC-UA 用户面真痛点,封装层可解,优先于栈自研(栈自研裁决见「有意不做」#7)** | 待实现 |
-| 7 | examples 范例丰富化:各协议对外 API 全展示 | P3 | 2026-10-03 用户指令:「使用范例要丰富,把本库对外 API 都展示下」;已落地——新增「通用 API 面」大节(读写原语/超时重试退避心跳/告警分级/stats/点位表/Monitor/批量读写/全局开关含黑匣子/异步两层),各协议节补缺(MC random 双组签名+MX 时钟/错误码、FINS 0101、AB list_tags/list_identity/属性/GenericMessage、NJ 拒绝披露、S7 get_cpu_state/write_wstring、SR bank/reset、MTConnect sample/assets),新增「批量写」与「默认端口对照」两节(S 跨协议语义提示);API 清单经 inspect 全量盘点防漏 | 已完成 |
-| 8 | FANUC FOCAS DLL 封装(`cnc/`) | P3 | **计划见下节「DLL 封装族」**;fwlib32/64.dll,厂商运行库前置——模板现成(海康 SDK 先例),卡在外部物料(FOCAS 手册+头文件) | 计划已列 |
-| 9 | 三菱 CNC EZSocket DLL 封装(`cnc/`) | P3 | **计划见下节「DLL 封装族」**;SDK/手册待拿,绑定形态(ctypes/comtypes)拿到后裁决——比 FOCAS 多一层形态不确定 | 计划已列 |
-| 10 | S7comm 自研(**直接替换** snap7 封装,计划见下节) | P2 | 2026-10-03 用户四点拍板:`SiemensS7Client` 名字与 API 不变、内部重写为纯 Python S7comm 栈、python-snap7 依赖整体退役、S7 回归核心零依赖;参考源定稿 python-snap7 3.2.0(纯 Python 重写,MIT)为主 + Sally7/S7netplus 交叉;3.7 无障碍(纯 TCP 三层栈)——2026-10-03 开工:**P1~P4 已落地**(codec 三层建帧+黄金帧、连接/读写、API 冻结面、`dll_path` 移除、依赖退役、测试重写 33 例、文档四件;帧面依据 docs/protocol/siemens/s7comm/);review-1008 修复批落地(2026-10-04);**native `AsyncSiemensS7Client` 已落地(2026-10-04,会话型适配,对拍守卫)**;余 P5 真机核证(SZL 待核) | 待实现(P5 真机核证) |
-| 11 | 日立(Via Mechanics)MARK 30/50/55 钻孔机数采 | P3 | **计划见下节;暂缓**(2026-10-03 用户裁决:先列计划,暂不考虑实现);MARK = Via 自研 CNC,FOCAS/EZSocket 不适用,公开零文档——启动条件未定(网关确认/手册到手),外部依赖最深 | 计划已列·暂缓 |
-| 12 | FINS 时钟读/写(0701/0702) | P2 | W342 §5-3-19/20(印刷页 197-198)有明确依据;sync/native/aio 三层 + 10 例测试已落地 | 已完成 |
-| 13 | README PLC 安全警示 | P3 | libplctag 先例(开篇免责:写操作失误可致生产/财产损失);已落地(a31c236,顺带修简介残留) | 已完成 |
-| 14 | examples「采集→MQTT」上行示例 | P3 | neuron/thingsboard 核心场景;paho-mqtt 可选示例已落地(93db9ed) | 已完成 |
+| 5 | OPC-UA 断线自动重订(选项) | P3 | 2026-10-03 现场调研:会话/订阅恢复是 OPC-UA 现场普遍痛点(TransferSubscriptions 失败、订阅 stale,常见解法竟是重启服务);已落地——构造选项 `auto_resubscribe`(默认关):订阅成功登记**订阅意图**,重连成功(显式/惰性)后 best-effort 按序重建,单项失败记日志;语义拆分「退订 vs 断开」(`unsubscribe()` 移除意图,disconnect 联动 `release()` 保留意图);aio 镜像;+6 例测试。**2026-10-03 讨论定调:封装层解法,优先于栈自研(栈自研裁决见「有意不做」#7)** | 已完成 |
+| 6 | examples 范例丰富化:各协议对外 API 全展示 | P3 | 2026-10-03 用户指令:「使用范例要丰富,把本库对外 API 都展示下」;已落地——新增「通用 API 面」大节(读写原语/超时重试退避心跳/告警分级/stats/点位表/Monitor/批量读写/全局开关含黑匣子/异步两层),各协议节补缺(MC random 双组签名+MX 时钟/错误码、FINS 0101、AB list_tags/list_identity/属性/GenericMessage、NJ 拒绝披露、S7 get_cpu_state/write_wstring、SR bank/reset、MTConnect sample/assets),新增「批量写」与「默认端口对照」两节(S 跨协议语义提示);API 清单经 inspect 全量盘点防漏 | 已完成 |
+| 7 | FANUC FOCAS DLL 封装(`cnc/`) | P3 | **计划见下节「DLL 封装族」**;fwlib32/64.dll,厂商运行库前置——模板现成(海康 SDK 先例),卡在外部物料(FOCAS 手册+头文件) | 计划已列 |
+| 8 | 三菱 CNC EZSocket DLL 封装(`cnc/`) | P3 | **计划见下节「DLL 封装族」**;SDK/手册待拿,绑定形态(ctypes/comtypes)拿到后裁决——比 FOCAS 多一层形态不确定 | 计划已列 |
+| 9 | S7comm 自研(**直接替换** snap7 封装,计划见下节) | P2 | 2026-10-03 用户四点拍板:`SiemensS7Client` 名字与 API 不变、内部重写为纯 Python S7comm 栈、python-snap7 依赖整体退役、S7 回归核心零依赖;参考源定稿 python-snap7 3.2.0(纯 Python 重写,MIT)为主 + Sally7/S7netplus 交叉;3.7 无障碍(纯 TCP 三层栈)——2026-10-03 开工:**P1~P4 已落地**(codec 三层建帧+黄金帧、连接/读写、API 冻结面、`dll_path` 移除、依赖退役、测试重写 33 例、文档四件;帧面依据 docs/protocol/siemens/s7comm/);review-1008 修复批落地(2026-10-04);**native `AsyncSiemensS7Client` 已落地(2026-10-04,会话型适配,对拍守卫)**;余 P5 真机核证(SZL 待核) | 待实现(P5 真机核证) |
+| 10 | 日立(Via Mechanics)MARK 30/50/55 钻孔机数采 | P3 | **计划见下节;暂缓**(2026-10-03 用户裁决:先列计划,暂不考虑实现);MARK = Via 自研 CNC,FOCAS/EZSocket 不适用,公开零文档——启动条件未定(网关确认/手册到手),外部依赖最深 | 计划已列·暂缓 |
+| 11 | FINS 时钟读/写(0701/0702) | P2 | W342 §5-3-19/20(印刷页 197-198)有明确依据;sync/native/aio 三层 + 10 例测试已落地 | 已完成 |
+| 12 | README PLC 安全警示 | P3 | libplctag 先例(开篇免责:写操作失误可致生产/财产损失);已落地(a31c236,顺带修简介残留) | 已完成 |
+| 13 | examples「采集→MQTT」上行示例 | P3 | neuron/thingsboard 核心场景;paho-mqtt 可选示例已落地(93db9ed) | 已完成 |
 
 ### S7comm 自研计划骨架(2026-10-03 拍板:直接替换 snap7 封装)
 
@@ -103,7 +102,7 @@ snap7 封装现状一致,遇到明确报错);工作量数周级。
 可选 extra(`fanuc` / `ezsocket`),核心保持零依赖。定位 `cnc/` 包
 (与 MTConnect 同域,数采只读优先)。
 
-**#9 FANUC FOCAS**:
+**#7 FANUC FOCAS**:
 1. 依据:`docs/protocol/fanuc/` 新建——FOCAS 库手册 + `fwlib32.h`
    (官方 Development 包,需 FANUC 账号/经销商渠道,拿到前不写一行绑定代码);
 2. 绑定核心面:`cnc_allclibhndl3`/`cnc_freelibhndl`(句柄生命周期)+
@@ -112,7 +111,7 @@ snap7 封装现状一致,遇到明确报错);工作量数周级。
 3. 测试:假函数表 + sizeof 守卫;真机:FANUC 0i 系列联测(登记真机清单);
 4. 依赖:fwlib32.dll/64.dll 按解释器位数装载,extra `fanuc`。
 
-**#10 三菱 CNC EZSocket**:
+**#8 三菱 CNC EZSocket**:
 1. 依据:EZSocket 库手册 + SDK 头文件(`docs/protocol/mitsubishi/` 收录;
    需三菱 CNC 渠道,拿到前不立项动码);
 2. 绑定形态**拿到 SDK 后裁决**:纯 C 接口走 ctypes(同 FOCAS)、COM 组件
@@ -124,7 +123,7 @@ snap7 封装现状一致,遇到明确报错);工作量数周级。
 
 **背景**:MARK 30/50/55 = Via Mechanics(原日立産機,2021 分立)PCB 钻孔机
 自研 CNC 系统(ND-5/ND-6 系机身),**非 FANUC/MELDAS 通用数控**——DLL 封装
-族(#9/#10)不适用;通信规范(SECS/GEM 选配、Host Link 私有协议、FTP 程序
+族(#7/#8)不适用;通信规范(SECS/GEM 选配、Host Link 私有协议、FTP 程序
 传输)全部厂商 NDA 资料,公开渠道零文档。
 
 **三条路径与预裁决**:
@@ -153,7 +152,8 @@ snap7 封装现状一致,遇到明确报错);工作量数周级。
 | 4 | TLS/SSL/X.509 加密栈 | 内网部署口径,项目红线(AGENTS.md) | 已披露 |
 | 5 | FINS 运维命令(0103 填充/0105 传送/0401·0402 运行停止/2301 强制置复位) | 运维/控制面,与 MC/MX 远程控制同口径;2026-10-03 用户裁决不考虑(命令本身 W342 有据,排除属产品定位,非无依据) | 已披露 |
 | 6 | 连接池 / 并行采集原语(含 README「多实例并行」指引) | 2026-10-03 用户裁决:**和使用场景不符**——目标场景(中小规模多品牌采集)靠 `read_batch`/`read_range` 合并 + 多客户端实例已覆盖,池的复杂度与受益面(数百点 10Hz+ 高吞吐)不匹配;S7netplus #49/#238/#295 瓶颈实证属他家场景。方案要点曾评审(显式借还/池不插手重连/FINS·TCP 节点号冲突约束),如场景变化可循此重启 | 已披露 |
-| 7 | OPC-UA 协议栈自研(asyncua 退役) | 2026-10-03 用户发起讨论,裁决**当前不值得自研**:①动机非堵点——asyncua 1.1.5 纯 Python 零 DLL 钉版稳定,自研仅能甩掉 cryptography(TLS 永不考虑下属清洁度收益),S7 自研的 DLL 分版本/32 位不可用类硬堵点在此不存在;②工作量高一个量级且失败形态更毒——UA Binary 类型系统(Variant/NodeId 四编码/DataValue 掩码)+ 会话/SecureChannel 双层状态机(None 策略下 OpenSecureChannel 帧面仍绕不开)+ 订阅 Publish 确认与 keep-alive,类型边界错误多为**静默错值**(P1 类)而非 S7 式当场断线;③参考源单向——Python 生态仅 asyncua 一家(python-opcua 系其前身同源),Milo/open62541 为 Java/C,**双向裁决方法论失效**,各国服务器互操作怪癖需重踩(OPC-UA 真机联测本就为待办弱项)。真痛点(订阅不恢复)走 #6 封装层解法;**重启条件**:asyncua 1.1.5 出现不可修缺陷(安全洞/3.7 轮子断供)、订阅类私有 API 坑反复发作封装层兜不住、Python 生态出现第二家纯 Python 栈可恢复交叉裁决 | 已披露 |
+| 7 | OPC-UA 协议栈自研(asyncua 退役) | 2026-10-03 用户发起讨论,裁决**当前不值得自研**:①动机非堵点——asyncua 1.1.5 纯 Python 零 DLL 钉版稳定,自研仅能甩掉 cryptography(TLS 永不考虑下属清洁度收益),S7 自研的 DLL 分版本/32 位不可用类硬堵点在此不存在;②工作量高一个量级且失败形态更毒——UA Binary 类型系统(Variant/NodeId 四编码/DataValue 掩码)+ 会话/SecureChannel 双层状态机(None 策略下 OpenSecureChannel 帧面仍绕不开)+ 订阅 Publish 确认与 keep-alive,类型边界错误多为**静默错值**(P1 类)而非 S7 式当场断线;③参考源单向——Python 生态仅 asyncua 一家(python-opcua 系其前身同源),Milo/open62541 为 Java/C,**双向裁决方法论失效**,各国服务器互操作怪癖需重踩(OPC-UA 真机联测本就为待办弱项)。真痛点(订阅不恢复)已走 #5 封装层解法(auto_resubscribe);**重启条件**:asyncua 1.1.5 出现不可修缺陷(安全洞/3.7 轮子断供)、订阅类私有 API 坑反复发作封装层兜不住、Python 生态出现第二家纯 Python 栈可恢复交叉裁决 | 已披露 |
+| 8 | 串口原生异步层(Modbus RTU / MC 1C·3C·4C 的 asyncio 版) | 2026-10-04 用户裁决:**串口不考虑异步**——串口场景(低速点检/老设备)无真异步需求,同步轮询已覆盖;排期表原 #5 撤项。若场景变化可循 pymodbus serial_asyncio 先例重启(新增依赖线+AsyncSerialTransport+RTU 客户端+双循环测试,3.8+ 环境标记) | 已披露 |
 
 ---
 

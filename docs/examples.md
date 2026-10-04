@@ -83,6 +83,7 @@ mon = client.create_monitor(
     interval=1.0,
     on_change=lambda ev: print(ev.tag_id, ev.old, "→", ev.new, ev.quality),
     on_disconnect=lambda: print("采集失败期开始"),
+    deadband=0.5,                        # 全点统一死区;或 {"炉温": 0.5} 逐点指定
 )
 mon.start()
 snap = mon.get("炉温")     # PointSnapshot(quality, value, updated_at)——纯本地不发报文
@@ -95,6 +96,12 @@ mon.stop()
 质量三态:`INITIAL`(从未成功)/ `GOOD`(最新值)/ `STALE`(失败期保留的
 旧值)——**消费方必须检查 quality**,拿 STALE 旧值当最新值是采集系统常见
 自伤。STRING 不支持(批量读不收变长);建议监视器独占客户端实例。
+
+`deadband`(值变化死区,默认 0 = 关):数值点新值与**该点上次报告值**的
+绝对差小于死区视为未变——专治浮点传感器抖动逐周期误发 `on_change`;
+与上一拍比较的是"上次报告值"而非"上一拍快照",缓慢漂移累计越过死区
+照样报(不会永远压在死区内漏报)。死区内快照照常刷新,仅压事件;
+首拍/质量跨界/bool/NaN 跳变不受压制。
 
 ### 批量读三入口 / 批量写两入口
 
@@ -401,7 +408,8 @@ ok = toyopuc.write_bool("M0201", True)
 
 ```python
 from omniplc import OpcUaClient
-opc = OpcUaClient("192.168.0.10", 4840)
+opc = OpcUaClient("192.168.0.10", 4840,
+                  auto_resubscribe=True)   # 断线自动重订(默认关)
 ok, value = opc.read_float("ns=2;s=Device.Temperature")
 ok = opc.write_ushort("ns=2;s=Device.Speed", 1200)
 
@@ -414,9 +422,12 @@ ok, sub = opc.subscribe_event("i=2253", on_event)         # 事件订阅(EventFi
 ok, tree = opc.browse("Root", recursive=True)             # {node_id: {browse_name, ...}}
 ```
 
-订阅句柄 `OpcUaSubscription.unsubscribe()` 幂等;`disconnect()` 先退订再断开;
-**断线不自动重订**,订阅重建留调用端。默认 SelectClauses 聚合 BaseEventType
-全部属性(含 SourceNode/Time);自定义字段可传 `event_filter`。
+订阅句柄 `OpcUaSubscription.unsubscribe()` 幂等(退订 = 同时移除重订意图);
+`disconnect()` 释放服务端订阅资源但保留意图。开启 `auto_resubscribe` 后,
+重连成功(显式 `connect()` 或事务惰性重连)按订阅意图自动重建(best-effort,
+重建产生**新**句柄,旧句柄失效;结果以 `active_subscriptions` 为准)。
+默认 SelectClauses 聚合 BaseEventType 全部属性(含 SourceNode/Time);
+自定义字段可传 `event_filter`。
 
 ## CNC 机床数采 MTConnect(标准库实现,零第三方依赖)
 

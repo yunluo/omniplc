@@ -141,11 +141,12 @@ print(s["error_count"], s["last_rtt"], s["heartbeat_fail"])
 
 ### 9. OPC-UA 会话与订阅
 
-- 本库订阅(handler + `create_subscription`)**断线不自动重订**:
-  重连后订阅句柄已失效,需要在连接恢复后重新建订阅(有意的生命周期
-  简化,见 `plc/opcua/client.py`);这是现场常见痛点(服务端
-  TransferSubscriptions 失败、订阅项 stale 各家服务器行为不一),
-  自动重订已列入计划(`docs/todo.md`);
+- 本库订阅(handler + `create_subscription`)断线后句柄失效;构造选项
+  `auto_resubscribe=True`(默认关)可让重连成功(显式/事务惰性)后
+  **按订阅意图自动重建**(best-effort,单项失败记日志,重建结果以
+  `active_subscriptions` 为准;`unsubscribe()` 才移除意图,断开保留);
+  服务端 TransferSubscriptions 失败、订阅项 stale 各家服务器行为不一——
+  重订是**全新订阅**(非 UA TransferSubscriptions 迁移),不踩各家差异;
 - 重连后如果服务端拒绝(会话未超时释放),等会话超时后再试;
 - TLS 相关不做(内网部署口径,项目红线)。
 

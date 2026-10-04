@@ -310,8 +310,10 @@ unconnected 消息),欧姆龙 NJ/NX CIP(继承 AB 客户端,三钩子覆写),
    内部线程触发,不经事务锁——同步版直接执行用户回调(异常吞掉记
    `last_error`,category=UNKNOWN,不杀订阅);aio 版经
    `loop.call_soon_threadsafe` 桥接到调用方事件循环线程(回调内可安全
-   做 asyncio 操作,loop 已关闭则静默丢弃)。`disconnect()` 先退订清
-   `active_subscriptions` 索引再走基类断开;断线不自动重订。
+   做 asyncio 操作,loop 已关闭则静默丢弃)。`disconnect()` 经 `release()`
+   通道释放服务端订阅资源并清 `active_subscriptions` 索引,但**保留重订
+   意图**(`unsubscribe()` 才移除);构造 `auto_resubscribe=True` 时重连
+   成功(显式/惰性)按意图自动重建(默认关,2026-10-04)。
 8. **原生异步层(`omniplc.native`)的并发模型**:每个实例一把 `asyncio.Lock`
    按事务粒度持锁(与同步侧同一口径),实例内串行、实例间天然并发;`asyncio.Lock`
    **非重入**,故只有公开入口取锁、内部 `_*_locked` 助手假定锁已持有(替代同步侧
@@ -836,8 +838,9 @@ OPC-UA 说明:``OpcUaClient`` **不自研协议**(OPC-UA 是完整规范栈:
 节点读写;v0.35 补齐**订阅与浏览**:DataChange/
 Event 订阅(``subscribe_data_change``/``subscribe_event``,
 ``OpcUaSubscription`` 句柄幂等退订,用户回调异常吞掉记 ``last_error``
-不杀订阅,``active_subscriptions`` 快照,``disconnect()`` 先退订再断开,
-断线不自动重订——重订策略留调用端)+ 地址树 Browse(``browse()``,
+不杀订阅,``active_subscriptions`` 快照,``disconnect()`` 释放服务端
+资源但保留意图;构造 ``auto_resubscribe=True`` 断线重连后按意图自动
+重建,默认关)+ 地址树 Browse(``browse()``,
 Root/Objects/Types/Views 语义别名,递归与 ``max_depth`` 深度上限,
 返回 ``{node_id: {browse_name, node_class, children}}``;OPC-UA 语义:
 不存在节点返回空引用列表,与 Read 报 BadNodeIdUnknown 不同);安全
@@ -1092,7 +1095,7 @@ FINS 协议复审(2026-09,对照欧姆龙 FINS 手册 W342):FINS 帧头 10 字�
 | v0.53.0 | **西门子 S7 自研 S7comm 栈直接替换 python-snap7 封装(公开 API 破坏性变更)+ 原生异步 S7 会话型适配 + review-1008 修复批(16 项零误报)**——①自研(155f458):`plc/siemens/codec.py` 三层纯函数(TPKT/COTP/S7),python-snap7 依赖整体退役(s7 extra 删除),`dll_path` 移除(破坏性),S7 回归核心零依赖;帧面档案 `docs/protocol/siemens/s7comm/`(python-snap7 3.2.0 逐函数出处 + Sally7/S7netplus 交叉 + C 源/Wireshark 仲裁);API 冻结面全保留,测试重写黄金帧 + 假 TCP 全握手;②review-1008(c5c7d79/32523cb):P0 写请求 count 恒 1(多字节写真机必拒/截写)、P1×5(地址上限 0x1FFFFF/异常分类 PROTOCOL/功能码条目数强校验/struct.error 防御/get_cpu_state 状态偏移 = 记录区[3] bzu_id)、P2×6(优化块提示恢复/connect_timeout/DR dst_ref/写应答长度/码表入 i18n/**读写按协商 PDU 自动分片**)、P3 随批(交叉校验/SZL 12 字节参数+参数级错误码/条目级 DeviceError 携返回码等);③native(d3316ec):`AsyncS7Session` 会话型适配(原生层五协议 8 客户端),帧面复用共享 codec,对拍 sent 全序列逐字节一致,DR 语义拆分披露。**行为变更提示(破坏性)**:`omniplc[s7]` 与 `dll_path` 失效;>2MB 字节起点静默别名改构造期拒绝;大跨度读写改自动分片;条目级拒绝 last_error_code 由 None 变协议码;S7 坏帧分类 UNKNOWN→PROTOCOL。详见 CHANGELOG v0.53.0;原生类 7→8 | ✅ 完成 |
 | v0.52.2 | **AB 点位枚举 list_tags + 报文黑匣子 + 排障文档三件(eabed28/e4ec5c6/c8cbdb7/803fce6)**——AB `list_tags()`:CIP 0x55 + Symbol Object 0x6B20,状态 0x06 自动分页续传,`AbTagEntry` 根包导出,aio 镜像,NJ/NX 裁决拒绝(Logix 私有面),帧面 pycomm3/pylogix 双参考逐字节裁决(手册待补);报文黑匣子:`set_frame_recorder`(进程级,只存不打印,容量 1~100000)+ `recorded_frames`/`clear_recorded_frames`/`FrameRecord` 根包导出,挂点 `log_frame` 走线型全量覆盖,与 `set_debug` 相互独立;文档三件:`docs/troubleshooting.md` 现场排障指南(六路现场调研变现)+ `docs/firmware-notes.md` 固件/设备差异清单(九条)+ examples 丰富化(通用 API 面大节/批量写/端口对照,API 面 inspect 全量盘点);「有意不做」新增披露:FINS 运维命令、连接池(方案要点存档 todo)。**行为变更提示**:纯新增;根包新导出五名。门禁 3.7.9 **1664 passed** / ruff / mypy(80 files) / ty 全零 | ✅ 完成 |
 | v0.52.3 | **review-1007 修复批(cb764ad/2a66621,零误报全确认)**——P0×2 AB list_tags 帧面(0.52.2 遗留真机必失败):类段 0x6B20 助记误读修正 → 8 位段 `20 6B`、名长 u8 → CIP STRING(UINT 长)+ utf-8、应答布局按「应答=请求集」修正(不取 pycomm3 的地址类 UDINT);P1×2:`_transact_with_status` connected 分支补拆连转换、native MC read_range 双换算(同步 review-1002 P1-1 复活,X17 实测复现)修 + 对拍回归;P3 黑匣子关闭容量校验;文档批:README 16 族/30 客户端(两处漏减)、protocol-features/architecture 登记黑匣子与 list_tags 裁决、ADS 残留清理。**行为变更提示**:list_tags 修复后帧面与 0.52.2 完全不同(无兼容负担);`set_frame_recorder(False, capacity=非法)` 改直接关闭。门禁 3.7.9 **1668 passed** / ruff / mypy(79 files) / ty 全零 | ✅ 完成 |
-| v1.x | MC 2C 帧(A 兼容串口)、FINS Host Link、FINS 时钟读/写(**0701/0702 已随本批落地**——W342 §5-3-19/20 印刷页 197-198,`read_clock`/`write_clock` + `FinsClock` 类型,sync/native/aio 三层)与 EM bank≥16 扩展区、TOYOPUC 扩展区/PC10/中继/时钟、AB UDT 整体读取与分片读写(0x52)与 `list_tags`(CIP 0x55,**已随 v0.52.2 落地,v0.52.3 帧面修正**——双参考实现裁决,1756-PM020 待补)、松下 MEWTOCOL-COM 串口、Modbus ASCII 走线与报告类功能码(11/17;诊断 07/08/0B/0C 与文件记录 14/15、FIFO 18 已实现)、FANUC FOCAS 与三菱 CNC EZSocket DLL 封装、S7comm 自研(**v0.53 同步栈已落地**——直接替换 snap7 封装、依赖退役;native AsyncSiemensS7Client 随下批,真机核证 P5 待做);FINS 运维命令(0103/0105/0401/0402/2301)与连接池已按 2026-10-03 裁决移入「有意不做」 | 规划 |
+| v1.x | MC 2C 帧(A 兼容串口)、FINS Host Link、FINS 时钟读/写(**0701/0702 已随本批落地**——W342 §5-3-19/20 印刷页 197-198,`read_clock`/`write_clock` + `FinsClock` 类型,sync/native/aio 三层)与 EM bank≥16 扩展区、TOYOPUC 扩展区/PC10/中继/时钟、AB UDT 整体读取与分片读写(0x52)与 `list_tags`(CIP 0x55,**已随 v0.52.2 落地,v0.52.3 帧面修正**——双参考实现裁决,1756-PM020 待补)、松下 MEWTOCOL-COM 串口、Modbus ASCII 走线与报告类功能码(11/17;诊断 07/08/0B/0C 与文件记录 14/15、FIFO 18 已实现)、FANUC FOCAS 与三菱 CNC EZSocket DLL 封装、S7comm 自研(**v0.53 已全落地**——同步栈直接替换 snap7 封装、依赖退役 + native AsyncSiemensS7Client 会话型适配;真机核证 P5 待做);FINS 运维命令(0103/0105/0401/0402/2301)与连接池已按 2026-10-03 裁决移入「有意不做」 | 规划 |
 | v2 | 更多品牌/协议按需扩展(drivers 插槽沿用 BaseClient 原语模式) | 规划 |
 
 ## 12. 原生异步层(`omniplc.native`)
@@ -1106,7 +1109,8 @@ TCP+UDP)/ 汇川(H3U/H5U Modbus TCP + MC 兼容 3E TCP,子类化复用前两者)
 (MC 0406·0403·1402·0101、FINS 0104、Modbus FC 07/08/11/12/17/20/21/22/23/24 与
 FC 43/14 设备标识);守卫测试 `tests/unit/test_native_surface.py` 以"同步公开面 = 原生已镜像面 ∪
 显式声明的未到批次表(现为空集)"逐协议锁定,漏镜像或漏删表项都会变红。
-**未进本层**的是串口走线(Modbus RTU / MC 1C·3C·4C)与其余协议。
+**未进本层**的是串口走线(Modbus RTU / MC 1C·3C·4C;原生异步版已按
+2026-10-04 用户裁决归「有意不做」)与其余协议。
 并发模型(锁纪律、属性直读)见 §3 第 8 条;选型对比见 README「异步」节。
 
 **S7 会话型适配(2026-10-04)**:S7 是首个进入原生层的**非走线协议**——
@@ -1145,7 +1149,8 @@ FC43(含翻页)/FC07·08·11·12·17·20·21/24;MC 4E 帧 + 0406 + 0403 + 1402 +
 **S7 会话型(2026-10-04,`AsyncS7Session` 镜像同步 `_S7Session` + 复用共享
 codec 纯函数,读写自动分片/SZL 状态/优化块提示全对齐)**。
 **未进本层**的是串口走线(Modbus RTU / MC 1C·3C·4C,需要串口
-传输层)与其余协议(AB / OPC-UA / 基恩士 / 松下 / TOYOPUC /
+传输层——**串口原生异步层已按 2026-10-04 用户裁决归「有意不做」**,
+todo 表 #8)与其余协议(AB / OPC-UA / 基恩士 / 松下 / TOYOPUC /
 MTConnect)。
 
 **超时与取消**:

@@ -140,6 +140,7 @@ monitor = client.create_monitor(
     interval=1.0,
     on_change=lambda ev: print(ev),      # MonitorEvent(tag_id, old, new, quality, updated_at)
     on_disconnect=lambda: print("采集失败期开始"),
+    deadband=0.5,                        # 值变化死区(默认 0 = 关;或 {"炉温": 0.5} 逐点)
 )
 client.connect()
 monitor.start()
@@ -150,7 +151,9 @@ monitor.stop()                           # client.disconnect() 也会联动停�
 
 质量三态 `INITIAL / GOOD / STALE`:失败**保留旧值降质**,不用 None 冲掉;变更
 事件在值变化或质量跨越 GOOD↔非GOOD 边界时触发(掉线恢复也通知,双 NaN 视为
-未变);周期与业务共享同一本客户端账,建议监视器独占客户端实例。全部语义口径
+未变);`deadband` 死区专治浮点传感器抖动逐周期误报(新值与该点上次报告值差
+小于死区视为未变,缓慢漂移累计越线照样报,死区内快照照常刷新仅压事件);周期
+与业务共享同一本客户端账,建议监视器独占客户端实例。全部语义口径
 见 `omniplc.core.monitor` 模块 docstring。
 
 #### 心跳保活(可选)
