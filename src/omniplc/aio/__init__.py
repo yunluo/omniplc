@@ -42,7 +42,8 @@ from typing import (
 from ..core.base_client import BaseClient, ClientStats
 from ..core.errors import ErrorCategory, _CANCELLED_ERRORS
 from ..core.monitor import Monitor, MonitorEvent
-from ..cnc import MTConnectClient
+from ..cnc import FanucFocasClient, MTConnectClient
+from ..cnc.focas import FOCAS_DEFAULT_PORT
 from ..core.constants import (
     AB_EIP_DEFAULT_PORT,
     AB_EIP_DEFAULT_RPI_US,
@@ -195,6 +196,7 @@ __all__ = [
     "AOpcUaClient",
     # ---- CNC 机床数采客户端 ----
     "AMTConnectClient",
+    "AFanucFocasClient",
 ]
 
 
@@ -2288,6 +2290,51 @@ class AMTConnectClient(ABaseClient):
     ) -> Tuple[bool, Optional[List[Dict[str, object]]]]:
         """读取 /assets(或其子集)(语义同同步版)。"""
         return await self._run(lambda: self._client().read_assets(asset_ids))
+
+
+class AFanucFocasClient(ABaseClient):
+    """FANUC FOCAS 异步客户端(fwlib32.dll ctypes 封装,数采只读)。"""
+
+    def __init__(
+        self,
+        ip_address: str = "192.168.0.10",
+        port: int = FOCAS_DEFAULT_PORT,
+        *,
+        sdk_dir: Optional[str] = None,
+        dll_path: Optional[str] = None,
+    ) -> None:
+        """初始化 FOCAS 异步客户端(参数语义同同步版,见同步类 docstring)。
+
+        :param ip_address: CNC 的 IP(内嵌以太网口)
+        :param port: FOCAS 端口,标准 8193
+        :param sdk_dir: fwlib32 动态库目录
+        :param dll_path: 动态库显式路径(优先于 ``sdk_dir``)
+        :raises ValueError: 参数非法
+        """
+        super().__init__(
+            FanucFocasClient(ip_address, port, sdk_dir=sdk_dir, dll_path=dll_path)
+        )
+
+    def _client(self) -> FanucFocasClient:
+        """取 FOCAS 同步实例(内部属性)。"""
+        return self._typed(FanucFocasClient)
+
+    @property
+    def cnc_id(self) -> Optional[str]:
+        """连接时读得的 CNC ID(未连接为 None;转发同步实例)。"""
+        return self._client().cnc_id
+
+    async def read_sysinfo(self) -> Tuple[bool, Optional[object]]:
+        """读 CNC 系统信息(语义同同步版 :meth:`FanucFocasClient.read_sysinfo`)。"""
+        return await self._run(lambda: self._client().read_sysinfo())
+
+    async def read_dynamic(self, axis: int = -1) -> Tuple[bool, Optional[object]]:
+        """读 CNC 实时状态(语义同同步版;axis 缺省 ALL_AXES)。"""
+        return await self._run(lambda: self._client().read_dynamic(axis))
+
+    async def read_status(self) -> Tuple[bool, Optional[object]]:
+        """读 CNC 状态位(语义同同步版)。"""
+        return await self._run(lambda: self._client().read_status())
 
 
 class AAllenBradleyEthIpClient(ABaseClient):

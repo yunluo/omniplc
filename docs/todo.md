@@ -28,7 +28,7 @@
 | 4 | 错误现场环形缓冲(报文黑匣子) | P3 | 2026-10-03 现场调研:`set_debug` 是实时打印,进程崩溃后报文现场丢失,现场无人盯日志时无从排查;已落地——`set_frame_recorder(enabled, capacity=1000)` 只存不打印(1~100000 帧构造期校验),`recorded_frames()`/`clear_recorded_frames()`/`FrameRecord`(墙钟时间+方向+标识+原始字节),挂点与实时日志同在 `log_frame`(走线型全量覆盖,会话型不进),+8 例测试;排障指南 §四同步用法 | 已完成 |
 | 5 | OPC-UA 断线自动重订(选项) | P3 | 2026-10-03 现场调研:会话/订阅恢复是 OPC-UA 现场普遍痛点(TransferSubscriptions 失败、订阅 stale,常见解法竟是重启服务);已落地——构造选项 `auto_resubscribe`(默认关):订阅成功登记**订阅意图**,重连成功(显式/惰性)后 best-effort 按序重建,单项失败记日志;语义拆分「退订 vs 断开」(`unsubscribe()` 移除意图,disconnect 联动 `release()` 保留意图);aio 镜像;+6 例测试。**2026-10-03 讨论定调:封装层解法,优先于栈自研(栈自研裁决见「有意不做」#7)** | 已完成 |
 | 6 | examples 范例丰富化:各协议对外 API 全展示 | P3 | 2026-10-03 用户指令:「使用范例要丰富,把本库对外 API 都展示下」;已落地——新增「通用 API 面」大节(读写原语/超时重试退避心跳/告警分级/stats/点位表/Monitor/批量读写/全局开关含黑匣子/异步两层),各协议节补缺(MC random 双组签名+MX 时钟/错误码、FINS 0101、AB list_tags/list_identity/属性/GenericMessage、NJ 拒绝披露、S7 get_cpu_state/write_wstring、SR bank/reset、MTConnect sample/assets),新增「批量写」与「默认端口对照」两节(S 跨协议语义提示);API 清单经 inspect 全量盘点防漏 | 已完成 |
-| 7 | FANUC FOCAS DLL 封装(`cnc/`) | P3 | **计划见下节「DLL 封装族」**;fwlib32/64.dll,厂商运行库前置——模板现成(海康 SDK 先例),卡在外部物料(FOCAS 手册+头文件) | 计划已列 |
+| 7 | FANUC FOCAS DLL 封装(`cnc/`) | P3 | **首批已落地(2026-10-05,`FanucFocasClient`)**:`docs/protocol/fanuc/` 物料归档(strangesast/fwlib 的 `fwlib32.h` 主源 + 帧面档案)、连接生命周期 + sysinfo/rddynamic2/statinfo2 只读三件、仅 Windows、端口 8193、假函数表 25 例 + sizeof 守卫、aio 镜像;详情见下节「DLL 封装族」#7 | 首批完成(二批候选见待补表) |
 | 8 | 三菱 CNC EZSocket DLL 封装(`cnc/`) | P3 | **计划见下节「DLL 封装族」**;SDK/手册待拿,绑定形态(ctypes/comtypes)拿到后裁决——比 FOCAS 多一层形态不确定 | 计划已列 |
 | 9 | S7comm 自研(**直接替换** snap7 封装,计划见下节) | P2 | 2026-10-03 用户四点拍板:`SiemensS7Client` 名字与 API 不变、内部重写为纯 Python S7comm 栈、python-snap7 依赖整体退役、S7 回归核心零依赖;参考源定稿 python-snap7 3.2.0(纯 Python 重写,MIT)为主 + Sally7/S7netplus 交叉;3.7 无障碍(纯 TCP 三层栈)——2026-10-03 开工:**P1~P4 已落地**(codec 三层建帧+黄金帧、连接/读写、API 冻结面、`dll_path` 移除、依赖退役、测试重写 33 例、文档四件;帧面依据 docs/protocol/siemens/s7comm/);review-1008 修复批落地(2026-10-04);**native `AsyncSiemensS7Client` 已落地(2026-10-04,会话型适配,对拍守卫)**;余 P5 真机核证(SZL 待核) | 待实现(P5 真机核证) |
 | 10 | 日立(Via Mechanics)MARK 30/50/55 钻孔机数采 | P3 | **计划见下节;暂缓**(2026-10-03 用户裁决:先列计划,暂不考虑实现);MARK = Via 自研 CNC,FOCAS/EZSocket 不适用,公开零文档——启动条件未定(网关确认/手册到手),外部依赖最深 | 计划已列·暂缓 |
@@ -102,14 +102,20 @@ snap7 封装现状一致,遇到明确报错);工作量数周级。
 可选 extra(`fanuc` / `ezsocket`),核心保持零依赖。定位 `cnc/` 包
 (与 MTConnect 同域,数采只读优先)。
 
-**#7 FANUC FOCAS**:
-1. 依据:`docs/protocol/fanuc/` 新建——FOCAS 库手册 + `fwlib32.h`
-   (官方 Development 包,需 FANUC 账号/经销商渠道,拿到前不写一行绑定代码);
-2. 绑定核心面:`cnc_allclibhndl3`/`cnc_freelibhndl`(句柄生命周期)+
-   首期只读三件:`cnc_rddynamic`(实时状态)/`cnc_rdprgnum`(程序号)/
-   `cnc_rdaxisdata`(轴数据)——与 MTConnect `/current` 同场景可互验;
-3. 测试:假函数表 + sizeof 守卫;真机:FANUC 0i 系列联测(登记真机清单);
-4. 依赖:fwlib32.dll/64.dll 按解释器位数装载,extra `fanuc`。
+**#7 FANUC FOCAS(首批已落地,2026-10-05)**:
+1. 依据:`docs/protocol/fanuc/` 已建——`fwlib32.h`(16043 行,社区打包
+   仓库 strangesast/fwlib;官方 Development 包渠道物料到手后 diff 一次)+ README
+   帧面档案(连接流程/EW 码表/结构体布局/系列宏判断);
+2. 首批只读面已落地(`cnc/focas.py`):连接生命周期(`cnc_allclibhndl3`/
+   `cnc_freelibhndl`/`cnc_settimeout`/`cnc_rdcncid`)+ `cnc_sysinfo` +
+   `cnc_rddynamic2` + `cnc_statinfo2`(兼探活);仅 Windows(WinDLL/stdcall);
+   端口 8193;Ethernet 通用 DLL(系列宏全不定义,MAX_AXIS=32);
+3. 测试:假函数表 25 例 + sizeof 守卫(ODBSYS=18/ODBDY2 前部 28+union 512/
+   ODBST2=26);真机:FANUC 0i 系列联测(登记真机清单,待现场);
+4. 二批候选:`cnc_rdprgnum`/`cnc_rdaxisdata`/PMC 族/参数族(见 protocol
+   待补表 FOCAS 行);
+5. 依赖:ctypes 直调无 Python 侧依赖(不加 extra,海康同款);
+   fwlib32.dll 运行库现场自备,`sdk_dir`/`dll_path` 二选一。
 
 **#8 三菱 CNC EZSocket**:
 1. 依据:EZSocket 库手册 + SDK 头文件(`docs/protocol/mitsubishi/` 收录;

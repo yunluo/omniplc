@@ -81,7 +81,8 @@ from .core.monitor import (
 )
 from .core.tag import Tag, TagTable
 from .core.types import ByteOrder, DataType, McFrame, S7Model, SerialParity, WordOrder
-from .cnc import MTConnectClient
+from .cnc import FanucFocasClient, MTConnectClient
+from .cnc.focas import FocasCncId, FocasDynamic, FocasStatus, FocasSysInfo
 from .plc.modbus import ModbusArea, ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from .plc.opcua import OpcUaClient, OpcUaSubscription
 from .plc.melsec import (
@@ -193,6 +194,11 @@ __all__ = [
     "OpcUaSubscription",
     # ---- CNC 机床数采客户端 ----
     "MTConnectClient",
+    "FanucFocasClient",
+    "FocasSysInfo",
+    "FocasDynamic",
+    "FocasStatus",
+    "FocasCncId",
     # ---- 传输层 ----
     "BaseTransport",
     "TcpTransport",

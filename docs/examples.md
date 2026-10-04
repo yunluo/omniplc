@@ -463,6 +463,31 @@ ok, page = cnc.read_sample(from_sequence=100)   # /sample 历史样本(序列号
 ok, assets = cnc.read_assets()         # 资产(刀具等)
 ```
 
+## 发那科 FOCAS(fwlib32.dll ctypes 封装,数采只读,Windows)
+
+```python
+from omniplc import FanucFocasClient
+# 依赖:FANUC FOCAS 运行库(Fwlib32.dll + fwlibe1.dll 等,随 FOCAS
+# Development 包/随机资料分发,须现场自备);机床侧启用内嵌以太网口
+client = FanucFocasClient("192.168.1.10", sdk_dir=r"D:\fwlib")  # 或 dll_path= 显式指定
+client.connect()
+print(client.cnc_id)                   # CNC ID(8 位十六进制 ×4,连接时读)
+ok, info = client.read_sysinfo()       # CNC 类型/系列/版本/轴数(cnc_sysinfo)
+ok, dyn = client.read_dynamic()        # 实时状态一把抓(cnc_rddynamic2,ALL_AXES)
+if ok:
+    print(dyn.alarm, dyn.prgnum, dyn.actf, dyn.acts)   # 报警号/程序号/进给/主轴
+    print(dyn.absolute, dyn.machine, dyn.relative, dyn.distance)  # 四组坐标(按轴列表)
+ok, dyn1 = client.read_dynamic(axis=0) # 单轴:坐标为标量
+ok, status = client.read_status()      # 模式/运行/急停/报警/警告等 13 位(cnc_statinfo2)
+ok = client.ping()                     # 探活 = read_status(零副作用,兼心跳命令)
+client.close()
+```
+
+要点:首批仅 Windows(WinDLL/stdcall);Ethernet 通用 DLL(系列限定
+构建/HSSB 不支持);`_has_ping` 开启(心跳可用);错误分流与全库一致
+(EW_SOCKET 等链路段拆连重连,EW_DATA 等功能错误不断线);写族不做,
+`cnc_rdprgnum`/`cnc_rdaxisdata`/PMC/参数族留后续批次。
+
 ## 西门子 S7(自研 S7comm 栈,零第三方依赖)
 
 ```python
@@ -546,6 +571,7 @@ ok = smart.write_bool("V10.3", True)     # V 位,= DB1.DBX10.3
 | `SiemensS7Client` | S7comm(ISO-on-TCP) | 102 |
 | `OpcUaClient` | OPC-UA | 4840 |
 | `MTConnectClient` | MTConnect Agent | 5000 |
+| `FanucFocasClient` | FANUC FOCAS(数采只读) | 8193(Windows,需 fwlib32.dll) |
 | 海康读码器四客户端 | Modbus / TCP 命令 / SDK / 串口 | 读码器侧配置(无出厂统一口) |
 
 > **`S` 跨协议语义提示**:MEWTOCOL 的 `S10` 是**定时器设定值区**(SV,

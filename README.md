@@ -37,6 +37,11 @@ uv add 'omniplc[opcua]'   # OPC-UA(asyncua)
 uv add 'omniplc[all]'     # 全部可选扩展(serial/mx/opcua,不含测试工具)
 ```
 
+> 厂商运行库自备:MX Component(三菱)、FOCAS `fwlib32.dll`(发那科,
+> 随 FOCAS Development 包/随机资料分发,ctypes 直调无 Python 依赖)、
+> MvCodeReaderSDK(海康读码器)需在目标机器安装并经 `sdk_dir`/`dll_path`
+> 指定路径;详见各客户端 docstring。
+
 #### 快速上手
 
 ```python
@@ -92,6 +97,7 @@ with ModbusTcpClient(ip_address="192.168.0.10", port=502, station=1) as client:
 | 丰田 TOYOPUC 计算机链接 | ✅ 1025 | ✅ 1025 | — | — |
 | OPC-UA | ✅ 4840 | — | — | — |
 | CNC MTConnect | ✅ 5000 | — | — | — |
+| 发那科 FOCAS(数采只读) | ✅ 8193(Windows) | — | — | — |(fwlib32.dll ctypes 封装,需厂商运行库)
 | 西门子 S7(200/200SMART/300/400/1200/1500;DB/I/Q/M + V 区记号) | ✅ 102 | — | — | — |(自研 S7comm 栈,核心零依赖)
 
 > **西门子 S7 型号**:`SiemensS7Client(ip, model=S7Model.S7_1200)` 按型号自动套连接预设——
