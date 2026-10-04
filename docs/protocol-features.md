@@ -500,7 +500,10 @@ start/stop,印刷页 45-47)+ §4.7.3 串口通讯协议(印刷页 52)+《极小�
 | DB 读写(DBX 位 / DBB / DBW / DBD / DBS) | ✅ | 须**非优化块**(绝对寻址) |
 | I / Q / M 读写(位 / 字节 / 字 / 双字) | ✅ | |
 | 位写 | ✅ | 本地读-改-写(非设备原子) |
-| S7 String / WString | ✅ | |
+| 型号参数化 `model=S7Model` | ✅ | 六款(200/200SMART/300/400/1200/1500)驱动连接预设;rack/slot 可覆写;依据链退档待真机(docs/protocol/siemens/s7comm/ 型号预设表) |
+| V 区记号(= DB1) | ✅ | 仅 S7_200 / S7_200_SMART 放行(VW100/V10.3);其余型号显式拒 |
+| S7 String | ✅ | |
+| S7 WString | ✅ | **仅 1200/1500**(TIA 类型);其余型号显式拒(读会解出乱码) |
 | 存储区覆盖 | ✅ | DB(0x84)/ I=PE(0x81)/ Q=PA(0x82)/ M=MK(0x83);`read_batch`(Read Var 多 Item,≤20 项)与 `read_range`(Read Var 同区域按类型字节数一次读回)为跨协议覆写,见 §0 |
 | T / C 定时器计数器区 | ❌ | 协议支持(区码 0x1C/0x1D),地址面未暴露 |
 | SZL 系统状态列表读 | ⭕ | 仅 CPU 状态(SZL 0x0424,`get_cpu_state`/探活);状态字节偏移**待真机核证**;SZL 全家未实现 |

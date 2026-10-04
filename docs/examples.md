@@ -485,6 +485,7 @@ ok = smart.write_bool("V10.3", True)     # V 位,= DB1.DBX10.3
 | OPC-UA | UA Read 原生多节点(asyncua 单请求) |
 | MX Component | 16 位类型合并 ReadDeviceRandom;32/64 位类型各走一笔块读 |
 | Modbus | 按 (区域,类型) 分组、组内连续地址合并为单条 FC(K 笔,典型 1 笔) |
+| 西门子 S7 | Read Var 多 Item 单 PDU(混区域,≤20 条,MAX_VARS) |
 
 ## 批量写(默认逐点 / 协议原生合并)
 
@@ -495,6 +496,7 @@ ok = smart.write_bool("V10.3", True)     # V 位,= DB1.DBX10.3
 |---|---|
 | Modbus(TCP/RTU 及其子类) | 按 (区域,类型) 分组、组内连续合并:位走 FC15 多线圈、寄存器走 FC16 多寄存器(上限 1968 位 / 123 字);寄存器位写(读-改-写)不参与合并,排在 FC16 之前保序 |
 | 三菱 MX Component | `write_batch` 16 位同型合并块写;其余逐点 |
+| 西门子 S7 | Read Var 多 Item 单 PDU(`read_batch`/`read_many`,DB/I/Q/M 混读,≤20 条);写无合并面逐点 |
 | 其余驱动 | 逐点(协议无合并写面) |
 
 **写重试双写警示**:写失败重试有双写风险(超时只证明响应未到达,写可能
@@ -521,6 +523,7 @@ ok = smart.write_bool("V10.3", True)     # V 位,= DB1.DBX10.3
 | `PanasonicMcTcpClient` | 松下 MC 兼容(3E) | 2000 |
 | `PanasonicMewtocolTcpClient` / `UdpClient` | MEWTOCOL | 1024 |
 | `ToyopucTcpClient` / `UdpClient` | TOYOPUC | 1025 |
+| `SiemensS7Client` | S7comm(ISO-on-TCP) | 102 |
 | `OpcUaClient` | OPC-UA | 4840 |
 | `MTConnectClient` | MTConnect Agent | 5000 |
 | 海康读码器四客户端 | Modbus / TCP 命令 / SDK / 串口 | 读码器侧配置(无出厂统一口) |
