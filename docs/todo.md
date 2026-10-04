@@ -23,7 +23,7 @@
 | # | 项 | 优先级 | 依据 / 出处 | 状态 |
 |---|---|---|---|---|
 | 1 | README「AI 欢迎策略」章节 | P3 | libplctag AI Policy 先例;已落地——**不排斥 AI 开发,但必须知道自己的代码有什么作用和干嘛的,对自己提交的代码负责;对待 AI 和对待 IDE 一样,都是工具**(用户口径,2026-10-03) | 已完成 |
-| 2 | AB `list_tags` 点位枚举 | P2 | CIP Get Instance Attribute List(服务 0x55)+ Symbol Object(0x6B20);帧面经 pycomm3/pylogix 双参考实现对照裁决(1756-PM020 手册待补,protocol「待补」已登记);sync+aio 双层、自动分页、`AbTagEntry` 根包导出;+6 例测试(黄金帧/分页/坏帧/停滞/aio);真机核证项入清单 | 已完成(待发版) |
+| 2 | AB `list_tags` 点位枚举 | P2 | CIP Get Instance Attribute List(服务 0x55)+ Symbol Object(0x6B20);帧面经 pycomm3/pylogix 双参考实现对照裁决(1756-PM020 手册待补,protocol「待补」已登记);sync+aio 双层、自动分页、`AbTagEntry` 根包导出;+6 例测试(黄金帧/分页/坏帧/停滞/aio);真机核证项入清单 | 已完成(v0.52.2 发布 / 0.52.3 修复) |
 | 3 | Monitor 点位级死区(deadband) | P3 | 2026-10-03 现场调研「数据质量三害」:当前 `_changed` 严格不等比较,浮点传感器抖动逐周期误发 `on_change`;质量三态(INITIAL/GOOD/STALE)已有(review-1006),仅缺值变化死区——设计点:点位级 `deadband` 参数(|新-旧| < deadband 视为未变,快照照常刷新) | 待实现 |
 | 4 | 错误现场环形缓冲(报文黑匣子) | P3 | 2026-10-03 现场调研:`set_debug` 是实时打印,进程崩溃后报文现场丢失,现场无人盯日志时无从排查;已落地——`set_frame_recorder(enabled, capacity=1000)` 只存不打印(1~100000 帧构造期校验),`recorded_frames()`/`clear_recorded_frames()`/`FrameRecord`(墙钟时间+方向+标识+原始字节),挂点与实时日志同在 `log_frame`(走线型全量覆盖,会话型不进),+8 例测试;排障指南 §四同步用法 | 已完成 |
 | 5 | 串口原生异步层(3.8+ 环境标记) | P3 | pymodbus RTU asyncio 先例(serial_asyncio);RTU 不需要数据报端点,"3.7 Proactor 限制"仅约束 UDP——常规工程:新增依赖线+AsyncSerialTransport+RTU 客户端+双循环测试 | 待实现 |
@@ -212,9 +212,10 @@ snap7 封装现状一致,遇到明确报错);工作量数周级。
   `S` 跨协议语义提示(MEWTOCOL SV vs MC 位软元件)
   ——**已随 examples 丰富化落地(2026-10-03,「各走线默认端口对照」节)**
 - **protocol-features §4 MX**:
-  `SetCpuStatus` 远程控制已在 §2/§4 标「有意不做」
+  `SetCpuStatus` 远程控制已在 §2/§4 标「有意不做」——**已完成**
 - **PLC 子包 `__init__.py`**:
   公共 API 顶层导出统一(ASiemensS7Client 等)
 - **constants.py**:
   `MX_MAX_BLOCK_WORDS=960` 数值依据注释、
   MX_BIT_DEVICES 表外 SD 字软元件分类口径
+  ——**已补(2026-10-03,MX 手册 §5.2.3 印刷页 320/§5.2.5 印刷页 328 无固定上限 + SH-080008 Appendix 5 印刷页 466 字单位 960 点交叉;SD=字软元件 §2.4 印刷页 46)**
