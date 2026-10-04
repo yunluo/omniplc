@@ -57,13 +57,19 @@ asyncio.run(main())
 
 ```python
 import asyncio
-from omniplc.native import AsyncModbusTcpClient
+from omniplc import S7Cpu
+from omniplc.native import AsyncModbusTcpClient, AsyncSiemensS7Client
 
 async def main():
     # 支持 async with:失败抛 ConnectionError,退出自动断开
     async with AsyncModbusTcpClient("192.168.0.10", 502, 1) as client:
         ok, value = await client.read_float("hr100")
         print(client.stats["transactions"])     # 属性同步读取,不阻塞事件循环
+
+    # 西门子 S7(原生层唯一会话型;型号进构造参数,同同步侧):
+    async with AsyncSiemensS7Client("192.168.0.1", model=S7Cpu.S7_1200) as s7:
+        ok, cpu = await s7.get_cpu_state()      # SZL 0x0424(Run/Stop/...)
+        ok, temp = await s7.read_float("DB1.DBD6")
 
 asyncio.run(main())
 ```

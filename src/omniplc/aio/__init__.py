@@ -2384,6 +2384,12 @@ class AAllenBradleyEthIpClient(ABaseClient):
 class ASiemensS7Client(ABaseClient):
     """西门子 S7 异步客户端(自研 S7comm 栈,型号参数化,DB/I/Q/M 与 V 区记号)。
 
+    :example::
+
+        client = ASiemensS7Client("192.168.0.1", model=S7Cpu.S7_1200)
+        await client.connect()
+        ok, value = await client.read_float("DB1.DBD6")
+
     .. note:: v0.52.x 的 ``dll_path`` 参数已随 python-snap7 依赖退役移除。
     """
 

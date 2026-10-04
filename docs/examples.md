@@ -154,8 +154,9 @@ asyncio.run(main())
 ```
 
 包装层 30 客户端全镜像(`omniplc.aio`);原生层已覆盖 Modbus TCP、
-MC 3E(TCP/UDP)、FINS(TCP/UDP)、汇川两走线(`omniplc.native`,不进
-根包 `__all__`);两层差异与取舍见 [async.md](async.md)。
+MC 3E(TCP/UDP)、FINS(TCP/UDP)、汇川两走线、西门子 S7(会话型,
+`omniplc.native`,不进根包 `__all__`);两层差异与取舍见
+[async.md](async.md)。
 
 
 ## Modbus(TCP / RTU)
@@ -446,17 +447,28 @@ ok, assets = cnc.read_assets()         # 资产(刀具等)
 ## 西门子 S7(自研 S7comm 栈,零第三方依赖)
 
 ```python
-from omniplc import SiemensS7Client
-# S7-1200/1500 需勾选「允许来自远程对象的 PUT/GET 通信访问」,DB 须为非优化块
+from omniplc import SiemensS7Client, S7Cpu
 # v0.53 起为自研 S7comm 协议栈(核心零依赖,无需安装任何扩展)
-s7 = SiemensS7Client("192.168.0.1", rack=0, slot=1)  # 300/400 的 CPU 常在槽位 2
+# 构造第 3 参为型号 model=S7Cpu(缺省 S7_1200),型号驱动连接预设;rack/slot 可显式覆写
+s7 = SiemensS7Client("192.168.0.1", model=S7Cpu.S7_1200)  # 1500 同款;需勾选
+# 「允许来自远程对象的 PUT/GET 通信访问」,DB 须为非优化块(TIA 取消 Optimized block access)
+
+s300 = SiemensS7Client("192.168.0.2", model=S7Cpu.S7_300)   # 400 同款(缺省槽位 2)
+smart = SiemensS7Client("192.168.2.1", model=S7Cpu.S7_200_SMART)  # 走 S7 基本资源类型
+# s200 = SiemensS7Client("192.168.2.2", model=S7Cpu.S7_200)  # 经典 200 需 CP243-1 模块
+
 ok, temp = s7.read_float("DB1.DBD6")   # DB 双字起点,REAL
 ok = s7.write_bool("DB1.DBX0.3", True) # DB 位(非原子读-改-写;多写者请 write 整字节)
 ok, current = s7.read_ushort("MW10")   # Merker 字
 ok, text = s7.read_string("DB1.DBS20", length=32)   # S7 String(头 2 字节声明/实际长)
-ok, wtext = s7.read_wstring("DB1.DBW40", length=32) # S7 WString(UTF-16,中文/日文)
+ok, wtext = s7.read_wstring("DB1.DBW40", length=32) # S7 WString(仅 1200/1500;UTF-16 中文/日文)
 ok = s7.write_wstring("DB1.DBW60", "中文")
 ok, state = s7.get_cpu_state()                      # CPU 状态(Run/Stop/...)
+
+# 200 SMART 的 V 区记号(= DB1;仅 S7_200 / S7_200_SMART 型号放行):
+ok, speed = smart.read_ushort("VW100")   # V 存储器字,= DB1.DBW100
+ok = smart.write_bool("V10.3", True)     # V 位,= DB1.DBX10.3
+# 200 SMART 同样需在 SMART 编程软件系统块里勾选「允许 PUT/GET」
 ```
 
 ## 批量读取(默认逐点 / 协议原生单事务)

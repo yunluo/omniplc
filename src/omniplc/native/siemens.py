@@ -384,7 +384,7 @@ class AsyncSiemensS7Client(AsyncBaseClient):
 
     :example::
 
-        client = AsyncSiemensS7Client("192.168.0.1", rack=0, slot=1)
+        client = AsyncSiemensS7Client("192.168.0.1", model=S7Cpu.S7_1200)
         await client.connect()
         ok, value = await client.read_float("DB1.DBD6")
     """
