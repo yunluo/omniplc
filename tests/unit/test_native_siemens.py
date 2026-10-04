@@ -404,3 +404,28 @@ def test_native_lazy_reconnect(monkeypatch: pytest.MonkeyPatch, loop: Any) -> No
 
     loop.run_until_complete(scenario())
     assert holder["result"] == (True, 100.5, True, 2)
+
+
+def test_smart_v_read_parity(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
+    """SMART 型号 V 区读对拍:连接帧与读请求两侧逐字节一致,值一致。"""
+    responses = [_tpkt(_dt(_read_ack(2, [b"\x00\x2a"])))]
+    sync_client, sync_fake = _drive_sync(
+        monkeypatch, responses, model=S7Cpu.S7_200_SMART
+    )
+    sync_result = sync_client.read_ushort("VW10")
+    sync_sent = bytes(sync_fake.sent)
+    sync_client.disconnect()
+
+    holder = _async_parity(
+        loop,
+        monkeypatch,
+        responses,
+        lambda client: client.read_ushort("VW10"),
+        model=S7Cpu.S7_200_SMART,
+    )
+    assert holder["result"] == sync_result
+    assert holder["sent"] == sync_sent
+    assert sync_result == (True, 42)
+    # CR 用 SMART 预设(本端 0x1000/远端 0x0300),读请求走 DB1
+    assert b"\xc1\x02\x10\x00\xc2\x02\x03\x00" in sync_sent
+    assert b"\x00\x01\x84\x00\x00\x50" in sync_sent

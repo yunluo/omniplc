@@ -984,3 +984,44 @@ def test_smart_model_v_read_walks_db1(monkeypatch: pytest.MonkeyPatch) -> None:
     assert (ok, value) == (True, 42)
     # 读请求地址规范:DB 号 1 + 区码 0x84 + 字节起点 10(位地址 80 = 0x50)
     assert b"\x00\x01\x84\x00\x00\x50" in fake.sent
+
+
+def test_cotp_cc_tsap_echo_validation() -> None:
+    """CC 的 Called TSAP 回显校验:命中放行 / 不符拒 / 无参数宽容(老 CPU)。
+
+    回显帧形态取 itpub 真机抓包(PDU Size 参数在前,须不按序扫描):
+    `11 D0 00 01 00 06 00 C0 01 09 C1 02 01 00 C2 02 01 01`。
+    """
+    echo_cc = bytes.fromhex(
+        "11 d0 00 01 00 06 00 c0 01 09 c1 02 01 00 c2 02 01 01".replace(" ", "")
+    )
+    assert codec.parse_cotp_cc(echo_cc, 0x0101) == 0x0001
+    with pytest.raises(codec.S7ProtocolError, match="回显不符"):
+        codec.parse_cotp_cc(echo_cc, 0x0102)
+    # 无参数区 CC(老 CPU 形态):宽容跳过,不拒
+    assert codec.parse_cotp_cc(_cotp_cc(), 0x0101) == 0x000A
+    # 与请求不符的 CC(echo 检查关闭)不拒——旧行为兼容
+    assert codec.parse_cotp_cc(echo_cc) == 0x0001
+
+
+def test_connect_rejects_cc_tsap_mismatch(s7: Any) -> None:
+    """会话层:CC 回显 TSAP 与请求不符 → 握手失败按断连语义。"""
+    client, fake = s7
+    bad_cc = bytes.fromhex(
+        "11 d0 00 01 00 06 00 c0 01 09 c1 02 01 00 c2 02 01 02".replace(" ", "")
+    )
+    fake.queue(_tpkt(bad_cc))
+    assert client.connect() is False
+    assert "回显不符" in client.last_error
+
+
+def test_wstring_model_gate(s7: Any) -> None:
+    """WString 仅 1200/1500:默认型号(1200)直调走通(不触网即拒前参数);
+    切 300 在线后读写均拒(参数错误约定,ValueError 直抛)。"""
+    client, fake = s7
+    client._model = S7Cpu.S7_300  # 直改型号域(免重复握手);域为构造期身份
+    _connect_ready(client, fake)
+    with pytest.raises(ValueError, match="WString 仅"):
+        client.read_wstring("DB1.DBW20")
+    with pytest.raises(ValueError, match="WString 仅"):
+        client.write_wstring("DB1.DBW20", "文本")

@@ -47,6 +47,7 @@ from ..plc.siemens.client import (
     _INT_FORMATS,
     _SIZES,
     _V_MODELS,
+    _WSTRING_MODELS,
     resolve_s7_connection,
 )
 from .base import AsyncBaseClient
@@ -148,7 +149,9 @@ class AsyncS7Session(AsyncBaseTransport):
                 )
             )
             length = codec.parse_tpkt_header(await tcp.recv(4))
-            self._dst_ref = codec.parse_cotp_cc(await tcp.recv(length - 4))
+            self._dst_ref = codec.parse_cotp_cc(
+                await tcp.recv(length - 4), self._remote_tsap
+            )
             self._sequence = 0
             sequence = self._next_sequence()
             response = await self._transact(
@@ -681,6 +684,12 @@ class AsyncSiemensS7Client(AsyncBaseClient):
         return True, str(value)
 
     async def _read_wstring_impl(self, address: str, length: int) -> PrimitiveValue:
+        if self._model not in _WSTRING_MODELS:
+            raise ValueError(
+                _(
+                    "S7 WString 仅 S7-1200/1500 支持:{!r}(其余型号无该类型,读取会解出乱码)"
+                ).format(address)
+            )
         parsed = self._parse_address(address)
         if parsed.bit is not None:
             raise ValueError(_("S7 字符串地址不带位号:{!r}").format(address))
@@ -714,6 +723,12 @@ class AsyncSiemensS7Client(AsyncBaseClient):
 
     async def _write_wstring_impl(self, address: str, value: str) -> PrimitiveValue:
         """写 S7 WString 实现(内部方法;声明长回退口径与 STRING 同款)。"""
+        if self._model not in _WSTRING_MODELS:
+            raise ValueError(
+                _(
+                    "S7 WString 仅 S7-1200/1500 支持:{!r}(其余型号无该类型,读取会解出乱码)"
+                ).format(address)
+            )
         parsed = self._parse_address(address)
         if parsed.bit is not None:
             raise ValueError(_("S7 字符串地址不带位号:{!r}").format(address))

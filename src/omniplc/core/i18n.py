@@ -1023,6 +1023,8 @@ _TRANSLATIONS: Dict[str, str] = {
     "model 必须是 S7Cpu 枚举成员,收到:{!r}": "model must be an S7Cpu enum member, got: {!r}",
     "V 区地址仅 S7-200/200 SMART 支持:{!r}(其余型号请用 DB 记号)": "V-area addresses are only supported for S7-200/200 SMART: {0!r} (use DB notation on other models)",
     "V 区地址非法:{!r}(示例:V10.3 / VB10 / VW10 / VD10 / VS20)": "Invalid V-area address: {0!r} (examples: V10.3 / VB10 / VW10 / VD10 / VS20)",
+    "COTP CC 的 Called TSAP 回显不符:期望 0x{:04X},收到 0x{:04X}": "The COTP CC Called TSAP echo mismatch: expected 0x{0:04X}, got 0x{1:04X}",
+    "S7 WString 仅 S7-1200/1500 支持:{!r}(其余型号无该类型,读取会解出乱码)": "S7 WString is only supported on S7-1200/1500: {0!r} (other models lack this type; reading it yields garbled text)",
     "S7 不支持的数据类型:{}": "Unsupported S7 data type: {}",
     "S7 位地址只能按 BOOL 读写:{!r}(数值请用字节起点地址)": "S7 bit addresses can only be read/written as BOOL: {0!r} (use a byte-start address for numeric values)",
     "S7 字符串地址不带位号:{!r}": "The S7 string address carries no bit index: {!r}",

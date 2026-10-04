@@ -200,13 +200,21 @@ def build_cotp_cr(
     return struct.pack(">B", total) + body[1:] + parameters
 
 
-def parse_cotp_cc(payload: bytes) -> int:
+def parse_cotp_cc(payload: bytes, expected_remote_tsap: Optional[int] = None) -> int:
     """校验 COTP 连接确认(CC),返回对端引用 dst_ref(帧字节 [2:4])。
 
     dst_ref 由调用方保存,close 发 COTP DR 时回填
     (connection.py L431-450/`_parse_cotp_cc` 同款取法)。
 
-    :raises S7ProtocolError: 类型非 0xD0 或帧过短
+    CC 参数区回显请求的 Called TSAP(0xC2,TLV 变长;itpub 真机抓包
+    `11 D0 00 01 00 xx 00 C0 01 09 C1 02 01 00 C2 02 01 01`——CC 侧
+    参数顺序 PDU Size 在前,不按序扫描会漏)——``expected_remote_tsap``
+    给出时逐 TLV 找 0xC2 并比对(陈旧串扰/错口应答在此拦截;漏参数的
+    老 CPU 宽容跳过)。依据:python-snap7 3.2.0 `_parse_cotp_cc`
+    (L431-450 只取 dst_ref;回显校验为本库加固,同
+    FINS 应答身份回显校验统一模式)。
+
+    :raises S7ProtocolError: 类型非 0xD0、帧过短或 TSAP 回显不符
     """
     if len(payload) < 7:
         raise S7ProtocolError(_("COTP CC 过短:实收 {} 字节").format(len(payload)))
@@ -217,6 +225,27 @@ def parse_cotp_cc(payload: bytes) -> int:
         )
     if pdu_len < 6:
         raise S7ProtocolError(_("COTP CC 头长度非法:{}").format(pdu_len))
+    if expected_remote_tsap is not None:
+        # TLV 变长扫描:code 1B + len 1B + value;CC 不回显时宽容跳过
+        # (老 CPU 可省参数区,校验只为拦错口,不为拒老设备)
+        cursor = 7
+        end = min(len(payload), pdu_len + 1)
+        while cursor + 2 <= end:
+            code = payload[cursor]
+            length = payload[cursor + 1]
+            cursor += 2
+            if cursor + length > end:
+                break
+            if code == COTP_PARAM_CALLED_TSAP and length == 2:
+                echoed = struct.unpack(">H", payload[cursor : cursor + 2])[0]
+                if echoed != (expected_remote_tsap & 0xFFFF):
+                    raise S7ProtocolError(
+                        _(
+                            "COTP CC 的 Called TSAP 回显不符:期望 0x{:04X},收到 0x{:04X}"
+                        ).format(expected_remote_tsap & 0xFFFF, echoed)
+                    )
+                break
+            cursor += length
     return struct.unpack(">H", payload[2:4])[0]
 
 

@@ -63,6 +63,11 @@ from ...core.i18n import _
 _V_MODELS: Tuple[S7Cpu, ...] = (S7Cpu.S7_200, S7Cpu.S7_200_SMART)
 """V 区记号放行的型号(经典 S7-200 与 200 SMART;V 存储器 = DB1)。"""
 
+_WSTRING_MODELS: Tuple[S7Cpu, ...] = (S7Cpu.S7_1200, S7Cpu.S7_1500)
+"""WString 放行的型号(仅 TIA 时代的 1200/1500;WString 是 TIA 类型,
+经典 300/400 与 200 系无该类型——读会按 UTF-16BE 解出乱码,写会污染
+数据,显式拒防静默错值)。"""
+
 _SIZES = {
     DataType.BOOL: 1,
     DataType.SHORT: 2,
@@ -241,7 +246,7 @@ class _S7Session(BaseTransport):
                 )
             )
             length = codec.parse_tpkt_header(tcp.recv(4))
-            self._dst_ref = codec.parse_cotp_cc(tcp.recv(length - 4))
+            self._dst_ref = codec.parse_cotp_cc(tcp.recv(length - 4), self._remote_tsap)
             self._sequence = 0
             sequence = self._next_sequence()
             response = self._transact(
@@ -790,6 +795,12 @@ class SiemensS7Client(BaseClient):
         return ok
 
     def _read_wstring_impl(self, address: str, length: int) -> PrimitiveValue:
+        if self._model not in _WSTRING_MODELS:
+            raise ValueError(
+                _(
+                    "S7 WString 仅 S7-1200/1500 支持:{!r}(其余型号无该类型,读取会解出乱码)"
+                ).format(address)
+            )
         parsed = self._parse_address(address)
         if parsed.bit is not None:
             raise ValueError(_("S7 字符串地址不带位号:{!r}").format(address))
@@ -812,6 +823,12 @@ class SiemensS7Client(BaseClient):
         声明长读得 0(未初始化区)时回写声明长 = 本次实际长——与
         STRING 同款旧版兼容口径(有意保留,review-1005 §4.2 登记)。
         """
+        if self._model not in _WSTRING_MODELS:
+            raise ValueError(
+                _(
+                    "S7 WString 仅 S7-1200/1500 支持:{!r}(其余型号无该类型,读取会解出乱码)"
+                ).format(address)
+            )
         parsed = self._parse_address(address)
         if parsed.bit is not None:
             raise ValueError(_("S7 字符串地址不带位号:{!r}").format(address))
