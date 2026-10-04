@@ -841,15 +841,25 @@ MX_DEFAULT_LOGICAL_STATION: int = 0
 MX_LOGICAL_STATION_MAX: int = 1023
 """逻辑站号上限(手册:可设置范围 0~1023)。"""
 MX_MAX_BLOCK_WORDS: int = 960
-"""单次批量读/写的字数上限(**驱动自定**保守值,防止超大块拖死 COM 调用;
-手册未给 960 的依据——`ReadDeviceRandom` 的 `lSize` 上限远大于此)。"""
+"""单次批量读/写的字数上限(驱动自定限流值)。
+
+MX 手册对批量读/写未给固定点数上限——§5.2.3 ReadDeviceBlock(印刷页 320)
+与 §5.2.4 WriteDeviceBlock(印刷页 324)的 ``lSize`` 仅约束
+「起址+点数 ≤ 最终软元件编号」,§5.2.5 ReadDeviceRandom(印刷页 328)
+的 ``lSize`` 上限为 0x7FFFFFFF 点。960 取底层 MC 通道字单位批量读/写
+协议上限(同册 Appendix 5 印刷页 466:iQ-R/iQ-L/Q/L 960 点、QnA 480 点,
+A 系 64 点;QnA/A 超限由 PLC 异常码裁决),兼防超大块拖死 COM 调用;
+与 MC 驱动自定的 MC_MAX_TRANSFER_POINTS=900(偏保守分块)各自独立。
+"""
 MX_BIT_DEVICES: Tuple[str, ...] = (
     "X", "Y", "M", "L", "S", "F", "V", "B", "SB", "DX", "DY",
     "TS", "TC", "STS", "STC", "CS", "CC", "SM",
 )
 """Q/R 系列常见位软元件表(用于区分位/字访问);表外软元件按字软元件处理。
 依据:MX Component 手册软元件表——定时器/计数器接点/线圈为 TS/TC/STS/STC/CS/CC,
-步进继电器为 S(无单独 "ST" 记号)。"""
+步进继电器为 S(无单独 "ST" 记号)。
+SD(特殊寄存器)= 字软元件(手册 §2.4 通用软元件表,印刷页 46),表外兜底
+即落字通道,口径正确;对称的 SM(特殊继电器)= 位软元件已在表内。"""
 
 # ---------------------------------------------------------------- 基恩士 KV Host Link
 KV_DEFAULT_PORT: int = 8000
