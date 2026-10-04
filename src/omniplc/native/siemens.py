@@ -675,9 +675,15 @@ class AsyncSiemensS7Client(AsyncBaseClient):
         WString 布局:声明长(2 字节,字符数)+ 实际长(2 字节)+ 字符
         (每字符 2 字节,UTF-16BE 大端)。实际长超出请求 ``length`` 时按
         ``length`` 截断返回。
+
+        :raises ValueError: 地址/长度非法(length <= 0 参数错误直抛,
+            review-1017 P2-1:曾漏守卫,length=0 静默返回空串、负值落成
+            「响应过短」误导性 DeviceError)
         """
+        if length <= 0:
+            raise ValueError(_("length 必须大于 0,收到:{}").format(length))
         ok, value = await self._execute(
-            lambda: self._read_wstring_impl(address, length)
+            lambda: self._read_wstring_impl(address, int(length))
         )
         if not ok or value is None:
             return False, None

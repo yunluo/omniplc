@@ -60,7 +60,11 @@ PDU 类型:CR=`0xE0`、CC=`0xD0`、DT=`0xF0`、DR=`0x80`。
   未实现,见 `docs/protocol/README.md` 待补表)。
 
 **CC(确认)**:固定头 7 字节 `>BBHHB`(校验 type = `0xD0`),参数区可含
-`0xC0` TPDU size(len 1 指数 或 len 2 原值)。
+`0xC0` TPDU size(len 1 指数 或 len 2 原值);真机抓包(itpub,§11)CC 亦
+回显 Calling/Called TSAP(`C1 02 …`/`C2 02 …`)与本库请求值一致——本库
+`parse_cotp_cc` 除类型/长度外自 f481f44 起支持可选 `expected_remote_tsap`
+校验 Called TSAP 回显(TLV 不按序扫描,CC 参数序 PDU Size 在前;不符拆连,
+CC 未携带该参数时宽容跳过)。
 
 **DT(数据)**:头 3 字节 `>BBB`:`0x02`、`0xF0`、`0x80`(EOT 位 + 序号 0);
 数据 = S7 PDU。应答侧校验:pdu_len == 2、type == 0xF0、序号位(`& 0x7F`)为 0。
@@ -214,8 +218,10 @@ S7 协议破解格式说明》,用户提供全文;第四方独立抓包口径,�
   0x0A(1024)**——均为合法报价、以对端 CC 确认为准,非分歧(snap7 亦
   0x0A)。CC 应答帧 `11 D0 00 01 00 06/04 00 C0 01 09 C1 02 01 00
   C2 02 01 01`:dst_ref 回显、CPU 小型号字节(1200=06/314=04/315=03)
-  原帖自注「写程序不要校验此字节」——本库 `parse_cotp_cc` 只校验类型
-  0xD0 与长度,不校验该字节,一致。
+  原帖自注「写程序不要校验此字节」——本库不校验该字节,一致;而
+  **Called TSAP 回显(C2 参数)自 f481f44 起为可校验项**
+  (`parse_cotp_cc` 的 `expected_remote_tsap`,不符拆连、缺参数宽容,
+  见 §2 CC 段)——review-1017 P3-1 订正此处滞后描述。
 - **协商(0xF0)**:原帖交互二请求 `…F0 00 00 01 00 01 07 80`(AMQ 1/1
   + PDU 0x0780=1920)与本库 `build_setup_comm` 同构(功能 0xF0/参数 8B
   /PDU 请求值可变),回复取对端确认——本库请求 480 与 1920 皆合法口径。

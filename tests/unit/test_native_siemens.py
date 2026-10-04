@@ -301,6 +301,33 @@ def test_wstring_roundtrip_parity(monkeypatch: pytest.MonkeyPatch, loop: Any) ->
     _parity_case(monkeypatch, loop, responses, sync_action, async_action)
 
 
+def test_read_wstring_length_guard_native(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """review-1017 P2-1:native read_wstring 补同步侧同款 length 守卫。
+
+    length=0 曾静默返回 (True, '')(与「未初始化空串」不可区分)、负值
+    落成「响应过短」误导性 DeviceError——现与同步逐字同构:参数错误
+    ValueError 直抛,不触网。
+    """
+    fake: Any = _FakeAsyncS7Tcp()
+    monkeypatch.setattr(
+        "omniplc.native.siemens.AsyncTcpTransport", lambda ip, port: fake
+    )
+
+    async def scenario() -> None:
+        client = AsyncSiemensS7Client("127.0.0.1", 102, rack=0, slot=1)
+        with pytest.raises(ValueError, match="length 必须大于 0"):
+            await client.read_wstring("DB1.DBW40", length=0)
+        with pytest.raises(ValueError, match="length 必须大于 0"):
+            await client.read_wstring("DB1.DBW40", length=-2)
+        # 守卫前置:未触网、未建会话
+        assert client.connected is False
+        assert not fake.sent
+
+    loop.run_until_complete(scenario())
+
+
 # ----------------------------------------------------------------------
 # 原生层专属行为
 # ----------------------------------------------------------------------
