@@ -30,6 +30,7 @@ def _make(
     results: Optional[List[List[Tuple[bool, object]]]] = None,
     on_change: bool = True,
     on_disconnect: bool = True,
+    deadband: object = 0.0,
 ):
     """搭一个最小监视器:真 ModbusTcpClient + read_many 按调用次序打桩。
 
@@ -56,6 +57,7 @@ def _make(
         interval=0.05,
         on_change=events.append if on_change else None,
         on_disconnect=(lambda: fires.append(True)) if on_disconnect else None,
+        deadband=deadband,
     )
     return monitor, client, calls, events, fires
 
@@ -248,6 +250,176 @@ def test_tagtable_scale_applied_and_identity_passthrough(monkeypatch: pytest.Mon
     assert mon.get("t1").value == pytest.approx(3.0)
     assert mon.get("t2").value == 30
     assert isinstance(mon.get("t2").value, int)
+
+
+# ----------------------------------------------------------------------
+# 死区(deadband,2026-10-03 现场调研「数据质量三害」)
+# ----------------------------------------------------------------------
+
+
+def test_construction_rejects_bad_deadband() -> None:
+    """负数/NaN/inf/bool/非数值形态/未知点位/映射值非法一律构造期拒绝。"""
+    client = _client()
+    with pytest.raises(ValueError, match="deadband"):
+        Monitor(client, {"a": ("hr0", "float")}, deadband=-0.1)
+    with pytest.raises(ValueError, match="deadband"):
+        Monitor(client, {"a": ("hr0", "float")}, deadband=float("nan"))
+    with pytest.raises(ValueError, match="deadband"):
+        Monitor(client, {"a": ("hr0", "float")}, deadband=float("inf"))
+    with pytest.raises(ValueError, match="deadband"):
+        Monitor(client, {"a": ("hr0", "float")}, deadband=True)
+    with pytest.raises(ValueError, match="deadband"):
+        Monitor(client, {"a": ("hr0", "float")}, deadband="0.5")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="未知点位"):
+        Monitor(client, {"a": ("hr0", "float")}, deadband={"b": 0.5})
+    with pytest.raises(ValueError, match="deadband"):
+        Monitor(client, {"a": ("hr0", "float")}, deadband={"a": -1})
+    with pytest.raises(ValueError, match="deadband"):
+        Monitor(client, {"a": ("hr0", "float")}, deadband={"a": True})
+
+
+def test_deadband_suppresses_jitter_snapshot_still_refreshes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """死区内抖动不发事件不计 change_events,但快照值/质量照常刷新。"""
+    mon, _, _, events, _ = _make(
+        monkeypatch,
+        points={"t": ("hr0", "float")},
+        results=[[(True, 20.0)], [(True, 20.3)], [(True, 20.4)]],
+        deadband=0.5,
+    )
+    mon._cycle()  # 首拍:INITIAL→GOOD 照发
+    assert len(events) == 1 and events[0].new == 20.0  # type: ignore[union-attr]
+    mon._cycle()  # |20.3-20.0|=0.3 压住
+    mon._cycle()  # |20.4-20.0|=0.4 压住
+    assert len(events) == 1
+    assert mon.stats["change_events"] == 1
+    snap = mon.get("t")
+    assert snap.quality is MonitorQuality.GOOD and snap.value == pytest.approx(20.4)
+
+
+def test_deadband_anchor_is_last_reported_not_previous_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """锚点 = 上次报告值(非上一拍快照):缓慢漂移累计越过死区才分段报告。
+
+    20.4→20.8 单步差 0.4 压不到锚点口径(与锚点差 0.8 超死区必须报);
+    若按"与上一拍比"实现,此漂移会永远压在死区内漏报——本用例锁死口径。
+    """
+    mon, _, _, events, _ = _make(
+        monkeypatch,
+        points={"t": ("hr0", "float")},
+        results=[[(True, 20.0)], [(True, 20.4)], [(True, 20.8)], [(True, 21.0)]],
+        deadband=0.5,
+    )
+    mon._cycle()  # 首拍 20.0,锚点=20.0
+    mon._cycle()  # 20.4:|20.4-20.0|=0.4 压住
+    mon._cycle()  # 20.8:与上一拍差 0.4 也 <0.5,但与锚点差 0.8 → 报告
+    assert len(events) == 2
+    # 事件载荷 old 仍是上一拍快照值(MonitorEvent 既有语义);锚点 20.0
+    # 只决定"是否触发",不改变载荷
+    assert events[1].old == pytest.approx(20.4) and events[1].new == pytest.approx(20.8)  # type: ignore[union-attr]
+    mon._cycle()  # 21.0:与新锚点 20.8 差 0.2 压住
+    assert len(events) == 2
+
+
+def test_deadband_per_point_mapping(monkeypatch: pytest.MonkeyPatch) -> None:
+    """映射形态逐点生效:配置了死区的点压抖动,未配置的点照常逐拍报告。"""
+    mon, _, _, events, _ = _make(
+        monkeypatch,
+        points={"a": ("hr0", "float"), "b": ("hr1", "float")},
+        results=[
+            [(True, 20.0), (True, 100.0)],
+            [(True, 20.3), (True, 100.4)],
+            [(True, 20.1), (True, 100.8)],
+        ],
+        deadband={"a": 0.5},
+    )
+    mon._cycle()  # 双首拍
+    mon._cycle()  # a 压住;b 100.4 照发
+    mon._cycle()  # a |20.1-20.0|=0.1 压住;b 100.8 照发
+    a_events = [e for e in events if e.tag_id == "a"]
+    b_events = [e for e in events if e.tag_id == "b"]
+    assert len(a_events) == 1
+    assert len(b_events) == 3
+
+
+def test_deadband_does_not_suppress_quality_crossing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """首拍与 GOOD↔STALE 质量跨界不受死区压制(掉线恢复必须能通知)。"""
+    mon, _, _, events, _ = _make(
+        monkeypatch,
+        points={"t": ("hr0", "float")},
+        results=[[(True, 20.0)], [(False, None)], [(True, 20.2)]],
+        deadband=5.0,
+    )
+    mon._cycle()  # 首拍
+    mon._cycle()  # GOOD→STALE 跨界:发(值保持旧值)
+    mon._cycle()  # STALE→GOOD 跨界:发(值 20.2 与死区无关,跨界短路在前)
+    assert len(events) == 3
+    assert events[1].quality is MonitorQuality.STALE  # type: ignore[union-attr]
+    assert events[2].quality is MonitorQuality.GOOD  # type: ignore[union-attr]
+    assert events[2].new == pytest.approx(20.2)  # type: ignore[union-attr]
+
+
+def test_deadband_skips_bool_points(monkeypatch: pytest.MonkeyPatch) -> None:
+    """bool 点不走死区(精确状态无"抖动死区"可言):变化照发。"""
+    mon, _, _, events, _ = _make(
+        monkeypatch,
+        points={"m": ("hr0", "bool")},
+        results=[[(True, False)], [(True, True)]],
+        deadband=5.0,
+    )
+    mon._cycle()
+    mon._cycle()
+    assert len(events) == 2
+
+
+def test_deadband_does_not_suppress_nan_jump(monkeypatch: pytest.MonkeyPatch) -> None:
+    """正常值 ↔ NaN 跳变不受死区压制(NaN 数学比较恒 False,天然穿透)。"""
+    mon, _, _, events, _ = _make(
+        monkeypatch,
+        points={"t": ("hr0", "float")},
+        results=[[(True, 20.0)], [(True, float("nan"))], [(True, 20.1)]],
+        deadband=5.0,
+    )
+    mon._cycle()  # 首拍 20.0
+    mon._cycle()  # → NaN:发
+    mon._cycle()  # NaN → 20.1:发
+    assert len(events) == 3
+
+
+def test_deadband_default_zero_keeps_legacy_behavior(monkeypatch: pytest.MonkeyPatch) -> None:
+    """默认 0 = 关闭:抖动逐拍报告,与无死区行为逐字节一致(回归锁)。"""
+    mon, _, _, events, _ = _make(
+        monkeypatch,
+        points={"t": ("hr0", "float")},
+        results=[[(True, 20.0)], [(True, 20.3)], [(True, 20.4)]],
+    )
+    mon._cycle()
+    mon._cycle()
+    mon._cycle()
+    assert len(events) == 3
+
+
+def test_deadband_with_tagtable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TagTable 形态 + deadband 映射同样生效(死区参数与点位形态正交)。"""
+    client = _client()
+    queue = [[(True, 200)], [(True, 203)], [(True, 204)]]
+
+    def fake(addresses: List[str], data_type: object) -> List[Tuple[bool, object]]:
+        return queue.pop(0)
+
+    monkeypatch.setattr(client, "read_many", fake)
+    table = TagTable([Tag(tag_id="t1", address="hr0", data_type="float", scale=0.1)])
+    events: List[object] = []
+    mon = Monitor(
+        client, table, interval=0.05, on_change=events.append, deadband={"t1": 0.5}
+    )
+    mon._cycle()  # 200*0.1=20.0 首拍
+    mon._cycle()  # 20.3 压住
+    mon._cycle()  # 20.4 压住
+    assert len(events) == 1
+    assert mon.get("t1").value == pytest.approx(20.4)
 
 
 # ----------------------------------------------------------------------

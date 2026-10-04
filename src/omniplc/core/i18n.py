@@ -1234,6 +1234,11 @@ _TRANSLATIONS: Dict[str, str] = {
     '点位 {!r} 的数据类型非法:{}': 'Invalid data type for point {0!r}: {1}',
     '未知点位:{!r}': 'Unknown point id: {0!r}',
     '点位 {!r} 的取值必须为 (地址, 数据类型) 二元组,收到:{!r}': 'Value of point {0!r} must be an (address, data_type) pair, got: {1!r}',
+    'deadband 必须为非负有限数值或点位映射,收到:{!r}': 'deadband must be a non-negative finite number or a point mapping, got: {0!r}',
+    'deadband 必须为非负有限数值,收到:{!r}': 'deadband must be a non-negative finite number, got: {0!r}',
+    'deadband 必须为非负有限数值或点位映射(Dict[tag_id, 死区]),收到:{}': 'deadband must be a non-negative finite number or a point mapping (Dict[tag_id, deadband]), got: {0}',
+    'deadband 引用了未知点位:{!r}': 'deadband references an unknown point id: {0!r}',
+    '点位 {!r} 的 deadband 必须为非负有限数值,收到:{!r}': 'deadband of point {0!r} must be a non-negative finite number, got: {1!r}',
     # ---- 报文黑匣子(环形缓冲留存最近报文,core/debug.py) ----
     'capacity 必须为整数,收到:{!r}': 'capacity must be an integer, got: {0!r}',
     'capacity 必须在 1~{} 之间,收到:{}': 'capacity must be between 1 and {0}, got: {1}',

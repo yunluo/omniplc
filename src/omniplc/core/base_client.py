@@ -1013,15 +1013,19 @@ class BaseClient(ABC):
         interval: float = 1.0,
         on_change: Optional[Callable[[MonitorEvent], None]] = None,
         on_disconnect: Optional[Callable[[], None]] = None,
+        deadband: Union[float, int, Mapping[str, float]] = 0.0,
     ) -> Monitor:
         """在本客户端下建监视器(周期轮询采集;**默认不启动**,须显式 ``start()``)。
 
-        语义口径(质量三态/变更事件/共享账/退避联动/生命周期)详见
+        语义口径(质量三态/变更事件/死区/共享账/退避联动/生命周期)详见
         :class:`~omniplc.core.monitor.Monitor`。要点:
 
         - ``points``:``Dict[tag_id, (地址, 数据类型)]`` 或
           :class:`~omniplc.core.tag.TagTable`(``scale``/``offset`` 与
           :meth:`read_tag` 同口径);STRING 类型构造期拒绝;
+        - ``deadband``:值变化死区(数值 = 全点统一,``Dict[tag_id, 死区]`` =
+          逐点指定,0 = 关闭)——浮点传感器抖动逐周期误发 ``on_change`` 的
+          解药,死区内快照照常刷新仅压事件;
         - 快照读 :meth:`~omniplc.core.monitor.Monitor.get` 纯本地,不发报文;
         - 监视器周期与业务**共享同一本客户端账**(周期失败照常写
           ``last_error``/``error_count``),混用时业务侧错误文本会被采集
@@ -1033,10 +1037,18 @@ class BaseClient(ABC):
         :param on_change: 数据变更回调(收 :class:`~omniplc.core.monitor.MonitorEvent`,
             监视器线程执行)
         :param on_disconnect: 采集失败期开始回调(监视器线程执行)
-        :raises ValueError: points/interval/回调参数非法
+        :param deadband: 值变化死区(0 = 关闭,口径见上)
+        :raises ValueError: points/interval/回调/deadband 参数非法
         :return: 未启动的 :class:`~omniplc.core.monitor.Monitor` 实例
         """
-        monitor = Monitor(self, points, interval=interval, on_change=on_change, on_disconnect=on_disconnect)
+        monitor = Monitor(
+            self,
+            points,
+            interval=interval,
+            on_change=on_change,
+            on_disconnect=on_disconnect,
+            deadband=deadband,
+        )
         return monitor
 
     def _register_monitor(self, monitor: Monitor) -> None:

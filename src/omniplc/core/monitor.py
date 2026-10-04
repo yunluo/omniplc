@@ -31,6 +31,11 @@
   (双 ``NaN`` 视为未变,防浮点 NaN 逐周期误报)或质量跨越 GOOD↔非GOOD
   边界(掉线恢复也能通知);首轮成功(INITIAL→GOOD)触发一次,
   ``old=None`` 表示首拍无旧值;
+- **死区(deadband)**:数值点可配 ``deadband``(数值 = 全点统一,映射
+  ``Dict[tag_id, 死区]`` = 逐点指定,0 = 关闭)——新值与**该点上次报告
+  值**的绝对差小于死区视为未变(OPC-UA DataChangeFilter 同款锚点口径,
+  不与上一拍比,防"单步差永远压线、漂移累计漏报"),死区内快照照常
+  刷新仅压事件;首拍/质量跨界/bool/NaN 跳变不受压制;
 - **事件次序**:周期末**先整体替换快照、再发事件**——回调里
   :meth:`Monitor.get` 看到的就是新值;
 - **断连事件**:``on_disconnect`` 在"采集失败期"开始时触发(整周期无一点
@@ -175,6 +180,7 @@ class _Point(NamedTuple):
     data_type: DataType
     scale: float
     offset: float
+    deadband: float
 
 
 class Monitor:
@@ -194,7 +200,11 @@ class Monitor:
     :param on_change: 数据变更回调(收 :class:`MonitorEvent`,监视器线程执行,
         异常吞掉计数)
     :param on_disconnect: 采集失败期开始回调(无参,监视器线程执行,异常吞掉计数)
-    :raises ValueError: points/interval/回调参数非法
+    :param deadband: 值变化死区(2026-10-03 现场调研「数据质量三害」):数值 =
+        全部数值点统一死区;映射 ``Dict[tag_id, 死区]`` = 逐点指定,未列出的
+        点不启用;0(默认)= 关闭。死区口径见模块 docstring「死区」条;
+        非负有限数构造期校验,未知 ``tag_id`` 拒绝
+    :raises ValueError: points/interval/回调/deadband 参数非法
     """
 
     _INTERVAL_MIN = 0.05
@@ -207,6 +217,7 @@ class Monitor:
         interval: float = 1.0,
         on_change: Optional[Callable[[MonitorEvent], None]] = None,
         on_disconnect: Optional[Callable[[], None]] = None,
+        deadband: Union[float, int, Mapping[str, float]] = 0.0,
     ) -> None:
         if not isinstance(points, Mapping):
             raise ValueError(
@@ -233,7 +244,7 @@ class Monitor:
         self._points: Dict[str, _Point] = {}
         if isinstance(points, TagTable):
             for tag_id, tag in points.items():
-                self._add_point(tag_id, tag.address, tag.data_type, tag.scale, tag.offset)
+                self._add_point(tag_id, tag.address, tag.data_type, tag.scale, tag.offset, 0.0)
         else:
             for tag_id, spec in points.items():
                 if not isinstance(spec, (tuple, list)) or len(spec) != 2:
@@ -241,7 +252,8 @@ class Monitor:
                         _("点位 {!r} 的取值必须为 (地址, 数据类型) 二元组,收到:{!r}").format(tag_id, spec)
                     )
                 address, data_type = spec
-                self._add_point(tag_id, address, data_type, 1.0, 0.0)
+                self._add_point(tag_id, address, data_type, 1.0, 0.0, 0.0)
+        self._apply_deadband(deadband)
 
         # 按数据类型分组(保持首次出现序):一组一次 read_many,
         # 逐点容错语义由 read_many 契约保证
@@ -258,6 +270,10 @@ class Monitor:
         self._snap: Dict[str, PointSnapshot] = {
             tag_id: PointSnapshot(MonitorQuality.INITIAL, None, None) for tag_id in self._points
         }
+        # 死区锚点 = 该点"上次报告值"(最近一次事件里的 new 值):死区判定
+        # 与它比而非与上一拍快照比——否则缓慢漂移的单步差永远压在死区内,
+        # 值漂到天边也不响(OPC-UA DataChangeFilter「与上次发送值比」同款口径)
+        self._anchors: Dict[str, Optional[PrimitiveValue]] = {tag_id: None for tag_id in self._points}
         self._counters: Dict[str, int] = {
             "cycle_count": 0,
             "fail_count": 0,
@@ -280,7 +296,8 @@ class Monitor:
     # ------------------------------------------------------------------
 
     def _add_point(
-        self, tag_id: str, address: str, data_type: Union[str, DataType], scale: float, offset: float
+        self, tag_id: str, address: str, data_type: Union[str, DataType], scale: float, offset: float,
+        deadband: float,
     ) -> None:
         """校验一个点位并写入内部字典(内部方法,仅构造期调用)。"""
         if not isinstance(tag_id, str) or not tag_id:
@@ -300,7 +317,44 @@ class Monitor:
                     tag_id
                 )
             )
-        self._points[tag_id] = _Point(tag_id, address, dtype, float(scale), float(offset))
+        self._points[tag_id] = _Point(tag_id, address, dtype, float(scale), float(offset), deadband)
+
+    def _apply_deadband(self, deadband: Union[float, int, Mapping[str, float]]) -> None:
+        """校验 deadband 参数并回填到各点(内部方法,仅构造期调用)。
+
+        数值形态 = 全点统一死区;映射形态 = 按 ``tag_id`` 逐点指定,未列出
+        的点不启用。0 表示关闭(默认,行为与无死区逐字节一致);负数/
+        NaN/inf 一律构造期拒绝。
+        """
+        if isinstance(deadband, bool):
+            raise ValueError(_("deadband 必须为非负有限数值或点位映射,收到:{!r}").format(deadband))
+        if isinstance(deadband, (int, float)):
+            if not math.isfinite(deadband) or deadband < 0:
+                raise ValueError(_("deadband 必须为非负有限数值,收到:{!r}").format(deadband))
+            value = float(deadband)
+            self._points = {
+                tag_id: point._replace(deadband=value)
+                for tag_id, point in self._points.items()
+            }
+            return
+        if not isinstance(deadband, Mapping):
+            raise ValueError(
+                _("deadband 必须为非负有限数值或点位映射(Dict[tag_id, 死区]),收到:{}").format(
+                    type(deadband).__name__
+                )
+            )
+        for tag_id, value in deadband.items():
+            if tag_id not in self._points:
+                raise ValueError(_("deadband 引用了未知点位:{!r}").format(tag_id))
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(
+                    _("点位 {!r} 的 deadband 必须为非负有限数值,收到:{!r}").format(tag_id, value)
+                )
+            if not math.isfinite(value) or value < 0:
+                raise ValueError(
+                    _("点位 {!r} 的 deadband 必须为非负有限数值,收到:{!r}").format(tag_id, value)
+                )
+            self._points[tag_id] = self._points[tag_id]._replace(deadband=float(value))
 
     # ------------------------------------------------------------------
     # 只读属性
@@ -510,8 +564,10 @@ class Monitor:
                 updated = previous.updated_at
             snapshot = PointSnapshot(quality, value, updated)
             new_snap[tag_id] = snapshot
-            if self._changed(previous, snapshot):
+            if self._changed(point, previous, snapshot, self._anchors[tag_id]):
                 events.append(MonitorEvent(tag_id, previous.value, value, quality, updated))
+                # 锚点 = 上次事件的 new 值(含质量跨界事件):判定、报告同一值源
+                self._anchors[tag_id] = value
         self._snap = new_snap
         for event in events:
             self._counters["change_events"] += 1
@@ -527,15 +583,44 @@ class Monitor:
         """
         return bool(ok) and value is not None
 
-    @staticmethod
-    def _changed(previous: PointSnapshot, current: PointSnapshot) -> bool:
-        """变更判定:值变化(双 NaN 视为未变)或质量跨越 GOOD↔非GOOD 边界。"""
+    def _changed(
+        self,
+        point: _Point,
+        previous: PointSnapshot,
+        current: PointSnapshot,
+        anchor: Optional[PrimitiveValue],
+    ) -> bool:
+        """变更判定(内部方法):质量跨越 GOOD↔非GOOD 边界,或值越过死区。
+
+        死区口径(OPC-UA DataChangeFilter「与上次发送值比」同款):数值点
+        且 ``deadband > 0`` 时,新值与**锚点**(该点上次报告值)的绝对差
+        小于死区视为未变——不与上一拍快照比,否则缓慢漂移的单步差永远
+        压在死区内,值漂走也不响;死区内**快照照常刷新**,仅压制事件。
+        首拍(锚点 None/旧值 None)、质量跨界、bool 点与 NaN 跳变不受
+        死区压制。
+        """
         if (previous.quality is MonitorQuality.GOOD) != (current.quality is MonitorQuality.GOOD):
             return True
         old, new = previous.value, current.value
         if isinstance(old, float) and isinstance(new, float) and math.isnan(old) and math.isnan(new):
             return False
-        return old != new
+        if old == new:
+            return False
+        if (
+            point.deadband > 0.0
+            and isinstance(old, (int, float))
+            and not isinstance(old, bool)
+            and isinstance(new, (int, float))
+            and not isinstance(new, bool)
+        ):
+            # bool 是精确状态不走死区;锚点(上次报告值)同样须为非 bool
+            # 数值才参与比较(isinstance 内联收窄,助手谓词 mypy 不认)
+            base: Union[int, float] = old
+            if isinstance(anchor, (int, float)) and not isinstance(anchor, bool):
+                base = anchor
+            if abs(new - base) < point.deadband:
+                return False
+        return True
 
     def _apply_scale(self, point: _Point, value: PrimitiveValue) -> PrimitiveValue:
         """缩放口径与客户端 :meth:`~BaseClient.read_tag` 对齐(恒等直通保精度)。"""
