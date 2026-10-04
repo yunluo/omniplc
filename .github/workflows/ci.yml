@@ -14,6 +14,12 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  schedule:
+    # 每周一 UTC 01:07(北京时间 09:07)定期空跑 master:门禁里 ruff/mypy/ty 走
+    # uvx 不钉版本,工具链升级哪天打破检查只会在下一次 PR 才暴露,定期跑提前
+    # 暴露(pymodbus / CodeQL 同款常态)。GitHub 定时触发只认默认分支(master)。
+    - cron: '7 1 * * 1'
+  workflow_dispatch: # 允许 Actions 页手动触发(改工作流后不推提交即可验证)
 
 concurrency:
   group: ci-${{ github.ref }}
