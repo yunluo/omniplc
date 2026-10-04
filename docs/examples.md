@@ -156,7 +156,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-包装层 30 客户端全镜像(`omniplc.aio`);原生层已覆盖 Modbus TCP、
+包装层 31 客户端全镜像(`omniplc.aio`);原生层已覆盖 Modbus TCP、
 MC 3E(TCP/UDP)、FINS(TCP/UDP)、汇川两走线、西门子 S7(会话型,
 `omniplc.native`,不进根包 `__all__`);两层差异与取舍见
 [async.md](async.md)。

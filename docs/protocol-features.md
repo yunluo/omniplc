@@ -79,6 +79,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 | 西门子 S7 | SZL 0x0424 读(自研栈) | 另公开 `get_cpu_state()`(枚举名透传,RUN/STOP);状态字节偏移待真机核证 |
 | OPC-UA | 读 `i=2258` Server 当前时间 | 0 命名空间标准变量(asyncua `nodes.current_time` 同款);顺带抑制空闲会话回收 |
 | MTConnect | GET `/probe` | Part1 §8.3.1 p.98-100 |
+| 发那科 FOCAS | `cnc_statinfo2` 状态读(零副作用) | 另公开 `read_status()`(13 位命名展开);fwlib32.h L2928-2942/L12146 |
 | 海康 Modbus 模式 | FC03 读状态字 REG1 | 工业协议手册 V1.0.4 §3.5;不触发扫描握手 |
 | 海康 TCP 命令 | `<Get,Acq>` 采集状态查询 | 通信指令手册 V1.0.3 §3;命令通道探活 |
 | 三菱 MX(COM) | 有意不做 | COM 套间亲和 + GetCpuType 高位 0 出错码盲区(第八轮 P1-2) |
@@ -510,6 +511,27 @@ start/stop,印刷页 45-47)+ §4.7.3 串口通讯协议(印刷页 52)+《极小�
 | CPU 控制(RUN/STOP)/ 时钟 / 组态 | ❌ | 未实现(运维/控制面,与 MC/MX 同口径) |
 | S7-1200/1500 优化 DB | ➖ | 经典 S7comm 协议边界(优化块需符号访问);DB 访问失败的错误消息已带指引 |
 | 依赖 | ✅ | **核心零第三方依赖**(v0.53 自研栈直接替换 python-snap7 双轨线);帧面依据 python-snap7 3.2.0 逐字节比对(docs/protocol/siemens/s7comm/);**真机核证待做**(P5:与 python-snap7 独立脚本对拍) |
+
+---
+
+## 19. 发那科 FOCAS(fwlib32.dll ctypes 封装,首批只读)
+
+客户端:`FanucFocasClient`(aio 镜像 `AFanucFocasClient`);依据档案
+`docs/protocol/fanuc/`(`fwlib32.h` 主源 + README 帧面档案)。
+
+| 功能 | 状态 | 备注 |
+|---|---|---|
+| 连接生命周期 | ✅ | `cnc_allclibhndl3`(TCP/IP 8193,机床内嵌口)→ `cnc_rdcncid` 身份确认 → `cnc_freelibhndl`;`cnc_settimeout` 下发 receive_timeout(建连后随时可改) |
+| CNC 系统信息 `read_sysinfo` | ✅ | `cnc_sysinfo`/ODBSYS:类型/系列/版本/轴数/addinfo |
+| 实时状态 `read_dynamic(axis)` | ✅ | `cnc_rddynamic2`/ODBDY2:报警号/程序号/主程序号/序列号/进给/主轴 + 绝对·机械·相对·剩余四组坐标(ALL_AXES 按轴列表,单轴标量);只绑 ODBDY2,short 版 ODBDY 不绑防系列布局混用 |
+| CNC 状态位 `read_status` | ✅ | `cnc_statinfo2`/ODBST2(无条件编译,13 short):模式/运行/移动/MSTB/急停/报警/编辑/警告/干涉检查/再启动;**兼探活命令**(`_has_ping=True`,心跳可用) |
+| 通用地址读写 | ❌ | 结构化数采面(与 MTConnect 同口径):`_read`/`_write` 显式 DeviceError 拒绝 |
+| 程序号细粒度 `cnc_rdprgnum` | ❌ | 二批候选(rddynamic2 已含程序号);FOCAS 库手册页码级依据待官方包 |
+| 轴数据选择器 `cnc_rdaxisdata` | ❌ | 二批候选(ODBAXDT,选择器复杂);64 位版 ODBAXDT64 同批评估 |
+| PMC 族 / 参数族 / 程序族 / 诊断族 | ❌ | 二批以后;参数写面需官方手册页码级依据(铁律) |
+| 写面 | ❌ | 数采只读口径(与 MTConnect 同域);FOCAS 写函数一律不做 |
+| 平台 | ➖ | **仅 Windows**(WinDLL/__stdcall);Linux .so 留后续(加载期显式报不支持);HSSB 走线与系列限定 DLL 构建不支持(Ethernet 通用 DLL 口径,系列宏全不定义,MAX_AXIS=32) |
+| 依赖 | ✅ | ctypes 直调**无 Python 侧依赖**(不加 extra,海康 SDK 同款);fwlib32.dll 运行库现场自备(`sdk_dir`/`dll_path` 二选一);头文件主源 = strangesast/fwlib 社区仓库(**与官方 Development 包 diff 待做**);真机核证待做(0i 系,真机清单六项) |
 
 ---
 
