@@ -443,6 +443,28 @@ def test_deadband_with_tagtable(monkeypatch: pytest.MonkeyPatch) -> None:
     assert mon.get("t1").value == pytest.approx(20.4)
 
 
+def test_aio_create_monitor_forwards_deadband(monkeypatch: pytest.MonkeyPatch) -> None:
+    """aio 镜像 create_monitor 透传 deadband(异步面死区可用性守卫)。
+
+    回归:deadband 落地时 ABaseClient.create_monitor 为固定签名,未透传
+    新参数——aio 面传 deadband 会 TypeError(能力在异步面不可达,与
+    v0.41.0 xy_octal 构造缺口同型)。
+    """
+    import inspect
+
+    from omniplc.aio import AModbusTcpClient
+
+    sig = inspect.signature(AModbusTcpClient.create_monitor)
+    assert "deadband" in sig.parameters
+    assert sig.parameters["deadband"].default == 0.0
+
+    aclient = AModbusTcpClient("127.0.0.1", 502, 1)
+    sync = aclient._sync
+    monkeypatch.setattr(sync, "read_many", lambda addresses, t: [(True, 20)])
+    mon = aclient.create_monitor({"a": ("hr0", "float")}, interval=0.05, deadband=0.5)
+    assert mon._points["a"].deadband == 0.5
+
+
 # ----------------------------------------------------------------------
 # 失败期(on_disconnect)与共享账
 # ----------------------------------------------------------------------

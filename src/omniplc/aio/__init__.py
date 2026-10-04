@@ -523,15 +523,20 @@ class ABaseClient:
         interval: float = 1.0,
         on_change: Optional[Callable[[MonitorEvent], None]] = None,
         on_disconnect: Optional[Callable[[], None]] = None,
+        deadband: Union[float, int, Mapping[str, float]] = 0.0,
     ) -> Monitor:
         """在同步孪生下建监视器(与同步版共用,**默认不启动**)。
 
         监视器驱动同步孪生实例(``_sync``),与本 A 客户端的调用共享同一把
         事务锁(采集周期与异步调用串行);回调仍在监视器线程执行。
-        语义口径见 :class:`~omniplc.core.monitor.Monitor`。
+        ``deadband`` 值变化死区口径见 :class:`~omniplc.core.monitor.Monitor`。
         """
         return self._sync.create_monitor(
-            points, interval=interval, on_change=on_change, on_disconnect=on_disconnect
+            points,
+            interval=interval,
+            on_change=on_change,
+            on_disconnect=on_disconnect,
+            deadband=deadband,
         )
 
     async def read_tag(
