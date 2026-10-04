@@ -168,15 +168,22 @@ def parse_tpkt_header(header: bytes) -> int:
     return length
 
 
-def build_cotp_cr(remote_tsap: int) -> bytes:
+def build_cotp_cr(
+    remote_tsap: int,
+    local_tsap: int = LOCAL_TSAP,
+    tpdu_size_code: int = TPDU_SIZE_CODE,
+) -> bytes:
     """构造 COTP 连接请求(CR)。
 
-    参数 = Calling TSAP(0xC1,本地 0x0100)+ Called TSAP(0xC2,远端)+
-    PDU Size(0xC0,指数)。远端 TSAP = ``(连接类型 << 8) | (rack << 5) | slot``
-    由调用方算好传入。
+    参数 = Calling TSAP(0xC1,本端)+ Called TSAP(0xC2,远端)+
+    PDU Size(0xC0,指数)。远端 TSAP 缺省 ``= ``(连接类型 << 8) |
+    (rack << 5) | slot`` 由调用方算好传入;本端 TSAP 与 TPDU 尺寸按
+    CPU 型号预设(S7-200 SMART 本端 0x1000、S7-200/CP243 TPDU 0x09,
+    见 :data:`~omniplc.core.constants.S7_CPU_PRESETS`)。
 
     依据:python-snap7 3.2.0 connection.py `_build_cotp_cr`(L293-339);
-    TSAP 编码 `client.py::Client.connect`(L621)。
+    TSAP 编码 `client.py::Client.connect`(L621);SMART/CP243 变体
+    IoTClient SiemensConstant.cs `Command1_200Smart`/`Command1_200`。
     """
     body = struct.pack(
         ">BBHHB",
@@ -186,9 +193,9 @@ def build_cotp_cr(remote_tsap: int) -> bytes:
         SRC_REFERENCE,
         0x00,  # 类别 0
     )
-    parameters = struct.pack(">BBH", COTP_PARAM_CALLING_TSAP, 2, LOCAL_TSAP)
+    parameters = struct.pack(">BBH", COTP_PARAM_CALLING_TSAP, 2, local_tsap)
     parameters += struct.pack(">BBH", COTP_PARAM_CALLED_TSAP, 2, remote_tsap)
-    parameters += struct.pack(">BBB", COTP_PARAM_PDU_SIZE, 1, TPDU_SIZE_CODE)
+    parameters += struct.pack(">BBB", COTP_PARAM_PDU_SIZE, 1, tpdu_size_code)
     total = 6 + len(parameters)
     return struct.pack(">B", total) + body[1:] + parameters
 

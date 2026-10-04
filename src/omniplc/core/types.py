@@ -130,3 +130,27 @@ class McFrame(Enum):
     FRAME_3C = "3C"
     FRAME_4C = "4C"
     FRAME_1C = "1C"
+
+
+class S7Cpu(Enum):
+    """西门子 S7 CPU 型号(客户端构造参数,对标三菱 MC 的 :class:`McFrame` 形态)。
+
+    型号驱动连接预设(本端 TSAP / 连接类型 / 缺省 rack·slot / TPDU 尺寸),
+    预设表见 :data:`~omniplc.core.constants.S7_CPU_PRESETS`;rack/slot 可在
+    构造时显式覆写。
+
+    - ``S7_300``/``S7_400``:经典机架型(CPU 惯例槽位 2)
+    - ``S7_1200``/``S7_1500``:紧凑型(槽位 1;须开启 PUT/GET 授权、DB 非优化块)
+    - ``S7_200_SMART``:连接走 S7 基本资源类型(远端 TSAP 0x0300 口径),
+      V 区经 ``V`` 地址记号访问(=DB1)
+    - ``S7_200``:经典 S7-200 **无内置以太网**,仅适用经 CP243-1 以太网模块
+      的 S7comm 接入(两侧 TSAP = "MW" 记号);无模块请走串口 PPI(未实现,
+      见 README 的 Modbus 从站库替代路径)
+    """
+
+    S7_200 = "200"
+    S7_200_SMART = "200Smart"
+    S7_300 = "300"
+    S7_400 = "400"
+    S7_1200 = "1200"
+    S7_1500 = "1500"

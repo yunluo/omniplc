@@ -80,7 +80,7 @@ from .core.monitor import (
     PointSnapshot,
 )
 from .core.tag import Tag, TagTable
-from .core.types import ByteOrder, DataType, McFrame, SerialParity, WordOrder
+from .core.types import ByteOrder, DataType, McFrame, S7Cpu, SerialParity, WordOrder
 from .cnc import MTConnectClient
 from .plc.modbus import ModbusArea, ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from .plc.opcua import OpcUaClient, OpcUaSubscription
@@ -208,6 +208,7 @@ __all__ = [
     "ByteOrder",
     "SerialParity",
     "McFrame",
+    "S7Cpu",
     "ModbusArea",
     # ---- 错误分类 ----
     "ErrorCategory",

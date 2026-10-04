@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, List
 
 import pytest
 
-from omniplc import SiemensS7Client
+from omniplc import S7Cpu, SiemensS7Client
 from omniplc.native import AsyncSiemensS7Client
 from test_siemens_s7_clients import (
     _FakeS7Tcp,
@@ -52,9 +52,16 @@ def loop(request: pytest.FixtureRequest) -> Any:
     event_loop.close()
 
 
-def _drive_sync(monkeypatch: pytest.MonkeyPatch, responses: List[bytes]) -> Any:
-    """同步侧:挂假 TCP → 喂握手应答 → connect(返回 (client, fake))。"""
-    client = SiemensS7Client("127.0.0.1", 102, 0, 1)
+def _drive_sync(
+    monkeypatch: pytest.MonkeyPatch,
+    responses: List[bytes],
+    model: Any = S7Cpu.S7_1200,
+) -> Any:
+    """同步侧:挂假 TCP → 喂握手应答 → connect(返回 (client, fake))。
+
+    rack/slot 不传,走型号预设(S7-1200 = 0/1,与历史帧面一致)。
+    """
+    client = SiemensS7Client("127.0.0.1", 102, model=model)
     fake: Any = _FakeS7Tcp("127.0.0.1", 102)
     monkeypatch.setattr(
         "omniplc.plc.siemens.client.TcpTransport", lambda ip, port: fake
@@ -72,12 +79,13 @@ def _async_parity(
     monkeypatch: pytest.MonkeyPatch,
     responses: List[bytes],
     async_action: Callable[[Any], Any],
+    model: Any = S7Cpu.S7_1200,
 ) -> Dict[str, Any]:
     """异步侧:挂假 TCP → 喂握手应答 → connect → await 动作 → 收集现场。"""
     holder: Dict[str, Any] = {}
 
     async def scenario() -> None:
-        client = AsyncSiemensS7Client("127.0.0.1", 102, 0, 1)
+        client = AsyncSiemensS7Client("127.0.0.1", 102, model=model)
         fake = _FakeAsyncS7Tcp()
         monkeypatch.setattr(
             "omniplc.native.siemens.AsyncTcpTransport", lambda ip, port: fake
@@ -173,6 +181,22 @@ def test_handshake_parity(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
     assert b"\xc2\x02\x01\x01" in holder["sent"]
     assert b"\xf0\x00\x00\x01\x00\x01\x01\xe0" in holder["sent"]
     assert sync_pdu == 480
+
+
+def test_handshake_parity_smart_model(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """200 SMART 型号对拍:两侧连接帧逐字节一致(本端 0x1000/远端 0x0300)。"""
+    sync_client, sync_fake = _drive_sync(monkeypatch, [], model=S7Cpu.S7_200_SMART)
+    sync_sent = bytes(sync_fake.sent)
+    sync_client.disconnect()
+
+    holder = _async_parity(
+        loop, monkeypatch, [], lambda _client: None, model=S7Cpu.S7_200_SMART
+    )
+    assert holder["sent"] == sync_sent
+    # 与 IoTClient Command1_200Smart COTP 段逐字节同口径
+    assert b"\xc1\x02\x10\x00\xc2\x02\x03\x00" in holder["sent"]
 
 
 def test_read_float_parity(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
@@ -287,7 +311,7 @@ def test_native_disconnect_sends_dr(monkeypatch: pytest.MonkeyPatch, loop: Any) 
     holder: Dict[str, Any] = {}
 
     async def scenario() -> None:
-        client = AsyncSiemensS7Client("127.0.0.1", 102, 0, 1)
+        client = AsyncSiemensS7Client("127.0.0.1", 102, rack=0, slot=1)
         fake = _FakeAsyncS7Tcp()
         monkeypatch.setattr(
             "omniplc.native.siemens.AsyncTcpTransport", lambda ip, port: fake
@@ -314,7 +338,7 @@ def test_native_connect_timeout_flows(
     holder: Dict[str, Any] = {}
 
     async def scenario() -> None:
-        client = AsyncSiemensS7Client("127.0.0.1", 102, 0, 1)
+        client = AsyncSiemensS7Client("127.0.0.1", 102, rack=0, slot=1)
         client.connect_timeout = 2.0
         fake = _FakeAsyncS7Tcp()
         monkeypatch.setattr(
@@ -336,7 +360,7 @@ def test_native_receive_timeout_flows(
     holder: Dict[str, Any] = {}
 
     async def scenario() -> None:
-        client = AsyncSiemensS7Client("127.0.0.1", 102, 0, 1)
+        client = AsyncSiemensS7Client("127.0.0.1", 102, rack=0, slot=1)
         client.receive_timeout = 2.5
         fake = _FakeAsyncS7Tcp()
         monkeypatch.setattr(
@@ -359,7 +383,7 @@ def test_native_lazy_reconnect(monkeypatch: pytest.MonkeyPatch, loop: Any) -> No
     holder: Dict[str, Any] = {}
 
     async def scenario() -> None:
-        client = AsyncSiemensS7Client("127.0.0.1", 102, 0, 1)
+        client = AsyncSiemensS7Client("127.0.0.1", 102, rack=0, slot=1)
         client.reconnect_backoff = False
         fake = _FakeAsyncS7Tcp()
         monkeypatch.setattr(

@@ -72,8 +72,6 @@ from ..core.constants import (
     OPCUA_DEFAULT_SAMPLING_INTERVAL_MS,
     MTCONNECT_DEFAULT_PORT,
     S7_DEFAULT_PORT,
-    S7_DEFAULT_RACK,
-    S7_DEFAULT_SLOT,
     S7_WSTRING_DEFAULT_LENGTH,
     PANASONIC_MC_DEFAULT_PORT,
     READ_STRING_DEFAULT_LENGTH,
@@ -135,6 +133,7 @@ from ..core.types import (
     McFrame,
     PrimitiveValue,
     SerialParity,
+    S7Cpu,
     WordOrder,
 )
 from ..core.i18n import _
@@ -2383,7 +2382,7 @@ class AAllenBradleyEthIpClient(ABaseClient):
 
 
 class ASiemensS7Client(ABaseClient):
-    """西门子 S7 异步客户端(自研 S7comm 栈,DB/I/Q/M 绝对寻址)。
+    """西门子 S7 异步客户端(自研 S7comm 栈,型号参数化,DB/I/Q/M 与 V 区记号)。
 
     .. note:: v0.52.x 的 ``dll_path`` 参数已随 python-snap7 依赖退役移除。
     """
@@ -2392,22 +2391,32 @@ class ASiemensS7Client(ABaseClient):
         self,
         ip_address: str = "192.168.0.1",
         port: int = S7_DEFAULT_PORT,
-        rack: int = S7_DEFAULT_RACK,
-        slot: int = S7_DEFAULT_SLOT,
+        model: S7Cpu = S7Cpu.S7_1200,
+        rack: Optional[int] = None,
+        slot: Optional[int] = None,
     ) -> None:
-        """初始化 S7 异步客户端。
+        """初始化 S7 异步客户端(签名与同步侧一致)。
 
         :param ip_address: PLC 的 IP 或主机名
         :param port: ISO-on-TCP 端口,标准 102
-        :param rack: 机架号,S7_DEFAULT_RACK(0)
-        :param slot: 槽位号,1200/1500 常用 1;300/400 的 CPU 常在 2
+        :param model: CPU 型号(:class:`~omniplc.core.types.S7Cpu`,缺省
+            S7-1200;型号驱动连接预设,语义同同步侧)
+        :param rack: 机架号,缺省用型号预设;显式给出则覆写
+        :param slot: 槽位号,缺省用型号预设;显式给出则覆写
         :raises ValueError: 参数非法
         """
-        super().__init__(SiemensS7Client(ip_address, port, rack, slot))
+        super().__init__(
+            SiemensS7Client(ip_address, port, model=model, rack=rack, slot=slot)
+        )
 
     def _client(self) -> SiemensS7Client:
         """取 S7 同步实例(内部属性)。"""
         return self._typed(SiemensS7Client)
+
+    @property
+    def model(self) -> S7Cpu:
+        """CPU 型号(转发同步实例)。"""
+        return self._client().model
 
     @property
     def rack(self) -> int:

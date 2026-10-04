@@ -27,21 +27,28 @@ from ..core import convert
 from ..core.base_client import DEFAULT_STRING_ENCODING, validate_endpoint
 from ..core.constants import (
     S7_DEFAULT_PORT,
-    S7_DEFAULT_RACK,
-    S7_DEFAULT_SLOT,
     S7_MAX_MULTI_VARS,
-    S7_RACK_MAX,
-    S7_SLOT_MAX,
     S7_WSTRING_DEFAULT_LENGTH,
 )
 from ..core.debug import log_op
 from ..core.errors import DeviceError, TransportClosedError
 from ..core.i18n import _
-from ..core.types import DataType, PrimitiveValue
+from ..core.types import DataType, PrimitiveValue, S7Cpu
 from ..core.validation import require_bool, require_float, require_int
 from ..plc.siemens import codec
-from ..plc.siemens.address import area_code, parse_s7_address
-from ..plc.siemens.client import _CPU_STATUS_NAMES, _INT_FORMATS, _SIZES
+from ..plc.siemens.address import (
+    S7Address,
+    area_code,
+    parse_s7_address,
+    translate_v_address,
+)
+from ..plc.siemens.client import (
+    _CPU_STATUS_NAMES,
+    _INT_FORMATS,
+    _SIZES,
+    _V_MODELS,
+    resolve_s7_connection,
+)
 from .base import AsyncBaseClient
 from .transport import AsyncBaseTransport, AsyncTcpTransport
 
@@ -58,22 +65,35 @@ class AsyncS7Session(AsyncBaseTransport):
     ``receive_timeout`` 已连接时立即下发到底层 TCP 传输(与同步同口径)。
     """
 
-    def __init__(self, ip_address: str, rack: int, slot: int, port: int) -> None:
-        """初始化 S7 会话。
+    def __init__(
+        self,
+        ip_address: str,
+        port: int,
+        local_tsap: int,
+        remote_tsap: int,
+        tpdu_size_code: int,
+        rack: int,
+        slot: int,
+    ) -> None:
+        """初始化 S7 会话(与同步 ``_S7Session`` 同签名同语义)。
 
         :param ip_address: PLC 的 IP 或主机名
-        :param rack: 机架号
-        :param slot: 槽位号
         :param port: ISO-on-TCP 端口,标准 102
+        :param local_tsap: 本端(Calling)TSAP(型号预设,见 S7_CPU_PRESETS)
+        :param remote_tsap: 远端(Called)TSAP(由 :func:`resolve_s7_connection`
+            按型号预设 + rack/slot 解析)
+        :param tpdu_size_code: CR 的 TPDU 尺寸指数(0x0A=1024,CP243 口径 0x09)
+        :param rack: 机架号(仅用于调试标签)
+        :param slot: 槽位号(仅用于调试标签)
         """
         super().__init__()
         self._ip_address = ip_address
+        self._port = port
+        self._local_tsap = local_tsap
+        self._remote_tsap = remote_tsap
+        self._tpdu_size_code = tpdu_size_code
         self._rack = rack
         self._slot = slot
-        self._port = port
-        # 远端 TSAP = 连接类型(PG)<<8 | rack<<5 | slot(python-snap7
-        # client.py L621;默认 0x0102 = rack 0 / slot 2)
-        self._remote_tsap = (codec.CONNECTION_TYPE_PG << 8) | (rack << 5) | slot
         self._tcp: Optional[AsyncTcpTransport] = None
         self._sequence = 0
         self.pdu_size = codec.MAX_PDU_REQUEST
@@ -120,7 +140,13 @@ class AsyncS7Session(AsyncBaseTransport):
             await tcp.connect()
             tcp.receive_timeout = self._receive_timeout
             self._tcp = tcp  # 先挂会话(协商事务经 _require_tcp 取传输)
-            await tcp.send(codec.build_tpkt(codec.build_cotp_cr(self._remote_tsap)))
+            await tcp.send(
+                codec.build_tpkt(
+                    codec.build_cotp_cr(
+                        self._remote_tsap, self._local_tsap, self._tpdu_size_code
+                    )
+                )
+            )
             length = codec.parse_tpkt_header(await tcp.recv(4))
             self._dst_ref = codec.parse_cotp_cc(await tcp.recv(length - 4))
             self._sequence = 0
@@ -367,29 +393,41 @@ class AsyncSiemensS7Client(AsyncBaseClient):
         self,
         ip_address: str = "192.168.0.1",
         port: int = S7_DEFAULT_PORT,
-        rack: int = S7_DEFAULT_RACK,
-        slot: int = S7_DEFAULT_SLOT,
+        model: S7Cpu = S7Cpu.S7_1200,
+        rack: Optional[int] = None,
+        slot: Optional[int] = None,
     ) -> None:
-        """初始化 S7 客户端(签名与同步侧一致)。
+        """初始化 S7 客户端(签名与同步侧一致;型号驱动连接预设)。
 
         :param ip_address: PLC 的 IP 或主机名
         :param port: ISO-on-TCP 端口,标准 102
-        :param rack: 机架号,S7_DEFAULT_RACK(0)
-        :param slot: 槽位号,1200/1500 常用 1;300/400 的 CPU 常在 2
+        :param model: CPU 型号(:class:`~omniplc.core.types.S7Cpu`,缺省
+            S7-1200;语义与同步侧 :class:`~omniplc.plc.siemens.SiemensS7Client`
+            一致)
+        :param rack: 机架号,缺省用型号预设(0);显式给出则覆写
+        :param slot: 槽位号,缺省用型号预设;显式给出则覆写
         :raises ValueError: 参数非法
+
+        .. note:: 构造签名第 3 参起为 ``model``(原 rack/slot 位置实参须
+            改键字传递)。
         """
         validate_endpoint(ip_address, port)
         super().__init__(ip_address, int(port))
-        if not 0 <= int(rack) <= S7_RACK_MAX:
-            raise ValueError(
-                _("机架号必须在 0~{} 之间,收到:{}").format(S7_RACK_MAX, rack)
-            )
-        if not 0 <= int(slot) <= S7_SLOT_MAX:
-            raise ValueError(
-                _("槽位号必须在 0~{} 之间,收到:{}").format(S7_SLOT_MAX, slot)
-            )
-        self._rack = int(rack)
-        self._slot = int(slot)
+        (
+            self._local_tsap,
+            self._remote_tsap,
+            self._tpdu_size_code,
+            resolved_rack,
+            resolved_slot,
+        ) = resolve_s7_connection(model, rack, slot)
+        self._model = model
+        self._rack = resolved_rack
+        self._slot = resolved_slot
+
+    @property
+    def model(self) -> S7Cpu:
+        """CPU 型号(构造参数,驱动连接预设)。"""
+        return self._model
 
     @property
     def rack(self) -> int:
@@ -412,8 +450,29 @@ class AsyncSiemensS7Client(AsyncBaseClient):
             raise TransportClosedError(_("S7 会话未建立"))
         return transport
 
+    def _parse_address(self, address: str) -> S7Address:
+        """解析地址,V 区记号按型号放行(内部方法;与同步侧同口径)。"""
+        text = address.strip() if isinstance(address, str) else ""
+        if text[:1].upper() == "V":
+            if self._model not in _V_MODELS:
+                raise ValueError(
+                    _(
+                        "V 区地址仅 S7-200/200 SMART 支持:{!r}(其余型号请用 DB 记号)"
+                    ).format(address)
+                )
+            return parse_s7_address(translate_v_address(text))
+        return parse_s7_address(address)
+
     def _create_transport(self) -> AsyncBaseTransport:
-        return AsyncS7Session(self._ip_address, self._rack, self._slot, self._port)
+        return AsyncS7Session(
+            self._ip_address,
+            self._port,
+            self._local_tsap,
+            self._remote_tsap,
+            self._tpdu_size_code,
+            self._rack,
+            self._slot,
+        )
 
     async def _disconnect_locked(self) -> bool:
         """断开实现:先尽力发 COTP DR(会话关闭语义),再走基类清理(内部)。"""
@@ -437,7 +496,7 @@ class AsyncSiemensS7Client(AsyncBaseClient):
         """读数据项;数值大端解码,位读 1 字节后提位(与同步侧同口径)。"""
         if data_type not in _SIZES:
             raise ValueError(_("S7 不支持的数据类型:{}").format(data_type))
-        parsed = parse_s7_address(address)
+        parsed = self._parse_address(address)
         if data_type is DataType.BOOL:
             if parsed.bit is None:
                 raise ValueError(
@@ -490,7 +549,7 @@ class AsyncSiemensS7Client(AsyncBaseClient):
                 await self._write_string(address, value, DEFAULT_STRING_ENCODING)
                 return
             raise ValueError(_("S7 不支持的数据类型:{}").format(data_type))
-        parsed = parse_s7_address(address)
+        parsed = self._parse_address(address)
         session = self._session()
         if data_type is DataType.BOOL:
             if parsed.bit is None:
@@ -539,7 +598,7 @@ class AsyncSiemensS7Client(AsyncBaseClient):
 
         实际长超出请求 ``length`` 时按 ``length`` 截断返回(不报错不丢帧)。
         """
-        parsed = parse_s7_address(address)
+        parsed = self._parse_address(address)
         if parsed.bit is not None:
             raise ValueError(_("S7 字符串地址不带位号:{!r}").format(address))
         size = length + 2
@@ -567,7 +626,7 @@ class AsyncSiemensS7Client(AsyncBaseClient):
         把 PLC 侧声明长改写为实际值(有意保留的旧版兼容口径,正常
         STRING[x] 声明长非 0 不会走到;review-1005 §4.2 登记)。
         """
-        parsed = parse_s7_address(address)
+        parsed = self._parse_address(address)
         if parsed.bit is not None:
             raise ValueError(_("S7 字符串地址不带位号:{!r}").format(address))
         encoded = convert.encode_string(value, len(value.encode(encoding)), encoding)
@@ -622,7 +681,7 @@ class AsyncSiemensS7Client(AsyncBaseClient):
         return True, str(value)
 
     async def _read_wstring_impl(self, address: str, length: int) -> PrimitiveValue:
-        parsed = parse_s7_address(address)
+        parsed = self._parse_address(address)
         if parsed.bit is not None:
             raise ValueError(_("S7 字符串地址不带位号:{!r}").format(address))
         size = 4 + length * 2
@@ -655,7 +714,7 @@ class AsyncSiemensS7Client(AsyncBaseClient):
 
     async def _write_wstring_impl(self, address: str, value: str) -> PrimitiveValue:
         """写 S7 WString 实现(内部方法;声明长回退口径与 STRING 同款)。"""
-        parsed = parse_s7_address(address)
+        parsed = self._parse_address(address)
         if parsed.bit is not None:
             raise ValueError(_("S7 字符串地址不带位号:{!r}").format(address))
         encoded = value.encode("utf-16-be")
@@ -741,7 +800,7 @@ class AsyncSiemensS7Client(AsyncBaseClient):
                 raise ValueError(
                     _("S7 批量读取不支持的数据类型:{}").format(data_type_enum)
                 )
-            parsed = parse_s7_address(address)
+            parsed = self._parse_address(address)
             if data_type_enum is DataType.BOOL:
                 if parsed.bit is None:
                     raise ValueError(
@@ -827,7 +886,7 @@ class AsyncSiemensS7Client(AsyncBaseClient):
             raise ValueError(
                 _("S7 read_range 不支持的数据类型:{}").format(data_type_enum)
             )
-        parsed = parse_s7_address(address)
+        parsed = self._parse_address(address)
         if parsed.bit is not None:
             raise ValueError(
                 _("S7 read_range 不支持位地址:{!r}(位访问请逐点读)").format(address)

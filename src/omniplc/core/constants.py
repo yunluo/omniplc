@@ -9,9 +9,9 @@ Python 3.7 无 ``typing.Final``,以命名约定与 Code Review 约束只读性�
 
 from __future__ import annotations
 
-from typing import Dict, Tuple
+from typing import Dict, NamedTuple, Optional, Tuple
 
-from .types import SerialParity
+from .types import SerialParity, S7Cpu
 
 # ---------------------------------------------------------------- 默认超时(秒)
 DEFAULT_CONNECT_TIMEOUT: float = 5.0
@@ -1339,6 +1339,50 @@ S7_WSTRING_DEFAULT_LENGTH: int = 64
 S7_MAX_MULTI_VARS: int = 20
 """S7 多变量一次读(``read_multi_vars``)条目上限(S7 Read Var 多 Item
 每请求 20 项;snap7 库常量 ``MAX_VARS`` 同值口径)。"""
+
+
+class S7CpuPreset(NamedTuple):
+    """S7 CPU 型号连接预设(:class:`~omniplc.core.types.S7Cpu` → 连接参数)。
+
+    型号进客户端构造参数(用户裁决,对标三菱 MC 的 ``McFrame`` 形态);
+    ``rack``/``slot`` 为型号惯例缺省,客户端构造可用显式实参覆写。
+    """
+
+    local_tsap: int
+    """本端(Calling)TSAP。"""
+    connection_type: int
+    """连接资源类型(PG=1/OP=2/S7 基本=3);``fixed_remote_tsap`` 非 None 时不参与组帧。"""
+    rack: int
+    """缺省机架号。"""
+    slot: int
+    """缺省槽位号。"""
+    tpdu_size_code: int
+    """COTP CR 的 TPDU 尺寸指数(0x0A=1024;S7-200 CP243 口径 0x09=512)。"""
+    fixed_remote_tsap: Optional[int] = None
+    """固定远端 TSAP(S7-200 经 CP243 的 "MW" 记号);None = 按 ``(类型<<8)|(rack<<5)|slot`` 组帧。"""
+
+
+# 依据(「参考实现逐字节比对」退档纪律,型号预设全部**待真机核证**):
+# - S7-300/400/1200/1500:python-snap7 3.2.0 client.py L334(本端 0x0100)+
+#   L620-621(远端 = 连接类型<<8 | rack<<5 | slot,缺省 PG);槽位惯例
+#   300/400=2、1200/1500=1(S7netplus CpuType 表;1200 slot 0 亦常被接受)
+# - S7-200 SMART:IoTClient(IoTClient/Clients/PLC/Constants/SiemensConstant.cs
+#   Command1_200Smart,L36-41)连接帧字节黄金——Calling 0x1000、Called
+#   0x0300(类型 3 = S7 基本,rack 0/slot 0)、TPDU 0x0A;交叉 S7netplus
+#   CpuType.S7200Smart(rack 0/slot 1)与社区 0x0301(slot 1)口径——分歧
+#   在槽位位,rack/slot 可显式覆写,真机核证裁决
+# - S7-200(经 CP243-1 以太网模块):IoTClient SiemensConstant.cs
+#   Command1_200(L56-61)连接帧字节黄金——两侧 TSAP = ASCII "MW"
+#   (0x4D57,Micro/WIN 记号)、TPDU 0x09(512);S7-200 无内置以太网,
+#   无 CP243 时走串口 PPI(无官方公开帧文档,未实现,见 README)
+S7_CPU_PRESETS: Dict[S7Cpu, S7CpuPreset] = {
+    S7Cpu.S7_1200: S7CpuPreset(0x0100, 1, 0, 1, 0x0A),
+    S7Cpu.S7_1500: S7CpuPreset(0x0100, 1, 0, 1, 0x0A),
+    S7Cpu.S7_300: S7CpuPreset(0x0100, 1, 0, 2, 0x0A),
+    S7Cpu.S7_400: S7CpuPreset(0x0100, 1, 0, 2, 0x0A),
+    S7Cpu.S7_200_SMART: S7CpuPreset(0x1000, 3, 0, 0, 0x0A),
+    S7Cpu.S7_200: S7CpuPreset(0x4D57, 0, 0, 0, 0x09, fixed_remote_tsap=0x4D57),
+}
 
 # ---------------------------------------------------------------- 通用
 BIT_INDEX_MAX: int = 63

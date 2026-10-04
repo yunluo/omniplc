@@ -16,6 +16,10 @@ DB/位/字节地址语法依 S7comm/Snap7 约定,手册未逐条给,**待核**�
 ``M10.2``               Merker 位;``MB10``/``MW10``/``MD10`` 字节起点
 ``I0.0`` / ``IW64``     过程输入映像(PE)
 ``Q0.1`` / ``QW10``     过程输出映像(PA)
+``V10.3``/``VB10``/``VW10``/``VD10``/``VS20``
+                        V 区记号(**仅 S7-200/200 SMART 型号**,经
+                        :func:`translate_v_address` 映射为 DB1 后走
+                        ``DB`` 解析;其余型号直接拒)
 ======================  ==================================================
 
 尺寸语义:地址只定位**区域 + 字节起点**,读写字节数由显式 DataType 决定
@@ -37,6 +41,9 @@ from ...core.i18n import _
 
 _DB_RE = re.compile(r"^DB(\d+)\.DB([XBWDS])(\d+)(?:\.(\d+))?$", re.IGNORECASE)
 _AREA_RE = re.compile(r"^([IQM])(?:(?:([BWD])(\d+))|(\d+)(?:\.(\d+))?)$", re.IGNORECASE)
+_V_RE = re.compile(r"^V(?:(?:([BWDS])(\d+))|(\d+)(?:\.(\d+))?)$", re.IGNORECASE)
+"""V 区记号:``V10.3``(位)/ ``V10``(字节起点)/ ``VB10``/``VW10``/
+``VD10``/``VS20``——形态与 I/Q/M 记号一致,前缀 V。"""
 
 _AREA_CODES = {"I": 0x81, "Q": 0x82, "M": 0x83, "DB": 0x84}
 """地址区域 → snap7 Cli_Area 码(PE/PA/MK/DB)。"""
@@ -116,6 +123,34 @@ def parse_s7_address(address: str) -> S7Address:
             address
         )
     )
+
+
+def translate_v_address(address: str) -> str:
+    """V 区记号 → DB1 记号(纯函数;调用方负责按型号放行)。
+
+    S7-200/200 SMART 的 V 存储器在 S7comm 线上就是 DB1(IoTClient
+    SiemensClient.cs ``ConvertArg`` L1473-1476:``'V' → TypeCode 0x84、
+    DbBlock=1``;python-snap7 3.2.0 ppi.py L36-45 注「V memory is
+    addressed as DB1 on the wire」双源交叉)。映射:``V10.3`` →
+    ``DB1.DBX10.3``;``V10`` → ``DB1.DBB10``;``VB/VW/VD/VS`` →
+    ``DB1.DBB/DBW/DBD/DBS``。
+
+    :raises ValueError: V 记号形态非法
+    """
+    text = address.strip() if isinstance(address, str) else ""
+    match = _V_RE.match(text)
+    if match is None:
+        raise ValueError(
+            _("V 区地址非法:{!r}(示例:V10.3 / VB10 / VW10 / VD10 / VS20)").format(
+                address
+            )
+        )
+    kind, index, byte_index, bit_text = match.groups()
+    if kind is not None:
+        return "DB1.DB{}{}".format(kind.upper(), index)
+    if bit_text is not None:
+        return "DB1.DBX{}.{}".format(byte_index, bit_text)
+    return "DB1.DBB{}".format(byte_index)
 
 
 def _check_bit(bit: int, address: str) -> None:

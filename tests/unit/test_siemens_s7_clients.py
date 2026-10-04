@@ -12,10 +12,10 @@ from typing import Any, List
 
 import pytest
 
-from omniplc import SiemensS7Client
+from omniplc import S7Cpu, SiemensS7Client
 from omniplc.plc.siemens import codec
-from omniplc.plc.siemens.address import parse_s7_address
-from omniplc.plc.siemens.client import _S7Session
+from omniplc.plc.siemens.address import parse_s7_address, translate_v_address
+from omniplc.plc.siemens.client import _S7Session, resolve_s7_connection
 
 
 # ----------------------------------------------------------------------
@@ -798,25 +798,27 @@ def test_write_plc_reject_carries_code(s7: Any) -> None:
 
 
 def test_constructor_validation() -> None:
-    """构造校验:非法 IP/端口/机架/槽位;dll_path 已移除(TypeError)。"""
+    """构造校验:非法 IP/端口/机架/槽位/型号;dll_path 已移除(TypeError)。"""
     with pytest.raises(ValueError):
-        SiemensS7Client("", 102, 0, 1)
+        SiemensS7Client("", rack=0, slot=1)
     with pytest.raises(ValueError):
-        SiemensS7Client("192.168.0.1", 99999, 0, 1)
+        SiemensS7Client("192.168.0.1", 99999, rack=0, slot=1)
     with pytest.raises(ValueError):
-        SiemensS7Client("192.168.0.1", 102, 8, 1)
+        SiemensS7Client("192.168.0.1", 102, rack=8, slot=1)
     with pytest.raises(ValueError):
-        SiemensS7Client("192.168.0.1", 102, 0, 32)
-    # v0.53 破坏性变更:dll_path 随 python-snap7 退役移除
+        SiemensS7Client("192.168.0.1", 102, rack=0, slot=32)
+    # v0.53 破坏性变更:dll_path 随 python-snap7 退役移除;
+    # 型号批:构造签名第 3 参起为 model(原 rack/slot 位置实参须改键字)
     with pytest.raises(TypeError):
-        SiemensS7Client("192.168.0.1", 102, 0, 1, "")  # type: ignore[misc]
+        SiemensS7Client("192.168.0.1", 102, S7Cpu.S7_1200, 0, 1, "")  # type: ignore[misc]
 
 
 def test_signature_defaults() -> None:
-    """构造默认:ip 192.168.0.1 / 102 / rack 0 / slot 1(冻结面)。"""
+    """构造默认:ip 192.168.0.1 / 102 / model S7-1200 / rack 0 / slot 1(冻结面)。"""
     client = SiemensS7Client()
     assert client._ip_address == "192.168.0.1"
     assert client._port == 102
+    assert client.model is S7Cpu.S7_1200
     assert client.rack == 0
     assert client.slot == 1
     assert client.ping_supported is True
@@ -839,7 +841,7 @@ def test_address_parse_golden() -> None:
 
 def test_session_send_recv_rejects() -> None:
     """_S7Session 无字节流收发(send/recv 显式拒绝)。"""
-    session = _S7Session("127.0.0.1", 0, 1, 102)
+    session = _S7Session("127.0.0.1", 102, 0x0100, 0x0101, 0x0A, 0, 1)
     from omniplc.core.errors import TransportClosedError
 
     with pytest.raises(TransportClosedError):
@@ -861,6 +863,7 @@ def test_async_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
 
     async def scenario() -> None:
         client = ASiemensS7Client("127.0.0.1", 102, rack=0, slot=1)
+        assert client.model is S7Cpu.S7_1200
         assert client.rack == 0 and client.slot == 1
         fake.queue(_tpkt(_cotp_cc()))
         fake.queue(_tpkt(_dt(_negotiate_ack(1))))
@@ -871,3 +874,113 @@ def test_async_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
         await client.close()
 
     asyncio.run(scenario())
+
+
+# ----------------------------------------------------------------------
+# 型号参数化(S7Cpu 预设 / SMART·CP243 黄金帧 / V 区记号)
+# ----------------------------------------------------------------------
+
+
+def test_model_preset_resolution() -> None:
+    """六款型号 → 连接预设解析(local/remote TSAP、TPDU、缺省 rack/slot)。
+
+    预设依据见 S7_CPU_PRESETS(python-snap7 主源 + IoTClient 字节黄金,
+    全部待真机核证)。
+    """
+    expected = {
+        S7Cpu.S7_1200: (0x0100, 0x0101, 0x0A, 0, 1),
+        S7Cpu.S7_1500: (0x0100, 0x0101, 0x0A, 0, 1),
+        S7Cpu.S7_300: (0x0100, 0x0102, 0x0A, 0, 2),
+        S7Cpu.S7_400: (0x0100, 0x0102, 0x0A, 0, 2),
+        S7Cpu.S7_200_SMART: (0x1000, 0x0300, 0x0A, 0, 0),
+        S7Cpu.S7_200: (0x4D57, 0x4D57, 0x09, 0, 0),
+    }
+    for model, wanted in expected.items():
+        assert resolve_s7_connection(model, None, None) == wanted, model
+
+
+def test_model_override_rack_slot() -> None:
+    """rack/slot 显式覆写预设:SMART slot 1 → 远端 0x0301;300 机架 1 槽 3 → 0x0123。"""
+    assert resolve_s7_connection(S7Cpu.S7_200_SMART, None, 1) == (
+        0x1000,
+        0x0301,
+        0x0A,
+        0,
+        1,
+    )
+    assert resolve_s7_connection(S7Cpu.S7_300, 1, 3) == (0x0100, 0x0123, 0x0A, 1, 3)
+    # S7-200/CP243:远端 TSAP 固定 "MW" 记号,与 rack/slot 无关
+    assert resolve_s7_connection(S7Cpu.S7_200, 2, 3) == (0x4D57, 0x4D57, 0x09, 2, 3)
+
+
+def test_model_rejects_non_enum() -> None:
+    """model 非 S7Cpu 成员(裸 int/字符串)构造期拒。"""
+    with pytest.raises(ValueError, match="S7Cpu"):
+        SiemensS7Client("192.168.0.1", model=3)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="S7Cpu"):
+        SiemensS7Client("192.168.0.1", model="300")  # type: ignore[arg-type]
+
+
+def test_cotp_cr_golden_smart() -> None:
+    """200 SMART 连接帧:与 IoTClient Command1_200Smart 的 COTP 段逐字节一致。
+
+    本端 TSAP 0x1000 + Called 0x0300(S7 基本资源类型)+ TPDU 0x0A;
+    IoTClient 帧含 TPKT 头 `03 00 00 16`,此处锁其后的 18 字节 COTP。
+    """
+    frame = codec.build_cotp_cr(0x0300, 0x1000)
+    assert frame == bytes.fromhex(
+        "11 e0 00 00 00 01 00 c1 02 10 00 c2 02 03 00 c0 01 0a".replace(" ", "")
+    )
+
+
+def test_cotp_cr_golden_s7_200_cp243() -> None:
+    """S7-200(CP243)连接帧:与 IoTClient Command1_200 的 COTP 段逐字节一致。
+
+    两侧 TSAP = ASCII "MW"(0x4D57,Micro/WIN 记号)+ TPDU 0x09(512)。
+    """
+    frame = codec.build_cotp_cr(0x4D57, 0x4D57, 0x09)
+    assert frame == bytes.fromhex(
+        "11 e0 00 00 00 01 00 c1 02 4d 57 c2 02 4d 57 c0 01 09".replace(" ", "")
+    )
+
+
+def test_v_address_translation() -> None:
+    """V 区记号 → DB1 记号映射(S7-200/SMART 的 V 存储器 = DB1)。"""
+    assert translate_v_address("V10.3") == "DB1.DBX10.3"
+    assert translate_v_address("v10") == "DB1.DBB10"
+    assert translate_v_address("VB10") == "DB1.DBB10"
+    assert translate_v_address("VW10") == "DB1.DBW10"
+    assert translate_v_address("VD10") == "DB1.DBD10"
+    assert translate_v_address("VS20") == "DB1.DBS20"
+    with pytest.raises(ValueError, match="V 区地址非法"):
+        translate_v_address("VABC")
+
+
+def test_v_address_model_gate(s7: Any) -> None:
+    """V 记号仅 S7-200/200 SMART 放行:1200(默认型号)在线状态直接抛
+    ValueError(参数错误约定,解析错误不进 last_error)。"""
+    client, fake = s7
+    _connect_ready(client, fake)
+    with pytest.raises(ValueError, match="V 区地址仅"):
+        client.read_ushort("VW10")
+    with pytest.raises(ValueError, match="V 区地址仅"):
+        client.write_bool("V10.3", True)
+
+
+def test_smart_model_v_read_walks_db1(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SMART 型号 V 记号端到端:连接帧用 0x1000/0x0300,读 VW10 走 DB1。"""
+    fake: Any = _FakeS7Tcp("127.0.0.1", 102)
+    monkeypatch.setattr(
+        "omniplc.plc.siemens.client.TcpTransport", lambda ip, port: fake
+    )
+    client = SiemensS7Client("127.0.0.1", model=S7Cpu.S7_200_SMART)
+    fake.queue(_tpkt(_cotp_cc()))
+    fake.queue(_tpkt(_dt(_negotiate_ack(1))))
+    assert client.connect() is True, client.last_error
+    # CR:本端 TSAP 0x1000 + 远端 TSAP 0x0300(IoTClient SMART 口径)
+    assert b"\xc1\x02\x10\x00\xc2\x02\x03\x00" in fake.sent
+    fake.queue(_tpkt(_dt(_read_ack(2, [b"\x00\x2a"]))))
+    ok, value = client.read_ushort("VW10")
+    assert (ok, value) == (True, 42)
+    # 读请求地址规范:DB 号 1 + 区码 0x84 + 字节起点 10(位地址 80 = 0x50)
+    assert b"\x00\x01\x84\x00\x00\x50" in fake.sent
