@@ -12,6 +12,8 @@ OPC-UA 是完整规范栈(二进制编码、会话/订阅、X.509 安全栈),
 - :meth:`OpcUaClient.browse` 递归枚举节点树
 - :meth:`OpcUaClient.subscribe_data_change` 数据变化订阅(DataChange)
 - :meth:`OpcUaClient.subscribe_event` 事件订阅(Event)
+- 断线自动重订(构造选项 ``auto_resubscribe``,默认关):重连成功后按
+  订阅意图自动重建全部订阅,见 :meth:`OpcUaClient.subscribe_data_change`
 
 类继承::
 
@@ -417,7 +419,9 @@ class OpcUaSubscription:
 
     唯一公开方法 :meth:`unsubscribe` —— **幂等**,线程安全,失败返回 False
     (已断开 / 已取消)。订阅是 transient 状态:客户端断开后所有未显式
-    unsubscribe 的句柄自动失效;不提供重连后自动重订(简化生命周期)。
+    unsubscribe 的句柄自动失效;构造 ``auto_resubscribe=True`` 时重连成功
+    后按订阅意图自动重建——重订产生**新**句柄,旧句柄(含用户持有的引用)
+    恒失效,不要复用。
     """
 
     def __init__(
@@ -428,12 +432,16 @@ class OpcUaSubscription:
         unsub: Callable[[], bool],
         _asyncua_subscription: Any,
         _monitored_items: List[Any],
+        _release: Optional[Callable[[], bool]] = None,
     ) -> None:
         self._node_id = node_id
         self._subscription_id = subscription_id
         self._unsub = unsub
         self._asyncua_subscription = _asyncua_subscription
         self._monitored_items = _monitored_items
+        # 断开联动释放通道(disconnect 用):只释放服务端资源 + 摘活跃索引,
+        # **不动** auto_resubscribe 意图表——断开是链路操作,退订才是意图变更
+        self._release = _release
         self._unsub_done = False
         self._unsub_lock = threading.Lock()
 
@@ -451,11 +459,29 @@ class OpcUaSubscription:
         """取消订阅(幂等,线程安全)。
 
         :return: ``True`` 此次调用真正执行了取消;``False`` 已取消 / 已断开。
+            同时移除 ``auto_resubscribe`` 重订意图(退订 = 放弃订阅)。
         """
         with self._unsub_lock:
             if self._unsub_done:
                 return False
             self._unsub_done = True
+        return self._unsub()
+
+    def release(self) -> bool:
+        """断开联动释放(内部方法,``OpcUaClient.disconnect`` 用):释放
+        服务端订阅资源并摘活跃索引,但**保留**重订意图表。
+
+        与 :meth:`unsubscribe` 共享 ``_unsub_done`` 终态锁——先到者生效;
+        未提供释放通道的句柄(旧构造)退化为 :meth:`unsubscribe`。
+
+        :return: 服务端释放是否成功(语义同 :meth:`unsubscribe`)
+        """
+        with self._unsub_lock:
+            if self._unsub_done:
+                return False
+            self._unsub_done = True
+        if self._release is not None:
+            return self._release()
         return self._unsub()
 
 
@@ -493,6 +519,7 @@ class OpcUaClient(BaseClient):
         port: int = OPCUA_DEFAULT_PORT,
         path: str = "",
         endpoint: str = "",
+        auto_resubscribe: bool = False,
     ) -> None:
         """初始化 OPC-UA 客户端。
 
@@ -501,9 +528,20 @@ class OpcUaClient(BaseClient):
         :param path: 端点 URL 路径(可空,如 ``"UA/Server"``)
         :param endpoint: 完整端点 URL 显式覆盖(以 ``opc.tcp://`` 开头;
             用于服务器发现返回的完整 URL,设置后忽略 ip/port/path)
+        :param auto_resubscribe: 断线自动重订(默认关)。开启后:订阅成功时
+            登记**订阅意图**(节点/回调/采样间隔/死区/事件过滤),重连成功
+            (显式 :meth:`connect` 或事务惰性重连)后按登记顺序自动重建全部
+            订阅;重订产生**新**句柄,旧句柄恒失效;单项重订失败只记告警
+            日志不中断其余项,重建结果以 :attr:`active_subscriptions` 为准。
+            订阅意图仅 :meth:`OpcUaSubscription.unsubscribe` 显式移除
+            (显式断开不清意图,重连即重建;默认关闭时行为与既往一致)
         :raises ValueError: 参数非法
         """
         validate_endpoint(ip_address, port)
+        if not isinstance(auto_resubscribe, bool):
+            raise ValueError(
+                _("auto_resubscribe 必须为布尔值,收到:{!r}").format(auto_resubscribe)
+            )
         super().__init__(ip_address, int(port))
         if endpoint:
             _validate_endpoint_url(endpoint)
@@ -512,11 +550,71 @@ class OpcUaClient(BaseClient):
             self._endpoint = _build_endpoint(ip_address, int(port), path)
         # 活跃订阅句柄(由 subscribe_* 加入;disconnect 清空)
         self._active_subscriptions: Dict[int, OpcUaSubscription] = {}
+        self._auto_resubscribe = auto_resubscribe
+        # 订阅意图登记表(auto_resubscribe=True 时):重连成功后按序重建。
+        # 只在开启时登记——默认路径零开销、零引用滞留
+        self._resubscribe_specs: List[Dict[str, Any]] = []
 
     @property
     def endpoint(self) -> str:
         """opc.tcp 端点 URL(由 ip_address/port/path 组装或显式覆盖)。"""
         return self._endpoint
+
+    @property
+    def auto_resubscribe(self) -> bool:
+        """断线自动重订是否开启(构造期冻结,只读)。"""
+        return self._auto_resubscribe
+
+    def connect(self) -> bool:
+        """建立 opc.tcp 会话;开启 ``auto_resubscribe`` 时随后重订全部订阅意图。
+
+        重写基类:父类成功建连后,按登记顺序逐项重建订阅意图(事务惰性
+        重连路径同样生效——基类 ``_execute`` 内调用的就是本方法)。重订
+        **在锁外直调会话**(显式连接路径)或**在事务锁内直调**(惰性路径,
+        与常规订阅事务同上下文),均不经 :meth:`_execute`,无锁重入;
+        单项失败只记告警日志,不影响连接成功语义与其余项。
+
+        :return: 是否成功(重订失败不改变返回值)
+        """
+        ok = super().connect()
+        if ok and self._auto_resubscribe:
+            self._resubscribe_all()
+        return ok
+
+    def _resubscribe_all(self) -> None:
+        """按登记顺序重建全部订阅意图(内部方法,best-effort)。
+
+        每项独立容错:失败记告警日志(经 ``omniplc.plc.opcua`` logger,
+        ``set_debug`` 可见)继续下一项;全部完成与否以
+        :attr:`active_subscriptions` 快照为准。会话已再次失效(并发断开)
+        时静默返回,残项由下次重连补齐。
+        """
+        with self._state_lock:
+            specs = list(self._resubscribe_specs)
+        if not specs or not self._connected:
+            return
+        for spec in specs:
+            try:
+                if spec["kind"] == "data_change":
+                    self._create_data_change_subscription(
+                        spec["node_text"],
+                        spec["on_change"],
+                        spec["sampling_interval_ms"],
+                        spec["deadband_value"],
+                        spec["deadband_type"],
+                    )
+                else:
+                    self._create_event_subscription(
+                        spec["node_text"], spec["on_event"], spec["event_filter"]
+                    )
+            except Exception as exc:
+                _UA_LOGGER.warning(
+                    "OPC-UA 重订失败(%s,%s):%s:%s",
+                    spec["kind"],
+                    spec["node_text"],
+                    type(exc).__name__,
+                    exc,
+                )
 
     @property
     def active_subscriptions(self) -> Dict[int, OpcUaSubscription]:
@@ -534,15 +632,22 @@ class OpcUaClient(BaseClient):
         重写基类:在父类释放传输之前先清订阅,服务端 MonitoredItem
         与 Subscription 立即释放;句柄 mark 为 unsub_done,后续再调
         ``unsubscribe()`` 静默返回 False。
+
+        **订阅意图不清**:``auto_resubscribe=True`` 时登记表保留,下次
+        :meth:`connect` 成功即重建(显式断开是链路操作,不是"放弃订阅"
+        的意思;要永久退订请 :meth:`OpcUaSubscription.unsubscribe`,它同时
+        移除意图)。
         """
-        # 订阅索引取状态锁;unsubscribe() 自带 _unsub_lock,ua_sub.delete()
-        # 的 I/O 不持状态锁执行(短临界区纪律,不与事务锁嵌套)
+        # 订阅索引取状态锁;release() 自带 _unsub_lock,ua_sub.delete()
+        # 的 I/O 不持状态锁执行(短临界区纪律,不与事务锁嵌套)。
+        # 断开联动走 release():释放服务端资源但**保留重订意图**——
+        # 断开不是退订,unsubscribe() 才移除意图
         with self._state_lock:
             handles = list(self._active_subscriptions.values())
             self._active_subscriptions.clear()
         for handle in handles:
             try:
-                handle.unsubscribe()
+                handle.release()
             except Exception:
                 pass
         return super().disconnect()
@@ -555,6 +660,9 @@ class OpcUaClient(BaseClient):
         继续列出随旧 tloop 死亡的死句柄。此处与显式断开同口径清索引;
         句柄随 asyncua 会话死亡,不再逐一调 ``unsubscribe()``(网络动作
         在断链上必失败,徒增延迟)。
+
+        **订阅意图保留**:``auto_resubscribe=True`` 时登记表不动,下次
+        事务惰性重连(:meth:`connect` 覆写)成功即自动重建。
         """
         with self._state_lock:
             self._active_subscriptions.clear()
@@ -816,7 +924,10 @@ class OpcUaClient(BaseClient):
             VariantType 配合;非 OPC-UA 的 Double 范围按客户端传给服务端)
         :param deadband_type: ``"Absolute"``(默认)/ ``"Percent"``;
             仅 ``deadband_value`` 非 None 时生效
-        :return: ``(成功, 订阅句柄)``;失败时 ``(False, None)``
+        :return: ``(成功, 订阅句柄)``;失败时 ``(False, None)``。构造
+            ``auto_resubscribe=True`` 时本订阅进入重订意图表:断线重连成功后
+            自动按同参数重建(新句柄),:meth:`OpcUaSubscription.unsubscribe`
+            显式退订才移除意图
         :raises ValueError: 参数非法
         """
         if sampling_interval_ms <= 0:
@@ -835,105 +946,152 @@ class OpcUaClient(BaseClient):
             raise ValueError(
                 _("on_change 必须是可调用对象,收到:{!r}").format(type(on_change))
             )
-        filter_obj = _build_data_change_filter(deadband_value, deadband_type)
 
         def operation() -> OpcUaSubscription:
-            session = self._session()
-            ua_client = session.client
-            handler = _DataChangeHandler(self, on_change)
-            try:
-                # asyncua 1.1.5:sync.Client 直接暴露 create_subscription(非 uaclient);
-                # handler 在订阅级传入,subscribe_data_change 只收节点 + 采样间隔。
-                # asyncua 全线间隔单位为毫秒(CreateSubscriptionParameters.
-                # RequestedPublishingInterval / MonitoringParameters.
-                # SamplingInterval 均直通毫秒),本参数名即毫秒,原样传入
-                ua_sub = ua_client.create_subscription(
-                    float(sampling_interval_ms), handler
-                )
-            except Exception as exc:
-                raise _translate_ua_error(exc) from exc
-            try:
-                # asyncua 1.1.5 高层 subscribe_data_change 不收 mfilter;走底层
-                # _subscribe 在同步包装上未暴露,需 tloop.post aio_obj._subscribe。
-                # 当死区非 None 时切换到此路径(走自定义 mfilter);否则用高层。
-                if filter_obj is not None:
-                    import asyncua.ua
-
-                    node = ua_client.get_node(parse_opcua_nodeid(node_text).text)
-                    # 传底层 aio 节点(node.aio_obj):_subscribe 是 aio 层
-                    # 方法,期望 Node;直接传 sync 包装只能靠其 .nodeid
-                    # 属性转发侥幸工作,依赖实现巧合
-                    # 注意:asyncua 1.1.5 sync.ThreadLoop.post **直接返回
-                    # 协程结果**(内部 run_coroutine_threadsafe(...).result()
-                    # 已等待),不是 future——不能再调 .result()(对 list
-                    # 抛 AttributeError,曾被外层吞掉导致订阅被删 + 拆线)
-                    mids = ua_sub.tloop.post(
-                        ua_sub.aio_obj._subscribe(
-                            [node.aio_obj],
-                            asyncua.ua.AttributeIds.Value,
-                            filter_obj,
-                            0,
-                            asyncua.ua.MonitoringMode.Reporting,
-                            float(sampling_interval_ms),
-                        )
-                    )
-                else:
-                    handles = ua_sub.subscribe_data_change(
-                        [ua_client.get_node(parse_opcua_nodeid(node_text).text)],
-                        sampling_interval=float(sampling_interval_ms),
-                    )
-                    mids = handles
-                monitored = list(mids) if isinstance(mids, (list, tuple)) else [mids]
-                # asyncua 对 list 入参不 check():失败项以 StatusCode 混在结果里,
-                # 须显式判失败,否则订阅被服务端拒绝时静默报成功
-                import asyncua.ua
-
-                rejected = [
-                    item
-                    for item in monitored
-                    if isinstance(item, asyncua.ua.StatusCode)
-                ]
-                if rejected:
-                    raise DeviceError(
-                        _("OPC-UA 订阅被服务端拒绝:{}").format(rejected[0]), 0
-                    )
-            except DeviceError:
-                try:
-                    ua_sub.delete()
-                except Exception:
-                    pass
-                raise
-            except Exception as exc:
-                try:
-                    ua_sub.delete()
-                except Exception:
-                    pass
-                raise _translate_ua_error(exc) from exc
-            sub_id = int(getattr(ua_sub, "subscription_id", id(ua_sub)))
-
-            def _do_unsubscribe() -> bool:
-                ok = True
-                try:
-                    ua_sub.delete()  # 删除订阅即取消其全部 monitored item
-                except Exception:
-                    ok = False
-                # 从 client 索引中移除(状态锁,与快照/增补同口径)
-                with self._state_lock:
-                    self._active_subscriptions.pop(sub_id, None)
-                return ok
-
-            handle = OpcUaSubscription(
-                node_id=node_text,
-                subscription_id=sub_id,
-                unsub=_do_unsubscribe,
-                _asyncua_subscription=ua_sub,
-                _monitored_items=monitored,
+            return self._create_data_change_subscription(
+                node_text,
+                on_change,
+                sampling_interval_ms,
+                deadband_value,
+                deadband_type,
             )
-            with self._state_lock:
-                self._active_subscriptions[sub_id] = handle
-            return handle
 
         return self._execute(operation)
+
+    def _create_data_change_subscription(
+        self,
+        node_text: str,
+        on_change: Callable[[Any, str, Optional[float]], None],
+        sampling_interval_ms: int,
+        deadband_value: Optional[float],
+        deadband_type: Optional[str],
+    ) -> OpcUaSubscription:
+        """建一条 DataChange 订阅并登记(内部方法,须在事务上下文内调用)。
+
+        :meth:`subscribe_data_change` 经 ``_execute`` 调用本方法;
+        ``auto_resubscribe`` 重订路径在 :meth:`connect` 后**直调**本方法
+        (不经 ``_execute``,无锁重入)。成功且开启自动重订时登记订阅意图;
+        成功返回的句柄其 ``unsubscribe`` 同时移除意图。
+
+        :raises DeviceError: 服务端拒绝订阅
+        """
+        filter_obj = _build_data_change_filter(deadband_value, deadband_type)
+        ua_client = self._session().client
+        handler = _DataChangeHandler(self, on_change)
+        try:
+            # asyncua 1.1.5:sync.Client 直接暴露 create_subscription(非 uaclient);
+            # handler 在订阅级传入,subscribe_data_change 只收节点 + 采样间隔。
+            # asyncua 全线间隔单位为毫秒(CreateSubscriptionParameters.
+            # RequestedPublishingInterval / MonitoringParameters.
+            # SamplingInterval 均直通毫秒),本参数名即毫秒,原样传入
+            ua_sub = ua_client.create_subscription(float(sampling_interval_ms), handler)
+        except Exception as exc:
+            raise _translate_ua_error(exc) from exc
+        try:
+            # asyncua 1.1.5 高层 subscribe_data_change 不收 mfilter;走底层
+            # _subscribe 在同步包装上未暴露,需 tloop.post aio_obj._subscribe。
+            # 当死区非 None 时切换到此路径(走自定义 mfilter);否则用高层。
+            if filter_obj is not None:
+                import asyncua.ua
+
+                node = ua_client.get_node(parse_opcua_nodeid(node_text).text)
+                # 传底层 aio 节点(node.aio_obj):_subscribe 是 aio 层
+                # 方法,期望 Node;直接传 sync 包装只能靠其 .nodeid
+                # 属性转发侥幸工作,依赖实现巧合
+                # 注意:asyncua 1.1.5 sync.ThreadLoop.post **直接返回
+                # 协程结果**(内部 run_coroutine_threadsafe(...).result()
+                # 已等待),不是 future——不能再调 .result()(对 list
+                # 抛 AttributeError,曾被外层吞掉导致订阅被删 + 拆线)
+                mids = ua_sub.tloop.post(
+                    ua_sub.aio_obj._subscribe(
+                        [node.aio_obj],
+                        asyncua.ua.AttributeIds.Value,
+                        filter_obj,
+                        0,
+                        asyncua.ua.MonitoringMode.Reporting,
+                        float(sampling_interval_ms),
+                    )
+                )
+            else:
+                handles = ua_sub.subscribe_data_change(
+                    [ua_client.get_node(parse_opcua_nodeid(node_text).text)],
+                    sampling_interval=float(sampling_interval_ms),
+                )
+                mids = handles
+            monitored = list(mids) if isinstance(mids, (list, tuple)) else [mids]
+            # asyncua 对 list 入参不 check():失败项以 StatusCode 混在结果里,
+            # 须显式判失败,否则订阅被服务端拒绝时静默报成功
+            import asyncua.ua
+
+            rejected = [
+                item for item in monitored if isinstance(item, asyncua.ua.StatusCode)
+            ]
+            if rejected:
+                raise DeviceError(
+                    _("OPC-UA 订阅被服务端拒绝:{}").format(rejected[0]), 0
+                )
+        except DeviceError:
+            try:
+                ua_sub.delete()
+            except Exception:
+                pass
+            raise
+        except Exception as exc:
+            try:
+                ua_sub.delete()
+            except Exception:
+                pass
+            raise _translate_ua_error(exc) from exc
+        sub_id = int(getattr(ua_sub, "subscription_id", id(ua_sub)))
+        spec: Dict[str, Any] = {
+            "kind": "data_change",
+            "node_text": node_text,
+            "on_change": on_change,
+            "sampling_interval_ms": sampling_interval_ms,
+            "deadband_value": deadband_value,
+            "deadband_type": deadband_type,
+        }
+
+        def _do_unsubscribe() -> bool:
+            ok = True
+            try:
+                ua_sub.delete()  # 删除订阅即取消其全部 monitored item
+            except Exception:
+                ok = False
+            # 从 client 索引与重订意图表中移除(状态锁,与快照/增补同口径;
+            # 意图按对象身份移除——同参双订阅的 dict 相等会有歧义)
+            with self._state_lock:
+                self._active_subscriptions.pop(sub_id, None)
+                for i, item in enumerate(self._resubscribe_specs):
+                    if item is spec:
+                        del self._resubscribe_specs[i]
+                        break
+            return ok
+
+        def _do_release() -> bool:
+            # disconnect 联动通道:释放服务端资源 + 摘活跃索引,**不动意图**
+            ok = True
+            try:
+                ua_sub.delete()
+            except Exception:
+                ok = False
+            with self._state_lock:
+                self._active_subscriptions.pop(sub_id, None)
+            return ok
+
+        handle = OpcUaSubscription(
+            node_id=node_text,
+            subscription_id=sub_id,
+            unsub=_do_unsubscribe,
+            _asyncua_subscription=ua_sub,
+            _monitored_items=monitored,
+            _release=_do_release,
+        )
+        with self._state_lock:
+            self._active_subscriptions[sub_id] = handle
+            if self._auto_resubscribe:
+                self._resubscribe_specs.append(spec)
+        return handle
 
     # ------------------------------------------------------------------
     # Subscribe — Event(v0.35 新增)
@@ -967,52 +1125,88 @@ class OpcUaClient(BaseClient):
             )
 
         def operation() -> OpcUaSubscription:
-            session = self._session()
-            ua_client = session.client
-            handler = _EventHandler(self, on_event)
-            try:
-                # asyncua 1.1.5:sync.Client 直接暴露 create_subscription(非 uaclient)
-                ua_sub = ua_client.create_subscription(0, handler)
-            except Exception as exc:
-                raise _translate_ua_error(exc) from exc
-            try:
-                # subscribe_events(sourcenode, evtypes, evfilter, ...):
-                # handler 已在 create_subscription 订阅级传入;这里只给源节点与过滤
-                node = ua_client.get_node(parse_opcua_nodeid(node_text).text)
-                handle_ev = ua_sub.subscribe_events(node, evfilter=event_filter)
-                monitored = [handle_ev]
-            except Exception as exc:
-                try:
-                    ua_sub.delete()
-                except Exception:
-                    pass
-                raise _translate_ua_error(exc) from exc
-            sub_id = int(getattr(ua_sub, "subscription_id", id(ua_sub)))
-
-            def _do_unsubscribe() -> bool:
-                ok = True
-                try:
-                    ua_sub.delete()  # 删除订阅即取消其全部 monitored item
-                except Exception:
-                    ok = False
-                # 订阅索引统一走状态锁(与 data-change / 快照 / disconnect 同口径;
-                # 原用事务锁会与长事务争用,违反状态锁短临界区纪律)
-                with self._state_lock:
-                    self._active_subscriptions.pop(sub_id, None)
-                return ok
-
-            handle = OpcUaSubscription(
-                node_id=node_text,
-                subscription_id=sub_id,
-                unsub=_do_unsubscribe,
-                _asyncua_subscription=ua_sub,
-                _monitored_items=monitored,
-            )
-            with self._state_lock:
-                self._active_subscriptions[sub_id] = handle
-            return handle
+            return self._create_event_subscription(node_text, on_event, event_filter)
 
         return self._execute(operation)
+
+    def _create_event_subscription(
+        self,
+        node_text: str,
+        on_event: Callable[[dict, str, Optional[float]], None],
+        event_filter: Optional[Any],
+    ) -> OpcUaSubscription:
+        """建一条 Event 订阅并登记(内部方法,须在事务上下文内调用)。
+
+        调用上下文与意图登记口径同 :meth:`_create_data_change_subscription`。
+        """
+        ua_client = self._session().client
+        handler = _EventHandler(self, on_event)
+        try:
+            # asyncua 1.1.5:sync.Client 直接暴露 create_subscription(非 uaclient)
+            ua_sub = ua_client.create_subscription(0, handler)
+        except Exception as exc:
+            raise _translate_ua_error(exc) from exc
+        try:
+            # subscribe_events(sourcenode, evtypes, evfilter, ...):
+            # handler 已在 create_subscription 订阅级传入;这里只给源节点与过滤
+            node = ua_client.get_node(parse_opcua_nodeid(node_text).text)
+            handle_ev = ua_sub.subscribe_events(node, evfilter=event_filter)
+            monitored = [handle_ev]
+        except Exception as exc:
+            try:
+                ua_sub.delete()
+            except Exception:
+                pass
+            raise _translate_ua_error(exc) from exc
+        sub_id = int(getattr(ua_sub, "subscription_id", id(ua_sub)))
+        spec: Dict[str, Any] = {
+            "kind": "event",
+            "node_text": node_text,
+            "on_event": on_event,
+            "event_filter": event_filter,
+        }
+
+        def _do_unsubscribe() -> bool:
+            ok = True
+            try:
+                ua_sub.delete()  # 删除订阅即取消其全部 monitored item
+            except Exception:
+                ok = False
+            # 订阅索引统一走状态锁(与 data-change / 快照 / disconnect 同口径;
+            # 原用事务锁会与长事务争用,违反状态锁短临界区纪律);意图按对象
+            # 身份移除(同 data-change)
+            with self._state_lock:
+                self._active_subscriptions.pop(sub_id, None)
+                for i, item in enumerate(self._resubscribe_specs):
+                    if item is spec:
+                        del self._resubscribe_specs[i]
+                        break
+            return ok
+
+        def _do_release() -> bool:
+            # disconnect 联动通道:释放服务端资源 + 摘活跃索引,**不动意图**
+            ok = True
+            try:
+                ua_sub.delete()
+            except Exception:
+                ok = False
+            with self._state_lock:
+                self._active_subscriptions.pop(sub_id, None)
+            return ok
+
+        handle = OpcUaSubscription(
+            node_id=node_text,
+            subscription_id=sub_id,
+            unsub=_do_unsubscribe,
+            _asyncua_subscription=ua_sub,
+            _monitored_items=monitored,
+            _release=_do_release,
+        )
+        with self._state_lock:
+            self._active_subscriptions[sub_id] = handle
+            if self._auto_resubscribe:
+                self._resubscribe_specs.append(spec)
+        return handle
 
 
 # ----------------------------------------------------------------------

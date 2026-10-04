@@ -628,6 +628,7 @@ _TRANSLATIONS: Dict[str, str] = {
     "内部错误:传输对象不是 OPC-UA 会话": "Internal error: the transport object is not an OPC-UA session",
     "read_batch 至少需要一个 (NodeId, 数据类型) 项": "read_batch requires at least one (NodeId, data type) item",
     "node_text 不能为空": "node_text must not be empty",
+    "auto_resubscribe 必须为布尔值,收到:{!r}": "auto_resubscribe must be a boolean, got: {0!r}",
     "OPC-UA 出错 0x{:08X}:{}": "OPC-UA error 0x{0:08X}: {1}",
     "OPC-UA 端点 URL 非法:{!r}(示例:opc.tcp://192.168.0.10:{})": "Invalid OPC-UA endpoint URL: {0!r} (example: opc.tcp://192.168.0.10:{1})",
     "OPC-UA 端点端口必须在 {}~{} 之间,收到:{}": "The OPC-UA endpoint port must be between {0} and {1}, got: {2}",

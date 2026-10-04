@@ -1005,6 +1005,152 @@ def test_reconnect_does_not_auto_resubscribe(_opcua_server_module) -> None:
         client.disconnect()
 
 
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_auto_resubscribe_rejects_non_bool() -> None:
+    """auto_resubscribe 非 bool → 构造期 ValueError。"""
+    with pytest.raises(ValueError, match="auto_resubscribe"):
+        OpcUaClient("127.0.0.1", 4840, auto_resubscribe="yes")  # type: ignore[arg-type]
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_auto_resubscribe_rebuilds_after_reconnect(_opcua_server_module) -> None:
+    """auto_resubscribe=True:显式断开重连后订阅按意图重建且回调可用。
+
+    锁三点:重建产生**新**句柄(旧句柄失效);active_subscriptions 计数
+    回到 1;重建后的订阅真实收得到数据变化(不是只建了壳)。
+    """
+    server, idx = _opcua_server_module
+    name = "SubResub_{}".format(_time.time_ns())
+    node, node_id = _make_variable(server, idx, name, 0)
+
+    received: list = []
+    done = _threading.Event()
+
+    def on_change(value, nid, ts):
+        received.append(value)
+        if value == 77:
+            done.set()
+
+    client = OpcUaClient(
+        "127.0.0.1", _OPCUA_TEST_PORT, endpoint=_TEST_ENDPOINT, auto_resubscribe=True
+    )
+    client.connect()
+    try:
+        ok, sub = client.subscribe_data_change(
+            node_id, on_change, sampling_interval_ms=50
+        )
+        assert ok is True and sub is not None
+        old_id = sub.subscription_id
+        client.disconnect()
+        assert client.active_subscriptions == {}
+        client.connect()
+        # 意图重建:计数回 1,且为新句柄
+        assert len(client.active_subscriptions) == 1
+        new_handle = next(iter(client.active_subscriptions.values()))
+        assert new_handle is not sub
+        assert new_handle.subscription_id != old_id
+        # 重建后的订阅真实可用
+        _time.sleep(0.2)
+        node.write_value(77)
+        assert done.wait(timeout=3.0), "重订后回调未触发, received={}".format(received)
+    finally:
+        client.disconnect()
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_auto_resubscribe_on_lazy_reconnect(_opcua_server_module) -> None:
+    """auto_resubscribe=True:被动拆连后经事务惰性重连同样触发重订。
+
+    覆写 connect() 的多态路径:基类 _execute 惰性重连调的是子类 connect,
+    重订必须在读事务内一并完成(而不是只在用户显式 connect 时)。
+    """
+    server, idx = _opcua_server_module
+    name = "SubResubLazy_{}".format(_time.time_ns())
+    node, node_id = _make_variable(server, idx, name, 0)
+
+    client = OpcUaClient(
+        "127.0.0.1", _OPCUA_TEST_PORT, endpoint=_TEST_ENDPOINT, auto_resubscribe=True
+    )
+    client.connect()
+    try:
+        ok, _ = client.subscribe_data_change(
+            node_id, lambda *a: None, sampling_interval_ms=50
+        )
+        assert ok is True
+        # 模拟被动拆连(传输失败路径):意图保留,活跃订阅清空
+        client._mark_disconnected()
+        assert client.active_subscriptions == {}
+        # 读事务惰性重连 → connect 覆写触发重订
+        ok_read, value = client.read(node_id, "long")
+        assert ok_read is True and value == 0
+        assert len(client.active_subscriptions) == 1
+    finally:
+        client.disconnect()
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_auto_resubscribe_unsubscribe_removes_intent(_opcua_server_module) -> None:
+    """显式 unsubscribe 同时移除重订意图:重连后不再重建。"""
+    server, idx = _opcua_server_module
+    name = "SubResubUnsub_{}".format(_time.time_ns())
+    _, node_id = _make_variable(server, idx, name, 0)
+
+    client = OpcUaClient(
+        "127.0.0.1", _OPCUA_TEST_PORT, endpoint=_TEST_ENDPOINT, auto_resubscribe=True
+    )
+    client.connect()
+    try:
+        ok, sub = client.subscribe_data_change(node_id, lambda *a: None)
+        assert ok is True and sub is not None
+        assert sub.unsubscribe() is True
+        client.disconnect()
+        client.connect()
+        assert client.active_subscriptions == {}
+    finally:
+        client.disconnect()
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_auto_resubscribe_event_subscription(_opcua_server_module) -> None:
+    """事件订阅同样进入意图表并在重连后重建。"""
+    server, idx = _opcua_server_module
+    name = "SubResubEvent_{}".format(_time.time_ns())
+    _make_variable(server, idx, name, 0)
+
+    client = OpcUaClient(
+        "127.0.0.1", _OPCUA_TEST_PORT, endpoint=_TEST_ENDPOINT, auto_resubscribe=True
+    )
+    client.connect()
+    try:
+        ok, sub = client.subscribe_event("i=2253", lambda *a: None)
+        assert ok is True and sub is not None
+        client.disconnect()
+        client.connect()
+        assert len(client.active_subscriptions) == 1
+    finally:
+        client.disconnect()
+
+
+@pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
+def test_auto_resubscribe_default_off_contract(_opcua_server_module) -> None:
+    """默认关:显式重连后不重建(既有契约保持,与重订用例互为对照)。"""
+    server, idx = _opcua_server_module
+    name = "SubResubOff_{}".format(_time.time_ns())
+    _, node_id = _make_variable(server, idx, name, 0)
+
+    client = OpcUaClient("127.0.0.1", _OPCUA_TEST_PORT, endpoint=_TEST_ENDPOINT)
+    assert client.auto_resubscribe is False
+    client.connect()
+    try:
+        ok, _ = client.subscribe_data_change(node_id, lambda *a: None)
+        assert ok is True
+        client.disconnect()
+        client.connect()
+        assert client.active_subscriptions == {}
+    finally:
+        client.disconnect()
+
+
 # ----------------------------------------------------------------------
 # v0.35 aio 镜像
 # ----------------------------------------------------------------------

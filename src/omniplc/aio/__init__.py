@@ -1841,6 +1841,7 @@ class AOpcUaClient(ABaseClient):
         port: int = OPCUA_DEFAULT_PORT,
         path: str = "",
         endpoint: str = "",
+        auto_resubscribe: bool = False,
     ) -> None:
         """初始化 OPC-UA 异步客户端。
 
@@ -1849,15 +1850,25 @@ class AOpcUaClient(ABaseClient):
         :param path: 端点 URL 路径(可空,如 ``"UA/Server"``)
         :param endpoint: 完整端点 URL 显式覆盖(以 ``opc.tcp://`` 开头;
             用于服务器发现返回的完整 URL,设置后忽略 ip/port/path)
+        :param auto_resubscribe: 断线自动重订(默认关),语义同同步版
+            :meth:`OpcUaClient.subscribe_data_change` 说明
         :raises ValueError: 参数非法
         """
-        super().__init__(OpcUaClient(ip_address, port, path, endpoint))
+        super().__init__(
+            OpcUaClient(ip_address, port, path, endpoint, auto_resubscribe)
+        )
 
     @property
     def endpoint(self) -> str:
         """opc.tcp 端点 URL(转发同步实例)。"""
         sync = self._typed(OpcUaClient)
         return sync.endpoint
+
+    @property
+    def auto_resubscribe(self) -> bool:
+        """断线自动重订是否开启(转发同步实例,构造期冻结)。"""
+        sync = self._typed(OpcUaClient)
+        return sync.auto_resubscribe
 
     @property
     def active_subscriptions(self) -> Dict[int, OpcUaSubscription]:
