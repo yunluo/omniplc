@@ -447,15 +447,15 @@ ok, assets = cnc.read_assets()         # 资产(刀具等)
 ## 西门子 S7(自研 S7comm 栈,零第三方依赖)
 
 ```python
-from omniplc import SiemensS7Client, S7Cpu
+from omniplc import SiemensS7Client, S7Model
 # v0.53 起为自研 S7comm 协议栈(核心零依赖,无需安装任何扩展)
-# 构造第 3 参为型号 model=S7Cpu(缺省 S7_1200),型号驱动连接预设;rack/slot 可显式覆写
-s7 = SiemensS7Client("192.168.0.1", model=S7Cpu.S7_1200)  # 1500 同款;需勾选
+# 构造第 3 参为型号 model=S7Model(缺省 S7_1200),型号驱动连接预设;rack/slot 可显式覆写
+s7 = SiemensS7Client("192.168.0.1", model=S7Model.S7_1200)  # 1500 同款;需勾选
 # 「允许来自远程对象的 PUT/GET 通信访问」,DB 须为非优化块(TIA 取消 Optimized block access)
 
-s300 = SiemensS7Client("192.168.0.2", model=S7Cpu.S7_300)   # 400 同款(缺省槽位 2)
-smart = SiemensS7Client("192.168.2.1", model=S7Cpu.S7_200_SMART)  # 走 S7 基本资源类型
-# s200 = SiemensS7Client("192.168.2.2", model=S7Cpu.S7_200)  # 经典 200 需 CP243-1 模块
+s300 = SiemensS7Client("192.168.0.2", model=S7Model.S7_300)   # 400 同款(缺省槽位 2)
+smart = SiemensS7Client("192.168.2.1", model=S7Model.S7_200_SMART)  # 走 S7 基本资源类型
+# s200 = SiemensS7Client("192.168.2.2", model=S7Model.S7_200)  # 经典 200 需 CP243-1 模块
 
 ok, temp = s7.read_float("DB1.DBD6")   # DB 双字起点,REAL
 ok = s7.write_bool("DB1.DBX0.3", True) # DB 位(非原子读-改-写;多写者请 write 整字节)

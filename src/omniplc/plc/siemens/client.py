@@ -43,7 +43,7 @@ from typing import Dict, List, Optional, Sequence, Tuple, Union
 from ...core import convert
 from ...core.base_client import BaseClient, DEFAULT_STRING_ENCODING, validate_endpoint
 from ...core.constants import (
-    S7_CPU_PRESETS,
+    S7_MODEL_PRESETS,
     S7_DEFAULT_PORT,
     S7_MAX_MULTI_VARS,
     S7_RACK_MAX,
@@ -53,17 +53,17 @@ from ...core.constants import (
 from ...core.debug import log_op
 from ...core.errors import DeviceError, TransportClosedError
 from ...core.validation import require_bool, require_float, require_int
-from ...core.types import DataType, PrimitiveValue, S7Cpu
+from ...core.types import DataType, PrimitiveValue, S7Model
 from ...transport.base import BaseTransport
 from ...transport.tcp import TcpTransport
 from .address import S7Address, area_code, parse_s7_address, translate_v_address
 from . import codec
 from ...core.i18n import _
 
-_V_MODELS: Tuple[S7Cpu, ...] = (S7Cpu.S7_200, S7Cpu.S7_200_SMART)
+_V_MODELS: Tuple[S7Model, ...] = (S7Model.S7_200, S7Model.S7_200_SMART)
 """V 区记号放行的型号(经典 S7-200 与 200 SMART;V 存储器 = DB1)。"""
 
-_WSTRING_MODELS: Tuple[S7Cpu, ...] = (S7Cpu.S7_1200, S7Cpu.S7_1500)
+_WSTRING_MODELS: Tuple[S7Model, ...] = (S7Model.S7_1200, S7Model.S7_1500)
 """WString 放行的型号(仅 TIA 时代的 1200/1500;WString 是 TIA 类型,
 经典 300/400 与 200 系无该类型——读会按 UTF-16BE 解出乱码,写会污染
 数据,显式拒防静默错值)。"""
@@ -103,21 +103,21 @@ _CPU_STATUS_NAMES: Dict[int, str] = {
 
 
 def resolve_s7_connection(
-    model: S7Cpu, rack: Optional[int], slot: Optional[int]
+    model: S7Model, rack: Optional[int], slot: Optional[int]
 ) -> Tuple[int, int, int, int, int]:
     """CPU 型号 → 连接参数解析(同步/原生/异步三面共用,模块函数)。
 
-    预设表 :data:`~omniplc.core.constants.S7_CPU_PRESETS` 给出型号惯例的
+    预设表 :data:`~omniplc.core.constants.S7_MODEL_PRESETS` 给出型号惯例的
     本端 TSAP / 连接类型 / rack / slot / TPDU 尺寸;``rack``/``slot`` 显式
     给出时覆写预设(0~上限校验),缺省 ``None`` 用预设。
 
     :return: ``(local_tsap, remote_tsap, tpdu_size_code, rack, slot)``
-    :raises ValueError: ``model`` 非 :class:`~omniplc.core.types.S7Cpu`
+    :raises ValueError: ``model`` 非 :class:`~omniplc.core.types.S7Model`
         成员,或覆写 rack/slot 越界
     """
-    if not isinstance(model, S7Cpu):
-        raise ValueError(_("model 必须是 S7Cpu 枚举成员,收到:{!r}").format(model))
-    preset = S7_CPU_PRESETS[model]
+    if not isinstance(model, S7Model):
+        raise ValueError(_("model 必须是 S7Model 枚举成员,收到:{!r}").format(model))
+    preset = S7_MODEL_PRESETS[model]
     resolved_rack = preset.rack if rack is None else int(rack)
     resolved_slot = preset.slot if slot is None else int(slot)
     if not 0 <= resolved_rack <= S7_RACK_MAX:
@@ -176,7 +176,7 @@ class _S7Session(BaseTransport):
 
         :param ip_address: PLC 的 IP 或主机名
         :param port: ISO-on-TCP 端口,标准 102
-        :param local_tsap: 本端(Calling)TSAP(型号预设,见 S7_CPU_PRESETS)
+        :param local_tsap: 本端(Calling)TSAP(型号预设,见 S7_MODEL_PRESETS)
         :param remote_tsap: 远端(Called)TSAP(由 :func:`resolve_s7_connection`
             按型号预设 + rack/slot 解析)
         :param tpdu_size_code: CR 的 TPDU 尺寸指数(0x0A=1024,CP243 口径 0x09)
@@ -465,13 +465,13 @@ class SiemensS7Client(BaseClient):
 
     :example::
 
-        client = SiemensS7Client("192.168.0.1", model=S7Cpu.S7_1200)
+        client = SiemensS7Client("192.168.0.1", model=S7Model.S7_1200)
         client.connect()
         ok, value = client.read_float("DB1.DBD6")
         ok = client.write_bool("DB1.DBX0.3", True)
         ok, text = client.read_string("DB1.DBS20", length=32)
 
-        smart = SiemensS7Client("192.168.2.1", model=S7Cpu.S7_200_SMART)
+        smart = SiemensS7Client("192.168.2.1", model=S7Model.S7_200_SMART)
         smart.connect()
         ok, value = smart.read_ushort("VW100")  # V 区 = DB1
     """
@@ -483,7 +483,7 @@ class SiemensS7Client(BaseClient):
         self,
         ip_address: str = "192.168.0.1",
         port: int = S7_DEFAULT_PORT,
-        model: S7Cpu = S7Cpu.S7_1200,
+        model: S7Model = S7Model.S7_1200,
         rack: Optional[int] = None,
         slot: Optional[int] = None,
     ) -> None:
@@ -491,7 +491,7 @@ class SiemensS7Client(BaseClient):
 
         :param ip_address: PLC 的 IP 或主机名
         :param port: ISO-on-TCP 端口,标准 102
-        :param model: CPU 型号(:class:`~omniplc.core.types.S7Cpu`,缺省
+        :param model: CPU 型号(:class:`~omniplc.core.types.S7Model`,缺省
             S7-1200)。型号驱动连接预设——300/400 槽位 2、1200/1500 槽位 1
             (PG 资源类型);200 SMART 本端 TSAP 0x1000 + S7 基本资源类型
             (远端 0x0300);经典 S7-200 仅限 CP243-1 以太网模块接入。
@@ -521,7 +521,7 @@ class SiemensS7Client(BaseClient):
         self._slot = resolved_slot
 
     @property
-    def model(self) -> S7Cpu:
+    def model(self) -> S7Model:
         """CPU 型号(构造参数,驱动连接预设)。"""
         return self._model
 

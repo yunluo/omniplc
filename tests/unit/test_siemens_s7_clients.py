@@ -12,7 +12,7 @@ from typing import Any, List
 
 import pytest
 
-from omniplc import S7Cpu, SiemensS7Client
+from omniplc import S7Model, SiemensS7Client
 from omniplc.plc.siemens import codec
 from omniplc.plc.siemens.address import parse_s7_address, translate_v_address
 from omniplc.plc.siemens.client import _S7Session, resolve_s7_connection
@@ -810,7 +810,7 @@ def test_constructor_validation() -> None:
     # v0.53 破坏性变更:dll_path 随 python-snap7 退役移除;
     # 型号批:构造签名第 3 参起为 model(原 rack/slot 位置实参须改键字)
     with pytest.raises(TypeError):
-        SiemensS7Client("192.168.0.1", 102, S7Cpu.S7_1200, 0, 1, "")  # type: ignore[misc]
+        SiemensS7Client("192.168.0.1", 102, S7Model.S7_1200, 0, 1, "")  # type: ignore[misc]
 
 
 def test_signature_defaults() -> None:
@@ -818,7 +818,7 @@ def test_signature_defaults() -> None:
     client = SiemensS7Client()
     assert client._ip_address == "192.168.0.1"
     assert client._port == 102
-    assert client.model is S7Cpu.S7_1200
+    assert client.model is S7Model.S7_1200
     assert client.rack == 0
     assert client.slot == 1
     assert client.ping_supported is True
@@ -863,7 +863,7 @@ def test_async_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
 
     async def scenario() -> None:
         client = ASiemensS7Client("127.0.0.1", 102, rack=0, slot=1)
-        assert client.model is S7Cpu.S7_1200
+        assert client.model is S7Model.S7_1200
         assert client.rack == 0 and client.slot == 1
         fake.queue(_tpkt(_cotp_cc()))
         fake.queue(_tpkt(_dt(_negotiate_ack(1))))
@@ -877,23 +877,23 @@ def test_async_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ----------------------------------------------------------------------
-# 型号参数化(S7Cpu 预设 / SMART·CP243 黄金帧 / V 区记号)
+# 型号参数化(S7Model 预设 / SMART·CP243 黄金帧 / V 区记号)
 # ----------------------------------------------------------------------
 
 
 def test_model_preset_resolution() -> None:
     """六款型号 → 连接预设解析(local/remote TSAP、TPDU、缺省 rack/slot)。
 
-    预设依据见 S7_CPU_PRESETS(python-snap7 主源 + IoTClient 字节黄金,
+    预设依据见 S7_MODEL_PRESETS(python-snap7 主源 + IoTClient 字节黄金,
     全部待真机核证)。
     """
     expected = {
-        S7Cpu.S7_1200: (0x0100, 0x0101, 0x0A, 0, 1),
-        S7Cpu.S7_1500: (0x0100, 0x0101, 0x0A, 0, 1),
-        S7Cpu.S7_300: (0x0100, 0x0102, 0x0A, 0, 2),
-        S7Cpu.S7_400: (0x0100, 0x0102, 0x0A, 0, 2),
-        S7Cpu.S7_200_SMART: (0x1000, 0x0300, 0x0A, 0, 0),
-        S7Cpu.S7_200: (0x4D57, 0x4D57, 0x09, 0, 0),
+        S7Model.S7_1200: (0x0100, 0x0101, 0x0A, 0, 1),
+        S7Model.S7_1500: (0x0100, 0x0101, 0x0A, 0, 1),
+        S7Model.S7_300: (0x0100, 0x0102, 0x0A, 0, 2),
+        S7Model.S7_400: (0x0100, 0x0102, 0x0A, 0, 2),
+        S7Model.S7_200_SMART: (0x1000, 0x0300, 0x0A, 0, 0),
+        S7Model.S7_200: (0x4D57, 0x4D57, 0x09, 0, 0),
     }
     for model, wanted in expected.items():
         assert resolve_s7_connection(model, None, None) == wanted, model
@@ -901,23 +901,23 @@ def test_model_preset_resolution() -> None:
 
 def test_model_override_rack_slot() -> None:
     """rack/slot 显式覆写预设:SMART slot 1 → 远端 0x0301;300 机架 1 槽 3 → 0x0123。"""
-    assert resolve_s7_connection(S7Cpu.S7_200_SMART, None, 1) == (
+    assert resolve_s7_connection(S7Model.S7_200_SMART, None, 1) == (
         0x1000,
         0x0301,
         0x0A,
         0,
         1,
     )
-    assert resolve_s7_connection(S7Cpu.S7_300, 1, 3) == (0x0100, 0x0123, 0x0A, 1, 3)
+    assert resolve_s7_connection(S7Model.S7_300, 1, 3) == (0x0100, 0x0123, 0x0A, 1, 3)
     # S7-200/CP243:远端 TSAP 固定 "MW" 记号,与 rack/slot 无关
-    assert resolve_s7_connection(S7Cpu.S7_200, 2, 3) == (0x4D57, 0x4D57, 0x09, 2, 3)
+    assert resolve_s7_connection(S7Model.S7_200, 2, 3) == (0x4D57, 0x4D57, 0x09, 2, 3)
 
 
 def test_model_rejects_non_enum() -> None:
-    """model 非 S7Cpu 成员(裸 int/字符串)构造期拒。"""
-    with pytest.raises(ValueError, match="S7Cpu"):
+    """model 非 S7Model 成员(裸 int/字符串)构造期拒。"""
+    with pytest.raises(ValueError, match="S7Model"):
         SiemensS7Client("192.168.0.1", model=3)  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="S7Cpu"):
+    with pytest.raises(ValueError, match="S7Model"):
         SiemensS7Client("192.168.0.1", model="300")  # type: ignore[arg-type]
 
 
@@ -973,7 +973,7 @@ def test_smart_model_v_read_walks_db1(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "omniplc.plc.siemens.client.TcpTransport", lambda ip, port: fake
     )
-    client = SiemensS7Client("127.0.0.1", model=S7Cpu.S7_200_SMART)
+    client = SiemensS7Client("127.0.0.1", model=S7Model.S7_200_SMART)
     fake.queue(_tpkt(_cotp_cc()))
     fake.queue(_tpkt(_dt(_negotiate_ack(1))))
     assert client.connect() is True, client.last_error
@@ -1019,7 +1019,7 @@ def test_wstring_model_gate(s7: Any) -> None:
     """WString 仅 1200/1500:默认型号(1200)直调走通(不触网即拒前参数);
     切 300 在线后读写均拒(参数错误约定,ValueError 直抛)。"""
     client, fake = s7
-    client._model = S7Cpu.S7_300  # 直改型号域(免重复握手);域为构造期身份
+    client._model = S7Model.S7_300  # 直改型号域(免重复握手);域为构造期身份
     _connect_ready(client, fake)
     with pytest.raises(ValueError, match="WString 仅"):
         client.read_wstring("DB1.DBW20")

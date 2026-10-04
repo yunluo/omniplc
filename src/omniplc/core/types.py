@@ -132,11 +132,11 @@ class McFrame(Enum):
     FRAME_1C = "1C"
 
 
-class S7Cpu(Enum):
+class S7Model(Enum):
     """西门子 S7 CPU 型号(客户端构造参数,对标三菱 MC 的 :class:`McFrame` 形态)。
 
     型号驱动连接预设(本端 TSAP / 连接类型 / 缺省 rack·slot / TPDU 尺寸),
-    预设表见 :data:`~omniplc.core.constants.S7_CPU_PRESETS`;rack/slot 可在
+    预设表见 :data:`~omniplc.core.constants.S7_MODEL_PRESETS`;rack/slot 可在
     构造时显式覆写。
 
     - ``S7_300``/``S7_400``:经典机架型(CPU 惯例槽位 2)

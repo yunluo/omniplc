@@ -34,7 +34,7 @@ PDU 类型:CR=`0xE0`、CC=`0xD0`、DT=`0xF0`、DR=`0x80`。
   - `0xC0` PDU Size:len 1,值 = 指数(2^值,`0x0A` = 1024)
 
 **型号连接预设**(2026-10-04 型号参数化批;依据链「参考实现逐字节比对」
-退档,全部待真机核证;落库表 `core/constants.py::S7_CPU_PRESETS`):
+退档,全部待真机核证;落库表 `core/constants.py::S7_MODEL_PRESETS`):
 
 | 型号 | Calling | Called | 资源类型 | 缺省 rack/slot | TPDU | 依据 |
 |---|---|---|---|---|---|---|
@@ -191,7 +191,7 @@ real-machine-checklist)。
 
 - local TSAP `0x0100`、connection_type `1`(PG)、src_ref `0x0001`
   (python-snap7 缺省,即 S7-300~1500 预设;200 SMART/200-CP243 按上节
-  型号预设表覆写,见 `core/constants.py::S7_CPU_PRESETS`)
+  型号预设表覆写,见 `core/constants.py::S7_MODEL_PRESETS`)
 - PDU 长度请求 480(协商后取对端确认值;本库 read_area/write_area 按
   协商值自动分片:读侧容量 = PDU−18、写侧 = PDU−35,`client_base.py`
   L199-219 同款公式)
@@ -244,5 +244,5 @@ S7 协议破解格式说明》,用户提供全文;第四方独立抓包口径,�
 - **结论**:原帖全部帧面事实与本库实现零冲突;其「按 bit 连续写实践
   有问题,建议逐个写」与本库位写走读-改-写(按字节写)的既有取舍一致;
   型号差异仅 CPUSlot(交互一 A[18])与 CC 小型号字节——与本库
-  `S7_CPU_PRESETS` 的 slot 惯例口径同源。本节仅登记交叉,帧面依据仍
+  `S7_MODEL_PRESETS` 的 slot 惯例口径同源。本节仅登记交叉,帧面依据仍
   以参考实现逐字节档案(§2~§9)与真机 pcap 为准。

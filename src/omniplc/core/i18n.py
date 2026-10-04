@@ -1020,7 +1020,7 @@ _TRANSLATIONS: Dict[str, str] = {
     "S7 连接已断:{}": "The S7 connection is down: {}",
     "机架号必须在 0~{} 之间,收到:{}": "The rack number must be between 0 and {}, got: {}",
     "槽位号必须在 0~{} 之间,收到:{}": "The slot number must be between 0 and {}, got: {}",
-    "model 必须是 S7Cpu 枚举成员,收到:{!r}": "model must be an S7Cpu enum member, got: {!r}",
+    "model 必须是 S7Model 枚举成员,收到:{!r}": "model must be an S7Model enum member, got: {!r}",
     "V 区地址仅 S7-200/200 SMART 支持:{!r}(其余型号请用 DB 记号)": "V-area addresses are only supported for S7-200/200 SMART: {0!r} (use DB notation on other models)",
     "V 区地址非法:{!r}(示例:V10.3 / VB10 / VW10 / VD10 / VS20)": "Invalid V-area address: {0!r} (examples: V10.3 / VB10 / VW10 / VD10 / VS20)",
     "COTP CC 的 Called TSAP 回显不符:期望 0x{:04X},收到 0x{:04X}": "The COTP CC Called TSAP echo mismatch: expected 0x{0:04X}, got 0x{1:04X}",

@@ -33,7 +33,7 @@ from ..core.constants import (
 from ..core.debug import log_op
 from ..core.errors import DeviceError, TransportClosedError
 from ..core.i18n import _
-from ..core.types import DataType, PrimitiveValue, S7Cpu
+from ..core.types import DataType, PrimitiveValue, S7Model
 from ..core.validation import require_bool, require_float, require_int
 from ..plc.siemens import codec
 from ..plc.siemens.address import (
@@ -80,7 +80,7 @@ class AsyncS7Session(AsyncBaseTransport):
 
         :param ip_address: PLC 的 IP 或主机名
         :param port: ISO-on-TCP 端口,标准 102
-        :param local_tsap: 本端(Calling)TSAP(型号预设,见 S7_CPU_PRESETS)
+        :param local_tsap: 本端(Calling)TSAP(型号预设,见 S7_MODEL_PRESETS)
         :param remote_tsap: 远端(Called)TSAP(由 :func:`resolve_s7_connection`
             按型号预设 + rack/slot 解析)
         :param tpdu_size_code: CR 的 TPDU 尺寸指数(0x0A=1024,CP243 口径 0x09)
@@ -384,7 +384,7 @@ class AsyncSiemensS7Client(AsyncBaseClient):
 
     :example::
 
-        client = AsyncSiemensS7Client("192.168.0.1", model=S7Cpu.S7_1200)
+        client = AsyncSiemensS7Client("192.168.0.1", model=S7Model.S7_1200)
         await client.connect()
         ok, value = await client.read_float("DB1.DBD6")
     """
@@ -396,7 +396,7 @@ class AsyncSiemensS7Client(AsyncBaseClient):
         self,
         ip_address: str = "192.168.0.1",
         port: int = S7_DEFAULT_PORT,
-        model: S7Cpu = S7Cpu.S7_1200,
+        model: S7Model = S7Model.S7_1200,
         rack: Optional[int] = None,
         slot: Optional[int] = None,
     ) -> None:
@@ -404,7 +404,7 @@ class AsyncSiemensS7Client(AsyncBaseClient):
 
         :param ip_address: PLC 的 IP 或主机名
         :param port: ISO-on-TCP 端口,标准 102
-        :param model: CPU 型号(:class:`~omniplc.core.types.S7Cpu`,缺省
+        :param model: CPU 型号(:class:`~omniplc.core.types.S7Model`,缺省
             S7-1200;语义与同步侧 :class:`~omniplc.plc.siemens.SiemensS7Client`
             一致)
         :param rack: 机架号,缺省用型号预设(0);显式给出则覆写
@@ -428,7 +428,7 @@ class AsyncSiemensS7Client(AsyncBaseClient):
         self._slot = resolved_slot
 
     @property
-    def model(self) -> S7Cpu:
+    def model(self) -> S7Model:
         """CPU 型号(构造参数,驱动连接预设)。"""
         return self._model
 

@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, List
 
 import pytest
 
-from omniplc import S7Cpu, SiemensS7Client
+from omniplc import S7Model, SiemensS7Client
 from omniplc.native import AsyncSiemensS7Client
 from test_siemens_s7_clients import (
     _FakeS7Tcp,
@@ -55,7 +55,7 @@ def loop(request: pytest.FixtureRequest) -> Any:
 def _drive_sync(
     monkeypatch: pytest.MonkeyPatch,
     responses: List[bytes],
-    model: Any = S7Cpu.S7_1200,
+    model: Any = S7Model.S7_1200,
 ) -> Any:
     """同步侧:挂假 TCP → 喂握手应答 → connect(返回 (client, fake))。
 
@@ -79,7 +79,7 @@ def _async_parity(
     monkeypatch: pytest.MonkeyPatch,
     responses: List[bytes],
     async_action: Callable[[Any], Any],
-    model: Any = S7Cpu.S7_1200,
+    model: Any = S7Model.S7_1200,
 ) -> Dict[str, Any]:
     """异步侧:挂假 TCP → 喂握手应答 → connect → await 动作 → 收集现场。"""
     holder: Dict[str, Any] = {}
@@ -187,12 +187,12 @@ def test_handshake_parity_smart_model(
     monkeypatch: pytest.MonkeyPatch, loop: Any
 ) -> None:
     """200 SMART 型号对拍:两侧连接帧逐字节一致(本端 0x1000/远端 0x0300)。"""
-    sync_client, sync_fake = _drive_sync(monkeypatch, [], model=S7Cpu.S7_200_SMART)
+    sync_client, sync_fake = _drive_sync(monkeypatch, [], model=S7Model.S7_200_SMART)
     sync_sent = bytes(sync_fake.sent)
     sync_client.disconnect()
 
     holder = _async_parity(
-        loop, monkeypatch, [], lambda _client: None, model=S7Cpu.S7_200_SMART
+        loop, monkeypatch, [], lambda _client: None, model=S7Model.S7_200_SMART
     )
     assert holder["sent"] == sync_sent
     # 与 IoTClient Command1_200Smart COTP 段逐字节同口径
@@ -410,7 +410,7 @@ def test_smart_v_read_parity(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None
     """SMART 型号 V 区读对拍:连接帧与读请求两侧逐字节一致,值一致。"""
     responses = [_tpkt(_dt(_read_ack(2, [b"\x00\x2a"])))]
     sync_client, sync_fake = _drive_sync(
-        monkeypatch, responses, model=S7Cpu.S7_200_SMART
+        monkeypatch, responses, model=S7Model.S7_200_SMART
     )
     sync_result = sync_client.read_ushort("VW10")
     sync_sent = bytes(sync_fake.sent)
@@ -421,7 +421,7 @@ def test_smart_v_read_parity(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None
         monkeypatch,
         responses,
         lambda client: client.read_ushort("VW10"),
-        model=S7Cpu.S7_200_SMART,
+        model=S7Model.S7_200_SMART,
     )
     assert holder["result"] == sync_result
     assert holder["sent"] == sync_sent

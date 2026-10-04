@@ -94,7 +94,7 @@ with ModbusTcpClient(ip_address="192.168.0.10", port=502, station=1) as client:
 | CNC MTConnect | ✅ 5000 | — | — | — |
 | 西门子 S7(200/200SMART/300/400/1200/1500;DB/I/Q/M + V 区记号) | ✅ 102 | — | — | — |(自研 S7comm 栈,核心零依赖)
 
-> **西门子 S7 型号**:`SiemensS7Client(ip, model=S7Cpu.S7_1200)` 按型号自动套连接预设——
+> **西门子 S7 型号**:`SiemensS7Client(ip, model=S7Model.S7_1200)` 按型号自动套连接预设——
 > 300/400 槽位 2、1200/1500 槽位 1(PG 资源类型)、200 SMART 走 S7 基本资源类型、
 > 经典 200 需 CP243-1 以太网模块;`rack`/`slot` 可显式覆写。200/200SMART 额外支持
 > `V` 区记号(= DB1,如 `read_ushort("VW100")`)。1200/1500 与 200 SMART 须在 CPU 侧

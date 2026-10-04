@@ -41,7 +41,7 @@
 | AB 0x0A 多服务包批量读  | AB Logix         | 已实现(超 32 条/480B 自动拆包),通用模拟器不支持,待真机核证 |
 | AB connected RPI  | AB Logix         | RPI 默认 100ms(`rpi_us` 可配)、CIP 0x01/0x07 重连,待真机核证 |
 | NJ CIP 0x0A 多服务包 | 欧姆龙 NJ/NX CIP    | 继承 AB,理论同,待真机核证                |
-| 西门子 S7           | S7-200/200SMART/300/400/1200/1500 | **v0.53 自研 S7comm 栈**(依赖已退役),2026-10-04 型号批:`model=S7Cpu` 选型(SMART/200-CP243 连接预设 + V 区记号),需 PLC 或 PLCSIM;全功能待真机核证(P5:与 python-snap7 3.2.0 独立脚本对拍),要点见核验记录表 |
+| 西门子 S7           | S7-200/200SMART/300/400/1200/1500 | **v0.53 自研 S7comm 栈**(依赖已退役),2026-10-04 型号批:`model=S7Model` 选型(SMART/200-CP243 连接预设 + V 区记号),需 PLC 或 PLCSIM;全功能待真机核证(P5:与 python-snap7 3.2.0 独立脚本对拍),要点见核验记录表 |
 | NJ STRING / BOOL 数组 | 欧姆龙 NJ/NX CIP    | 已实现(STRING 按 `len(u32)+字符`、BOOL 按元素自描述,回 DWORD 时 `//32` 回退),待真机核证 |
 | MC 新设备码          | 三菱 Q/L/R         | L/F/SB/V/DX/DY/TS/TC/TN/CS/CC/CN/SM/SD/SW 已实现,待真机核证(TN=0xC3/CN=0xC6 为推定) |
 | KV MC 0406 批量读   | 基恩士 KV MC        | 继承 MelsecMc,码表已覆写,待真机          |

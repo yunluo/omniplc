@@ -133,7 +133,7 @@ from ..core.types import (
     McFrame,
     PrimitiveValue,
     SerialParity,
-    S7Cpu,
+    S7Model,
     WordOrder,
 )
 from ..core.i18n import _
@@ -2386,7 +2386,7 @@ class ASiemensS7Client(ABaseClient):
 
     :example::
 
-        client = ASiemensS7Client("192.168.0.1", model=S7Cpu.S7_1200)
+        client = ASiemensS7Client("192.168.0.1", model=S7Model.S7_1200)
         await client.connect()
         ok, value = await client.read_float("DB1.DBD6")
 
@@ -2397,7 +2397,7 @@ class ASiemensS7Client(ABaseClient):
         self,
         ip_address: str = "192.168.0.1",
         port: int = S7_DEFAULT_PORT,
-        model: S7Cpu = S7Cpu.S7_1200,
+        model: S7Model = S7Model.S7_1200,
         rack: Optional[int] = None,
         slot: Optional[int] = None,
     ) -> None:
@@ -2405,7 +2405,7 @@ class ASiemensS7Client(ABaseClient):
 
         :param ip_address: PLC 的 IP 或主机名
         :param port: ISO-on-TCP 端口,标准 102
-        :param model: CPU 型号(:class:`~omniplc.core.types.S7Cpu`,缺省
+        :param model: CPU 型号(:class:`~omniplc.core.types.S7Model`,缺省
             S7-1200;型号驱动连接预设,语义同同步侧)
         :param rack: 机架号,缺省用型号预设;显式给出则覆写
         :param slot: 槽位号,缺省用型号预设;显式给出则覆写
@@ -2420,7 +2420,7 @@ class ASiemensS7Client(ABaseClient):
         return self._typed(SiemensS7Client)
 
     @property
-    def model(self) -> S7Cpu:
+    def model(self) -> S7Model:
         """CPU 型号(转发同步实例)。"""
         return self._client().model
 

@@ -726,9 +726,9 @@ python-snap7 3.2.0 独立脚本对拍)**;测试为 codec 黄金帧(参考实现
 移除(破坏性,CHANGELOG 披露)。
 
 西门子 S7 型号参数化(2026-10-04 用户裁决,对标三菱 MC 的 ``McFrame``
-形态):构造签名第 3 参起为 ``model=S7Cpu``(types 枚举,六款
+形态):构造签名第 3 参起为 ``model=S7Model``(types 枚举,六款
 200/200SMART/300/400/1200/1500,缺省 S7_1200 与原 rack0/slot1 行为
-逐字节一致),型号驱动连接预设 ``S7_CPU_PRESETS``(本端 TSAP / 连接
+逐字节一致),型号驱动连接预设 ``S7_MODEL_PRESETS``(本端 TSAP / 连接
 类型 / 缺省 rack·slot / TPDU 尺寸,``rack``/``slot`` 可显式覆写;
 ``resolve_s7_connection`` 单点解析,三面共用)。依据链(退档,全部
 待真机核证):300/400/1200/1500 = python-snap7 主源;200 SMART =

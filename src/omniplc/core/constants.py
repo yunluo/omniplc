@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Dict, NamedTuple, Optional, Tuple
 
-from .types import SerialParity, S7Cpu
+from .types import SerialParity, S7Model
 
 # ---------------------------------------------------------------- 默认超时(秒)
 DEFAULT_CONNECT_TIMEOUT: float = 5.0
@@ -1341,8 +1341,8 @@ S7_MAX_MULTI_VARS: int = 20
 每请求 20 项;snap7 库常量 ``MAX_VARS`` 同值口径)。"""
 
 
-class S7CpuPreset(NamedTuple):
-    """S7 CPU 型号连接预设(:class:`~omniplc.core.types.S7Cpu` → 连接参数)。
+class S7ModelPreset(NamedTuple):
+    """S7 CPU 型号连接预设(:class:`~omniplc.core.types.S7Model` → 连接参数)。
 
     型号进客户端构造参数(用户裁决,对标三菱 MC 的 ``McFrame`` 形态);
     ``rack``/``slot`` 为型号惯例缺省,客户端构造可用显式实参覆写。
@@ -1375,13 +1375,13 @@ class S7CpuPreset(NamedTuple):
 #   Command1_200(L56-61)连接帧字节黄金——两侧 TSAP = ASCII "MW"
 #   (0x4D57,Micro/WIN 记号)、TPDU 0x09(512);S7-200 无内置以太网,
 #   无 CP243 时走串口 PPI(无官方公开帧文档,未实现,见 README)
-S7_CPU_PRESETS: Dict[S7Cpu, S7CpuPreset] = {
-    S7Cpu.S7_1200: S7CpuPreset(0x0100, 1, 0, 1, 0x0A),
-    S7Cpu.S7_1500: S7CpuPreset(0x0100, 1, 0, 1, 0x0A),
-    S7Cpu.S7_300: S7CpuPreset(0x0100, 1, 0, 2, 0x0A),
-    S7Cpu.S7_400: S7CpuPreset(0x0100, 1, 0, 2, 0x0A),
-    S7Cpu.S7_200_SMART: S7CpuPreset(0x1000, 3, 0, 0, 0x0A),
-    S7Cpu.S7_200: S7CpuPreset(0x4D57, 0, 0, 0, 0x09, fixed_remote_tsap=0x4D57),
+S7_MODEL_PRESETS: Dict[S7Model, S7ModelPreset] = {
+    S7Model.S7_1200: S7ModelPreset(0x0100, 1, 0, 1, 0x0A),
+    S7Model.S7_1500: S7ModelPreset(0x0100, 1, 0, 1, 0x0A),
+    S7Model.S7_300: S7ModelPreset(0x0100, 1, 0, 2, 0x0A),
+    S7Model.S7_400: S7ModelPreset(0x0100, 1, 0, 2, 0x0A),
+    S7Model.S7_200_SMART: S7ModelPreset(0x1000, 3, 0, 0, 0x0A),
+    S7Model.S7_200: S7ModelPreset(0x4D57, 0, 0, 0, 0x09, fixed_remote_tsap=0x4D57),
 }
 
 # ---------------------------------------------------------------- 通用
