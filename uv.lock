@@ -743,7 +743,7 @@ wheels = [
 
 [[package]]
 name = "omniplc"
-version = "0.52.3"
+version = "0.53.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
