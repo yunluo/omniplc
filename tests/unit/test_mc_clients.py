@@ -3,6 +3,7 @@
 覆盖:组帧逐字节断言、按长收包、序列号校验、结束码 DeviceError 不断线、
 坏帧断线重连、寄存器位"读-改-写"、多块批量读(read_batch/read_many 覆写)。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -20,14 +21,26 @@ from omniplc.core.types import DataType
 from scripted import ScriptedTransport, mount_real_tcp
 
 
-def _qna_read_response(values: list, frame: str = "3E", serial: int = 0, end_code: int = 0) -> bytes:
+def _qna_read_response(
+    values: list, frame: str = "3E", serial: int = 0, end_code: int = 0
+) -> bytes:
     """构造 QnA 读响应(测试脚手架)。"""
     data = b"".join(value.to_bytes(2, "little") for value in values)
     if frame == "4E":
-        head = b"\xd4\x00" + serial.to_bytes(2, "little") + b"\x00\x00" + b"\x00\xff\xff\x03\x00"
+        head = (
+            b"\xd4\x00"
+            + serial.to_bytes(2, "little")
+            + b"\x00\x00"
+            + b"\x00\xff\xff\x03\x00"
+        )
     else:
         head = b"\xd0\x00" + b"\x00\xff\xff\x03\x00"
-    return head + (2 + len(data)).to_bytes(2, "little") + end_code.to_bytes(2, "little") + data
+    return (
+        head
+        + (2 + len(data)).to_bytes(2, "little")
+        + end_code.to_bytes(2, "little")
+        + data
+    )
 
 
 def _qna_write_response(frame: str = "3E", serial: int = 0) -> bytes:
@@ -51,7 +64,9 @@ def _one_e_bit_write_response() -> bytes:
     return bytes([0x82, 0x00])
 
 
-def _mount(monkeypatch: pytest.MonkeyPatch, client: object, scripted: ScriptedTransport) -> None:
+def _mount(
+    monkeypatch: pytest.MonkeyPatch, client: object, scripted: ScriptedTransport
+) -> None:
     """挂载脚本传输(走正常 connect 流程)。"""
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
 
@@ -65,7 +80,15 @@ def test_tcp_3e_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     client.connect()
     assert client.read_ushort("D100") == (True, 20)
     assert bytes(scripted.sent) == codec_qna.build_request(
-        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"), 1, False, False
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("D100"),
+        1,
+        False,
+        False,
     )
 
 
@@ -78,7 +101,15 @@ def test_tcp_4e_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     client.connect()
     assert client.read_ushort("D100") == (True, 20)
     assert bytes(scripted.sent) == codec_qna.build_request(
-        "4E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"), 1, False, False
+        "4E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("D100"),
+        1,
+        False,
+        False,
     )
 
 
@@ -116,8 +147,16 @@ def test_tcp_3e_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     client.connect()
     assert client.write_short("D100", 300) is True
     assert bytes(scripted.sent) == codec_qna.build_request(
-        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"),
-        1, False, True, [300],
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("D100"),
+        1,
+        False,
+        True,
+        [300],
     )
 
 
@@ -192,10 +231,26 @@ def test_tcp_word_bit_write_read_modify_write(monkeypatch: pytest.MonkeyPatch) -
     client.connect()
     assert client.write_bool("D100.3", True) is True
     expected = codec_qna.build_request(
-        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"), 1, False, False
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("D100"),
+        1,
+        False,
+        False,
     ) + codec_qna.build_request(
-        "3E", 2, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"),
-        1, False, True, [0x000C],
+        "3E",
+        2,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("D100"),
+        1,
+        False,
+        True,
+        [0x000C],
     )
     assert bytes(scripted.sent) == expected
 
@@ -209,7 +264,15 @@ def test_udp_3e_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     client.connect()
     assert client.read_ushort("D100") == (True, 20)
     assert bytes(scripted.sent) == codec_qna.build_request(
-        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"), 1, False, False
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("D100"),
+        1,
+        False,
+        False,
     )
 
 
@@ -224,7 +287,9 @@ def _qna_random_read_response(words: list, bits: list) -> bytes:
 def test_tcp_3e_read_batch_mixed(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP 3E read_batch:混类型单事务,字块/位块分节,值与 items 顺序对应。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000)
-    frame = _qna_random_read_response([0xFFFE, 0x0000, 0x3F80, 0x0008], [0x0001, 0x0000])
+    frame = _qna_random_read_response(
+        [0xFFFE, 0x0000, 0x3F80, 0x0008], [0x0001, 0x0000]
+    )
     scripted = ScriptedTransport([frame[:9], frame[9:]])
     _mount(monkeypatch, client, scripted)
     client.connect()
@@ -275,9 +340,7 @@ def test_read_batch_frame_gates(monkeypatch: pytest.MonkeyPatch) -> None:
     _mount(
         monkeypatch,
         fallback,
-        ScriptedTransport(
-            [frame_a[:2], frame_a[2:], frame_b[:2], frame_b[2:]]
-        ),
+        ScriptedTransport([frame_a[:2], frame_a[2:], frame_b[:2], frame_b[2:]]),
     )
     fallback.connect()
     assert fallback.read_many(["D0", "D1"], "short") == [(True, 5), (True, 6)]
@@ -299,11 +362,17 @@ def test_tcp_3e_random_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     client = MelsecMcTcpClient("127.0.0.1", 2000)
     # 响应数据布局:字数据(D100=5, M0 位字=1)在前,双字数据(D500=0x12345678)在后
     data = (
-        (0x0005).to_bytes(2, "little")                      # D100 字
-        + (0x0001).to_bytes(2, "little")                    # M0 位字
-        + (0x12345678).to_bytes(4, "little")                # D500 双字
+        (0x0005).to_bytes(2, "little")  # D100 字
+        + (0x0001).to_bytes(2, "little")  # M0 位字
+        + (0x12345678).to_bytes(4, "little")  # D500 双字
     )
-    frame = b"\xd0\x00" + b"\x00\xff\xff\x03\x00" + (2 + len(data)).to_bytes(2, "little") + b"\x00\x00" + data
+    frame = (
+        b"\xd0\x00"
+        + b"\x00\xff\xff\x03\x00"
+        + (2 + len(data)).to_bytes(2, "little")
+        + b"\x00\x00"
+        + data
+    )
     scripted = ScriptedTransport([frame[:9], frame[9:]])
     _mount(monkeypatch, client, scripted)
     client.connect()
@@ -313,7 +382,11 @@ def test_tcp_3e_random_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert ok is True and values == [5, True, 0x12345678]
     assert bytes(scripted.sent) == codec_qna.build_random_read_devices(
-        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER,
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
         [(0xA8, 100), (0x90, 0)],
         [(0xA8, 500)],
     )
@@ -337,13 +410,19 @@ def test_tcp_3e_random_read_empty_rejected() -> None:
 def test_tcp_3e_random_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP 3E random_write:乱序写(无响应数据,应答头即成功)。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000)
-    frame = b"\xd0\x00" + b"\x00\xff\xff\x03\x00" + (2).to_bytes(2, "little") + b"\x00\x00"
+    frame = (
+        b"\xd0\x00" + b"\x00\xff\xff\x03\x00" + (2).to_bytes(2, "little") + b"\x00\x00"
+    )
     scripted = ScriptedTransport([frame[:9], frame[9:]])
     _mount(monkeypatch, client, scripted)
     client.connect()
     assert client.random_write([("D100", 0x1234)], [("D500", 0x89ABCDEF)]) is True
     assert bytes(scripted.sent) == codec_qna.build_random_write_devices(
-        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER,
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
         [(0xA8, 100, 0x1234)],
         [(0xA8, 500, 0x89ABCDEF)],
     )
@@ -368,15 +447,19 @@ def test_tcp_3e_random_read_rejects_invalid(monkeypatch: pytest.MonkeyPatch) -> 
     _mount(monkeypatch, client, ScriptedTransport([]))
     client.connect()
     with pytest.raises(ValueError):
-        client.random_read([("D100.3", DataType.SHORT)])   # 字软元件位号后缀静默丢位(原 P0)
+        client.random_read(
+            [("D100.3", DataType.SHORT)]
+        )  # 字软元件位号后缀静默丢位(原 P0)
     with pytest.raises(ValueError):
-        client.random_read([("M100.3", DataType.BOOL)])    # 位软元件不带位号
+        client.random_read([("M100.3", DataType.BOOL)])  # 位软元件不带位号
     with pytest.raises(ValueError):
-        client.random_read([("D100", DataType.INT)])       # 32 位须走双字列表
+        client.random_read([("D100", DataType.INT)])  # 32 位须走双字列表
     assert client.connected is True
 
 
-def test_tcp_3e_random_write_rejects_bit_suffix(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tcp_3e_random_write_rejects_bit_suffix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """random_write 位号后缀入参期拒绝(1402 无位号字段)。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000)
     _mount(monkeypatch, client, ScriptedTransport([]))
@@ -388,7 +471,9 @@ def test_tcp_3e_random_write_rejects_bit_suffix(monkeypatch: pytest.MonkeyPatch)
     assert client.connected is True
 
 
-def test_tcp_3e_random_write_validates_end_code(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tcp_3e_random_write_validates_end_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """random_write 结束码非 0 → False + last_error,不断线(原 P1:只发不收判)。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000)
     frame = _qna_read_response([], frame="3E", end_code=0xC059)
@@ -404,7 +489,13 @@ def test_tcp_3e_get_cpu_type_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP 3E get_cpu_type:0101 请求 → (模型名, 模型代码)。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000)
     data = b"Q06HCPU".ljust(16) + bytes.fromhex("0b02")
-    frame = b"\xd0\x00" + b"\x00\xff\xff\x03\x00" + (2 + len(data)).to_bytes(2, "little") + b"\x00\x00" + data
+    frame = (
+        b"\xd0\x00"
+        + b"\x00\xff\xff\x03\x00"
+        + (2 + len(data)).to_bytes(2, "little")
+        + b"\x00\x00"
+        + data
+    )
     scripted = ScriptedTransport([frame[:9], frame[9:]])
     _mount(monkeypatch, client, scripted)
     client.connect()
@@ -436,7 +527,15 @@ def test_tcp_3e_read_range_words_0401(monkeypatch: pytest.MonkeyPatch) -> None:
     assert ok is True
     assert values == [10, 20, 30]
     assert bytes(scripted.sent) == codec_qna.build_request(
-        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"), 3, False, False
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("D100"),
+        3,
+        False,
+        False,
     )
 
 
@@ -451,7 +550,15 @@ def test_tcp_3e_read_range_ints_two_words_each(monkeypatch: pytest.MonkeyPatch) 
     assert ok is True
     assert values == [100, 200]
     assert bytes(scripted.sent) == codec_qna.build_request(
-        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D0"), 4, False, False
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("D0"),
+        4,
+        False,
+        False,
     )
 
 
@@ -459,16 +566,26 @@ def test_tcp_3e_read_range_bit_device_bool(monkeypatch: pytest.MonkeyPatch) -> N
     """read_range:M0 起 10 个 BOOL = 0401 位单位成批读 10 点。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000)
     request = codec_qna.build_request(
-        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("M0"), 10, True, False
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("M0"),
+        10,
+        True,
+        False,
     )
     # 位读响应:半字节打包,每字节 2 点(高半字节在前,SH-080008 §8.2)
     bits = [1, 0, 1, 1, 0, 0, 1, 0, 1, 0]
-    data = bytes(
-        (bits[i] << 4) | bits[i + 1] for i in range(0, len(bits), 2)
+    data = bytes((bits[i] << 4) | bits[i + 1] for i in range(0, len(bits), 2))
+    response = (
+        b"\xd0\x00"
+        + b"\x00\xff\xff\x03\x00"
+        + (2 + len(data)).to_bytes(2, "little")
+        + (0).to_bytes(2, "little")
+        + data
     )
-    response = b"\xd0\x00" + b"\x00\xff\xff\x03\x00" + (2 + len(data)).to_bytes(
-        2, "little"
-    ) + (0).to_bytes(2, "little") + data
     scripted = ScriptedTransport([response[:9], response[9:]])
     _mount(monkeypatch, client, scripted)
     client.connect()
@@ -599,7 +716,9 @@ def test_tcp_1e_end_code_5b_reads_one_extra_byte() -> None:
     assert client.last_error is not None and "0x5B" in client.last_error
 
 
-def test_udp_1e_end_code_5b_not_rejected_as_bad_frame(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_udp_1e_end_code_5b_not_rejected_as_bad_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """1E over UDP:5B 错误响应(3 字节)不得因长度 <4 被当坏帧拒。"""
     client = MelsecMcUdpClient("127.0.0.1", 2000, frame="1E")
     scripted = ScriptedTransport([bytes([0x81, 0x5B, 0x10])], datagram=True)
@@ -650,7 +769,9 @@ def test_tcp_3e_bit_device_bit_suffix_rejected(monkeypatch: pytest.MonkeyPatch) 
     assert len(scripted.sent) == 0  # 参数错误不发报文
 
 
-def test_tcp_3e_word_device_bit_suffix_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tcp_3e_word_device_bit_suffix_still_works(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """字软元件位访问(D100.2)不受影响:读-改-写口径保持。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000)
     read = _qna_read_response([0b0000_0000_0000_0100])
@@ -695,8 +816,17 @@ def test_tcp_3e_fx5u_xy_octal(monkeypatch: pytest.MonkeyPatch) -> None:
     client.connect()
     assert client.read_bool("X17") == (True, True)  # 八进制 17 = 15 点
     assert bytes(scripted.sent) == codec_qna.build_request(
-        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER,
-        parse_mc_address("X17"), 1, True, False, None, _MC_DEVICE_CODES_FX5U_XY,
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("X17"),
+        1,
+        True,
+        False,
+        None,
+        _MC_DEVICE_CODES_FX5U_XY,
     )
     with pytest.raises(ValueError):
         client.read_bool("X19")  # 八进制无 8/9 数字
@@ -713,8 +843,16 @@ def test_tcp_3e_default_xy_hex_unchanged(monkeypatch: pytest.MonkeyPatch) -> Non
     client.connect()
     assert client.read_bool("X19") == (True, True)
     assert bytes(scripted.sent) == codec_qna.build_request(
-        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER,
-        parse_mc_address("X19"), 1, True, False, None,
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("X19"),
+        1,
+        True,
+        False,
+        None,
     )
 
 

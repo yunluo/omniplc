@@ -10,8 +10,9 @@
   SDK 只到 3.7;`uv` 不托管下载 3.7,详见 `.github/workflows/ci.yml` 与 `CHANGELOG.md` v0.31.4)。
 - **包管理 / 构建**:`uv`(`uv sync --extra dev` 装 dev 依赖——dev 是 optional-dependencies
   的 extra,不是 dependency-group;`uv lock` 同步 lockfile)。
-- **编辑器**:任意;提交前请跑通门禁四件套(见「三、测试」,静态检查用
-  `uvx ruff check`,本仓库不设 `ruff format` 步骤)。
+- **编辑器**:任意;提交前请跑通门禁五件套(见「三、测试」,静态检查用
+  `uvx ruff check`,格式统一用 `uvx ruff format`(2026-10-04 起,配置取
+  ruff 默认与 pymodbus 对齐,提交前 `uvx ruff format src tests` 再入检))。
 
 ## 二、代码约定
 
@@ -46,12 +47,13 @@
 
 ## 三、测试
 
-本仓库门禁四件套,**任一挂下即不通过**:
+本仓库门禁五件套,**任一挂下即不通过**:
 
 ```bash
-uv run python -m pytest tests -q         # 全量(当前 1196 例,随批次增长;无平台跳过;超 120s 由 pytest-timeout 判失败)
+uv run python -m pytest tests -q         # 全量(当前 1699 例,随批次增长;无平台跳过;超 120s 由 pytest-timeout 判失败)
+uvx ruff format --check src tests        # 格式零漂移(ruff 默认配置,与 pymodbus 对齐;改动后先 uvx ruff format src tests)
 uvx ruff check src tests                 # 0 告警(规则集显式固定,target-version 由 requires-python 推导为 py37)
-uvx mypy src/omniplc                     # 0 问题(76 源文件,目标 python_version=3.10;mypy 已不支持 <3.10,3.7 兼容由 ruff + 3.7.9 测试腿兜底)
+uvx --python 3.12 mypy src/omniplc       # 0 问题(81 源文件,目标 python_version=3.10;mypy 已不支持 <3.10,3.7 兼容由 ruff + 3.7.9 测试腿兜底)
 uvx ty check src/omniplc                 # 0 问题(Astral 第二类型检查器,与 mypy 互补)
 ```
 
@@ -84,7 +86,7 @@ ctypes 线)须在入口用 `importlib.util.find_spec` 探测并 `pytest.skip`,�
 
 1. 从 `master` 拉特性分支(`feature/<简述>` 或 `fix/<简述>`)。
 2. 提交遵循「阶段提交」约定。
-3. 跑门禁四件套(见三)全过;新增/改动至少同步覆盖测试。
+3. 跑门禁五件套(见三)全过;新增/改动至少同步覆盖测试。
 4. 填 `.github/PULL_REQUEST_TEMPLATE.md` 的清单。
 5. 协议/breaking change 必须:
    - 在 `docs/architecture.md` 状态链与版本履历表加行;

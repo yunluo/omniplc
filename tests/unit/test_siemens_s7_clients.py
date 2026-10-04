@@ -4,6 +4,7 @@
 帧面事实);会话流程用 monkeypatch 的假 TCP(size 感知应答)驱动完整
 TCP → COTP → S7 协商 → 事务序列,不依赖 snap7。
 """
+
 from __future__ import annotations
 
 import struct
@@ -21,9 +22,12 @@ from omniplc.plc.siemens.client import _S7Session
 # codec 纯函数:黄金帧(参考实现字节锁定)
 # ----------------------------------------------------------------------
 
+
 def test_tpkt_golden() -> None:
     """TPKT:版本 3 + 保留 0 + 总长 u16 大端(含头)。"""
-    assert codec.build_tpkt(b"\x02\xf0\x80\x01") == bytes.fromhex("03 00 00 08 02 f0 80 01".replace(" ", ""))
+    assert codec.build_tpkt(b"\x02\xf0\x80\x01") == bytes.fromhex(
+        "03 00 00 08 02 f0 80 01".replace(" ", "")
+    )
 
 
 def test_cotp_cr_golden() -> None:
@@ -53,12 +57,17 @@ def test_setup_comm_golden() -> None:
         "32 01 00 00 00 01 00 08 00 00 f0 00 00 01 00 01 01 e0".replace(" ", "")
     )
     assert frame == expected
-    assert codec.parse_setup_comm(
-        bytes.fromhex(
-            "32 03 00 00 00 01 00 08 00 00 00 00 f0 00 00 01 00 01 01 e0".replace(" ", "")
-        ),
-        1,
-    ) == 480
+    assert (
+        codec.parse_setup_comm(
+            bytes.fromhex(
+                "32 03 00 00 00 01 00 08 00 00 00 00 f0 00 00 01 00 01 01 e0".replace(
+                    " ", ""
+                )
+            ),
+            1,
+        )
+        == 480
+    )
 
 
 def test_address_spec_word_golden() -> None:
@@ -69,7 +78,9 @@ def test_address_spec_word_golden() -> None:
 
 def test_address_spec_bit_address() -> None:
     """M10.2 位地址编码:bit 地址 = (10 << 3) | 2 = 0x52。"""
-    spec = codec.build_address_spec(codec.AREA_MK, 0, (10 << 3) | 2, codec.WORD_LEN_BIT, 1)
+    spec = codec.build_address_spec(
+        codec.AREA_MK, 0, (10 << 3) | 2, codec.WORD_LEN_BIT, 1
+    )
     assert spec[9:12] == b"\x00\x00\x52"
     assert spec[6:8] == b"\x00\x00"  # 非 DB 区 DB 号为 0
 
@@ -78,7 +89,9 @@ def test_read_request_golden() -> None:
     """读请求:功能 0x04 + 单 Item,DB1.DBB0 起 4 字节。"""
     frame = codec.build_read(codec.AREA_DB, 1, 0, codec.WORD_LEN_BYTE, 4, 7)
     expected = bytes.fromhex(
-        "32 01 00 00 00 07 00 0e 00 00 04 01 12 0a 10 02 00 04 00 01 84 00 00 00".replace(" ", "")
+        "32 01 00 00 00 07 00 0e 00 00 04 01 12 0a 10 02 00 04 00 01 84 00 00 00".replace(
+            " ", ""
+        )
     )
     assert frame == expected
 
@@ -98,7 +111,9 @@ def test_write_request_golden() -> None:
 
 def test_write_request_real_uses_byte_length() -> None:
     """REAL 写:传输尺寸 0x07,数据长 = 字节数(4);地址 = 字节×8(review-1008 P3 修正脚手架错帧)。"""
-    frame = codec.build_write(codec.AREA_DB, 1, 6 * 8, codec.WORD_LEN_REAL, b"\x42\xc9\x00\x00", 1)
+    frame = codec.build_write(
+        codec.AREA_DB, 1, 6 * 8, codec.WORD_LEN_REAL, b"\x42\xc9\x00\x00", 1
+    )
     assert frame[-6:-4] == b"\x00\x04"  # 数据长 u16 = 4(REAL 按字节数)
     assert frame[-4:] == b"\x42\xc9\x00\x00"
     assert frame[21:24] == b"\x00\x00\x30"  # 位地址 48 = 0x30
@@ -156,8 +171,12 @@ def test_multi_read_golden() -> None:
     assert struct.unpack(">H", frame[6:8])[0] == 26  # 参数长 = 2 + 2×12
     assert struct.unpack(">H", frame[8:10])[0] == 0  # 读请求数据长 0
     assert frame[10:12] == b"\x04\x02"
-    assert frame[12:24] == bytes.fromhex("12 0a 10 02 00 02 00 01 84 00 00 00".replace(" ", ""))
-    assert frame[24:36] == bytes.fromhex("12 0a 10 02 00 01 00 00 83 00 00 50".replace(" ", ""))
+    assert frame[12:24] == bytes.fromhex(
+        "12 0a 10 02 00 02 00 01 84 00 00 00".replace(" ", "")
+    )
+    assert frame[24:36] == bytes.fromhex(
+        "12 0a 10 02 00 01 00 00 83 00 00 50".replace(" ", "")
+    )
 
 
 def test_multi_read_rejects_over_max() -> None:
@@ -171,7 +190,9 @@ def test_szl_request_golden() -> None:
     """SZL 读请求:USERDATA(group 0x44 / 子功能 0x01)+ ID 0x0424 Index 0。"""
     frame = codec.build_read_szl(0x0424, 0x0000, 5)
     expected = bytes.fromhex(
-        "32 07 00 00 00 05 00 08 00 08 00 01 12 04 11 44 01 00 0a 00 00 04 04 24 00 00".replace(" ", "")
+        "32 07 00 00 00 05 00 08 00 08 00 01 12 04 11 44 01 00 0a 00 00 04 04 24 00 00".replace(
+            " ", ""
+        )
     )
     assert frame == expected
 
@@ -189,7 +210,9 @@ def test_szl_response_echo_mismatch() -> None:
 def test_parse_read_response_golden() -> None:
     """读应答解析:单项 返回码 FF + 传输尺寸 04 + 位长 0x20 + 4 字节数据。"""
     pdu = bytes.fromhex(
-        "32 03 00 00 00 01 00 02 00 08 00 00 04 01 ff 04 00 20 3f 80 00 00".replace(" ", "")
+        "32 03 00 00 00 01 00 02 00 08 00 00 04 01 ff 04 00 20 3f 80 00 00".replace(
+            " ", ""
+        )
     )
     blobs = codec.parse_read_response(pdu, 1, 1)
     assert blobs == [b"\x3f\x80\x00\x00"]
@@ -199,7 +222,9 @@ def test_parse_read_response_odd_fill() -> None:
     """multi 奇数长项后 1 字节填充(非末项):步进正确。"""
     data = b"\xff\x04\x00\x08" + b"\x11" + b"\x00" + b"\xff\x04\x00\x08" + b"\x22"
     pdu = (
-        struct.pack(">BBHHHHBB", 0x32, 0x03, 0, 2, 2, len(data), 0, 0) + b"\x04\x02" + data
+        struct.pack(">BBHHHHBB", 0x32, 0x03, 0, 2, 2, len(data), 0, 0)
+        + b"\x04\x02"
+        + data
     )
     blobs = codec.parse_read_response(pdu, 2, 2, [1, 1])
     assert blobs == [b"\x11", b"\x22"]
@@ -235,9 +260,7 @@ def test_parse_read_response_u16_count_guard() -> None:
     with pytest.raises(ValueError):
         codec.build_read(codec.AREA_DB, 1, 0, codec.WORD_LEN_BYTE, 65536, 1)
     with pytest.raises(ValueError):
-        codec.build_write(
-            codec.AREA_DB, 1, 0, codec.WORD_LEN_BYTE, b"\x00" * 65536, 1
-        )
+        codec.build_write(codec.AREA_DB, 1, 0, codec.WORD_LEN_BYTE, b"\x00" * 65536, 1)
 
 
 def test_parse_response_sequence_mismatch() -> None:
@@ -269,6 +292,7 @@ def test_return_code_text() -> None:
 # ----------------------------------------------------------------------
 # 会话层:假 TCP(size 感知)驱动完整连接与事务
 # ----------------------------------------------------------------------
+
 
 class _FakeS7Tcp:
     """size 感知假 TCP:按 recv 尺寸从字节池切分;记录全部发送。"""
@@ -338,9 +362,28 @@ def _szl_ack(sequence: int, entries: bytes) -> bytes:
     [5]=0x84(响应位 0x8|SZL 组 0x4)、[6]=0x01 子功能、[10:12]=参数级
     错误码(0)——review-1008 P2:曾按请求形态 8 字节伪造且传输尺寸 0x04。
     """
-    data = b"\xff\x09" + struct.pack(">H", len(entries) + 8) + b"\x04\x24\x00\x00\x00\x02\x00\x01" + entries
+    data = (
+        b"\xff\x09"
+        + struct.pack(">H", len(entries) + 8)
+        + b"\x04\x24\x00\x00\x00\x02\x00\x01"
+        + entries
+    )
     header = struct.pack(">BBHHHH", 0x32, 0x07, 0, sequence, 12, len(data))
-    param = struct.pack(">BBBBBBBBBBBB", 0x00, 0x01, 0x12, 0x08, 0x12, 0x84, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00)
+    param = struct.pack(
+        ">BBBBBBBBBBBB",
+        0x00,
+        0x01,
+        0x12,
+        0x08,
+        0x12,
+        0x84,
+        0x01,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+    )
     return header + param + data
 
 
@@ -373,12 +416,16 @@ def _cotp_cc() -> bytes:
 def s7(monkeypatch: pytest.MonkeyPatch) -> Any:
     """构造挂假 TCP 的客户端(未连接);返回 (client, fake_tcp)。"""
     fake: Any = _FakeS7Tcp("127.0.0.1", 102)
-    monkeypatch.setattr("omniplc.plc.siemens.client.TcpTransport", lambda ip, port: fake)
+    monkeypatch.setattr(
+        "omniplc.plc.siemens.client.TcpTransport", lambda ip, port: fake
+    )
     client = SiemensS7Client("127.0.0.1", rack=0, slot=1)
     return client, fake
 
 
-def _connect_ready(client: Any, fake: Any, pdu_size: int = 480, next_seq: int = 1) -> None:
+def _connect_ready(
+    client: Any, fake: Any, pdu_size: int = 480, next_seq: int = 1
+) -> None:
     """喂 CC + 协商应答并完成连接(后续事务序列号从 next_seq 起)。"""
     fake.queue(_tpkt(_cotp_cc()))
     fake.queue(_tpkt(_dt(_negotiate_ack(1, pdu_size))))
@@ -406,7 +453,9 @@ def test_read_float_roundtrip(s7: Any) -> None:
     assert (ok, value) == (True, 100.5)
     # 读请求:功能 04 + 单 Item(BYTE,4 字节,DB1,区 0x84,地址 6×8=48)
     expected_request = bytes.fromhex(
-        "32 01 00 00 00 02 00 0e 00 00 04 01 12 0a 10 02 00 04 00 01 84 00 00 30".replace(" ", "")
+        "32 01 00 00 00 02 00 0e 00 00 04 01 12 0a 10 02 00 04 00 01 84 00 00 30".replace(
+            " ", ""
+        )
     )
     assert expected_request in fake.sent
 
@@ -445,7 +494,22 @@ def test_wstring_roundtrip(s7: Any) -> None:
     client, fake = s7
     _connect_ready(client, fake)
     body = "温度".encode("utf-16-be")
-    fake.queue(_tpkt(_dt(_read_ack(2, [(2).to_bytes(2, "big") + (2).to_bytes(2, "big") + body + b"\x00" * 12], [160]))))
+    fake.queue(
+        _tpkt(
+            _dt(
+                _read_ack(
+                    2,
+                    [
+                        (2).to_bytes(2, "big")
+                        + (2).to_bytes(2, "big")
+                        + body
+                        + b"\x00" * 12
+                    ],
+                    [160],
+                )
+            )
+        )
+    )
     ok, text = client.read_wstring("DB1.DBW40", length=8)
     assert (ok, text) == (True, "温度")
     fake.queue(_tpkt(_dt(_read_ack(3, [(8).to_bytes(2, "big") + b"\x00\x00"], [16]))))
@@ -494,7 +558,21 @@ def test_szl_param_level_error(s7: Any) -> None:
     _connect_ready(client, fake)
     data = b"\xff\x09" + struct.pack(">H", 8) + b"\x04\x24\x00\x00\x00\x02\x00\x01"
     header = struct.pack(">BBHHHH", 0x32, 0x07, 0, 2, 12, len(data))
-    param = struct.pack(">BBBBBBBBBBBB", 0x00, 0x01, 0x12, 0x08, 0x12, 0x84, 0x01, 0x00, 0x00, 0x00, 0x81, 0x04)
+    param = struct.pack(
+        ">BBBBBBBBBBBB",
+        0x00,
+        0x01,
+        0x12,
+        0x08,
+        0x12,
+        0x84,
+        0x01,
+        0x00,
+        0x00,
+        0x00,
+        0x81,
+        0x04,
+    )
     fake.queue(_tpkt(_dt(header + param + data)))
     ok, state = client.get_cpu_state()
     assert ok is False
@@ -711,9 +789,7 @@ def test_write_plc_reject_carries_code(s7: Any) -> None:
     """写应答条目 0x07(类型不一致):DeviceError 携带返回码。"""
     client, fake = s7
     _connect_ready(client, fake)
-    ack = bytes.fromhex(
-        "32 03 00 00 00 02 00 02 00 01 00 00 05 01 07".replace(" ", "")
-    )
+    ack = bytes.fromhex("32 03 00 00 00 02 00 02 00 01 00 00 05 01 07".replace(" ", ""))
     fake.queue(_tpkt(_dt(ack)))
     assert client.write_float("DB1.DBD0", 1.5) is False
     assert client.last_error_code == 0x07
@@ -749,7 +825,12 @@ def test_signature_defaults() -> None:
 def test_address_parse_golden() -> None:
     """地址解析:DB 位/字节起点与 I/Q/M 记号(语义与旧封装一致)。"""
     parsed = parse_s7_address("DB1.DBX0.3")
-    assert (parsed.area, parsed.db_number, parsed.byte_index, parsed.bit) == ("DB", 1, 0, 3)
+    assert (parsed.area, parsed.db_number, parsed.byte_index, parsed.bit) == (
+        "DB",
+        1,
+        0,
+        3,
+    )
     parsed = parse_s7_address("MW10")
     assert (parsed.area, parsed.byte_index, parsed.bit) == ("M", 10, None)
     parsed = parse_s7_address("I0.0")
@@ -774,7 +855,9 @@ def test_async_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
     from omniplc.aio import ASiemensS7Client
 
     fake: Any = _FakeS7Tcp("127.0.0.1", 102)
-    monkeypatch.setattr("omniplc.plc.siemens.client.TcpTransport", lambda ip, port: fake)
+    monkeypatch.setattr(
+        "omniplc.plc.siemens.client.TcpTransport", lambda ip, port: fake
+    )
 
     async def scenario() -> None:
         client = ASiemensS7Client("127.0.0.1", 102, rack=0, slot=1)

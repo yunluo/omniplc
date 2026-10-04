@@ -33,6 +33,7 @@
 :attr:`last_error`——与 :class:`~omniplc.KeyenceSrClient` 同口径;结果文本为
 读码器格式化模板的原文(含元数据字段时由调用方按模板解析)。
 """
+
 from __future__ import annotations
 
 import socket
@@ -312,9 +313,9 @@ class HikrobotIdTcpClient(BaseClient):
         if result_port is not None:
             if int(result_port) == int(command_port):
                 raise ValueError(
-                    _("结果端口不得与命令端口相同(手册要求两端口不重复),收到:{}").format(
-                        result_port
-                    )
+                    _(
+                        "结果端口不得与命令端口相同(手册要求两端口不重复),收到:{}"
+                    ).format(result_port)
                 )
             validate_endpoint(ip_address, int(result_port))
         self._result_port = None if result_port is None else int(result_port)
@@ -362,9 +363,7 @@ class HikrobotIdTcpClient(BaseClient):
         if timeout <= 0:
             raise ValueError(_("timeout 必须大于 0,收到:{}").format(timeout))
         if self._result_port is None:
-            raise ValueError(
-                _("结果通道未配置(result_port=None),无法接收读码结果")
-            )
+            raise ValueError(_("结果通道未配置(result_port=None),无法接收读码结果"))
         ok, text = self._execute(lambda: self._scan_once(float(timeout)), is_write=True)
         if not ok or text is None:
             return False, None
@@ -390,9 +389,7 @@ class HikrobotIdTcpClient(BaseClient):
         if timeout <= 0:
             raise ValueError(_("timeout 必须大于 0,收到:{}").format(timeout))
         if self._result_port is None:
-            raise ValueError(
-                _("结果通道未配置(result_port=None),无法接收读码结果")
-            )
+            raise ValueError(_("结果通道未配置(result_port=None),无法接收读码结果"))
         ok, text = self._execute(
             lambda: self._receive_once(float(timeout)), is_write=True
         )
@@ -427,9 +424,7 @@ class HikrobotIdTcpClient(BaseClient):
     def set_acquisition(self, enabled: bool) -> bool:
         """设置采集状态 ``<Set,Acq,0/1>``(0=停止采集,1=开始采集)。"""
         ok, _unused = self._execute(
-            lambda: self._command_exchange(
-                "Set", "Acq", "1" if enabled else "0"
-            ),
+            lambda: self._command_exchange("Set", "Acq", "1" if enabled else "0"),
             is_write=True,
         )
         return ok
@@ -593,9 +588,9 @@ class HikrobotIdTcpClient(BaseClient):
         reply_type, reply_cmd, reply_payload = fields
         if reply_type != cmd_type or reply_cmd != cmd:
             raise ProtocolFrameError(
-                _(
-                    "命令应答回显不符:期望 {}/{} 收到 {}/{}(原始帧:{})"
-                ).format(cmd_type, cmd, reply_type, reply_cmd, format_hex(reply))
+                _("命令应答回显不符:期望 {}/{} 收到 {}/{}(原始帧:{})").format(
+                    cmd_type, cmd, reply_type, reply_cmd, format_hex(reply)
+                )
             )
         if reply_payload == "OK":
             return None

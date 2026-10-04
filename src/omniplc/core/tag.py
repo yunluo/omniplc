@@ -1,4 +1,5 @@
 """可选点位表(Tag):标识 → 地址 + 类型 + 缩放 + 备注,支持 JSON/CSV 导入。"""
+
 from __future__ import annotations
 
 import csv
@@ -68,13 +69,19 @@ class TagTable(Mapping[str, Tag]):
             # NaN == 0 / inf == 0 均为 False,`scale == 0` 拦不住;
             # scale=inf 会把整数点位逆缩放成 0 静默写入,NaN 写 nan
             raise ValueError(
-                _("点位 {!r} 的 scale 必须为有限数,收到:{!r}").format(tag.tag_id, tag.scale)
+                _("点位 {!r} 的 scale 必须为有限数,收到:{!r}").format(
+                    tag.tag_id, tag.scale
+                )
             )
         if tag.scale == 0:
-            raise ValueError(_("点位 {!r} 的 scale 不能为 0(写入无法逆缩放)").format(tag.tag_id))
+            raise ValueError(
+                _("点位 {!r} 的 scale 不能为 0(写入无法逆缩放)").format(tag.tag_id)
+            )
         if not math.isfinite(tag.offset):
             raise ValueError(
-                _("点位 {!r} 的 offset 必须为有限数,收到:{!r}").format(tag.tag_id, tag.offset)
+                _("点位 {!r} 的 offset 必须为有限数,收到:{!r}").format(
+                    tag.tag_id, tag.offset
+                )
             )
         if tag.tag_id in self._tags:
             raise ValueError(_("点位标识重复:{!r}").format(tag.tag_id))
@@ -100,7 +107,9 @@ class TagTable(Mapping[str, Tag]):
         with open(path, "r", encoding=encoding) as fp:
             data = json.load(fp)
         if not isinstance(data, list):
-            raise ValueError(_("JSON 点位表必须是数组,收到:{}").format(type(data).__name__))
+            raise ValueError(
+                _("JSON 点位表必须是数组,收到:{}").format(type(data).__name__)
+            )
         return cls(_tag_from_record(item) for item in data)
 
     @classmethod
@@ -118,7 +127,9 @@ class TagTable(Mapping[str, Tag]):
             names = reader.fieldnames or []
             for required in ("tag_id", "address", "data_type"):
                 if required not in names:
-                    raise ValueError(_("CSV 缺少必需列:{!r},表头:{}").format(required, names))
+                    raise ValueError(
+                        _("CSV 缺少必需列:{!r},表头:{}").format(required, names)
+                    )
             return cls(_tag_from_record(row) for row in reader)
 
     def __getitem__(self, key: str) -> Tag:
@@ -149,7 +160,9 @@ def _tag_from_record(record: Mapping[str, object]) -> Tag:
         address = _required_cell(record["address"], "address")
         data_type = _required_cell(record["data_type"], "data_type").lower()
     except KeyError as exc:
-        raise ValueError(_("点位记录缺少必需字段:{},记录:{}").format(exc, record)) from exc
+        raise ValueError(
+            _("点位记录缺少必需字段:{},记录:{}").format(exc, record)
+        ) from exc
     scale = _to_float(record.get("scale"), 1.0)
     offset = _to_float(record.get("offset"), 0.0)
     remark = "" if record.get("remark") is None else str(record.get("remark")).strip()

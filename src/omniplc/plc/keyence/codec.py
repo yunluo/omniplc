@@ -12,6 +12,7 @@
   ``.H``(十六进制);位软元件无后缀
 - 命令:``RD``(单点读)、``RDS``(连续读)、``WR``(单点写)、``WRS``(连续写)
 """
+
 from __future__ import annotations
 
 import re
@@ -49,11 +50,15 @@ def build_frame(body: str) -> bytes:
     if not body or not body.strip():
         raise ProtocolFrameError(_("KV Host Link 命令体不能为空"))
     if any(ord(character) < 0x20 or ord(character) == 0x7F for character in body):
-        raise ProtocolFrameError(_("KV Host Link 命令体不能包含控制字符:{!r}").format(body))
+        raise ProtocolFrameError(
+            _("KV Host Link 命令体不能包含控制字符:{!r}").format(body)
+        )
     try:
         payload = body.strip().encode("ascii")
     except UnicodeEncodeError as exc:
-        raise ProtocolFrameError(_("KV Host Link 命令体必须为 ASCII:{!r}").format(body)) from exc
+        raise ProtocolFrameError(
+            _("KV Host Link 命令体必须为 ASCII:{!r}").format(body)
+        ) from exc
     return payload + _CR
 
 
@@ -134,7 +139,9 @@ def parse_bit_token(token: str) -> bool:
         return True
     if normalized in ("0", "OFF"):
         return False
-    raise ProtocolFrameError(_("无效的位响应令牌:{!r}(应为 0/1 或 OFF/ON)").format(token))
+    raise ProtocolFrameError(
+        _("无效的位响应令牌:{!r}(应为 0/1 或 OFF/ON)").format(token)
+    )
 
 
 def parse_word_token(token: str, data_format: str) -> int:

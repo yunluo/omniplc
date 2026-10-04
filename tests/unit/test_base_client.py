@@ -3,6 +3,7 @@
 覆盖:惰性重连、读重试、写默认不重试、设备错误不断线、
 线程安全(事务串行化)、last_error、超时属性传播、Tag 缩放。
 """
+
 from __future__ import annotations
 
 import threading
@@ -11,7 +12,11 @@ from typing import List, Optional
 import pytest
 
 from omniplc.core.errors import DeviceError, ErrorCategory, TransportClosedError
-from omniplc.core.errors import OmniPLCInternalError, ProtocolFrameError, TransportTimeoutError
+from omniplc.core.errors import (
+    OmniPLCInternalError,
+    ProtocolFrameError,
+    TransportTimeoutError,
+)
 from omniplc.core.base_client import BaseClient, _categorize
 from omniplc.core.tag import Tag, TagTable
 from omniplc.transport import BaseTransport
@@ -85,7 +90,9 @@ class TestLazyReconnect:
 
     def test_connect_failure_then_lazy_reconnect(self) -> None:
         client = _ScriptedClient(fail_connect_times=1)
-        client.reconnect_backoff = False  # 本测验证惰性重连语义本身;退避行为归 v034 测试
+        client.reconnect_backoff = (
+            False  # 本测验证惰性重连语义本身;退避行为归 v034 测试
+        )
         # 第一次:第一个传输 connect 失败
         ok, value = client.read("hr0", "short")
         assert ok is False
@@ -324,19 +331,19 @@ class TestTagScaling:
     def test_read_tag_identity_scale_preserves_int64(self) -> None:
         """scale=1/offset=0 时不得过 float64(回归:>2^53 静默丢低位)。"""
         client = _ScriptedClient()
-        client.scalar = 2 ** 63 - 1
+        client.scalar = 2**63 - 1
         client.bind_tags(TagTable([Tag("累计", "d0", "long")]))
         ok, value = client.read_tag("累计")
         assert ok is True
-        assert value == 2 ** 63 - 1
+        assert value == 2**63 - 1
         assert isinstance(value, int)
 
     def test_write_tag_identity_scale_preserves_int64(self) -> None:
         """写入侧逆缩放同样不得过 float64(2^63-1 会被舍入成 2^63)。"""
         client = _ScriptedClient()
         client.bind_tags(TagTable([Tag("累计", "d0", "long")]))
-        assert client.write_tag("累计", 2 ** 63 - 1) is True
-        assert client.last_written == 2 ** 63 - 1
+        assert client.write_tag("累计", 2**63 - 1) is True
+        assert client.last_written == 2**63 - 1
         assert isinstance(client.last_written, int)
 
     def test_write_tag_identity_scale_restores_float_to_int(self) -> None:
@@ -403,6 +410,7 @@ class TestCategorizeOrder:
 
     def test_socket_timeout_is_timeout(self) -> None:
         import socket
+
         exc = socket.timeout("timed out")
         assert _categorize(exc) == ErrorCategory.TIMEOUT
 
@@ -424,6 +432,7 @@ class TestCategorizeOrder:
 
     def test_gaierror_is_transport(self) -> None:
         import socket
+
         exc = socket.gaierror()
         assert _categorize(exc) == ErrorCategory.TRANSPORT
 

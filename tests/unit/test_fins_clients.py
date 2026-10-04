@@ -1,4 +1,5 @@
 """FINS 客户端帧收发测试:脚本化传输验证 TCP(握手)与 UDP 全链路。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -143,7 +144,7 @@ def test_tcp_handshake_and_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> No
     assert client.read_ushort("D100") == (True, 20)
     sent = bytes(scripted.sent)
     assert sent[:20] == codec.build_handshake(0)
-    fins_request = sent[20 + 16:]  # 跳过握手请求(20)与 FINS/TCP 头(16)
+    fins_request = sent[20 + 16 :]  # 跳过握手请求(20)与 FINS/TCP 头(16)
     assert fins_request[4] == 5  # DA1 = 握手分配的 PLC 节点
     assert fins_request[7] == 11  # SA1 = 握手分配的本地节点
 
@@ -168,7 +169,11 @@ def test_udp_d_area_bit_write_falls_back_on_1101(
     client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
     error = _fins_bit_write_error_response(0x1101)  # 直写(SID=1)被拒
     word = (  # 字读 D100(SID=2)= 0x0004
-        _FINS_ECHO_HEAD + b"\x02" + b"\x01\x01" + b"\x00\x00" + (0x0004).to_bytes(2, "big")
+        _FINS_ECHO_HEAD
+        + b"\x02"
+        + b"\x01\x01"
+        + b"\x00\x00"
+        + (0x0004).to_bytes(2, "big")
     )
     write = _FINS_ECHO_HEAD + b"\x03" + b"\x01\x02" + b"\x00\x00"  # 写字(SID=3)
     scripted = ScriptedTransport([error, word, write])
@@ -176,9 +181,15 @@ def test_udp_d_area_bit_write_falls_back_on_1101(
     client.connect()
     assert client.write_bool("D100.3", True) is True
     expected = (
-        codec.build_area_write(0, 5, 0, 0, 10, 0, 1, parse_fins_address("D100.3"), [1], True)
-        + codec.build_area_read(0, 5, 0, 0, 10, 0, 2, parse_fins_address("D100"), 1, False)
-        + codec.build_area_write(0, 5, 0, 0, 10, 0, 3, parse_fins_address("D100"), [0x000C], False)
+        codec.build_area_write(
+            0, 5, 0, 0, 10, 0, 1, parse_fins_address("D100.3"), [1], True
+        )
+        + codec.build_area_read(
+            0, 5, 0, 0, 10, 0, 2, parse_fins_address("D100"), 1, False
+        )
+        + codec.build_area_write(
+            0, 5, 0, 0, 10, 0, 3, parse_fins_address("D100"), [0x000C], False
+        )
     )
     assert bytes(scripted.sent) == expected
     assert client.connected is True
@@ -252,9 +263,9 @@ def test_udp_end_code_flag_bits_decoded(monkeypatch: pytest.MonkeyPatch) -> None
     client.connect()
     assert client.read_ushort("D100") == (False, None)
     err = client.last_error or ""
-    assert "0x9005" in err          # 原始码保留
-    assert "头错误" in err           # 0x1005 主/子码文本
-    assert "网络中继错误" in err      # bit15 标志
+    assert "0x9005" in err  # 原始码保留
+    assert "头错误" in err  # 0x1005 主/子码文本
+    assert "网络中继错误" in err  # bit15 标志
     assert client.last_error_code == 0x9005
     assert client.connected is True  # 设备错误不断线
 
@@ -266,7 +277,11 @@ def test_udp_d_area_bit_read_falls_back_on_1101(
     client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
     error = _fins_error_response(0x1101)  # 位读(SID=1)被拒
     word = (  # 字读 D100(SID=2)= 0x0008(bit3 置位)
-        _FINS_ECHO_HEAD + b"\x02" + b"\x01\x01" + b"\x00\x00" + (0x0008).to_bytes(2, "big")
+        _FINS_ECHO_HEAD
+        + b"\x02"
+        + b"\x01\x01"
+        + b"\x00\x00"
+        + (0x0008).to_bytes(2, "big")
     )
     scripted = ScriptedTransport([error, word])
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
@@ -301,13 +316,17 @@ def test_udp_timer_counter_word_roundtrip(monkeypatch: pytest.MonkeyPatch) -> No
     expected_write = codec.build_area_write(
         0, 5, 0, 0, 10, 0, 2, parse_fins_address("C10"), [200], False
     )
-    assert bytes(scripted.sent)[len(expected_read):] == expected_write
+    assert bytes(scripted.sent)[len(expected_read) :] == expected_write
 
 
-def test_udp_timer_flag_read_and_write_protection(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_udp_timer_flag_read_and_write_protection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """UDP:T/C 完成标志:位读(操作码 0x09)可用;位写与位号后缀拒绝。"""
     client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
-    scripted = ScriptedTransport([_FINS_ECHO_HEAD + b"\x01" + b"\x01\x01" + b"\x00\x00" + b"\x01"])
+    scripted = ScriptedTransport(
+        [_FINS_ECHO_HEAD + b"\x01" + b"\x01\x01" + b"\x00\x00" + b"\x01"]
+    )
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     assert client.read_bool("T0") == (True, True)
@@ -377,7 +396,7 @@ def test_udp_read_batch_mixed(monkeypatch: pytest.MonkeyPatch) -> None:
     assert ok is True and values == [-2, 1.0, True]
     sent = bytes(scripted.sent)
     assert sent[10:12] == b"\x01\x04"
-    assert sent[12:] == bytes.fromhex("82006400" "82006600" "82006700" "b0000000")
+    assert sent[12:] == bytes.fromhex("820064008200660082006700b0000000")
 
 
 def test_fins_multiword_value_word_order(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -390,8 +409,12 @@ def test_fins_multiword_value_word_order(monkeypatch: pytest.MonkeyPatch) -> Non
     """
     client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
     # 读:00 00 42 C9 → 100.5;写:100.5 → 线上低字在前 00 00 42 C9
-    read_resp = _FINS_ECHO_HEAD + b"\x01" + b"\x01\x01" + b"\x00\x00" + bytes.fromhex(
-        "000042c9"
+    read_resp = (
+        _FINS_ECHO_HEAD
+        + b"\x01"
+        + b"\x01\x01"
+        + b"\x00\x00"
+        + bytes.fromhex("000042c9")
     )
     write_resp = _fins_write_response()
     scripted = ScriptedTransport([read_resp, write_resp])
@@ -407,15 +430,13 @@ def test_fins_multiword_value_word_order(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_udp_read_many_single_transaction(monkeypatch: pytest.MonkeyPatch) -> None:
     """UDP read_many:覆写为 0104 单事务(协议原生批量合并)。"""
     client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
-    scripted = ScriptedTransport(
-        [_fins_multiple_read_response([(0x82, 7), (0x82, 9)])]
-    )
+    scripted = ScriptedTransport([_fins_multiple_read_response([(0x82, 7), (0x82, 9)])])
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     assert client.read_many(["D0", "D2"], "short") == [(True, 7), (True, 9)]
     sent = bytes(scripted.sent)
     assert sent[10:12] == b"\x01\x04"
-    assert sent[12:] == bytes.fromhex("82000000" "82000200")
+    assert sent[12:] == bytes.fromhex("8200000082000200")
 
 
 def test_read_batch_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -437,7 +458,11 @@ def test_async_mirror_read_batch() -> None:
     async def scenario() -> None:
         client = AOmronFinsUdpClient("127.0.0.1")
         scripted = ScriptedTransport(
-            [_fins_multiple_read_response([(0x82, 0xFFFE), (0x82, 0x0000), (0x82, 0x3F80)])]
+            [
+                _fins_multiple_read_response(
+                    [(0x82, 0xFFFE), (0x82, 0x0000), (0x82, 0x3F80)]
+                )
+            ]
         )
         client._sync._transport = scripted
         client._sync._connected = True
@@ -467,9 +492,7 @@ def test_async_mirror_read_batch() -> None:
         ({"source_unit": 256}, "源单元号"),
     ],
 )
-def test_fins_constructor_rejects_out_of_range_route(
-    kwargs: dict, label: str
-) -> None:
+def test_fins_constructor_rejects_out_of_range_route(kwargs: dict, label: str) -> None:
     """构造期路由字段范围校验:network 0~127,node 0~254,unit 0~255,越界 ValueError。"""
     with pytest.raises(ValueError) as exc_info:
         OmronFinsUdpClient("192.168.250.1", **kwargs)
@@ -484,9 +507,7 @@ def test_tcp_constructor_rejects_local_node_out_of_range() -> None:
 
 def test_fins_constructor_accepts_node_254() -> None:
     """节点号上限为 254(Ethernet 口径 1~254):254 原样接受。"""
-    client = OmronFinsUdpClient(
-        "192.168.250.1", destination_node=254, source_node=254
-    )
+    client = OmronFinsUdpClient("192.168.250.1", destination_node=254, source_node=254)
     assert client.destination_node == 254
     assert client.source_node == 254
     assert client._auto_destination_node is False
@@ -539,9 +560,7 @@ def test_udp_explicit_node_bypasses_derivation_range_check(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """UDP 显式 destination_node:跳过推导,即使 PLC IP 末段超限也照常组帧。"""
-    client = OmronFinsUdpClient(
-        "192.168.250.200", destination_node=5, source_node=10
-    )
+    client = OmronFinsUdpClient("192.168.250.200", destination_node=5, source_node=10)
     scripted = ScriptedTransport([_fins_read_response([20])])
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
@@ -552,6 +571,7 @@ def test_udp_explicit_node_bypasses_derivation_range_check(
 # ----------------------------------------------------------------------
 # CPU Unit Status Read(0601)与探活
 # ----------------------------------------------------------------------
+
 
 def _fins_cpu_status_response(
     status: int = 0x01,
@@ -605,15 +625,17 @@ def test_ping_fins_cpu_unit_status(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     assert client.ping() is True
-    assert bytes(scripted.sent) == codec.build_cpu_unit_status_read(0, 5, 0, 0, 10, 0, 1)
+    assert bytes(scripted.sent) == codec.build_cpu_unit_status_read(
+        0, 5, 0, 0, 10, 0, 1
+    )
 
 
 def test_read_cpu_unit_status_error_end_code(monkeypatch: pytest.MonkeyPatch) -> None:
     """0601 结束码非 0:按 DeviceError 不断线,原始码进 last_error_code。"""
     client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
-    scripted = ScriptedTransport([
-        _FINS_ECHO_HEAD + b"\x01" + b"\x06\x01" + (0x1101).to_bytes(2, "big")
-    ])
+    scripted = ScriptedTransport(
+        [_FINS_ECHO_HEAD + b"\x01" + b"\x06\x01" + (0x1101).to_bytes(2, "big")]
+    )
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     assert client.read_cpu_unit_status() == (False, None)
@@ -638,6 +660,7 @@ def test_read_cpu_unit_status_bad_length(monkeypatch: pytest.MonkeyPatch) -> Non
 # 时钟读/写(0701/0702)
 # ----------------------------------------------------------------------
 
+
 def _fins_clock_response(
     year: int = 26,
     month: int = 10,
@@ -656,7 +679,13 @@ def _fins_clock_response(
         data = bytes((v // 10) << 4 | (v % 10) for v in fields)
     else:
         data = bytes(fields)
-    return _FINS_ECHO_HEAD + bytes([sid]) + b"\x07\x01" + end_code.to_bytes(2, "big") + data
+    return (
+        _FINS_ECHO_HEAD
+        + bytes([sid])
+        + b"\x07\x01"
+        + end_code.to_bytes(2, "big")
+        + data
+    )
 
 
 def test_read_clock_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -719,14 +748,16 @@ def test_read_clock_error_end_code(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_write_clock_fields_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """0702 时钟写:FinsClock 七字段 BCD 组帧,响应仅命令码+结束码(§5-3-20)。"""
     client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
-    scripted = ScriptedTransport([
-        _FINS_ECHO_HEAD + b"\x01" + b"\x07\x02" + b"\x00\x00"
-    ])
+    scripted = ScriptedTransport(
+        [_FINS_ECHO_HEAD + b"\x01" + b"\x07\x02" + b"\x00\x00"]
+    )
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     ok = client.write_clock(codec.FinsClock(26, 10, 3, 14, 9, 5, 6))
     assert ok is True
-    expected = codec.build_clock_write(0, 5, 0, 0, 10, 0, 1, codec.FinsClock(26, 10, 3, 14, 9, 5, 6))
+    expected = codec.build_clock_write(
+        0, 5, 0, 0, 10, 0, 1, codec.FinsClock(26, 10, 3, 14, 9, 5, 6)
+    )
     assert bytes(scripted.sent) == expected
     assert expected[10:12] == b"\x07\x02"
     assert expected[12:19] == bytes([0x26, 0x10, 0x03, 0x14, 0x09, 0x05, 0x06])
@@ -737,14 +768,16 @@ def test_write_clock_datetime_conversion(monkeypatch: pytest.MonkeyPatch) -> Non
     import datetime as dt_module
 
     client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
-    scripted = ScriptedTransport([
-        _FINS_ECHO_HEAD + b"\x01" + b"\x07\x02" + b"\x00\x00"
-    ])
+    scripted = ScriptedTransport(
+        [_FINS_ECHO_HEAD + b"\x01" + b"\x07\x02" + b"\x00\x00"]
+    )
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     ok = client.write_clock(dt_module.datetime(2026, 10, 3, 14, 9, 5))
     assert ok is True
-    expected = codec.build_clock_write(0, 5, 0, 0, 10, 0, 1, codec.FinsClock(26, 10, 3, 14, 9, 5, 6))
+    expected = codec.build_clock_write(
+        0, 5, 0, 0, 10, 0, 1, codec.FinsClock(26, 10, 3, 14, 9, 5, 6)
+    )
     assert bytes(scripted.sent) == expected
 
 
@@ -764,9 +797,9 @@ def test_write_clock_range_validation() -> None:
 def test_write_clock_error_end_code(monkeypatch: pytest.MonkeyPatch) -> None:
     """0702 结束码非 0(如访问权在他方 0x1101):写失败不断线。"""
     client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
-    scripted = ScriptedTransport([
-        _FINS_ECHO_HEAD + b"\x01" + b"\x07\x02" + (0x1101).to_bytes(2, "big")
-    ])
+    scripted = ScriptedTransport(
+        [_FINS_ECHO_HEAD + b"\x01" + b"\x07\x02" + (0x1101).to_bytes(2, "big")]
+    )
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     assert client.write_clock(codec.FinsClock(26, 10, 3, 14, 9, 5, 6)) is False
@@ -813,9 +846,9 @@ def test_udp_read_range_cio_bits(monkeypatch: pytest.MonkeyPatch) -> None:
     client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
     # 位读响应数据 = 每点 1 字节 0/1(parse_response is_bit 分支),与字读夹具不同
     bit_data = bytes([1, 0, 1, 1, 0, 0, 1, 0])
-    scripted = ScriptedTransport([
-        _FINS_ECHO_HEAD + b"\x01" + b"\x01\x01" + b"\x00\x00" + bit_data
-    ])
+    scripted = ScriptedTransport(
+        [_FINS_ECHO_HEAD + b"\x01" + b"\x01\x01" + b"\x00\x00" + bit_data]
+    )
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     ok, values = client.read_range("CIO0", 8, "bool")

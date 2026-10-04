@@ -11,6 +11,7 @@
 FINS 多字值(32/64 位)字内大端、**低字存低地址**(2026-09-30 修正,原
 误作整体大端;依据与待补说明见 :func:`_words_to_value` docstring)。
 """
+
 from __future__ import annotations
 
 import datetime
@@ -131,9 +132,7 @@ class _OmronFinsBase(BaseClient):
             if source_node is not None
             else 0
         )
-        self._source_unit = check_range(
-            int(source_unit), 0, FINS_UNIT_MAX, "源单元号"
-        )
+        self._source_unit = check_range(int(source_unit), 0, FINS_UNIT_MAX, "源单元号")
         # 记录节点号是否为自动模式(None/0 = 握手或 IP 推导):自动模式每次
         # 连接都刷新为最新推导/握手结果,显式配置的节点号不被覆盖
         self._auto_destination_node = destination_node is None or destination_node == 0
@@ -239,13 +238,15 @@ class _OmronFinsBase(BaseClient):
         :return: 是否成功
         :raises ValueError: 时钟字段越界(入参期拒绝,零字节发送)
         """
-        fields = clock if isinstance(clock, codec.FinsClock) else codec.FinsClock.from_datetime(clock)
+        fields = (
+            clock
+            if isinstance(clock, codec.FinsClock)
+            else codec.FinsClock.from_datetime(clock)
+        )
         # 入参期校验前置(事务边界之外):未连接时 _execute 走不到事务内
         # 的 build_clock_write 校验,失败会伪装成 (False, None) 而非 ValueError
         codec.validate_clock(fields)
-        return self._execute(
-            self._make_clock_write_operation(fields), is_write=True
-        )[0]
+        return self._execute(self._make_clock_write_operation(fields), is_write=True)[0]
 
     def _clock_read_operation(self) -> codec.FinsClock:
         """0701 时钟读的协议操作(内部方法)。"""
@@ -264,6 +265,7 @@ class _OmronFinsBase(BaseClient):
         self, fields: codec.FinsClock
     ) -> Callable[[], None]:
         """0702 时钟写的协议操作工厂(内部方法;字段先入参期校验再捕获)。"""
+
         def operation() -> None:
             request = codec.build_clock_write(
                 self._destination_network,
@@ -318,9 +320,9 @@ class _OmronFinsBase(BaseClient):
             flag = require_bool(value)
             if parsed.area in FINS_TIMER_COUNTER_AREAS:
                 raise ValueError(
-                    _("T/C 完成标志由系统驱动,只读:{!r}(写当前值请用字访问,如 write_ushort({!r}, 100))").format(
-                        address, parsed.area + str(parsed.offset)
-                    )
+                    _(
+                        "T/C 完成标志由系统驱动,只读:{!r}(写当前值请用字访问,如 write_ushort({!r}, 100))"
+                    ).format(address, parsed.area + str(parsed.offset))
                 )
             if parsed.area in FINS_BIT_WRITABLE_AREAS:
                 self._write_bits(parsed, [1 if flag else 0])
@@ -355,8 +357,10 @@ class _OmronFinsBase(BaseClient):
         parsed = parse_fins_address(address)
         if parsed.bit is not None:
             raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
-        raw = convert.encode_string(value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding)
-        words = [int.from_bytes(raw[i:i + 2], "big") for i in range(0, len(raw), 2)]
+        raw = convert.encode_string(
+            value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
+        )
+        words = [int.from_bytes(raw[i : i + 2], "big") for i in range(0, len(raw), 2)]
         self._write_words(parsed, words)
         return value
 
@@ -403,11 +407,15 @@ class _OmronFinsBase(BaseClient):
                 # 位区码只对位存储区(CIO/W/H/A)有定义;字区(D/EM)位读
                 # 无"连续位"一致语义(老固件还要走字读回退),统一拒绝
                 raise ValueError(
-                    _("FINS read_range 的 BOOL 连续读需要位存储区(CIO/W/H/A):{!r}").format(address)
+                    _(
+                        "FINS read_range 的 BOOL 连续读需要位存储区(CIO/W/H/A):{!r}"
+                    ).format(address)
                 )
             if parsed.bit is not None:
                 raise ValueError(
-                    _("FINS read_range 位区读不带位号:{!r}(位号即点位,直接用 CIO/W/H/A)").format(address)
+                    _(
+                        "FINS read_range 位区读不带位号:{!r}(位号即点位,直接用 CIO/W/H/A)"
+                    ).format(address)
                 )
             if count > FINS_MAX_READ_ELEMENTS:
                 # 位区每元素 1 位,同受单命令 999 上限(W342 p.168);审查
@@ -445,7 +453,7 @@ class _OmronFinsBase(BaseClient):
             words = self._read_words(parsed, count * width)
             values: List[PrimitiveValue] = []
             for index in range(count):
-                chunk = words[index * width:(index + 1) * width]
+                chunk = words[index * width : (index + 1) * width]
                 values.append(_words_to_value(chunk, data_type_enum))
             return values
 
@@ -463,7 +471,9 @@ class _OmronFinsBase(BaseClient):
         (原因见 :attr:`last_error`);需要逐点容错请逐点调用 :meth:`read`。
         """
         data_type_enum = DataType.coerce(data_type)
-        ok, values = self.read_batch([(address, data_type_enum) for address in addresses])
+        ok, values = self.read_batch(
+            [(address, data_type_enum) for address in addresses]
+        )
         if not ok or values is None:
             return [(False, None) for _ in addresses]
         return [(True, value) for value in values]
@@ -499,8 +509,10 @@ class _OmronFinsBase(BaseClient):
                     # 是本库未实现(0104 仅字区,T/C 位码 09 不入 0104 条目),
                     # 非协议限制——措辞按第八轮 P3 摆正
                     raise ValueError(
-                        _("本库批量读取未实现 T/C 完成标志(0104 多区读仅字区)"
-                        ",请逐点读取:{!r}").format(address)
+                        _(
+                            "本库批量读取未实现 T/C 完成标志(0104 多区读仅字区)"
+                            ",请逐点读取:{!r}"
+                        ).format(address)
                     )
                 _unused, word_code = codec.memory_codes(parsed.area, parsed.bank)
                 plan.append(("wordbit", len(entries), parsed.bit or 0, data_type_enum))
@@ -533,15 +545,15 @@ class _OmronFinsBase(BaseClient):
                 self._next_sid(),
                 entries,
             )
-            words = codec.parse_multiple_area_read(
-                self._transact(frame), frame, codes
-            )
+            words = codec.parse_multiple_area_read(self._transact(frame), frame, codes)
             values: List[PrimitiveValue] = []
             for kind, index, extra, item_type in plan:
                 if kind == "wordbit":
                     values.append(bool(convert.get_bit(words[index], extra)))
                 else:
-                    values.append(_words_to_value(words[index:index + extra], item_type))
+                    values.append(
+                        _words_to_value(words[index : index + extra], item_type)
+                    )
             return values
 
         return self._execute(operation)
@@ -604,9 +616,9 @@ class _OmronFinsBase(BaseClient):
         """
         if word_count > FINS_MAX_READ_ELEMENTS:
             raise ValueError(
-                _("FINS 单命令读元素数超出 Ethernet/Controller Link 上限 {}:{}(W342 §5-2-2)").format(
-                    FINS_MAX_READ_ELEMENTS, word_count
-                )
+                _(
+                    "FINS 单命令读元素数超出 Ethernet/Controller Link 上限 {}:{}(W342 §5-2-2)"
+                ).format(FINS_MAX_READ_ELEMENTS, word_count)
             )
         frame = self._build_read(parsed, word_count, is_bit=False)
         return codec.parse_response(
@@ -628,9 +640,9 @@ class _OmronFinsBase(BaseClient):
         """
         if len(words) > FINS_MAX_WRITE_ELEMENTS:
             raise ValueError(
-                _("FINS 单命令写元素数超出 Ethernet/Controller Link 上限 {}:{}(W342 §5-2-2)").format(
-                    FINS_MAX_WRITE_ELEMENTS, len(words)
-                )
+                _(
+                    "FINS 单命令写元素数超出 Ethernet/Controller Link 上限 {}:{}(W342 §5-2-2)"
+                ).format(FINS_MAX_WRITE_ELEMENTS, len(words))
             )
         frame = self._build_write(parsed, words, is_bit=False)
         codec.parse_response(
@@ -836,6 +848,7 @@ class OmronFinsUdpClient(_OmronFinsBase):
 # ----------------------------------------------------------------------
 # 模块级辅助函数
 # ----------------------------------------------------------------------
+
 
 def _words_to_value(words: List[int], data_type: DataType) -> PrimitiveValue:
     """FINS 字序列 → 按类型解码(字内大端、低字在前,内部函数)。

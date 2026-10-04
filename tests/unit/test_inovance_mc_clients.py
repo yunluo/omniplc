@@ -5,6 +5,7 @@ X/Y 八进制命名转帧内十六进制(X17→0x0F)、X/Y 八进制非法拒绝
 三菱专有记号(ZR/SM)拒绝、位写、字软元件位写读-改-写、异步镜像、
 ping/心跳显式关闭(H5U 手册 16.4 无 0101 探测命令)。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -48,11 +49,15 @@ def _write_response() -> bytes:
 
 def _frame_tail(data: bytes) -> bytes:
     head = b"\xd0\x00" + b"\x00\xff\xff\x03\x00"
-    return head + (2 + len(data)).to_bytes(2, "little") + (0).to_bytes(2, "little") + data
+    return (
+        head + (2 + len(data)).to_bytes(2, "little") + (0).to_bytes(2, "little") + data
+    )
 
 
 def _mount(
-    monkeypatch: pytest.MonkeyPatch, client: InovanceMcTcpClient, scripted: ScriptedTransport
+    monkeypatch: pytest.MonkeyPatch,
+    client: InovanceMcTcpClient,
+    scripted: ScriptedTransport,
 ) -> None:
     """挂载脚本传输(走正常 connect 流程)。"""
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
@@ -68,8 +73,16 @@ def _expected(
 ) -> bytes:
     """按汇川码表与换算后的三菱记号构造期望请求帧。"""
     return codec_qna.build_request(
-        "3E", serial, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER,
-        parse_mc_address(address), points, is_bit, is_write, data,
+        "3E",
+        serial,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address(address),
+        points,
+        is_bit,
+        is_write,
+        data,
         INOVANCE_MC_DEVICE_CODES,
     )
 
@@ -128,7 +141,9 @@ def test_r_unified_with_d(monkeypatch: pytest.MonkeyPatch) -> None:
     client = InovanceMcTcpClient("127.0.0.1", 2000)
     read_frame = _word_read_response([1234])
     write_frame = _write_response()
-    scripted = ScriptedTransport([read_frame[:9], read_frame[9:], write_frame[:9], write_frame[9:]])
+    scripted = ScriptedTransport(
+        [read_frame[:9], read_frame[9:], write_frame[:9], write_frame[9:]]
+    )
     _mount(monkeypatch, client, scripted)
     client.connect()
     assert client.read_ushort("R100") == (True, 1234)
@@ -193,7 +208,9 @@ def test_r_bit_write_read_modify_write(monkeypatch: pytest.MonkeyPatch) -> None:
     client = InovanceMcTcpClient("127.0.0.1", 2000)
     read_frame = _word_read_response([0x0004])
     write_frame = _write_response()
-    scripted = ScriptedTransport([read_frame[:9], read_frame[9:], write_frame[:9], write_frame[9:]])
+    scripted = ScriptedTransport(
+        [read_frame[:9], read_frame[9:], write_frame[:9], write_frame[9:]]
+    )
     _mount(monkeypatch, client, scripted)
     client.connect()
     assert client.write_bool("R100.3", True) is True
@@ -226,7 +243,9 @@ def test_async_mirror_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
         sync = client._sync
         frame = _word_read_response([20])
         write_frame = _write_response()
-        scripted = ScriptedTransport([frame[:9], frame[9:], write_frame[:9], write_frame[9:]])
+        scripted = ScriptedTransport(
+            [frame[:9], frame[9:], write_frame[:9], write_frame[9:]]
+        )
         monkeypatch.setattr(sync, "_create_transport", lambda: scripted)
         assert await client.connect() is True
         assert await client.read_ushort("R100") == (True, 20)

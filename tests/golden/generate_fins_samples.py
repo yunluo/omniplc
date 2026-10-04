@@ -7,6 +7,7 @@ FINS 协议规范生成。
 
     uv run python tests/golden/generate_fins_samples.py
 """
+
 from __future__ import annotations
 
 import json
@@ -21,12 +22,22 @@ def words_be(values: List[int]) -> bytes:
     return b"".join(value.to_bytes(2, "big") for value in values)
 
 
-def fins_header(icf: int, dna: int, da1: int, da2: int, sna: int, sa1: int, sa2: int, sid: int) -> bytes:
+def fins_header(
+    icf: int, dna: int, da1: int, da2: int, sna: int, sa1: int, sa2: int, sid: int
+) -> bytes:
     """FINS 10 字节帧头(独立实现)。"""
     return bytes([icf, 0x00, 0x02, dna, da1, da2, sna, sa1, sa2, sid])
 
 
-def area_read_fins(dst: List[int], src: List[int], sid: int, area_code: int, number: int, bit: int, count: int) -> bytes:
+def area_read_fins(
+    dst: List[int],
+    src: List[int],
+    sid: int,
+    area_code: int,
+    number: int,
+    bit: int,
+    count: int,
+) -> bytes:
     """Area Read 0101 FINS 帧(独立实现)。"""
     return (
         fins_header(0x80, dst[0], dst[1], dst[2], src[0], src[1], src[2], sid)
@@ -39,7 +50,13 @@ def area_read_fins(dst: List[int], src: List[int], sid: int, area_code: int, num
 
 
 def area_write_fins(
-    dst: List[int], src: List[int], sid: int, area_code: int, number: int, bit: int, data: bytes
+    dst: List[int],
+    src: List[int],
+    sid: int,
+    area_code: int,
+    number: int,
+    bit: int,
+    data: bytes,
 ) -> bytes:
     """Area Write 0102 FINS 帧(独立实现)。"""
     return (
@@ -53,7 +70,9 @@ def area_write_fins(
     )
 
 
-def area_read_response(dst: List[int], src: List[int], sid: int, end_code: int, data: bytes) -> bytes:
+def area_read_response(
+    dst: List[int], src: List[int], sid: int, end_code: int, data: bytes
+) -> bytes:
     """Area Read 响应 FINS 帧(独立实现)。"""
     return (
         fins_header(0xC0, src[0], src[1], src[2], dst[0], dst[1], dst[2], sid)
@@ -63,7 +82,9 @@ def area_read_response(dst: List[int], src: List[int], sid: int, end_code: int, 
     )
 
 
-def area_write_response(dst: List[int], src: List[int], sid: int, end_code: int) -> bytes:
+def area_write_response(
+    dst: List[int], src: List[int], sid: int, end_code: int
+) -> bytes:
     """Area Write 响应 FINS 帧(独立实现)。"""
     return (
         fins_header(0xC0, src[0], src[1], src[2], dst[0], dst[1], dst[2], sid)
@@ -173,7 +194,9 @@ def main() -> None:
     for sample in samples:
         filename = sample.pop("file")
         path = HERE / "{}.json".format(filename)
-        path.write_text(json.dumps(sample, ensure_ascii=False, indent=4) + "\n", encoding="utf-8")
+        path.write_text(
+            json.dumps(sample, ensure_ascii=False, indent=4) + "\n", encoding="utf-8"
+        )
         print("written:", path)
 
 

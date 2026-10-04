@@ -4,6 +4,7 @@
 本文件覆盖**构造期参数校验**与**响应解析的坏帧路径**(结构不符、
 长度不自治、MEI 回显不符等),以及"起始地址 + 数量"地址空间校验。
 """
+
 from __future__ import annotations
 
 from typing import List
@@ -17,6 +18,7 @@ from omniplc.plc.modbus import codec
 # ----------------------------------------------------------------------
 # 地址空间校验(规范 §6.1 状态图:Starting Address + Quantity)
 # ----------------------------------------------------------------------
+
 
 def test_read_span_over_address_space_rejected() -> None:
     """读请求:起始地址 + 数量 越界(hr65535 读 2 字)在构造期拒绝。"""
@@ -44,6 +46,7 @@ def test_write_span_over_address_space_rejected() -> None:
 # ----------------------------------------------------------------------
 # FC 23 读写多寄存器
 # ----------------------------------------------------------------------
+
 
 def test_read_write_registers_validation() -> None:
     """FC23 构造校验:读数量 1~125、写数量 1~121(比 FC16 的 123 小 2)。"""
@@ -79,6 +82,7 @@ def test_read_write_registers_response_bad_frames() -> None:
 # ----------------------------------------------------------------------
 # FC 43/14 读设备标识
 # ----------------------------------------------------------------------
+
 
 def test_build_device_id_pdu_validation() -> None:
     """FC43 构造校验:读取码 1~4、对象号 0~255。"""
@@ -116,12 +120,16 @@ def test_parse_device_id_response_bad_frames() -> None:
     assert "不完整" in exc_info.value.args[0]
 
     with pytest.raises(ProtocolFrameError) as exc_info:
-        codec.parse_device_id_response(bytes([0x2B, 0x0D, 0x01, 0x01, 0x00, 0x00, 0x00]))
+        codec.parse_device_id_response(
+            bytes([0x2B, 0x0D, 0x01, 0x01, 0x00, 0x00, 0x00])
+        )
     assert "MEI" in exc_info.value.args[0]
 
     # 声明 1 个对象但对象头被截断
     with pytest.raises(ProtocolFrameError) as exc_info:
-        codec.parse_device_id_response(bytes([0x2B, 0x0E, 0x01, 0x01, 0x00, 0x00, 0x01]))
+        codec.parse_device_id_response(
+            bytes([0x2B, 0x0E, 0x01, 0x01, 0x00, 0x00, 0x01])
+        )
     assert "对象头被截断" in exc_info.value.args[0]
 
     # 对象值被截断(声明 4 字节,只给 2 字节)
@@ -172,10 +180,8 @@ def test_expected_response_length_extended_functions() -> None:
 def test_fc20_response_length_and_fields() -> None:
     """FC20 请求字节向量(规范 §6.14 双组示例)与响应解析边界。"""
     request = codec.build_read_file_record_pdu([(4, 1, 2), (3, 9, 2)])
-    assert request == bytes.fromhex("140e" "06000400010002" "06000300090002")
-    response = bytes.fromhex(
-        "140c" "0506" "0dfe0020" "0506" "33cd0040"
-    )
+    assert request == bytes.fromhex("140e0600040001000206000300090002")
+    response = bytes.fromhex("140c05060dfe0020050633cd0040")
     assert codec.parse_read_file_record_response(response, [(4, 1, 2), (3, 9, 2)]) == [
         [0x0DFE, 0x0020],
         [0x33CD, 0x0040],
@@ -256,14 +262,15 @@ def test_device_id_response_read_code_echo_validated() -> None:
 def test_fc24_parse_byte_count_and_limits() -> None:
     """FC24:字节计数 = 2 + 2×FIFO 数;空队列返回空列表;超长/不自洽拒绝。"""
     assert codec.build_read_fifo_pdu(0x1234) == bytes.fromhex("181234")
-    assert codec.parse_read_fifo_response(
-        bytes.fromhex("180006" "0002" "1111" "2222")
-    ) == [0x1111, 0x2222]
-    assert codec.parse_read_fifo_response(bytes.fromhex("180002" "0000")) == []
+    assert codec.parse_read_fifo_response(bytes.fromhex("180006000211112222")) == [
+        0x1111,
+        0x2222,
+    ]
+    assert codec.parse_read_fifo_response(bytes.fromhex("1800020000")) == []
     with pytest.raises(ProtocolFrameError):
-        codec.parse_read_fifo_response(bytes.fromhex("180006" "0003") + b"\x00" * 6)
+        codec.parse_read_fifo_response(bytes.fromhex("1800060003") + b"\x00" * 6)
     with pytest.raises(ProtocolFrameError):
-        codec.parse_read_fifo_response(bytes.fromhex("180002" "0020"))
+        codec.parse_read_fifo_response(bytes.fromhex("1800020020"))
     with pytest.raises(ProtocolFrameError):
         codec.expected_response_length(codec.build_read_fifo_pdu(0))
 
@@ -282,13 +289,21 @@ def test_fc17_report_server_id() -> None:
     with pytest.raises(ProtocolFrameError):
         codec.parse_report_server_id_response(bytes([0x11]))  # 过短
     with pytest.raises(ProtocolFrameError):
-        codec.parse_report_server_id_response(bytes([0x12, 0x02, 0x2A, 0xFF]))  # 功能码不符
+        codec.parse_report_server_id_response(
+            bytes([0x12, 0x02, 0x2A, 0xFF])
+        )  # 功能码不符
     with pytest.raises(ProtocolFrameError):
-        codec.parse_report_server_id_response(bytes([0x11, 0x03, 0x2A, 0xFF]))  # 长度域与实收不符
+        codec.parse_report_server_id_response(
+            bytes([0x11, 0x03, 0x2A, 0xFF])
+        )  # 长度域与实收不符
     with pytest.raises(ProtocolFrameError):
-        codec.parse_report_server_id_response(bytes([0x11, 0x01, 0x2A]))  # 长度域低于下限
+        codec.parse_report_server_id_response(
+            bytes([0x11, 0x01, 0x2A])
+        )  # 长度域低于下限
     with pytest.raises(ProtocolFrameError):
-        codec.expected_response_length(bytes([0x11]))  # 长度随附加数据变化,走线层增量收包
+        codec.expected_response_length(
+            bytes([0x11])
+        )  # 长度随附加数据变化,走线层增量收包
 
 
 def test_fc07_read_exception_status() -> None:
@@ -300,5 +315,3 @@ def test_fc07_read_exception_status() -> None:
         codec.parse_read_exception_status_response(bytes([0x07]))
     with pytest.raises(ProtocolFrameError):
         codec.parse_read_exception_status_response(bytes([0x08, 0x5A]))
-
-

@@ -1,4 +1,5 @@
 """测试共享:按脚本应答的假传输(无网络)与真传输语义回归脚手架。"""
+
 from __future__ import annotations
 
 import socket

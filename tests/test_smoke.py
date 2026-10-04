@@ -1,4 +1,5 @@
 """整体冒烟测试:导入、类继承、构造校验、上下文管理器、异步镜像。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -46,7 +47,11 @@ class TestInheritance:
             assert issubclass(cls, BaseClient)
 
     def test_keyence_tree(self) -> None:
-        for cls in (KeyenceHostLinkTcpClient, KeyenceHostLinkUdpClient, KeyenceSrClient):
+        for cls in (
+            KeyenceHostLinkTcpClient,
+            KeyenceHostLinkUdpClient,
+            KeyenceSrClient,
+        ):
             assert issubclass(cls, BaseClient)
 
     def test_transport_tree(self) -> None:
@@ -76,7 +81,10 @@ class TestConstructorValidation:
         for frame in (McFrame.FRAME_3E, McFrame.FRAME_4E, McFrame.FRAME_1E):
             client = MelsecMcTcpClient("192.168.3.39", 2000, frame=frame)
             assert client.frame is frame
-        assert MelsecMcTcpClient("192.168.3.39", 2000, frame="1e").frame is McFrame.FRAME_1E
+        assert (
+            MelsecMcTcpClient("192.168.3.39", 2000, frame="1e").frame
+            is McFrame.FRAME_1E
+        )
 
     def test_omron_clients_constructible(self) -> None:
         assert isinstance(OmronFinsTcpClient("192.168.250.1"), BaseClient)

@@ -6,6 +6,7 @@
 慢周期调度注入假时钟(``omniplc.core.monitor._monotonic``);仅生命周期
 用例起真线程,用 ``threading.Event`` 等待、零固定 sleep。
 """
+
 from __future__ import annotations
 
 import threading
@@ -110,20 +111,26 @@ def test_interval_frozen_and_property() -> None:
 
 def test_initial_snapshot_and_unknown_tag(monkeypatch: pytest.MonkeyPatch) -> None:
     """首拍前快照恒 INITIAL/None/None;未知标识 KeyError(dict 惯例)。"""
-    mon, _, _, _, _ = _make(monkeypatch, points={"a": ("hr0", "ushort"), "b": ("hr1", "ushort")})
+    mon, _, _, _, _ = _make(
+        monkeypatch, points={"a": ("hr0", "ushort"), "b": ("hr1", "ushort")}
+    )
     assert mon.get("a") == PointSnapshot(MonitorQuality.INITIAL, None, None)
     assert set(mon.get_all()) == {"a", "b"}
     with pytest.raises(KeyError, match="未知点位"):
         mon.get("nope")
 
 
-def test_first_success_fires_change_with_old_none(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_first_success_fires_change_with_old_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """首轮成功 INITIAL→GOOD:事件触发,old=None 表示首拍。"""
     mon, _, calls, events, _ = _make(monkeypatch, results=[[(True, 20)]])
     mon._cycle()
     snapshot = mon.get("a")
     assert snapshot.quality is MonitorQuality.GOOD
-    assert snapshot.value == 20 and isinstance(snapshot.value, int)  # 恒等缩放直通,int 不动
+    assert snapshot.value == 20 and isinstance(
+        snapshot.value, int
+    )  # 恒等缩放直通,int 不动
     assert snapshot.updated_at == mon.stats["last_ok_at"]
     assert len(events) == 1
     assert events[0].tag_id == "a" and events[0].old is None and events[0].new == 20  # type: ignore[union-attr]
@@ -131,7 +138,9 @@ def test_first_success_fires_change_with_old_none(monkeypatch: pytest.MonkeyPatc
     assert calls == [["hr0"]]
 
 
-def test_stable_value_and_quality_drop_stay_quiet_patterns(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stable_value_and_quality_drop_stay_quiet_patterns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """值不变不响;GOOD→STALE 边界响一次;STALE 维持不响(STALE 内部不打扰)。"""
     mon, _, _, events, _ = _make(
         monkeypatch,
@@ -197,7 +206,9 @@ def test_event_sees_new_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
         return queue.pop(0)
 
     monkeypatch.setattr(client, "read_many", fake)
-    monitor = Monitor(client, {"a": ("hr0", "ushort")}, interval=0.05, on_change=on_change)
+    monitor = Monitor(
+        client, {"a": ("hr0", "ushort")}, interval=0.05, on_change=on_change
+    )
     monitor._cycle()
     assert seen == [monitor.get("a")]
     assert seen[0].value == 7
@@ -221,7 +232,11 @@ def test_points_grouped_by_data_type(monkeypatch: pytest.MonkeyPatch) -> None:
     """按数据类型分组:同类型一次 read_many,组间保持首次出现序。"""
     mon, _, calls, _, _ = _make(
         monkeypatch,
-        points={"u1": ("hr0", "ushort"), "f1": ("hr2", "float"), "u2": ("hr1", "ushort")},
+        points={
+            "u1": ("hr0", "ushort"),
+            "f1": ("hr2", "float"),
+            "u2": ("hr1", "ushort"),
+        },
         results=[[(True, 1), (True, 2)], [(True, 0.5)]],
     )
     mon._cycle()
@@ -230,7 +245,9 @@ def test_points_grouped_by_data_type(monkeypatch: pytest.MonkeyPatch) -> None:
     assert mon.get("f1").value == 0.5
 
 
-def test_tagtable_scale_applied_and_identity_passthrough(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tagtable_scale_applied_and_identity_passthrough(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """TagTable 点位:scale/offset 按 read_tag 同口径;恒等缩放 int 直通。"""
     client = _client()
     queue = [[(True, 20), (True, 30)]]
@@ -344,7 +361,9 @@ def test_deadband_per_point_mapping(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(b_events) == 3
 
 
-def test_deadband_does_not_suppress_quality_crossing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_deadband_does_not_suppress_quality_crossing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """首拍与 GOOD↔STALE 质量跨界不受死区压制(掉线恢复必须能通知)。"""
     mon, _, _, events, _ = _make(
         monkeypatch,
@@ -388,7 +407,9 @@ def test_deadband_does_not_suppress_nan_jump(monkeypatch: pytest.MonkeyPatch) ->
     assert len(events) == 3
 
 
-def test_deadband_default_zero_keeps_legacy_behavior(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_deadband_default_zero_keeps_legacy_behavior(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """默认 0 = 关闭:抖动逐拍报告,与无死区行为逐字节一致(回归锁)。"""
     mon, _, _, events, _ = _make(
         monkeypatch,
@@ -438,7 +459,9 @@ def test_first_cycle_fail_fires_disconnect_without_prior_success(
     assert mon.stats["fail_count"] == 1 and mon.stats["consecutive_fails"] == 1
 
 
-def test_disconnect_episode_refires_after_recovery(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_disconnect_episode_refires_after_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """失败期沿:恢复复位,再失败再触发(每次失败期恰好一次)。"""
     mon, _, _, _, fires = _make(
         monkeypatch,
@@ -450,7 +473,9 @@ def test_disconnect_episode_refires_after_recovery(monkeypatch: pytest.MonkeyPat
     assert mon.stats["consecutive_fails"] == 1
 
 
-def test_cycle_failures_write_client_shared_ledger(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cycle_failures_write_client_shared_ledger(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """共享账口径(设计决策 1):周期失败照常写客户端 last_error/error_count。
 
     走真事务路径(ScriptedTransport 空脚本),锁死"监视器不开记账旁路"。
@@ -460,8 +485,12 @@ def test_cycle_failures_write_client_shared_ledger(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(client, "_create_transport", lambda: ScriptedTransport([]))
     assert client.connect() is True
     fires: List[bool] = []
-    mon = Monitor(client, {"a": ("hr0", "ushort")}, interval=0.05,
-                  on_disconnect=lambda: fires.append(True))
+    mon = Monitor(
+        client,
+        {"a": ("hr0", "ushort")},
+        interval=0.05,
+        on_disconnect=lambda: fires.append(True),
+    )
     mon._cycle()
     assert client.last_error is not None
     assert client.stats["error_count"] >= 1
@@ -481,8 +510,12 @@ def test_cycle_survives_bad_address(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(client, "_create_transport", lambda: ScriptedTransport([]))
     assert client.connect() is True
     fires: List[bool] = []
-    mon = Monitor(client, {"bad": ("no-such-address!!", "ushort")},
-                  interval=0.05, on_disconnect=lambda: fires.append(True))
+    mon = Monitor(
+        client,
+        {"bad": ("no-such-address!!", "ushort")},
+        interval=0.05,
+        on_disconnect=lambda: fires.append(True),
+    )
     mon._cycle()  # 不抛:兜底生效
     assert mon.get("bad").quality is MonitorQuality.INITIAL
     assert mon.get("bad").value is None
@@ -542,7 +575,9 @@ def test_backoff_window_skips_tick(monkeypatch: pytest.MonkeyPatch) -> None:
 # ----------------------------------------------------------------------
 
 
-def test_callback_exceptions_swallowed_and_counted(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_callback_exceptions_swallowed_and_counted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """回调异常吞掉计数,绝不误判为断连;失败期状态机不受回调影响。"""
     client = _client()
 
@@ -558,8 +593,13 @@ def test_callback_exceptions_swallowed_and_counted(monkeypatch: pytest.MonkeyPat
         return queue.pop(0)
 
     monkeypatch.setattr(client, "read_many", fake)
-    mon = Monitor(client, {"a": ("hr0", "ushort")}, interval=0.05,
-                  on_change=bad, on_disconnect=bad_disconnect)
+    mon = Monitor(
+        client,
+        {"a": ("hr0", "ushort")},
+        interval=0.05,
+        on_change=bad,
+        on_disconnect=bad_disconnect,
+    )
     mon._cycle()  # 首拍:change 回调炸 → 1
     mon._cycle()  # 值变:再炸 → 2
     mon._cycle()  # 全失败:GOOD→STALE 边界事件 + 失败期,两个回调各炸 → 4
@@ -626,7 +666,9 @@ def test_start_stop_and_restart(monkeypatch: pytest.MonkeyPatch) -> None:
     assert not mon.running
 
 
-def test_stop_from_inside_callback_does_not_self_join(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stop_from_inside_callback_does_not_self_join(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """回调内 stop:降级为只置标志不 join(自我 join 会 RuntimeError/死锁)。"""
     client = _client()
     queue = [[(True, 1)]]
@@ -641,7 +683,9 @@ def test_stop_from_inside_callback_does_not_self_join(monkeypatch: pytest.Monkey
         monitor.stop()
         stopped.set()
 
-    monitor = Monitor(client, {"a": ("hr0", "ushort")}, interval=0.05, on_change=on_change)
+    monitor = Monitor(
+        client, {"a": ("hr0", "ushort")}, interval=0.05, on_change=on_change
+    )
     monitor.start()
     thread = monitor._thread
     assert thread is not None
@@ -652,7 +696,9 @@ def test_stop_from_inside_callback_does_not_self_join(monkeypatch: pytest.Monkey
     assert not monitor.running
 
 
-def test_client_disconnect_stops_monitor_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_client_disconnect_stops_monitor_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """disconnect 联动:停掉在跑监视器、清空注册表、终态不可再 start。"""
     client = _client()
     queue = [[(True, 1)]]
@@ -701,7 +747,9 @@ def test_direct_construction_registers_same_as_factory() -> None:
         monitor.start()  # 联动终态:直接构造同样生效,无旁路
 
 
-def test_restart_then_disconnect_terminates_no_orphan(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_restart_then_disconnect_terminates_no_orphan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """孤儿回归(review-1006 P1 场景 A2):stop→start→disconnect 后线程
     必须死——注册表在册才能被联动终停,显式断开的连接不得被监视器拖活。
 

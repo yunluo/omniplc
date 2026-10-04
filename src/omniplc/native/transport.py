@@ -39,6 +39,7 @@ code=-10040,与同步层契约统一)。``received == size`` 时记一条 WARNIN
 (``wait_for`` 之外用 ``asyncio.wait`` 时,内层任务会继续跑,那正是本层要消灭
 的"取消之后还在跑"行为)。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -92,7 +93,7 @@ async def _await_with_timeout(
     task.cancel()
     try:
         await task
-    except (_CANCELLED_ERRORS + (Exception,)):
+    except _CANCELLED_ERRORS + (Exception,):
         pass  # 我们自己取消的,取消落地即可(inner 异常此处无需关心)
     return False, None
 
@@ -212,7 +213,9 @@ class AsyncBaseTransport(ABC):
         await self.connect()
         return self
 
-    async def __aexit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
+    async def __aexit__(
+        self, exc_type: object, exc_val: object, exc_tb: object
+    ) -> None:
         self.close()
 
 
@@ -311,12 +314,18 @@ class AsyncTcpTransport(AsyncBaseTransport):
         while received < size:
             remaining = deadline - loop.time()
             if remaining <= 0:
-                raise socket.timeout(_("TCP 接收超时({}s)").format(self._receive_timeout))
-            done, chunk = await _await_with_timeout(reader.read(size - received), remaining)
+                raise socket.timeout(
+                    _("TCP 接收超时({}s)").format(self._receive_timeout)
+                )
+            done, chunk = await _await_with_timeout(
+                reader.read(size - received), remaining
+            )
             if not done:
                 # 已读部分字节留在 StreamReader 缓冲里,但半帧残留在连接上,
                 # 按超时拆连处理(与同步 TCP 同口径:迟到响应会串帧)
-                raise socket.timeout(_("TCP 接收超时({}s)").format(self._receive_timeout))
+                raise socket.timeout(
+                    _("TCP 接收超时({}s)").format(self._receive_timeout)
+                )
             if not chunk:
                 raise TransportClosedError(_("TCP 连接已被对端关闭"))
             chunks.append(chunk)
@@ -514,7 +523,9 @@ class AsyncUdpTransport(AsyncBaseTransport):
             raise
         if not done or received is None:
             self._clear_stale_selector(sock)
-            raise TransportTimeoutError(_("UDP 接收超时({}s)").format(self._receive_timeout), 0)
+            raise TransportTimeoutError(
+                _("UDP 接收超时({}s)").format(self._receive_timeout), 0
+            )
         if received >= size:
             # 恰满缓冲:可能是截断(Proactor/POSIX 对超长报文静默截断,传输层
             # 无法探测真长),也可能是报文恰好等长。记 WARNING 提示现场核对

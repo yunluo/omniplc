@@ -6,6 +6,7 @@
 约定:全部使用大写下划线命名(常量),运行期不允许修改;
 Python 3.7 无 ``typing.Final``,以命名约定与 Code Review 约束只读性。
 """
+
 from __future__ import annotations
 
 from typing import Dict, Tuple
@@ -54,6 +55,7 @@ def pad_even_bytes(n: int) -> int:
     Modbus 字符串按"寄存器数"= ``(length + 1) // 2`` 折算的等价工具。
     """
     return (n + 1) // 2 * 2
+
 
 # ---------------------------------------------------------------- TCP keepalive
 TCP_KEEPALIVE_IDLE: int = 30
@@ -852,8 +854,24 @@ A 系 64 点;QnA/A 超限由 PLC 异常码裁决),兼防超大块拖死 COM 调�
 与 MC 驱动自定的 MC_MAX_TRANSFER_POINTS=900(偏保守分块)各自独立。
 """
 MX_BIT_DEVICES: Tuple[str, ...] = (
-    "X", "Y", "M", "L", "S", "F", "V", "B", "SB", "DX", "DY",
-    "TS", "TC", "STS", "STC", "CS", "CC", "SM",
+    "X",
+    "Y",
+    "M",
+    "L",
+    "S",
+    "F",
+    "V",
+    "B",
+    "SB",
+    "DX",
+    "DY",
+    "TS",
+    "TC",
+    "STS",
+    "STC",
+    "CS",
+    "CC",
+    "SM",
 )
 """Q/R 系列常见位软元件表(用于区分位/字访问);表外软元件按字软元件处理。
 依据:MX Component 手册软元件表——定时器/计数器接点/线圈为 TS/TC/STS/STC/CS/CC,
@@ -891,7 +909,20 @@ KV_ERROR_TEXT: Dict[str, str] = {
 提示查阅 KEYENCE 手册。"""
 KV_BIT_DEVICES: Tuple[str, ...] = ("R", "B", "MR", "LR", "CR", "VB", "X", "Y", "M", "L")
 """位软元件(R/MR/CR 为位组十进制,B/VB 十六进制,X/Y 组十进制+位 1 位十六进制,M/L 十进制)。"""
-KV_WORD_DEVICES: Tuple[str, ...] = ("DM", "EM", "FM", "ZF", "W", "TM", "Z", "CM", "VM", "D", "E", "F")
+KV_WORD_DEVICES: Tuple[str, ...] = (
+    "DM",
+    "EM",
+    "FM",
+    "ZF",
+    "W",
+    "TM",
+    "Z",
+    "CM",
+    "VM",
+    "D",
+    "E",
+    "F",
+)
 """字软元件(W 十六进制编号,其余十进制)。"""
 KV_HEX_NUMBER_DEVICES: Tuple[str, ...] = ("B", "VB", "W")
 """编号为十六进制的软元件。"""

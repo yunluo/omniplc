@@ -12,6 +12,7 @@ MODBUS TCP/IP Application Protocol,2026-09 复审修正;主参考
 - RTU:站号(1) + PDU + CRC16(2,低字节在前)
 - 异常响应:功能码 | 0x80 + 异常码(1),由 :func:`check_response_exception` 识别
 """
+
 from __future__ import annotations
 
 import struct
@@ -107,6 +108,7 @@ _READ_REGISTER_FUNCTIONS = (
 # 请求 PDU 构造(参数非法抛 ValueError,符合公共 API 约定)
 # ----------------------------------------------------------------------
 
+
 def build_read_pdu(function_code: int, offset: int, count: int) -> bytes:
     """构造读请求 PDU(FC 01/02/03/04)。
 
@@ -161,32 +163,39 @@ def build_write_multi_pdu(function_code: int, offset: int, values: List[int]) ->
     if function_code == ModbusFunction.WRITE_MULTIPLE_COILS:
         if not 1 <= len(values) <= MODBUS_MAX_WRITE_BITS:
             raise ValueError(
-                _("写线圈数量超出范围 1~{}:{}").format(MODBUS_MAX_WRITE_BITS, len(values))
+                _("写线圈数量超出范围 1~{}:{}").format(
+                    MODBUS_MAX_WRITE_BITS, len(values)
+                )
             )
         _check_span(offset, len(values))
         packed = bytearray((len(values) + 7) // 8)
         for index, flag in enumerate(values):
             if flag:
                 packed[index // 8] |= 1 << (index % 8)
-        return struct.pack(">BHHB", function_code, offset, len(values), len(packed)) + bytes(packed)
+        return struct.pack(
+            ">BHHB", function_code, offset, len(values), len(packed)
+        ) + bytes(packed)
     if function_code == ModbusFunction.WRITE_MULTIPLE_REGISTERS:
         if not 1 <= len(values) <= MODBUS_MAX_WRITE_REGISTERS:
             raise ValueError(
-                _("写寄存器数量超出范围 1~{}:{}").format(MODBUS_MAX_WRITE_REGISTERS, len(values))
+                _("写寄存器数量超出范围 1~{}:{}").format(
+                    MODBUS_MAX_WRITE_REGISTERS, len(values)
+                )
             )
         _check_span(offset, len(values))
         for value in values:
             if not 0 <= value <= 0xFFFF:
                 raise ValueError(_("寄存器写入值超出范围 0~65535:{}").format(value))
-        return struct.pack(">BHHB", function_code, offset, len(values), len(values) * 2) + struct.pack(
-            ">{:d}H".format(len(values)), *values
-        )
+        return struct.pack(
+            ">BHHB", function_code, offset, len(values), len(values) * 2
+        ) + struct.pack(">{:d}H".format(len(values)), *values)
     raise ValueError(_("批量写功能码必须是 15 或 16,收到:{}").format(function_code))
 
 
 # ----------------------------------------------------------------------
 # 响应 PDU 解析(坏帧抛 ProtocolFrameError,PLC 异常码抛 DeviceError)
 # ----------------------------------------------------------------------
+
 
 def check_response_exception(pdu: bytes, request_function_code: int) -> None:
     """识别异常响应:PLC 返回异常码时抛 :class:`DeviceError`。
@@ -216,9 +225,9 @@ def check_response_exception(pdu: bytes, request_function_code: int) -> None:
             )
         if pdu[0] ^ MODBUS_EXCEPTION_FLAG != request_function_code:
             raise ProtocolFrameError(
-                _("异常响应功能码不符:期望 0x{:02X},收到 0x{:02X}(收到的原始数据:{})").format(
-                    request_function_code, pdu[0], format_hex(pdu)
-                )
+                _(
+                    "异常响应功能码不符:期望 0x{:02X},收到 0x{:02X}(收到的原始数据:{})"
+                ).format(request_function_code, pdu[0], format_hex(pdu))
             )
         code = pdu[1]
         text = _(MODBUS_EXCEPTION_TEXT.get(code, _("未知异常码(厂商自定义/保留码)")))
@@ -255,13 +264,16 @@ def parse_read_response(pdu: bytes, function_code: int, count: int) -> List[int]
     expected = (count + 7) // 8 if function_code in _READ_BIT_FUNCTIONS else count * 2
     if byte_count != expected or len(pdu) != expected + 2:
         raise ProtocolFrameError(
-            _("读响应长度不符:字节计数域 {},期望 {},实际 PDU {} 字节(收到的原始数据:{})").format(
-                byte_count, expected, len(pdu), format_hex(pdu)
-            )
+            _(
+                "读响应长度不符:字节计数域 {},期望 {},实际 PDU {} 字节(收到的原始数据:{})"
+            ).format(byte_count, expected, len(pdu), format_hex(pdu))
         )
     if function_code in _READ_BIT_FUNCTIONS:
-        return [1 if pdu[2 + index // 8] & (1 << (index % 8)) else 0 for index in range(count)]
-    return list(struct.unpack(f">{count:d}H", pdu[2:2 + expected]))
+        return [
+            1 if pdu[2 + index // 8] & (1 << (index % 8)) else 0
+            for index in range(count)
+        ]
+    return list(struct.unpack(f">{count:d}H", pdu[2 : 2 + expected]))
 
 
 def parse_write_response(pdu: bytes, request_pdu: bytes) -> None:
@@ -302,8 +314,10 @@ def build_mask_write_pdu(
     order = str(byte_order).strip().lower()
     if order not in ("big", "little"):
         raise ValueError(_("byte_order 非法(仅 big/little):{!r}").format(byte_order))
-    masks = struct.pack(">HH", and_mask, or_mask) if order == "big" else struct.pack(
-        "<HH", and_mask, or_mask
+    masks = (
+        struct.pack(">HH", and_mask, or_mask)
+        if order == "big"
+        else struct.pack("<HH", and_mask, or_mask)
     )
     return struct.pack(">BH", MODBUS_COMMAND_MASK_WRITE, offset) + masks
 
@@ -322,9 +336,11 @@ def parse_mask_write_response(pdu: bytes, request_pdu: bytes) -> None:
             )
         )
 
+
 # ----------------------------------------------------------------------
 # FC 23 读写多寄存器(单事务"先写后读")
 # ----------------------------------------------------------------------
+
 
 def build_read_write_registers_pdu(
     read_offset: int,
@@ -348,11 +364,15 @@ def build_read_write_registers_pdu(
     _check_offset(write_offset)
     if not 1 <= read_count <= MODBUS_MAX_READ_REGISTERS:
         raise ValueError(
-            _("FC23 读数量超出范围 1~{}:{}").format(MODBUS_MAX_READ_REGISTERS, read_count)
+            _("FC23 读数量超出范围 1~{}:{}").format(
+                MODBUS_MAX_READ_REGISTERS, read_count
+            )
         )
     if not 1 <= len(values) <= MODBUS_MAX_RW_WRITE_REGISTERS:
         raise ValueError(
-            _("FC23 写数量超出范围 1~{}:{}").format(MODBUS_MAX_RW_WRITE_REGISTERS, len(values))
+            _("FC23 写数量超出范围 1~{}:{}").format(
+                MODBUS_MAX_RW_WRITE_REGISTERS, len(values)
+            )
         )
     _check_span(read_offset, read_count)
     _check_span(write_offset, len(values))
@@ -390,16 +410,17 @@ def parse_read_write_registers_response(pdu: bytes, read_count: int) -> List[int
     expected = read_count * 2
     if byte_count != expected or len(pdu) != expected + 2:
         raise ProtocolFrameError(
-            _("FC23 响应长度不符:字节计数域 {},期望 {},实际 PDU {} 字节(收到的原始数据:{})").format(
-                byte_count, expected, len(pdu), format_hex(pdu)
-            )
+            _(
+                "FC23 响应长度不符:字节计数域 {},期望 {},实际 PDU {} 字节(收到的原始数据:{})"
+            ).format(byte_count, expected, len(pdu), format_hex(pdu))
         )
-    return list(struct.unpack(f">{read_count:d}H", pdu[2:2 + expected]))
+    return list(struct.unpack(f">{read_count:d}H", pdu[2 : 2 + expected]))
 
 
 # ----------------------------------------------------------------------
 # FC 43 / 14 读设备标识(MEI 隧道)
 # ----------------------------------------------------------------------
+
 
 class DeviceIdentification(NamedTuple):
     """设备标识响应(FC 43/14,不可变值对象)。
@@ -491,15 +512,15 @@ def parse_device_id_response(
         )
     if pdu[1] != MODBUS_MEI_TYPE_DEVICE_ID:
         raise ProtocolFrameError(
-            _("设备标识响应 MEI 类型不符:期望 0x{:02X},收到 0x{:02X}(收到的原始数据:{})").format(
-                MODBUS_MEI_TYPE_DEVICE_ID, pdu[1], format_hex(pdu)
-            )
+            _(
+                "设备标识响应 MEI 类型不符:期望 0x{:02X},收到 0x{:02X}(收到的原始数据:{})"
+            ).format(MODBUS_MEI_TYPE_DEVICE_ID, pdu[1], format_hex(pdu))
         )
     if expected_read_code is not None and pdu[2] != expected_read_code:
         raise ProtocolFrameError(
-            _("设备标识响应读取码回显不符:期望 0x{:02X},收到 0x{:02X}(收到的原始数据:{})").format(
-                expected_read_code, pdu[2], format_hex(pdu)
-            )
+            _(
+                "设备标识响应读取码回显不符:期望 0x{:02X},收到 0x{:02X}(收到的原始数据:{})"
+            ).format(expected_read_code, pdu[2], format_hex(pdu))
         )
     conformity_level = pdu[3]
     more_follows = pdu[4] == 0xFF
@@ -511,10 +532,10 @@ def parse_device_id_response(
     for index in range(object_count):
         if cursor + 2 > len(pdu):
             raise ProtocolFrameError(
-                _("设备标识响应第 {} 个对象头被截断(期望 2 字节,剩余 {} 字节)"
-                "(收到的原始数据:{})").format(
-                    index + 1, len(pdu) - cursor, format_hex(pdu)
-                )
+                _(
+                    "设备标识响应第 {} 个对象头被截断(期望 2 字节,剩余 {} 字节)"
+                    "(收到的原始数据:{})"
+                ).format(index + 1, len(pdu) - cursor, format_hex(pdu))
             )
         object_id = pdu[cursor]
         if object_id in seen:
@@ -525,8 +546,10 @@ def parse_device_id_response(
             )
         if MODBUS_DEVICE_ID_RESERVED_MIN <= object_id <= MODBUS_DEVICE_ID_RESERVED_MAX:
             raise ProtocolFrameError(
-                _("设备标识响应对象号 0x{:02X} 落在规范保留区间 0x{:02X}~0x{:02X}"
-                "(收到的原始数据:{})").format(
+                _(
+                    "设备标识响应对象号 0x{:02X} 落在规范保留区间 0x{:02X}~0x{:02X}"
+                    "(收到的原始数据:{})"
+                ).format(
                     object_id,
                     MODBUS_DEVICE_ID_RESERVED_MIN,
                     MODBUS_DEVICE_ID_RESERVED_MAX,
@@ -538,18 +561,20 @@ def parse_device_id_response(
         start = cursor + 2
         if start + length > len(pdu):
             raise ProtocolFrameError(
-                _("设备标识响应第 {} 个对象(号 0x{:02X})值被截断:声明 {} 字节,"
-                "实际剩余 {}(收到的原始数据:{})").format(
+                _(
+                    "设备标识响应第 {} 个对象(号 0x{:02X})值被截断:声明 {} 字节,"
+                    "实际剩余 {}(收到的原始数据:{})"
+                ).format(
                     index + 1, object_id, length, len(pdu) - start, format_hex(pdu)
                 )
             )
-        objects.append((object_id, pdu[start:start + length]))
+        objects.append((object_id, pdu[start : start + length]))
         cursor = start + length
     if cursor != len(pdu):
         raise ProtocolFrameError(
-            _("设备标识响应长度不符:解析 {} 字节,实际 PDU {} 字节(收到的原始数据:{})").format(
-                cursor, len(pdu), format_hex(pdu)
-            )
+            _(
+                "设备标识响应长度不符:解析 {} 字节,实际 PDU {} 字节(收到的原始数据:{})"
+            ).format(cursor, len(pdu), format_hex(pdu))
         )
     return DeviceIdentification(
         conformity_level=conformity_level,
@@ -596,7 +621,10 @@ def build_mbap(transaction_id: int, station: int, pdu: bytes) -> bytes:
     max_pdu = MODBUS_MAX_ADU_SIZE - MBAP_HEADER_SIZE
     if not 1 <= len(pdu) <= max_pdu:
         raise ValueError(_("PDU 长度超出范围 1~{}:{}").format(max_pdu, len(pdu)))
-    return struct.pack(">HHHB", transaction_id, MODBUS_PROTOCOL_ID, len(pdu) + 1, station) + pdu
+    return (
+        struct.pack(">HHHB", transaction_id, MODBUS_PROTOCOL_ID, len(pdu) + 1, station)
+        + pdu
+    )
 
 
 def parse_mbap_header(header: bytes) -> Tuple[int, int]:
@@ -627,9 +655,9 @@ def parse_mbap_header(header: bytes) -> Tuple[int, int]:
         )
     if length > MODBUS_MBAP_LENGTH_MAX:
         raise ProtocolFrameError(
-            _("MBAP 长度字段超出上限 {}(按长收包将挂死,按坏帧处理):{}(收到的原始数据:{})").format(
-                MODBUS_MBAP_LENGTH_MAX, length, format_hex(header)
-            )
+            _(
+                "MBAP 长度字段超出上限 {}(按长收包将挂死,按坏帧处理):{}(收到的原始数据:{})"
+            ).format(MODBUS_MBAP_LENGTH_MAX, length, format_hex(header))
         )
     return transaction_id, length
 
@@ -656,6 +684,7 @@ def parse_mbap(frame: bytes) -> Tuple[int, int, bytes]:
 # ----------------------------------------------------------------------
 # RTU 帧(串口)
 # ----------------------------------------------------------------------
+
 
 def build_rtu_frame(station: int, pdu: bytes) -> bytes:
     """把 PDU 封装为 RTU 帧:站号 + PDU + CRC16(低字节在前)。
@@ -705,6 +734,7 @@ def parse_rtu_frame(frame: bytes) -> Tuple[int, bytes]:
 # ----------------------------------------------------------------------
 # 收包长度推算(RTU 按长度读取用)
 # ----------------------------------------------------------------------
+
 
 def expected_response_length(request_pdu: bytes) -> int:
     """按请求 PDU 推算正常响应 PDU 的字节数(RTU 收包用)。
@@ -761,18 +791,21 @@ def expected_response_length(request_pdu: bytes) -> int:
         return MODBUS_EVENT_COUNTER_PDU_SIZE
     if function_code == ModbusFunction.GET_COMM_EVENT_LOG:
         raise ProtocolFrameError(
-            _("FC12 响应长度随事件字节数变化,无法按请求推算:"
-            "由走线层按 byte count 增量收包")
+            _(
+                "FC12 响应长度随事件字节数变化,无法按请求推算:"
+                "由走线层按 byte count 增量收包"
+            )
         )
     if function_code == ModbusFunction.REPORT_SERVER_ID:
         raise ProtocolFrameError(
-            _("FC17 响应长度随附加数据变化,无法按请求推算:"
-            "由走线层按 byte count 增量收包")
+            _(
+                "FC17 响应长度随附加数据变化,无法按请求推算:"
+                "由走线层按 byte count 增量收包"
+            )
         )
     if function_code == ModbusFunction.READ_FIFO_QUEUE:
         raise ProtocolFrameError(
-            _("FC24 响应长度随 FIFO 计数变化,无法按请求推算:"
-            "由走线层按字节计数增量收包")
+            _("FC24 响应长度随 FIFO 计数变化,无法按请求推算:由走线层按字节计数增量收包")
         )
     if function_code == ModbusFunction.READ_FILE_RECORD:
         return _read_file_record_response_length(request_pdu)
@@ -780,8 +813,10 @@ def expected_response_length(request_pdu: bytes) -> int:
         return len(request_pdu)  # 响应回显请求
     if function_code == ModbusFunction.READ_DEVICE_IDENTIFICATION:
         raise ProtocolFrameError(
-            _("FC43 响应长度随标识对象数与对象长度变化,无法按请求推算:"
-            "由走线层按对象头增量收包(codec.device_id_object_count)")
+            _(
+                "FC43 响应长度随标识对象数与对象长度变化,无法按请求推算:"
+                "由走线层按对象头增量收包(codec.device_id_object_count)"
+            )
         )
     raise ProtocolFrameError(_("未知功能码 0x{:02X}").format(function_code))
 
@@ -810,7 +845,9 @@ def parse_diagnostics_response(pdu: bytes, sub_function: int) -> int:
     echoed = struct.unpack(">H", pdu[1:3])[0]
     if echoed != sub_function:
         raise ProtocolFrameError(
-            _("FC08 子功能回显不符:期望 0x{:04X},收到 0x{:04X}").format(sub_function, echoed)
+            _("FC08 子功能回显不符:期望 0x{:04X},收到 0x{:04X}").format(
+                sub_function, echoed
+            )
         )
     return struct.unpack(">H", pdu[3:5])[0]
 
@@ -910,14 +947,16 @@ def parse_comm_event_log_pdu(pdu: bytes) -> Dict[str, object]:
         )
     if len(pdu) != 2 + byte_count:
         raise ProtocolFrameError(
-            _("FC12 byte count 与长度不符:声明 {},实际 {}").format(byte_count, len(pdu) - 2)
+            _("FC12 byte count 与长度不符:声明 {},实际 {}").format(
+                byte_count, len(pdu) - 2
+            )
         )
     status, event_count, message_count = struct.unpack(">HHH", pdu[2:8])
     return {
         "status": status,
         "event_count": event_count,
         "message_count": message_count,
-        "events": bytes(pdu[8:2 + byte_count]),
+        "events": bytes(pdu[8 : 2 + byte_count]),
     }
 
 
@@ -936,7 +975,9 @@ def _check_file_record_fields(
         raise ValueError(_("记录长度必须大于 0:{}").format(record_length))
     if record_length > MODBUS_MAX_FILE_RECORD_LENGTH:
         raise ValueError(
-            _("记录长度超出上限 {}:{}").format(MODBUS_MAX_FILE_RECORD_LENGTH, record_length)
+            _("记录长度超出上限 {}:{}").format(
+                MODBUS_MAX_FILE_RECORD_LENGTH, record_length
+            )
         )
 
 
@@ -950,13 +991,19 @@ def build_read_file_record_pdu(requests: "Sequence[Tuple[int, int, int]]") -> by
         raise ValueError(_("FC20 至少需要一个文件记录子请求"))
     if len(requests) > MODBUS_MAX_FILE_RECORDS:
         raise ValueError(
-            _("FC20 子请求条数超出上限 {}:{}").format(MODBUS_MAX_FILE_RECORDS, len(requests))
+            _("FC20 子请求条数超出上限 {}:{}").format(
+                MODBUS_MAX_FILE_RECORDS, len(requests)
+            )
         )
     sub = bytearray()
     for file_number, record_number, record_length in requests:
         _check_file_record_fields(file_number, record_number, record_length)
         sub += struct.pack(
-            ">BHHH", MODBUS_FILE_REFERENCE_TYPE, file_number, record_number, record_length
+            ">BHHH",
+            MODBUS_FILE_REFERENCE_TYPE,
+            file_number,
+            record_number,
+            record_length,
         )
     if not 0x07 <= len(sub) <= MODBUS_MAX_READ_FILE_BYTES:
         raise ValueError(
@@ -986,12 +1033,12 @@ def _read_file_record_response_length(request_pdu: bytes) -> int:
     if len(request_pdu) < 2:
         raise ProtocolFrameError(_("FC20 请求 PDU 过短"))
     byte_count = request_pdu[1]
-    sub = request_pdu[2:2 + byte_count]
+    sub = request_pdu[2 : 2 + byte_count]
     if len(sub) != byte_count or byte_count % 7 != 0:
         raise ProtocolFrameError(_("FC20 请求 byte count 非法:{}").format(byte_count))
     total = 0
     for index in range(0, byte_count, 7):
-        length = struct.unpack(">H", sub[index + 5:index + 7])[0]
+        length = struct.unpack(">H", sub[index + 5 : index + 7])[0]
         total += 2 + 2 * length
     return 2 + total
 
@@ -1016,7 +1063,9 @@ def parse_read_file_record_response(
         )
     if len(body) != pdu[1]:
         raise ProtocolFrameError(
-            _("FC20 响应数据长与 byte count 不符:声明 {},实际 {}").format(pdu[1], len(body))
+            _("FC20 响应数据长与 byte count 不符:声明 {},实际 {}").format(
+                pdu[1], len(body)
+            )
         )
     result: List[List[int]] = []
     offset = 0
@@ -1036,11 +1085,11 @@ def parse_read_file_record_response(
             raise ProtocolFrameError(
                 _("FC20 引用类型非 0x06:0x{:02X}").format(body[offset + 1])
             )
-        chunk = body[offset + 2:offset + 1 + file_resp_len]
+        chunk = body[offset + 2 : offset + 1 + file_resp_len]
         if len(chunk) != 2 * record_length:
             raise ProtocolFrameError(_("FC20 记录数据长度不足"))
         result.append(
-            [struct.unpack(">H", chunk[i:i + 2])[0] for i in range(0, len(chunk), 2)]
+            [struct.unpack(">H", chunk[i : i + 2])[0] for i in range(0, len(chunk), 2)]
         )
         offset += 1 + file_resp_len
     if offset != len(body):
@@ -1048,7 +1097,9 @@ def parse_read_file_record_response(
     return result
 
 
-def build_write_file_record_pdu(records: "Sequence[Tuple[int, int, List[int]]]") -> bytes:
+def build_write_file_record_pdu(
+    records: "Sequence[Tuple[int, int, List[int]]]",
+) -> bytes:
     """构造写文件记录请求 PDU(FC21)。
 
     :param records: ``(文件号, 起始记录号, 寄存器列表)`` 序列
@@ -1066,7 +1117,9 @@ def build_write_file_record_pdu(records: "Sequence[Tuple[int, int, List[int]]]")
         )
         for value in values:
             if not 0 <= value <= 0xFFFF:
-                raise ValueError(_("FC21 寄存器写入值超出范围 0~65535:{}").format(value))
+                raise ValueError(
+                    _("FC21 寄存器写入值超出范围 0~65535:{}").format(value)
+                )
             sub += struct.pack(">H", value)
     if not 0x09 <= len(sub) <= MODBUS_MAX_WRITE_FILE_BYTES:
         raise ValueError(
@@ -1130,18 +1183,22 @@ def parse_read_fifo_response(pdu: bytes) -> List[int]:
     expected_byte_count = 2 + fifo_count * 2
     if byte_count != expected_byte_count or len(pdu) != 3 + byte_count:
         raise ProtocolFrameError(
-            _("FC24 响应长度不符:字节计数域 {},期望 {},FIFO 数 {},实际 PDU {} 字节"
-            "(收到的原始数据:{})").format(
+            _(
+                "FC24 响应长度不符:字节计数域 {},期望 {},FIFO 数 {},实际 PDU {} 字节"
+                "(收到的原始数据:{})"
+            ).format(
                 byte_count, expected_byte_count, fifo_count, len(pdu), format_hex(pdu)
             )
         )
-    return list(struct.unpack(">{:d}H".format(fifo_count), pdu[5:5 + fifo_count * 2]))
+    return list(struct.unpack(">{:d}H".format(fifo_count), pdu[5 : 5 + fifo_count * 2]))
 
 
 def _check_offset(offset: int) -> None:
     """校验 0 基地址偏移(内部函数)。"""
     if not 0 <= offset <= MODBUS_ADDRESS_MAX:
-        raise ValueError(_("地址偏移超出范围 0~{}:{}").format(MODBUS_ADDRESS_MAX, offset))
+        raise ValueError(
+            _("地址偏移超出范围 0~{}:{}").format(MODBUS_ADDRESS_MAX, offset)
+        )
 
 
 def _check_span(offset: int, count: int) -> None:

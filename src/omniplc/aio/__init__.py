@@ -18,13 +18,26 @@
 - :meth:`ABaseClient.close` 关闸后**排空**已提交任务(不锯断在途事务),
   再释放线程。
 """
+
 from __future__ import annotations
 
 import asyncio
 import datetime
 from concurrent.futures import ThreadPoolExecutor
 from types import TracebackType
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Type, TypeVar, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
 from ..core.base_client import BaseClient, ClientStats
 from ..core.errors import ErrorCategory, _CANCELLED_ERRORS
@@ -116,7 +129,14 @@ from ..plc.omron import OmronCipClient, OmronFinsTcpClient, OmronFinsUdpClient
 from ..plc.omron import codec as _omron_codec
 from ..plc.ab import codec_cip
 from ..core.tag import Tag, TagTable
-from ..core.types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity, WordOrder
+from ..core.types import (
+    ByteOrder,
+    DataType,
+    McFrame,
+    PrimitiveValue,
+    SerialParity,
+    WordOrder,
+)
 from ..core.i18n import _
 
 _T = TypeVar("_T")
@@ -441,7 +461,9 @@ class ABaseClient:
         encoding: str = DEFAULT_STRING_ENCODING,
     ) -> Tuple[bool, Optional[str]]:
         """读取字符串。"""
-        return await self._run(lambda: self._sync.read_string(address, length, encoding))
+        return await self._run(
+            lambda: self._sync.read_string(address, length, encoding)
+        )
 
     async def write_bool(self, address: str, value: bool) -> bool:
         """写入布尔量(位)。"""
@@ -483,7 +505,9 @@ class ABaseClient:
         self, address: str, value: str, encoding: str = DEFAULT_STRING_ENCODING
     ) -> bool:
         """写入字符串。"""
-        return await self._run(lambda: self._sync.write_string(address, value, encoding))
+        return await self._run(
+            lambda: self._sync.write_string(address, value, encoding)
+        )
 
     # ------------------------------------------------------------------
     # 点位表
@@ -510,7 +534,9 @@ class ABaseClient:
             points, interval=interval, on_change=on_change, on_disconnect=on_disconnect
         )
 
-    async def read_tag(self, tag: Union[str, Tag]) -> Tuple[bool, Optional[PrimitiveValue]]:
+    async def read_tag(
+        self, tag: Union[str, Tag]
+    ) -> Tuple[bool, Optional[PrimitiveValue]]:
         """按点位读取(自动应用缩放)。"""
         return await self._run(lambda: self._sync.read_tag(tag))
 
@@ -725,7 +751,12 @@ class AModbusBaseClient(ABaseClient):
 class AModbusTcpClient(AModbusBaseClient):
     """Modbus TCP 异步客户端。"""
 
-    def __init__(self, ip_address: str = "127.0.0.1", port: int = MODBUS_DEFAULT_PORT, station: int = MODBUS_DEFAULT_STATION) -> None:
+    def __init__(
+        self,
+        ip_address: str = "127.0.0.1",
+        port: int = MODBUS_DEFAULT_PORT,
+        station: int = MODBUS_DEFAULT_STATION,
+    ) -> None:
         """初始化 Modbus TCP 异步客户端。
 
         :param ip_address: PLC 的 IP 或主机名
@@ -1079,7 +1110,9 @@ class AInovanceMcTcpClient(AMelsecMcTcpClient):
         :param pc_number: PC 编号(默认 0xFF,与三菱 MC 客户端约定一致)
         :raises ValueError: 参数非法
         """
-        ABaseClient.__init__(self, InovanceMcTcpClient(ip_address, port, network_number, pc_number))
+        ABaseClient.__init__(
+            self, InovanceMcTcpClient(ip_address, port, network_number, pc_number)
+        )
 
 
 class APanasonicMcTcpClient(AMelsecMcTcpClient):
@@ -1105,7 +1138,9 @@ class APanasonicMcTcpClient(AMelsecMcTcpClient):
         :param pc_number: PC 编号(默认 0xFF,与三菱 MC 客户端约定一致)
         :raises ValueError: 参数非法
         """
-        ABaseClient.__init__(self, PanasonicMcTcpClient(ip_address, port, network_number, pc_number))
+        ABaseClient.__init__(
+            self, PanasonicMcTcpClient(ip_address, port, network_number, pc_number)
+        )
 
 
 class AMelsecMcSerialClient(ABaseClient):
@@ -1269,7 +1304,9 @@ class AKeyenceMcTcpClient(AMelsecMcTcpClient):
         :param pc_number: PC 编号(默认 0xFF,与三菱 MC 客户端约定一致)
         :raises ValueError: 参数非法
         """
-        ABaseClient.__init__(self, KeyenceMcTcpClient(ip_address, port, network_number, pc_number))
+        ABaseClient.__init__(
+            self, KeyenceMcTcpClient(ip_address, port, network_number, pc_number)
+        )
 
     @property
     def frame(self) -> McFrame:
@@ -1299,7 +1336,9 @@ class AKeyenceMcUdpClient(AMelsecMcUdpClient):
         :param pc_number: PC 编号(默认 0xFF,与三菱 MC 客户端约定一致)
         :raises ValueError: 参数非法
         """
-        ABaseClient.__init__(self, KeyenceMcUdpClient(ip_address, port, network_number, pc_number))
+        ABaseClient.__init__(
+            self, KeyenceMcUdpClient(ip_address, port, network_number, pc_number)
+        )
 
     @property
     def frame(self) -> McFrame:
@@ -1314,7 +1353,9 @@ class AMelsecMxClient(ABaseClient):
     STA 线程模型。
     """
 
-    def __init__(self, logical_station_number: int = MX_DEFAULT_LOGICAL_STATION) -> None:
+    def __init__(
+        self, logical_station_number: int = MX_DEFAULT_LOGICAL_STATION
+    ) -> None:
         """初始化 MX Component 异步客户端。
 
         :param logical_station_number: 通信设置实用程序中配置的逻辑站号(0~1023)
@@ -1335,9 +1376,7 @@ class AMelsecMxClient(ABaseClient):
         sync = self._typed(MelsecMxClient)
         return await self._run(lambda: sync.read_batch(items))
 
-    async def write_batch(
-        self, items: Sequence[Tuple[str, PrimitiveValue]]
-    ) -> bool:
+    async def write_batch(self, items: Sequence[Tuple[str, PrimitiveValue]]) -> bool:
         """随机批量写入(WriteDeviceRandom 单事务;语义同同步版)。"""
         sync = self._typed(MelsecMxClient)
         return await self._run(lambda: sync.write_batch(items))
@@ -1365,9 +1404,7 @@ class AMelsecMxClient(ABaseClient):
         """写入 PLC CPU 时钟(SetClockData;语义同同步版)。"""
         sync = self._typed(MelsecMxClient)
         return await self._run(
-            lambda: sync.set_clock(
-                year, month, day, hour, minute, second, day_of_week
-            )
+            lambda: sync.set_clock(year, month, day, hour, minute, second, day_of_week)
         )
 
     async def get_error_message(self, code: int) -> Tuple[bool, Optional[str]]:
@@ -1513,7 +1550,9 @@ class AHikrobotIdModbusClient(AModbusBaseClient):
         self, timeout: float = 2.0, poll_interval: float = 0.05
     ) -> bool:
         """清除设备错误状态(语义同同步版)。"""
-        return await self._run(lambda: self._reader().clear_error(timeout, poll_interval))
+        return await self._run(
+            lambda: self._reader().clear_error(timeout, poll_interval)
+        )
 
 
 class AHikrobotIdTcpClient(ABaseClient):
@@ -1719,7 +1758,9 @@ class AHikrobotIdSerialClient(ABaseClient):
         parity: Union[SerialParity, str] = SERIAL_DEFAULT_PARITY,
     ) -> None:
         """配置串口参数(转发同步实例,推荐 :class:`~omniplc.types.SerialParity` 枚举)。"""
-        self._reader().configure_serial(port_name, baud_rate, data_bits, stop_bits, parity)
+        self._reader().configure_serial(
+            port_name, baud_rate, data_bits, stop_bits, parity
+        )
 
     async def scan(self, timeout: float = 10.0) -> Tuple[bool, Optional[str]]:
         """串口触发一次读码并读取结果行(语义同同步版 :meth:`HikrobotIdSerialClient.scan`)。"""
@@ -2137,7 +2178,9 @@ class AOmronCipClient(ABaseClient):
     ) -> Tuple[bool, Optional[bytes]]:
         """通用 CIP 服务(语义同同步版 :meth:`OmronCipClient.generic_message`)。"""
         sync = self._typed(OmronCipClient)
-        return await self._run(lambda: sync.generic_message(service, class_id, instance, body))
+        return await self._run(
+            lambda: sync.generic_message(service, class_id, instance, body)
+        )
 
     async def list_identity(self) -> Tuple[bool, Optional[dict]]:
         """ENIP ListIdentity 单播(语义同同步版)。"""
@@ -2222,9 +2265,7 @@ class AMTConnectClient(ABaseClient):
     ) -> Tuple[bool, Optional[Dict[str, object]]]:
         """读取 /sample 历史流(语义同同步版)。"""
         return await self._run(
-            lambda: self._client().read_sample(
-                from_sequence, count, path=path, at=at
-            )
+            lambda: self._client().read_sample(from_sequence, count, path=path, at=at)
         )
 
     async def read_assets(
@@ -2256,9 +2297,7 @@ class AAllenBradleyEthIpClient(ABaseClient):
         :raises ValueError: 参数非法
         """
         super().__init__(
-            AllenBradleyEthIpClient(
-                ip_address, port, slot, connected_messaging, rpi_us
-            )
+            AllenBradleyEthIpClient(ip_address, port, slot, connected_messaging, rpi_us)
         )
 
     @property
@@ -2279,7 +2318,9 @@ class AAllenBradleyEthIpClient(ABaseClient):
     ) -> Tuple[bool, Optional[bytes]]:
         """通用 CIP 服务(语义同同步版 :meth:`AllenBradleyEthIpClient.generic_message`)。"""
         sync = self._typed(AllenBradleyEthIpClient)
-        return await self._run(lambda: sync.generic_message(service, class_id, instance, body))
+        return await self._run(
+            lambda: sync.generic_message(service, class_id, instance, body)
+        )
 
     async def list_identity(self) -> Tuple[bool, Optional[dict]]:
         """ENIP ListIdentity 单播(语义同同步版)。"""
@@ -2380,9 +2421,7 @@ class ASiemensS7Client(ABaseClient):
         self, addresses: Sequence[str], data_type: Union[DataType, str]
     ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
         """批量读取(单事务 ``read_multi_vars``,语义同同步版)。"""
-        return await self._run(
-            lambda: self._client().read_many(addresses, data_type)
-        )
+        return await self._run(lambda: self._client().read_many(addresses, data_type))
 
     async def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]

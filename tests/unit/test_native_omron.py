@@ -4,6 +4,7 @@
 断言请求帧逐字节相同、结果与错误口径一致。UDP 节点推导单独验证(自动模式下
 每次连接从 IP 重新推导,是连接钩子由同步改协程后最容易走样的地方)。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -83,8 +84,8 @@ def _fins_requests(data: bytes, datagram: bool) -> list:
     frames = []
     offset = 0
     while offset < len(data):
-        length = int.from_bytes(data[offset + 4:offset + 8], "big")
-        body = data[offset + 8:offset + 8 + length]
+        length = int.from_bytes(data[offset + 4 : offset + 8], "big")
+        body = data[offset + 8 : offset + 8 + length]
         if len(body) >= 8 + 10:  # 命令(4)+错误码(4)+ 至少一个完整 FINS 帧头
             frames.append((body[18:20], body[8:]))
         offset += 8 + length
@@ -96,10 +97,10 @@ _BIT_READ_RESP = _fins_response(1, 0x0101, data=b"\x01")  # 1 点 ON
 _WRITE_RESP = _fins_response(1, 0x0102)
 _ERROR_RESP = _fins_response(1, 0x0101, end_code=0x0001)
 _SID_MISMATCH_RESP = _fins_response(99, 0x0101, data=_words_be([20]))
-_INT_RESP = _fins_response(1, 0x0101, data=_words_be([0xFFFE, 0xFFFF]))  # -2(补码,低字在前)
-_LONG_RESP = _fins_response(
-    1, 0x0101, data=_words_be([0xFFFE, 0xFFFF, 0xFFFF, 0xFFFF])
-)
+_INT_RESP = _fins_response(
+    1, 0x0101, data=_words_be([0xFFFE, 0xFFFF])
+)  # -2(补码,低字在前)
+_LONG_RESP = _fins_response(1, 0x0101, data=_words_be([0xFFFE, 0xFFFF, 0xFFFF, 0xFFFF]))
 _FLOAT_RESP = _fins_response(1, 0x0101, data=_words_be([0x0000, 0x3FC0]))  # 1.5f
 _DOUBLE_RESP = _fins_response(
     1, 0x0101, data=_words_be([0x0000, 0x0000, 0x0000, 0x3FF8])
@@ -129,28 +130,296 @@ class Case(NamedTuple):
 
 
 _CASES = [
-    Case("udp_read", True, "read", "D100", DataType.USHORT, None, (_READ_RESP,), True, 20, True, None),
-    Case("udp_read_bit", True, "read", "CIO0.5", DataType.BOOL, None, (_BIT_READ_RESP,), True, True, True, None),
-    Case("udp_read_int", True, "read", "D100", DataType.INT, None, (_INT_RESP,), True, -2, True, None),
-    Case("udp_read_double", True, "read", "D100", DataType.DOUBLE, None, (_DOUBLE_RESP,), True, 1.5, True, None),
-    Case("udp_read_string", True, "read_string", "D100", DataType.STRING, None, (_STRING_RESP,), True, "OMNI", True, None),
-    Case("udp_write", True, "write", "D100", DataType.USHORT, 20, (_WRITE_RESP,), True, None, True, None),
-    Case("udp_write_string", True, "write_string", "D100", DataType.STRING, "OMNI", (_WRITE_RESP,), True, None, True, None),
-    Case("udp_read_tag", True, "read_tag", "D100", DataType.USHORT, None, (_READ_RESP,), True, 50.0, True, None, tag=_TAG),
-    Case("udp_write_tag", True, "write_tag", "D100", DataType.USHORT, 50.0, (_WRITE_RESP,), True, None, True, None, tag=_TAG),
-    Case("udp_device_error", True, "read", "D100", DataType.USHORT, None, (_ERROR_RESP,), False, None, True, ErrorCategory.DEVICE),
-    Case("udp_sid_mismatch", True, "read", "D100", DataType.USHORT, None, (_SID_MISMATCH_RESP,), False, None, False, ErrorCategory.PROTOCOL),
-    Case("tcp_read", False, "read", "D100", DataType.USHORT, None, _tcp_chunks(_READ_RESP), True, 20, True, None),
-    Case("tcp_read_bit", False, "read", "CIO0.5", DataType.BOOL, None, _tcp_chunks(_BIT_READ_RESP), True, True, True, None),
-    Case("tcp_read_long", False, "read", "D100", DataType.LONG, None, _tcp_chunks(_LONG_RESP), True, -2, True, None),
-    Case("tcp_read_float", False, "read", "D100", DataType.FLOAT, None, _tcp_chunks(_FLOAT_RESP), True, 1.5, True, None),
-    Case("tcp_read_string", False, "read_string", "D100", DataType.STRING, None, _tcp_chunks(_STRING_RESP), True, "OMNI", True, None),
-    Case("tcp_write", False, "write", "D100", DataType.USHORT, 20, _tcp_chunks(_WRITE_RESP), True, None, True, None),
-    Case("tcp_write_string", False, "write_string", "D100", DataType.STRING, "OMNI", _tcp_chunks(_WRITE_RESP), True, None, True, None),
-    Case("tcp_read_tag", False, "read_tag", "D100", DataType.USHORT, None, _tcp_chunks(_READ_RESP), True, 50.0, True, None, tag=_TAG),
-    Case("tcp_write_tag", False, "write_tag", "D100", DataType.USHORT, 50.0, _tcp_chunks(_WRITE_RESP), True, None, True, None, tag=_TAG),
-    Case("tcp_device_error", False, "read", "D100", DataType.USHORT, None, _tcp_chunks(_ERROR_RESP), False, None, True, ErrorCategory.DEVICE),
-    Case("tcp_sid_mismatch", False, "read", "D100", DataType.USHORT, None, _tcp_chunks(_SID_MISMATCH_RESP), False, None, False, ErrorCategory.PROTOCOL),
+    Case(
+        "udp_read",
+        True,
+        "read",
+        "D100",
+        DataType.USHORT,
+        None,
+        (_READ_RESP,),
+        True,
+        20,
+        True,
+        None,
+    ),
+    Case(
+        "udp_read_bit",
+        True,
+        "read",
+        "CIO0.5",
+        DataType.BOOL,
+        None,
+        (_BIT_READ_RESP,),
+        True,
+        True,
+        True,
+        None,
+    ),
+    Case(
+        "udp_read_int",
+        True,
+        "read",
+        "D100",
+        DataType.INT,
+        None,
+        (_INT_RESP,),
+        True,
+        -2,
+        True,
+        None,
+    ),
+    Case(
+        "udp_read_double",
+        True,
+        "read",
+        "D100",
+        DataType.DOUBLE,
+        None,
+        (_DOUBLE_RESP,),
+        True,
+        1.5,
+        True,
+        None,
+    ),
+    Case(
+        "udp_read_string",
+        True,
+        "read_string",
+        "D100",
+        DataType.STRING,
+        None,
+        (_STRING_RESP,),
+        True,
+        "OMNI",
+        True,
+        None,
+    ),
+    Case(
+        "udp_write",
+        True,
+        "write",
+        "D100",
+        DataType.USHORT,
+        20,
+        (_WRITE_RESP,),
+        True,
+        None,
+        True,
+        None,
+    ),
+    Case(
+        "udp_write_string",
+        True,
+        "write_string",
+        "D100",
+        DataType.STRING,
+        "OMNI",
+        (_WRITE_RESP,),
+        True,
+        None,
+        True,
+        None,
+    ),
+    Case(
+        "udp_read_tag",
+        True,
+        "read_tag",
+        "D100",
+        DataType.USHORT,
+        None,
+        (_READ_RESP,),
+        True,
+        50.0,
+        True,
+        None,
+        tag=_TAG,
+    ),
+    Case(
+        "udp_write_tag",
+        True,
+        "write_tag",
+        "D100",
+        DataType.USHORT,
+        50.0,
+        (_WRITE_RESP,),
+        True,
+        None,
+        True,
+        None,
+        tag=_TAG,
+    ),
+    Case(
+        "udp_device_error",
+        True,
+        "read",
+        "D100",
+        DataType.USHORT,
+        None,
+        (_ERROR_RESP,),
+        False,
+        None,
+        True,
+        ErrorCategory.DEVICE,
+    ),
+    Case(
+        "udp_sid_mismatch",
+        True,
+        "read",
+        "D100",
+        DataType.USHORT,
+        None,
+        (_SID_MISMATCH_RESP,),
+        False,
+        None,
+        False,
+        ErrorCategory.PROTOCOL,
+    ),
+    Case(
+        "tcp_read",
+        False,
+        "read",
+        "D100",
+        DataType.USHORT,
+        None,
+        _tcp_chunks(_READ_RESP),
+        True,
+        20,
+        True,
+        None,
+    ),
+    Case(
+        "tcp_read_bit",
+        False,
+        "read",
+        "CIO0.5",
+        DataType.BOOL,
+        None,
+        _tcp_chunks(_BIT_READ_RESP),
+        True,
+        True,
+        True,
+        None,
+    ),
+    Case(
+        "tcp_read_long",
+        False,
+        "read",
+        "D100",
+        DataType.LONG,
+        None,
+        _tcp_chunks(_LONG_RESP),
+        True,
+        -2,
+        True,
+        None,
+    ),
+    Case(
+        "tcp_read_float",
+        False,
+        "read",
+        "D100",
+        DataType.FLOAT,
+        None,
+        _tcp_chunks(_FLOAT_RESP),
+        True,
+        1.5,
+        True,
+        None,
+    ),
+    Case(
+        "tcp_read_string",
+        False,
+        "read_string",
+        "D100",
+        DataType.STRING,
+        None,
+        _tcp_chunks(_STRING_RESP),
+        True,
+        "OMNI",
+        True,
+        None,
+    ),
+    Case(
+        "tcp_write",
+        False,
+        "write",
+        "D100",
+        DataType.USHORT,
+        20,
+        _tcp_chunks(_WRITE_RESP),
+        True,
+        None,
+        True,
+        None,
+    ),
+    Case(
+        "tcp_write_string",
+        False,
+        "write_string",
+        "D100",
+        DataType.STRING,
+        "OMNI",
+        _tcp_chunks(_WRITE_RESP),
+        True,
+        None,
+        True,
+        None,
+    ),
+    Case(
+        "tcp_read_tag",
+        False,
+        "read_tag",
+        "D100",
+        DataType.USHORT,
+        None,
+        _tcp_chunks(_READ_RESP),
+        True,
+        50.0,
+        True,
+        None,
+        tag=_TAG,
+    ),
+    Case(
+        "tcp_write_tag",
+        False,
+        "write_tag",
+        "D100",
+        DataType.USHORT,
+        50.0,
+        _tcp_chunks(_WRITE_RESP),
+        True,
+        None,
+        True,
+        None,
+        tag=_TAG,
+    ),
+    Case(
+        "tcp_device_error",
+        False,
+        "read",
+        "D100",
+        DataType.USHORT,
+        None,
+        _tcp_chunks(_ERROR_RESP),
+        False,
+        None,
+        True,
+        ErrorCategory.DEVICE,
+    ),
+    Case(
+        "tcp_sid_mismatch",
+        False,
+        "read",
+        "D100",
+        DataType.USHORT,
+        None,
+        _tcp_chunks(_SID_MISMATCH_RESP),
+        False,
+        None,
+        False,
+        ErrorCategory.PROTOCOL,
+    ),
 ]
 
 
@@ -270,9 +539,7 @@ def test_tcp_handshake_populates_auto_nodes(
 
     async def scenario() -> None:
         client = AsyncOmronFinsTcpClient("192.168.250.1")
-        scripted = ScriptedAsyncTransport(
-            list(_tcp_chunks(_READ_RESP)), datagram=False
-        )
+        scripted = ScriptedAsyncTransport(list(_tcp_chunks(_READ_RESP)), datagram=False)
         monkeypatch.setattr(client, "_create_transport", lambda: scripted)
         assert await client.connect() is True
         assert client.local_node == 11  # 握手分配
@@ -307,9 +574,7 @@ def test_udp_auto_nodes_derived_from_ip(
     monkeypatch: pytest.MonkeyPatch, loop: Any
 ) -> None:
     """UDP 无握手:自动模式目标节点取 PLC IP 末段、源节点取本机出口 IP 末段。"""
-    monkeypatch.setattr(
-        omron_module, "_local_ip_for", lambda host, port: "10.1.2.33"
-    )
+    monkeypatch.setattr(omron_module, "_local_ip_for", lambda host, port: "10.1.2.33")
     monkeypatch.setattr(
         native_omron_module, "_local_ip_for", lambda host, port: "10.1.2.33"
     )
@@ -372,7 +637,7 @@ def test_word_area_bit_write_direct_parity(
     sync_client.connect()
     assert sync_client.write_bool("D100.3", True) is True
     # 首笔事务为位码直写:D 区位码 0x02,地址含位号 3(帧布局:码[12] 字[13:15] 位[15])
-    first_fins = bytes(sync_scripted.sent)[20 + 16:]
+    first_fins = bytes(sync_scripted.sent)[20 + 16 :]
     assert first_fins[12] == 0x02
     assert first_fins[15] == 3
 
@@ -488,25 +753,46 @@ class ExtCase(NamedTuple):
 
 _EXT_CASES = [
     ExtCase(
-        "udp_read_batch_mixed", True, "read_batch",
+        "udp_read_batch_mixed",
+        True,
+        "read_batch",
         ((("D100", "ushort"), ("D101", "float"), ("CIO0.5", "bool")),),
         (_fins_response(1, 0x0104, data=_words_be([7] + _F32_1_5_BE + [0x0020])),),
         ("0104",),
     ),
     ExtCase(
-        "udp_read_many", True, "read_many", (("D100", "D101"), "ushort"),
-        (_fins_response(1, 0x0104, data=_words_be([10, 20])),), ("0104",),
+        "udp_read_many",
+        True,
+        "read_many",
+        (("D100", "D101"), "ushort"),
+        (_fins_response(1, 0x0104, data=_words_be([10, 20])),),
+        ("0104",),
     ),
     ExtCase(
-        "tcp_read_batch", False, "read_batch",
+        "tcp_read_batch",
+        False,
+        "read_batch",
         ((("D100", "long"),),),
-        tuple(_tcp_chunks(_fins_response(1, 0x0104, data=_words_be([0xFFFE, 0xFFFF, 0xFFFF, 0xFFFF])))),
+        tuple(
+            _tcp_chunks(
+                _fins_response(
+                    1, 0x0104, data=_words_be([0xFFFE, 0xFFFF, 0xFFFF, 0xFFFF])
+                )
+            )
+        ),
         ("0104",),
     ),
     # T/C 完成标志是位区,0104 只有字码 → 入参期拒绝(零字节发送)
     ExtCase("read_batch_tc_rejected", True, "read_batch", ((("T0", "bool"),),), (), ()),
     # 不支持的类型(字符串变长)同样入参期拒绝
-    ExtCase("read_batch_string_rejected", True, "read_batch", ((("D100", "STRING"),),), (), ()),
+    ExtCase(
+        "read_batch_string_rejected",
+        True,
+        "read_batch",
+        ((("D100", "STRING"),),),
+        (),
+        (),
+    ),
 ]
 
 
@@ -560,10 +846,15 @@ def test_sync_async_parity_batch(
     assert holder["result"] == sync_result
     assert holder["state"] == sync_state
     if case.expect_fc:
-        assert tuple(
-            command.hex()
-            for command, _frame in _fins_requests(bytes(sync_scripted.sent), case.datagram)
-        ) == case.expect_fc
+        assert (
+            tuple(
+                command.hex()
+                for command, _frame in _fins_requests(
+                    bytes(sync_scripted.sent), case.datagram
+                )
+            )
+            == case.expect_fc
+        )
 
 
 def test_d_area_bit_read_falls_back_on_1101(
@@ -595,11 +886,7 @@ def test_d_area_bit_read_falls_back_on_1101(
 # CPU Unit Status Read(0601)与探活
 # ----------------------------------------------------------------------
 
-_CPU_STATUS_DATA = (
-    bytes([0x01, 0x04])
-    + (0).to_bytes(2, "big") * 4
-    + b"\x20" * 16
-)
+_CPU_STATUS_DATA = bytes([0x01, 0x04]) + (0).to_bytes(2, "big") * 4 + b"\x20" * 16
 """0601 应答数据(SID 无关):RUN + RUN 模式 + 错误字全 0 + 空错误消息。"""
 _CPU_STATUS_RESP_1 = _fins_response(1, 0x0601, data=_CPU_STATUS_DATA)
 _CPU_STATUS_RESP_2 = _fins_response(2, 0x0601, data=_CPU_STATUS_DATA)

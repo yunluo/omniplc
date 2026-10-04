@@ -1,6 +1,6 @@
 name: ci
 
-# 每次提交强制门禁:pytest(3.7.9 + 3.12 双版本)/ ruff / mypy / ty
+# 每次提交强制门禁:pytest(3.7.9 + 3.12 双版本)/ ruff format / ruff / mypy / ty
 # 与 build-release.yml 互补(本工作流 push+PR 触发,发布仍走 tag 触发的 build-release.yml)
 #
 # 版本矩阵说明:项目 `requires-python = ">=3.7.9"`,`3.7` 是**必保**底线
@@ -55,6 +55,11 @@ jobs:
         # 必须带 --extra dev:否则 `uv run` 会按默认依赖重新同步、把上一步装的
         # extras(含 pytest)卸掉 → "No module named pytest"
         run: uv run --extra dev --python ${{ matrix.python-version }} python -m pytest tests -q
+
+      - name: ruff format
+        # 格式零漂移门禁(2026-10-04 起;配置 pyproject [tool.ruff.format],
+        # ruff 默认口径与 pymodbus 对齐);Rust 独立二进制,两条腿都跑
+        run: uvx ruff format --check src tests
 
       - name: ruff
         # Rust 独立二进制,不依赖解释器;两条腿都跑

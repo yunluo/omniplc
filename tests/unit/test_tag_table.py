@@ -1,4 +1,5 @@
 """TagTable JSON/CSV 导入、映射协议与 read_tag/write_tag 缩放契约测试。"""
+
 from __future__ import annotations
 
 import json
@@ -149,7 +150,14 @@ def test_read_tag_scaling() -> None:
     client.bind_tags(
         TagTable(
             [
-                Tag("furnace_temp", "D100", "float", scale=0.1, offset=-5.0, remark="炉温"),
+                Tag(
+                    "furnace_temp",
+                    "D100",
+                    "float",
+                    scale=0.1,
+                    offset=-5.0,
+                    remark="炉温",
+                ),
                 Tag("start_stop", "M10", "bool", remark="启停"),
                 Tag("steel_grade", "D200", "string", remark="牌号"),
             ]
@@ -197,7 +205,9 @@ def test_write_tag_int_result_restored() -> None:
 def test_write_tag_bool_string_and_scale_zero() -> None:
     """BOOL/STRING 直通不逆缩放;scale=0 直传 Tag 实例时 write_tag 期拒绝。"""
     client = _recording_client()
-    client.bind_tags(TagTable([Tag("start_stop", "M0", "bool"), Tag("steel_grade", "D0", "string")]))
+    client.bind_tags(
+        TagTable([Tag("start_stop", "M0", "bool"), Tag("steel_grade", "D0", "string")])
+    )
     assert client.write_tag("start_stop", True) is True
     assert client.write_tag("steel_grade", "Q235") is True
     assert client.writes[0] == ("M0", DataType.BOOL, True)

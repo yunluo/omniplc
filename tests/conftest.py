@@ -1,4 +1,5 @@
 """pytest 全局 fixture:本机回环 echo 服务(TCP/UDP),供传输层测试。"""
+
 from __future__ import annotations
 
 import socket

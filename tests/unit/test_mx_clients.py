@@ -7,6 +7,7 @@ COM 层(comtypes)以模块级助手函数隔离,测试替换为内存版假控�
 - 16 位符号、32/64 位小端字序、浮点、字符串编解码
 - Open 出错代码 → 连接失败;(GetDevice 非零码)→ 标记断开 + 惰性重连
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -138,8 +139,13 @@ def fake(monkeypatch: pytest.MonkeyPatch) -> FakeActUtlType:
     ) -> None:
         com.calls.append(("SetClockData", y, mo, d, dow, h, mi, s))
         com.clock = {
-            "year": y, "month": mo, "day": d, "day_of_week": dow,
-            "hour": h, "minute": mi, "second": s,
+            "year": y,
+            "month": mo,
+            "day": d,
+            "day_of_week": dow,
+            "hour": h,
+            "minute": mi,
+            "second": s,
         }
 
     def fake_error_message(com: FakeActUtlType, code: int) -> str:
@@ -161,8 +167,13 @@ def fake(monkeypatch: pytest.MonkeyPatch) -> FakeActUtlType:
     monkeypatch.setattr(mx_module, "_new_support_msg_com", lambda station: act)
     act.cpu_type = ("Q06HCPU", 0x0333)
     act.clock = {
-        "year": 2026, "month": 9, "day": 23, "day_of_week": 2,
-        "hour": 8, "minute": 5, "second": 30,
+        "year": 2026,
+        "month": 9,
+        "day": 23,
+        "day_of_week": 2,
+        "hour": 8,
+        "minute": 5,
+        "second": 30,
     }
     return act
 
@@ -174,6 +185,7 @@ def _client(station: int = 1) -> MelsecMxClient:
 # ----------------------------------------------------------------------
 # 连接生命周期
 # ----------------------------------------------------------------------
+
 
 def test_open_close_cycle(fake: FakeActUtlType) -> None:
     client = _client(7)
@@ -204,6 +216,7 @@ def test_constructor_validation() -> None:
 # ----------------------------------------------------------------------
 # 读取
 # ----------------------------------------------------------------------
+
 
 def test_read_ushort_single_point(fake: FakeActUtlType) -> None:
     fake.put("D100", 20)
@@ -271,6 +284,7 @@ def test_read_string(fake: FakeActUtlType) -> None:
 # 写入
 # ----------------------------------------------------------------------
 
+
 def test_write_bool_bit_device(fake: FakeActUtlType) -> None:
     client = _client()
     client.connect()
@@ -311,6 +325,7 @@ def test_write_string(fake: FakeActUtlType) -> None:
 # 错误处理
 # ----------------------------------------------------------------------
 
+
 def test_device_error_marks_disconnected_then_lazy_reconnect(
     fake: FakeActUtlType,
 ) -> None:
@@ -346,6 +361,7 @@ def test_bit_device_with_bit_suffix_rejected(fake: FakeActUtlType) -> None:
 # ----------------------------------------------------------------------
 # 异步镜像
 # ----------------------------------------------------------------------
+
 
 def test_async_mirror_roundtrip(fake: FakeActUtlType) -> None:
     fake.put("D100", 1234)
@@ -396,24 +412,32 @@ class ComtypesStyleActUtlType:
             raise comtypes.COMError(-2147024894, "软元件不存在", None)
         return 1234
 
-    def __com_ReadDeviceBlock(self, text: str, count: int, buffer: Any, retcode: Any) -> int:
+    def __com_ReadDeviceBlock(
+        self, text: str, count: int, buffer: Any, retcode: Any
+    ) -> int:
         for index, word in enumerate([1, 2]):
             buffer[index] = word
         retcode.value = self.read_code
         return 0
 
-    def __com_ReadDeviceRandom(self, text: str, count: int, buffer: Any, retcode: Any) -> int:
+    def __com_ReadDeviceRandom(
+        self, text: str, count: int, buffer: Any, retcode: Any
+    ) -> int:
         for index, word in enumerate([3, 4]):
             buffer[index] = word
         retcode.value = 0
         return 0
 
-    def __com_WriteDeviceBlock(self, text: str, count: int, data: Any, retcode: Any) -> int:
+    def __com_WriteDeviceBlock(
+        self, text: str, count: int, data: Any, retcode: Any
+    ) -> int:
         self.written = data
         retcode.value = 0
         return 0
 
-    def __com_WriteDeviceRandom(self, text: str, count: int, data: Any, retcode: Any) -> int:
+    def __com_WriteDeviceRandom(
+        self, text: str, count: int, data: Any, retcode: Any
+    ) -> int:
         self.written_random = (text, data)
         retcode.value = 0
         return 0
@@ -443,8 +467,13 @@ def test_com_helpers_comtypes_out_param_convention() -> None:
     assert list(com.written_random[1]) == [1, 0xFFFE]
     assert mx_module._com_get_cpu_type(com) == ("Q06HCPU", 0x0333)
     assert mx_module._com_get_clock_data(com) == {
-        "year": 2026, "month": 9, "day": 23, "day_of_week": 3,
-        "hour": 12, "minute": 30, "second": 15,
+        "year": 2026,
+        "month": 9,
+        "day": 23,
+        "day_of_week": 3,
+        "hour": 12,
+        "minute": 30,
+        "second": 15,
     }
     assert mx_module._com_get_error_message(com, 0xC0500100) == "出错文本"
     with pytest.raises(OmniPLCInternalError):
@@ -577,7 +606,9 @@ def test_com_helpers_tuple_result_defensive() -> None:
         def GetDevice(self, text: str):
             return (1234, 0)
 
-        def __com_WriteDeviceBlock(self, text: str, count: int, data: Any, retcode: Any):
+        def __com_WriteDeviceBlock(
+            self, text: str, count: int, data: Any, retcode: Any
+        ):
             return (data, 0)
 
     com = TupleFake()
@@ -589,6 +620,7 @@ def test_com_helpers_tuple_result_defensive() -> None:
 # 批量读取(ReadDeviceRandom 随机读)
 # ----------------------------------------------------------------------
 
+
 def test_read_batch_mixed(fake: FakeActUtlType) -> None:
     """随机批量读:位软元件/字软元件位/16 位类型混读,单事务。"""
     client = _client()
@@ -596,12 +628,14 @@ def test_read_batch_mixed(fake: FakeActUtlType) -> None:
     fake.put("D100", 0xFFFE)  # short -2
     fake.put("D102", 7)
     fake.put("D200", 0x0008)
-    assert client.read_batch([
-        ("M10", "bool"),
-        ("D100", "short"),
-        ("D102", "ushort"),
-        ("D200.3", "bool"),
-    ]) == (True, [True, -2, 7, True])
+    assert client.read_batch(
+        [
+            ("M10", "bool"),
+            ("D100", "short"),
+            ("D102", "ushort"),
+            ("D200.3", "bool"),
+        ]
+    ) == (True, [True, -2, 7, True])
     kinds = [call[0] for call in fake.calls if call[0] == "ReadDeviceRandom"]
     assert kinds == ["ReadDeviceRandom"]  # 单事务
     random_calls = [call for call in fake.calls if call[0] == "ReadDeviceRandom"]
@@ -626,20 +660,22 @@ def test_read_batch_wide_types(fake: FakeActUtlType) -> None:
         fake.put("D{}".format(110 + index), word)
     for index, word in enumerate(_encode_64(-2, DataType.LONG)):
         fake.put("D{}".format(120 + index), word)
-    ok, values = client.read_batch([
-        ("M10", "bool"),
-        ("D100", "int"),
-        ("D110", "float"),
-        ("D120", "long"),
-    ])
+    ok, values = client.read_batch(
+        [
+            ("M10", "bool"),
+            ("D100", "int"),
+            ("D110", "float"),
+            ("D120", "long"),
+        ]
+    )
     assert ok is True and values is not None
-    assert values[0] is False       # M10 未置位(16 位随机读路径)
-    assert values[1] == -2          # INT 32 位块读
+    assert values[0] is False  # M10 未置位(16 位随机读路径)
+    assert values[1] == -2  # INT 32 位块读
     assert values[2] == pytest.approx(1.5)
-    assert values[3] == -2          # LONG 64 位块读
+    assert values[3] == -2  # LONG 64 位块读
     kinds = [call[0] for call in fake.calls]
     assert kinds.count("ReadDeviceRandom") == 1  # 16 位条目合并一笔
-    assert kinds.count("ReadDeviceBlock") == 3   # 宽类型各一笔块读
+    assert kinds.count("ReadDeviceBlock") == 3  # 宽类型各一笔块读
 
 
 def test_read_batch_rejects(fake: FakeActUtlType) -> None:
@@ -695,7 +731,7 @@ def test_read_range_rejects(fake: FakeActUtlType) -> None:
     with pytest.raises(ValueError):
         client.read_range("D100", 2, "string")
     with pytest.raises(ValueError):
-        client.read_range("M0", 4, "bool")   # MX 位块读语义不一致,拒绝
+        client.read_range("M0", 4, "bool")  # MX 位块读语义不一致,拒绝
     with pytest.raises(ValueError):
         client.read_range("D0", 961, "short")  # 961 字 > 960 上限
 

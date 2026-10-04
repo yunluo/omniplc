@@ -8,6 +8,7 @@
 
     uv run python tests/golden/generate_modbus_samples.py
 """
+
 from __future__ import annotations
 
 import json
@@ -320,7 +321,9 @@ def main() -> None:
     for sample in samples:
         filename = sample.pop("file")
         path = HERE / "{}.json".format(filename)
-        path.write_text(json.dumps(sample, ensure_ascii=False, indent=4) + "\n", encoding="utf-8")
+        path.write_text(
+            json.dumps(sample, ensure_ascii=False, indent=4) + "\n", encoding="utf-8"
+        )
         print("written:", path)
 
 

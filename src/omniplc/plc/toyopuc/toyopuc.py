@@ -37,6 +37,7 @@ STRING        连续字节读/写(CMD=1E/1F,从字区编号低字节起)
 
 v0.7 覆盖基础软元件区(字 S/N/R/D/B,位 P/K/V/T/C/L/X/Y/M)。
 """
+
 from __future__ import annotations
 
 import struct
@@ -118,7 +119,9 @@ class _ToyopucBase(BaseClient):
                 )
             raw = header + transport.recv(length)
         resp_cmd, rc, resp_data = codec.parse_response(raw)
-        return codec.check_response(resp_cmd, rc, resp_data, frame[4], expected_size, raw)
+        return codec.check_response(
+            resp_cmd, rc, resp_data, frame[4], expected_size, raw
+        )
 
     # ------------------------------------------------------------------
     # 协议原语
@@ -131,21 +134,31 @@ class _ToyopucBase(BaseClient):
             return self._read_bit(parsed)
         if parsed.unit != "word":
             raise ValueError(
-                _("{!r} 为字节访问地址(L/H 后缀),数值类型需要字访问(无后缀或 W)").format(address)
+                _(
+                    "{!r} 为字节访问地址(L/H 后缀),数值类型需要字访问(无后缀或 W)"
+                ).format(address)
             )
         if data_type in (DataType.SHORT, DataType.USHORT):
             words = self._read_words(parsed, 1)
-            return words[0] if data_type is DataType.USHORT else convert.to_signed(words[0], 16)
+            return (
+                words[0]
+                if data_type is DataType.USHORT
+                else convert.to_signed(words[0], 16)
+            )
         if data_type in (DataType.INT, DataType.UINT):
             raw = self._read_raw(parsed, 4)
             return convert.to_signed(raw, 32) if data_type is DataType.INT else raw
         if data_type is DataType.FLOAT:
-            return struct.unpack("<f", convert.words_to_bytes(self._read_words(parsed, 2)))[0]
+            return struct.unpack(
+                "<f", convert.words_to_bytes(self._read_words(parsed, 2))
+            )[0]
         if data_type in (DataType.LONG, DataType.ULONG):
             raw = self._read_raw(parsed, 8)
             return convert.to_signed(raw, 64) if data_type is DataType.LONG else raw
         if data_type is DataType.DOUBLE:
-            return struct.unpack("<d", convert.words_to_bytes(self._read_words(parsed, 4)))[0]
+            return struct.unpack(
+                "<d", convert.words_to_bytes(self._read_words(parsed, 4))
+            )[0]
         raise ValueError(_("TOYOPUC 不支持的数据类型:{}").format(data_type))
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
@@ -156,7 +169,9 @@ class _ToyopucBase(BaseClient):
             return
         if parsed.unit != "word":
             raise ValueError(
-                _("{!r} 为字节访问地址(L/H 后缀),数值类型需要字访问(无后缀或 W)").format(address)
+                _(
+                    "{!r} 为字节访问地址(L/H 后缀),数值类型需要字访问(无后缀或 W)"
+                ).format(address)
             )
         if data_type is DataType.SHORT:
             self._write_words(parsed, [check_int16(value)])
@@ -181,9 +196,7 @@ class _ToyopucBase(BaseClient):
             self._write_words(parsed, convert.bytes_to_words(raw))
             return
         if data_type is DataType.LONG:
-            number = check_range(
-                require_int(value), INT64_MIN, INT64_MAX, "long"
-            )
+            number = check_range(require_int(value), INT64_MIN, INT64_MAX, "long")
             self._write_raw(parsed, number, 8)
             return
         if data_type is DataType.ULONG:
@@ -195,7 +208,9 @@ class _ToyopucBase(BaseClient):
             try:
                 raw = struct.pack("<d", number_f)
             except (OverflowError, ValueError) as exc:
-                raise ValueError(_("double 超出 float64 范围:{}").format(value)) from exc
+                raise ValueError(
+                    _("double 超出 float64 范围:{}").format(value)
+                ) from exc
             self._write_words(parsed, convert.bytes_to_words(raw))
             return
         raise ValueError(_("TOYOPUC 不支持的数据类型:{}").format(data_type))
@@ -213,9 +228,15 @@ class _ToyopucBase(BaseClient):
         try:
             raw = value.encode(encoding)
         except UnicodeEncodeError as exc:
-            raise ValueError(_("字符串按 {} 编码失败:{}").format(encoding, exc)) from exc
+            raise ValueError(
+                _("字符串按 {} 编码失败:{}").format(encoding, exc)
+            ) from exc
         if not 1 <= len(raw) <= TOYOPUC_MAX_BYTE_COUNT:
-            raise ValueError(_("字符串编码后必须在 1~{} 字节,收到:{}").format(TOYOPUC_MAX_BYTE_COUNT, len(raw)))
+            raise ValueError(
+                _("字符串编码后必须在 1~{} 字节,收到:{}").format(
+                    TOYOPUC_MAX_BYTE_COUNT, len(raw)
+                )
+            )
         parsed = self._require_byte_range(address, len(raw))
         self._transact(codec.build_byte_write(encode_byte_address(parsed), raw))
         return value
@@ -227,14 +248,18 @@ class _ToyopucBase(BaseClient):
     def _read_bit(self, parsed: ToyopucAddress) -> bool:
         """单位读(CMD=20),仅位软元件。"""
         if parsed.unit != "bit":
-            raise ValueError(_("布尔读写在 TOYOPUC 上仅支持位软元件(P/K/V/T/C/L/X/Y/M)"))
+            raise ValueError(
+                _("布尔读写在 TOYOPUC 上仅支持位软元件(P/K/V/T/C/L/X/Y/M)")
+            )
         data = self._transact(codec.build_bit_read(encode_bit_address(parsed)), 1)
         return data[0] != 0
 
     def _write_bit(self, parsed: ToyopucAddress, value: bool) -> None:
         """单位写(CMD=21),仅位软元件。"""
         if parsed.unit != "bit":
-            raise ValueError(_("布尔读写在 TOYOPUC 上仅支持位软元件(P/K/V/T/C/L/X/Y/M)"))
+            raise ValueError(
+                _("布尔读写在 TOYOPUC 上仅支持位软元件(P/K/V/T/C/L/X/Y/M)")
+            )
         self._transact(codec.build_bit_write(encode_bit_address(parsed), value))
 
     def _read_words(self, parsed: ToyopucAddress, count: int) -> List[int]:
@@ -273,8 +298,10 @@ class _ToyopucBase(BaseClient):
         parsed = parse_toyopuc_address(address)
         if data_type_enum is DataType.BOOL or parsed.unit != "word":
             raise ValueError(
-                _("TOYOPUC read_range 仅支持字软元件数值类型连续读(位软元件无批量"
-                "位读命令,L/H/W 后缀地址不支持),收到:{!r}").format(address)
+                _(
+                    "TOYOPUC read_range 仅支持字软元件数值类型连续读(位软元件无批量"
+                    "位读命令,L/H/W 后缀地址不支持),收到:{!r}"
+                ).format(address)
             )
         width = 1
         if data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
@@ -292,32 +319,31 @@ class _ToyopucBase(BaseClient):
             words = self._read_words(parsed, count * width)
             values: List[PrimitiveValue] = []
             for index in range(count):
-                chunk = words[index * width:(index + 1) * width]
+                chunk = words[index * width : (index + 1) * width]
                 if data_type_enum in (DataType.SHORT, DataType.USHORT):
                     values.append(
-                        chunk[0] if data_type_enum is DataType.USHORT
+                        chunk[0]
+                        if data_type_enum is DataType.USHORT
                         else convert.to_signed(chunk[0], 16)
                     )
                 elif data_type_enum in (DataType.INT, DataType.UINT):
                     raw = int.from_bytes(convert.words_to_bytes(chunk), "little")
                     values.append(
-                        raw if data_type_enum is DataType.UINT
+                        raw
+                        if data_type_enum is DataType.UINT
                         else convert.to_signed(raw, 32)
                     )
                 elif data_type_enum is DataType.FLOAT:
-                    values.append(
-                        struct.unpack("<f", convert.words_to_bytes(chunk))[0]
-                    )
+                    values.append(struct.unpack("<f", convert.words_to_bytes(chunk))[0])
                 elif data_type_enum in (DataType.LONG, DataType.ULONG):
                     raw = int.from_bytes(convert.words_to_bytes(chunk), "little")
                     values.append(
-                        raw if data_type_enum is DataType.ULONG
+                        raw
+                        if data_type_enum is DataType.ULONG
                         else convert.to_signed(raw, 64)
                     )
                 else:
-                    values.append(
-                        struct.unpack("<d", convert.words_to_bytes(chunk))[0]
-                    )
+                    values.append(struct.unpack("<d", convert.words_to_bytes(chunk))[0])
             return values
 
         ok, values = self._execute(operation)
@@ -341,7 +367,9 @@ class _ToyopucBase(BaseClient):
         (:meth:`_write`)已按有符号类型界校验过范围,此处仅做等值编码。
         """
         unsigned = raw & ((1 << (byte_count * 8)) - 1)
-        self._write_words(parsed, convert.bytes_to_words(unsigned.to_bytes(byte_count, "little")))
+        self._write_words(
+            parsed, convert.bytes_to_words(unsigned.to_bytes(byte_count, "little"))
+        )
 
     @staticmethod
     def _require_byte_range(address: str, length: int) -> ToyopucAddress:
@@ -350,10 +378,16 @@ class _ToyopucBase(BaseClient):
         无后缀按低字节(``L``)起;``H`` 后缀从高字节起。
         """
         if length > TOYOPUC_MAX_BYTE_COUNT:
-            raise ValueError(_("字符串长度超出 {} 字节上限:{}").format(TOYOPUC_MAX_BYTE_COUNT, length))
+            raise ValueError(
+                _("字符串长度超出 {} 字节上限:{}").format(
+                    TOYOPUC_MAX_BYTE_COUNT, length
+                )
+            )
         parsed = parse_toyopuc_address(address)
         if parsed.area not in TOYOPUC_WORD_DEVICES:
-            raise ValueError(_("字符串只能从字软元件(S/N/R/D/B)存取,收到:{!r}").format(address))
+            raise ValueError(
+                _("字符串只能从字软元件(S/N/R/D/B)存取,收到:{!r}").format(address)
+            )
         return ToyopucAddress(parsed.area, parsed.number, parsed.suffix or "L")
 
 

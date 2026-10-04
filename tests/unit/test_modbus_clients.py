@@ -8,6 +8,7 @@
 - PLC 异常码(DeviceError)按"链路正常"处理:不断线、不重试
 - 寄存器位写入的"读-改-写"两段事务
 """
+
 from __future__ import annotations
 
 import socket
@@ -51,7 +52,9 @@ def test_tcp_unit_id_ff_allowed() -> None:
         ModbusRtuClient(station=255)
 
 
-def test_tcp_transaction_id_mismatch_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tcp_transaction_id_mismatch_marks_disconnected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """TCP:事务号不匹配按坏帧处理,标记断开等待惰性重连;错误信息带收到的原始帧。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)
     frame = codec.build_mbap(99, 1, _RESPONSE_ONE_REGISTER)
@@ -114,7 +117,9 @@ def test_rtu_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     assert client.read_ushort("hr0") == (True, 20)
-    assert bytes(scripted.sent) == codec.build_rtu_frame(1, codec.build_read_pdu(3, 0, 1))
+    assert bytes(scripted.sent) == codec.build_rtu_frame(
+        1, codec.build_read_pdu(3, 0, 1)
+    )
 
 
 def test_rtu_crc_failure_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -218,7 +223,9 @@ def test_rtu_exception_function_code_mismatch_marks_disconnected(
     assert format_hex(pdu) in client.last_error
 
 
-def test_rtu_station_mismatch_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rtu_station_mismatch_marks_disconnected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """RTU:响应站号与请求不符按坏帧处理。"""
     client = ModbusRtuClient(station=1)
     client.configure_serial("COM3")
@@ -231,7 +238,9 @@ def test_rtu_station_mismatch_marks_disconnected(monkeypatch: pytest.MonkeyPatch
     assert client.last_error is not None and "站号" in client.last_error
 
 
-def test_rtu_register_bit_write_read_modify_write(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rtu_register_bit_write_read_modify_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """RTU:寄存器位写入 = 读(FC03)→改位→写(FC06)两段事务。"""
     client = ModbusRtuClient(station=1)
     client.configure_serial("COM3")
@@ -256,7 +265,9 @@ def test_rtu_broadcast_write_skips_response(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     assert client.write_ushort("hr100", 1234) is True
-    assert bytes(scripted.sent) == codec.build_rtu_frame(0, codec.build_write_single_pdu(6, 100, 1234))
+    assert bytes(scripted.sent) == codec.build_rtu_frame(
+        0, codec.build_write_single_pdu(6, 100, 1234)
+    )
 
 
 def test_rtu_broadcast_silence_turnaround_and_t35() -> None:
@@ -428,7 +439,9 @@ def test_mask_write_rtu_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     assert codec.expected_response_length(request_pdu) == 7
 
 
-def test_mask_write_echo_mismatch_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mask_write_echo_mismatch_marks_disconnected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """TCP:FC22 响应回显不符按坏帧处理(掩码写必须原样回显)。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)
     bad_echo = codec.build_mask_write_pdu(100, 0x00F0, 0x0006)  # OR 掩码不符
@@ -460,7 +473,9 @@ def test_mbap_length_field_overflow() -> None:
     from omniplc.core.errors import ProtocolFrameError
     from omniplc.core.constants import MODBUS_MBAP_LENGTH_MAX
 
-    bad_header = bytes([0, 1, 0, 0]) + (MODBUS_MBAP_LENGTH_MAX + 1).to_bytes(2, "big") + b"\x01"
+    bad_header = (
+        bytes([0, 1, 0, 0]) + (MODBUS_MBAP_LENGTH_MAX + 1).to_bytes(2, "big") + b"\x01"
+    )
     with pytest.raises(ProtocolFrameError) as exc_info:
         codec.parse_mbap_header(bad_header)
     assert "上限" in str(exc_info.value)
@@ -651,7 +666,9 @@ def test_tcp_read_many_register_bits_same_word(monkeypatch: pytest.MonkeyPatch) 
 def test_tcp_read_many_register_bits_two_words(monkeypatch: pytest.MonkeyPatch) -> None:
     """read_many:寄存器位跨字合并 1 笔 FC 03 读 2 字。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)
-    response = _mbap_response(1, 1, _fc03_response([0x0008, 0x0080]))  # hr0.3=1, hr1.7=1
+    response = _mbap_response(
+        1, 1, _fc03_response([0x0008, 0x0080])
+    )  # hr0.3=1, hr1.7=1
     scripted = _ScriptedTransport([response[:7], response[7:]])
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
@@ -767,7 +784,9 @@ def test_tcp_read_batch_mixed_types(monkeypatch: pytest.MonkeyPatch) -> None:
         _mbap_response(1, 1, _fc01_response([1])),
         _mbap_response(2, 1, _fc03_response([0x0008])),  # bit3=1
         _mbap_response(3, 1, _fc03_response([100])),  # hr110=100
-        _mbap_response(4, 1, _fc03_response([0x1234, 0x5678])),  # hr120~121=INT 0x12345678
+        _mbap_response(
+            4, 1, _fc03_response([0x1234, 0x5678])
+        ),  # hr120~121=INT 0x12345678
     ]
     flat = []
     for resp in responses:
@@ -797,13 +816,16 @@ def test_tcp_read_range_shorts_one_fc(monkeypatch: pytest.MonkeyPatch) -> None:
     ok, values = client.read_range("hr10", 3, "short")
     assert ok is True
     assert values == [100, 200, 300]
-    assert bytes(scripted.sent) == codec.build_mbap(1, 1, codec.build_read_pdu(3, 10, 3))
+    assert bytes(scripted.sent) == codec.build_mbap(
+        1, 1, codec.build_read_pdu(3, 10, 3)
+    )
 
 
 def test_tcp_read_range_floats_two_words_each(monkeypatch: pytest.MonkeyPatch) -> None:
     """read_range:hr0 起 2 个 FLOAT = 1 笔 FC 03 读 4 字,按 2 字/元素切片解码。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)
     import struct as _struct
+
     word1 = 0x42F6  # 123.0 大端前半(0x42F60000)
     word2 = 0x0000
     word3 = 0x4248  # 50.0(0x42480000)
@@ -829,20 +851,26 @@ def test_tcp_read_range_coils_one_fc(monkeypatch: pytest.MonkeyPatch) -> None:
     ok, values = client.read_range("c0", 10, "bool")
     assert ok is True
     assert values == [bool(b) for b in bits]
-    assert bytes(scripted.sent) == codec.build_mbap(1, 1, codec.build_read_pdu(1, 0, 10))
+    assert bytes(scripted.sent) == codec.build_mbap(
+        1, 1, codec.build_read_pdu(1, 0, 10)
+    )
 
 
 def test_tcp_read_range_ir_uses_fc04(monkeypatch: pytest.MonkeyPatch) -> None:
     """read_range:ir 区走 FC 04(输入寄存器,功能码按区域自动选择)。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)
-    response = _mbap_response(1, 1, bytes([4, 4]) + b"".join(v.to_bytes(2, "big") for v in (5, 6)))
+    response = _mbap_response(
+        1, 1, bytes([4, 4]) + b"".join(v.to_bytes(2, "big") for v in (5, 6))
+    )
     scripted = _ScriptedTransport([response[:7], response[7:]])
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     ok, values = client.read_range("ir20", 2, "ushort")
     assert ok is True
     assert values == [5, 6]
-    assert bytes(scripted.sent) == codec.build_mbap(1, 1, codec.build_read_pdu(4, 20, 2))
+    assert bytes(scripted.sent) == codec.build_mbap(
+        1, 1, codec.build_read_pdu(4, 20, 2)
+    )
 
 
 def test_tcp_read_range_64bit_word_order_swap(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1022,7 +1050,9 @@ def test_tcp_write_many_coalesces_short_contiguous(
     )
     assert results == [True, True, True]
     sent = bytes(scripted.sent)
-    assert sent == codec.build_mbap(1, 1, codec.build_write_multi_pdu(16, 100, [10, 20, 30]))
+    assert sent == codec.build_mbap(
+        1, 1, codec.build_write_multi_pdu(16, 100, [10, 20, 30])
+    )
 
 
 def test_tcp_write_many_non_contiguous_two_transactions(
@@ -1111,7 +1141,9 @@ def test_tcp_write_many_register_bit_rmw(monkeypatch: pytest.MonkeyPatch) -> Non
     # RMW 第二笔:FC 06 写 hr0 → 0x0008(bit3=1)
     responses = [
         _mbap_response(1, 1, _fc03_read_response([0x0000])),
-        _mbap_response(2, 1, bytes([6, 0, 0, 0, 8])),  # FC 06 echo offset=0 value=0x0008
+        _mbap_response(
+            2, 1, bytes([6, 0, 0, 0, 8])
+        ),  # FC 06 echo offset=0 value=0x0008
     ]
     scripted = _ScriptedTransport(
         [responses[0][:7], responses[0][7:], responses[1][:7], responses[1][7:]]
@@ -1138,9 +1170,12 @@ def test_tcp_write_many_register_bit_then_full_word(
     ]
     scripted = _ScriptedTransport(
         [
-            responses[0][:7], responses[0][7:],
-            responses[1][:7], responses[1][7:],
-            responses[2][:7], responses[2][7:],
+            responses[0][:7],
+            responses[0][7:],
+            responses[1][:7],
+            responses[1][7:],
+            responses[2][:7],
+            responses[2][7:],
         ]
     )
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
@@ -1324,8 +1359,8 @@ def _device_id_rtu_chunks(frame: bytes) -> list:
     cursor = 8
     for _ in range(frame[7]):
         length = frame[cursor + 1]
-        chunks.append(frame[cursor:cursor + 2])
-        chunks.append(frame[cursor + 2:cursor + 2 + length])
+        chunks.append(frame[cursor : cursor + 2])
+        chunks.append(frame[cursor + 2 : cursor + 2 + length])
         cursor += 2 + length
     chunks.append(frame[cursor:])
     return chunks
@@ -1337,9 +1372,7 @@ def test_tcp_read_device_id_basic(monkeypatch: pytest.MonkeyPatch) -> None:
     response = _mbap_response(
         1,
         1,
-        _device_id_response(
-            [(0x00, b"ACME"), (0x01, b"MDL-1"), (0x02, b"V2.11")]
-        ),
+        _device_id_response([(0x00, b"ACME"), (0x01, b"MDL-1"), (0x02, b"V2.11")]),
     )
     scripted = _ScriptedTransport([response[:7], response[7:]])
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
@@ -1385,7 +1418,9 @@ def test_tcp_read_device_id_private_object_naming(
     """FC43 厂商私有对象(0x80~0xFF)用 object_0xNN 兜底命名。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)
     response = _mbap_response(
-        1, 1, _device_id_response([(0x00, b"ACME"), (0x80, b"\xff\xfe")], read_code=0x03)
+        1,
+        1,
+        _device_id_response([(0x00, b"ACME"), (0x80, b"\xff\xfe")], read_code=0x03),
     )
     scripted = _ScriptedTransport([response[:7], response[7:]])
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
@@ -1401,9 +1436,7 @@ def test_rtu_read_device_id_incremental_recv(monkeypatch: pytest.MonkeyPatch) ->
     client = ModbusRtuClient(1)
     frame = codec.build_rtu_frame(
         1,
-        _device_id_response(
-            [(0x00, b"ACME"), (0x01, b"MDL-1"), (0x02, b"V2.11")]
-        ),
+        _device_id_response([(0x00, b"ACME"), (0x01, b"MDL-1"), (0x02, b"V2.11")]),
     )
     scripted = _ScriptedTransport(_device_id_rtu_chunks(frame))
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
@@ -1420,7 +1453,9 @@ def test_rtu_read_device_id_incremental_recv(monkeypatch: pytest.MonkeyPatch) ->
 def test_read_device_object(monkeypatch: pytest.MonkeyPatch) -> None:
     """FC43 个体访问(读取码 04):返回请求对象的原始字节。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)
-    response = _mbap_response(1, 1, _device_id_response([(0x02, b"V2.11")], read_code=0x04))
+    response = _mbap_response(
+        1, 1, _device_id_response([(0x02, b"V2.11")], read_code=0x04)
+    )
     scripted = _ScriptedTransport([response[:7], response[7:]])
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
@@ -1525,7 +1560,9 @@ def test_async_read_device_object_aio_mirror(
 
     async def scenario() -> None:
         client = AModbusTcpClient("127.0.0.1", 502, 1)
-        response = _mbap_response(1, 1, _device_id_response([(0x01, b"MDL-1")], read_code=0x04))
+        response = _mbap_response(
+            1, 1, _device_id_response([(0x01, b"MDL-1")], read_code=0x04)
+        )
         scripted = _ScriptedTransport([response[:7], response[7:]])
         monkeypatch.setattr(client._sync, "_create_transport", lambda: scripted)
         assert await client.connect() is True
@@ -1638,9 +1675,7 @@ def test_tcp_write_many_contiguous_over_write_limit_slices(
     )
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
-    results = client.write_many(
-        [("hr{}".format(i), "ushort", i) for i in range(124)]
-    )
+    results = client.write_many([("hr{}".format(i), "ushort", i) for i in range(124)])
     assert results == [True] * 124  # 不再含有 None 或静默 False
     assert bytes(scripted.sent) == (
         codec.build_mbap(1, 1, codec.build_write_multi_pdu(16, 0, list(range(123))))
@@ -1776,7 +1811,9 @@ def test_tcp_write_bool_int_values_reach_wire(
     """``write_bool`` 接受 int 0/1(现场习惯写法):FC 05 数据域 0000/FF00。"""
     for value, expected_value_field in ((1, b"\xff\x00"), (0, b"\x00\x00")):
         client = ModbusTcpClient("127.0.0.1", 502, 1)
-        response = _mbap_response(1, 1, bytes([0x05, 0x00, 0x00]) + expected_value_field)
+        response = _mbap_response(
+            1, 1, bytes([0x05, 0x00, 0x00]) + expected_value_field
+        )
         scripted = _ScriptedTransport([response[:7], response[7:]])
         monkeypatch.setattr(client, "_create_transport", lambda: scripted)
         client.connect()
@@ -1805,7 +1842,9 @@ def test_tcp_diagnostics_fc08(monkeypatch: pytest.MonkeyPatch) -> None:
     """FC08 诊断:回显子功能,返回 2 字节数据(如通信错误计数)。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)
     scripted = _mount(
-        client, monkeypatch, [_mbap_response(1, 1, bytes([0x08, 0x00, 0x0C, 0x00, 0x2A]))]
+        client,
+        monkeypatch,
+        [_mbap_response(1, 1, bytes([0x08, 0x00, 0x0C, 0x00, 0x2A]))],
     )
     client.connect()
     assert client.diagnostics(0x000C) == (True, 42)
@@ -1815,7 +1854,11 @@ def test_tcp_diagnostics_fc08(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_tcp_get_comm_event_counter_fc11(monkeypatch: pytest.MonkeyPatch) -> None:
     """FC11:状态 0 + 事件计数。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)
-    _mount(client, monkeypatch, [_mbap_response(1, 1, bytes([0x0B, 0x00, 0x00, 0x00, 0x07]))])
+    _mount(
+        client,
+        monkeypatch,
+        [_mbap_response(1, 1, bytes([0x0B, 0x00, 0x00, 0x00, 0x07]))],
+    )
     client.connect()
     assert client.get_comm_event_counter() == (True, 7)
 
@@ -1857,7 +1900,22 @@ def test_tcp_read_file_record_fc20(monkeypatch: pytest.MonkeyPatch) -> None:
     client = ModbusTcpClient("127.0.0.1", 502, 1)
     request = codec.build_read_file_record_pdu([(4, 1, 2), (3, 9, 2)])
     response_pdu = bytes(
-        [0x14, 0x0C, 0x05, 0x06, 0x0D, 0xFE, 0x00, 0x20, 0x05, 0x06, 0x33, 0xCD, 0x00, 0x40]
+        [
+            0x14,
+            0x0C,
+            0x05,
+            0x06,
+            0x0D,
+            0xFE,
+            0x00,
+            0x20,
+            0x05,
+            0x06,
+            0x33,
+            0xCD,
+            0x00,
+            0x40,
+        ]
     )
     scripted = _mount(client, monkeypatch, [_mbap_response(1, 1, response_pdu)])
     client.connect()
@@ -1944,22 +2002,22 @@ def test_read_write_registers_cross_segment_hint(
 def test_read_fifo_queue_tcp(monkeypatch: pytest.MonkeyPatch) -> None:
     """FC24:请求组帧正确,响应解析出先进先出的 FIFO 值列表。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)
-    response_pdu = (
-        bytes([0x18, 0x00, 0x06, 0x00, 0x02]) + struct.pack(">HH", 0x1111, 0x2222)
+    response_pdu = bytes([0x18, 0x00, 0x06, 0x00, 0x02]) + struct.pack(
+        ">HH", 0x1111, 0x2222
     )
     scripted = _mount(client, monkeypatch, [_mbap_response(1, 1, response_pdu)])
     client.connect()
     assert client.read_fifo_queue("hr100") == (True, [0x1111, 0x2222])
-    assert bytes(scripted.sent) == codec.build_mbap(1, 1, codec.build_read_fifo_pdu(100))
+    assert bytes(scripted.sent) == codec.build_mbap(
+        1, 1, codec.build_read_fifo_pdu(100)
+    )
 
 
 def test_read_fifo_queue_rtu_incremental_recv(monkeypatch: pytest.MonkeyPatch) -> None:
     """FC24(RTU):响应长度随 FIFO 计数变化,按 byte count 增量收包后 CRC 校验。"""
     client = ModbusRtuClient(1)
     client.configure_serial("COM3")
-    response_pdu = bytes(
-        [0x18, 0x00, 0x06, 0x00, 0x02, 0x11, 0x11, 0x22, 0x22]
-    )
+    response_pdu = bytes([0x18, 0x00, 0x06, 0x00, 0x02, 0x11, 0x11, 0x22, 0x22])
     frame = codec.build_rtu_frame(1, response_pdu)
     scripted = _ScriptedTransport([frame[0:2], frame[2:4], frame[4:]])
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
@@ -2116,7 +2174,9 @@ def test_write_semantics_gate_retries(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(counter) == 2  # 读按 retries=1 重试
 
 
-def test_write_bool_register_bit_requires_holding(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_write_bool_register_bit_requires_holding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """位写只支持线圈与保持寄存器:输入寄存器/离散输入拒绝且零字节发送。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)
     scripted = _ScriptedTransport([])
@@ -2229,4 +2289,3 @@ def test_tcp_ping_fc08_unsupported_slave_keeps_connection(
     assert client.ping() is False
     assert client.connected is True
     assert client.last_error_code == 1  # 异常码 01:illegal function
-

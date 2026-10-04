@@ -1,4 +1,5 @@
 """convert.py 纯转换函数的单元测试(模块位于 omniplc/core/convert.py)。"""
+
 from __future__ import annotations
 
 import struct
@@ -74,7 +75,9 @@ class TestWordOrder32:
     def test_abcd(self) -> None:
         regs = convert.float32_to_registers(12.5, WordOrder.ABCD)
         assert regs == (0x4148, 0x0000)
-        assert convert.registers_to_float32([0x4148, 0x0000], WordOrder.ABCD) == pytest.approx(12.5)
+        assert convert.registers_to_float32(
+            [0x4148, 0x0000], WordOrder.ABCD
+        ) == pytest.approx(12.5)
 
     def test_cdab(self) -> None:
         # 现场最常见的"高字在后":寄存器顺序颠倒
@@ -124,10 +127,16 @@ class TestWordOrder64:
             assert len(regs) == 4
             assert convert.registers_to_float64(regs, order) == pytest.approx(-123.456)
         assert convert.float64_to_registers(-123.456, WordOrder.BADC) == (
-            24256, 12253, 40730, 30654,
+            24256,
+            12253,
+            40730,
+            30654,
         )
         assert convert.float64_to_registers(-123.456, WordOrder.DCBA) == (
-            30654, 40730, 12253, 24256,
+            30654,
+            40730,
+            12253,
+            24256,
         )
 
     def test_double_abcd_pattern(self) -> None:
@@ -149,9 +158,9 @@ class TestWordOrder64:
     def test_encode_overflow_raises_value_error(self) -> None:
         """越界/非整数编码 → ValueError,而非 struct.error 或静默截断。"""
         for call in (
-            lambda: convert.int32_to_registers(2 ** 31),
+            lambda: convert.int32_to_registers(2**31),
             lambda: convert.uint32_to_registers(-1),
-            lambda: convert.int64_to_registers(2 ** 63),
+            lambda: convert.int64_to_registers(2**63),
             lambda: convert.uint64_to_registers(-1),
             lambda: convert.int32_to_registers(1.5),  # type: ignore[arg-type]
         ):
@@ -213,7 +222,9 @@ class TestWordsValue:
             convert.words_to_value([1], "float")  # type: ignore[arg-type]
 
     @pytest.mark.parametrize("data_type", [DataType.BOOL, DataType.STRING])
-    def test_non_numeric_type_rejected_by_value_to_words(self, data_type: DataType) -> None:
+    def test_non_numeric_type_rejected_by_value_to_words(
+        self, data_type: DataType
+    ) -> None:
         """编码方向需外部给定目标长度,故 BOOL/STRING 显式 ValueError(不抛 KeyError)。"""
         with pytest.raises(ValueError):
             convert.value_to_words(1, data_type)
@@ -244,12 +255,15 @@ class TestWordsToValueString:
     """STRING 解码:字数由入参长度决定(不固定 1/2/4),编码与截断可配。"""
 
     def test_big_endian_ascii(self) -> None:
-        assert convert.words_to_value([0x4F4D, 0x4E49], DataType.STRING, ByteOrder.BIG) == "OMNI"
+        assert (
+            convert.words_to_value([0x4F4D, 0x4E49], DataType.STRING, ByteOrder.BIG)
+            == "OMNI"
+        )
 
     def test_roundtrip_with_encode_string(self) -> None:
         """与 write_string 一路(encode_string → 大端拆字)互逆。"""
         raw = convert.encode_string("OMNI", 8)
-        words = [int.from_bytes(raw[i:i + 2], "big") for i in range(0, len(raw), 2)]
+        words = [int.from_bytes(raw[i : i + 2], "big") for i in range(0, len(raw), 2)]
         assert convert.words_to_value(words, DataType.STRING, ByteOrder.BIG) == "OMNI"
 
     def test_little_endian_default(self) -> None:
@@ -257,7 +271,10 @@ class TestWordsToValueString:
         assert convert.words_to_value([0x4F4D], DataType.STRING) == "MO"
 
     def test_nul_truncated(self) -> None:
-        assert convert.words_to_value([0x4142, 0x0000], DataType.STRING, ByteOrder.BIG) == "AB"
+        assert (
+            convert.words_to_value([0x4142, 0x0000], DataType.STRING, ByteOrder.BIG)
+            == "AB"
+        )
 
     def test_empty_words(self) -> None:
         """0 个字得空串(不视为错误:读取长度本就由调用方给出)。"""
@@ -266,7 +283,9 @@ class TestWordsToValueString:
     def test_utf8_encoding(self) -> None:
         words = [0xE782, 0x89E6, 0xB8A9]
         assert (
-            convert.words_to_value(words, DataType.STRING, ByteOrder.BIG, encoding="utf-8")
+            convert.words_to_value(
+                words, DataType.STRING, ByteOrder.BIG, encoding="utf-8"
+            )
             == "炉温"
         )
 
@@ -274,6 +293,8 @@ class TestWordsToValueString:
         """reverse_words 对文本同样生效(低字在前协议,如 MEWTOCOL)。"""
         words = [0x4E49, 0x4F4D]  # "NI" + "OM"
         assert (
-            convert.words_to_value(words, DataType.STRING, ByteOrder.BIG, reverse_words=True)
+            convert.words_to_value(
+                words, DataType.STRING, ByteOrder.BIG, reverse_words=True
+            )
             == "OMNI"
         )

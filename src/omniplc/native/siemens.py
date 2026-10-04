@@ -17,6 +17,7 @@ S7 为**会话型协议**(一连接一 S7 会话,非字节流):``AsyncS7Session`
 ``send``/``recv`` 字节流接口显式拒绝;事务经客户端基类 ``_execute``
 的 asyncio 事务锁串行,取消语义(已发请求 → 保守拆连)由基类统一处理。
 """
+
 from __future__ import annotations
 
 import struct
@@ -203,7 +204,9 @@ class AsyncS7Session(AsyncBaseTransport):
         """S7 为会话型协议,无字节流收发(不调用)。"""
         raise TransportClosedError(_("S7 走会话通道,无字节流收发"))
 
-    async def read_area(self, area: int, db_number: int, start: int, size: int) -> bytes:
+    async def read_area(
+        self, area: int, db_number: int, start: int, size: int
+    ) -> bytes:
         """读一块区域字节(会话调用;统一 BYTE 传输尺寸,与同步层口径一致)。
 
         跨度超过单请求 PDU 容量(协商值 - 18 字节读侧开销,至少 1)时
@@ -246,7 +249,9 @@ class AsyncS7Session(AsyncBaseTransport):
             raise self._with_db_hint(area, db_number, exc) from exc
         return bytes(data)
 
-    async def write_area(self, area: int, db_number: int, start: int, data: bytes) -> None:
+    async def write_area(
+        self, area: int, db_number: int, start: int, data: bytes
+    ) -> None:
         """写一块区域字节(会话调用)。
 
         跨度超过单请求 PDU 容量(协商值 - 35 字节写侧开销,至少 1)时
@@ -259,7 +264,7 @@ class AsyncS7Session(AsyncBaseTransport):
         while offset < len(data):
             chunk = min(len(data) - offset, max(1, self.pdu_size - 35))
             await self._write_area_once(
-                area, db_number, start + offset, data[offset:offset + chunk]
+                area, db_number, start + offset, data[offset : offset + chunk]
             )
             offset += chunk
         log_op(
@@ -376,9 +381,13 @@ class AsyncSiemensS7Client(AsyncBaseClient):
         validate_endpoint(ip_address, port)
         super().__init__(ip_address, int(port))
         if not 0 <= int(rack) <= S7_RACK_MAX:
-            raise ValueError(_("机架号必须在 0~{} 之间,收到:{}").format(S7_RACK_MAX, rack))
+            raise ValueError(
+                _("机架号必须在 0~{} 之间,收到:{}").format(S7_RACK_MAX, rack)
+            )
         if not 0 <= int(slot) <= S7_SLOT_MAX:
-            raise ValueError(_("槽位号必须在 0~{} 之间,收到:{}").format(S7_SLOT_MAX, slot))
+            raise ValueError(
+                _("槽位号必须在 0~{} 之间,收到:{}").format(S7_SLOT_MAX, slot)
+            )
         self._rack = int(rack)
         self._slot = int(slot)
 
@@ -432,15 +441,22 @@ class AsyncSiemensS7Client(AsyncBaseClient):
         if data_type is DataType.BOOL:
             if parsed.bit is None:
                 raise ValueError(
-                    _("S7 按位读取需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)").format(address)
+                    _("S7 按位读取需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)").format(
+                        address
+                    )
                 )
         else:
             if parsed.bit is not None:
                 raise ValueError(
-                    _("S7 位地址只能按 BOOL 读写:{!r}(数值请用字节起点地址)").format(address)
+                    _("S7 位地址只能按 BOOL 读写:{!r}(数值请用字节起点地址)").format(
+                        address
+                    )
                 )
         data = await self._session().read_area(
-            area_code(parsed.area), parsed.db_number, parsed.byte_index, _SIZES[data_type]
+            area_code(parsed.area),
+            parsed.db_number,
+            parsed.byte_index,
+            _SIZES[data_type],
         )
         if data_type is DataType.BOOL:
             # 前置校验已保证 bit 非空,or 0 仅供类型收窄
@@ -449,9 +465,15 @@ class AsyncSiemensS7Client(AsyncBaseClient):
             return struct.unpack(">f", data)[0]
         if data_type is DataType.DOUBLE:
             return struct.unpack(">d", data)[0]
-        return int.from_bytes(data, "big", signed=data_type in (DataType.SHORT, DataType.INT, DataType.LONG))
+        return int.from_bytes(
+            data,
+            "big",
+            signed=data_type in (DataType.SHORT, DataType.INT, DataType.LONG),
+        )
 
-    async def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
+    async def _write(
+        self, address: str, data_type: DataType, value: PrimitiveValue
+    ) -> None:
         """写数据项;位为锁内读-改-写,数值按大端编码;STRING 路由
         :meth:`_write_string`(含 PLC 侧声明长预检)。
 
@@ -473,15 +495,22 @@ class AsyncSiemensS7Client(AsyncBaseClient):
         if data_type is DataType.BOOL:
             if parsed.bit is None:
                 raise ValueError(
-                    _("S7 按位写入需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)").format(address)
+                    _("S7 按位写入需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)").format(
+                        address
+                    )
                 )
             flag = require_bool(value)
             raw = await session.read_area(
                 area_code(parsed.area), parsed.db_number, parsed.byte_index, 1
             )
-            byte = (raw[0] | (1 << parsed.bit)) if flag else (raw[0] & ~(1 << parsed.bit))
+            byte = (
+                (raw[0] | (1 << parsed.bit)) if flag else (raw[0] & ~(1 << parsed.bit))
+            )
             await session.write_area(
-                area_code(parsed.area), parsed.db_number, parsed.byte_index, bytes([byte & 0xFF])
+                area_code(parsed.area),
+                parsed.db_number,
+                parsed.byte_index,
+                bytes([byte & 0xFF]),
             )
             return
         if data_type is DataType.FLOAT:
@@ -495,11 +524,17 @@ class AsyncSiemensS7Client(AsyncBaseClient):
             data = self._pack(_INT_FORMATS[data_type], number)
         if parsed.bit is not None:
             raise ValueError(
-                _("S7 位地址只能按 BOOL 读写:{!r}(数值请用字节起点地址)").format(address)
+                _("S7 位地址只能按 BOOL 读写:{!r}(数值请用字节起点地址)").format(
+                    address
+                )
             )
-        await session.write_area(area_code(parsed.area), parsed.db_number, parsed.byte_index, data)
+        await session.write_area(
+            area_code(parsed.area), parsed.db_number, parsed.byte_index, data
+        )
 
-    async def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
+    async def _read_string(
+        self, address: str, length: int, encoding: str
+    ) -> PrimitiveValue:
         """读 S7 String(头 2 字节 = 声明长/实际长,正文按声明长;与同步同口径)。
 
         实际长超出请求 ``length`` 时按 ``length`` 截断返回(不报错不丢帧)。
@@ -519,9 +554,11 @@ class AsyncSiemensS7Client(AsyncBaseClient):
         if actual > length:
             # PLC 侧实际长 > 请求 length:截断返回,避免静默丢成空串
             actual = length
-        return convert.decode_string(data[2:2 + actual], encoding)
+        return convert.decode_string(data[2 : 2 + actual], encoding)
 
-    async def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
+    async def _write_string(
+        self, address: str, value: str, encoding: str
+    ) -> PrimitiveValue:
         """写 S7 String(声明长字节保留 PLC 侧现值,仅覆盖实际长字节)。
 
         先读 1 字节取 PLC 侧声明长(STRING[x] 的 x),写入值超声明长时
@@ -544,7 +581,9 @@ class AsyncSiemensS7Client(AsyncBaseClient):
             # 防裸 ValueError(review-1008 P3)
             if len(encoded) > 255:
                 raise ValueError(
-                    _("S7 String 写入值超出声明长字段上限 255,收到:{} 字符").format(len(encoded))
+                    _("S7 String 写入值超出声明长字段上限 255,收到:{} 字符").format(
+                        len(encoded)
+                    )
                 )
             declared_max = len(encoded)
         if len(encoded) > declared_max:
@@ -555,7 +594,10 @@ class AsyncSiemensS7Client(AsyncBaseClient):
             )
         header = bytes([declared_max, len(encoded)])
         await self._session().write_area(
-            area_code(parsed.area), parsed.db_number, parsed.byte_index, header + encoded
+            area_code(parsed.area),
+            parsed.db_number,
+            parsed.byte_index,
+            header + encoded,
         )
         return value
 
@@ -594,7 +636,7 @@ class AsyncSiemensS7Client(AsyncBaseClient):
             return ""
         if actual > length:
             actual = length
-        return convert.decode_string(data[4:4 + actual * 2], "utf-16-be")
+        return convert.decode_string(data[4 : 4 + actual * 2], "utf-16-be")
 
     async def write_wstring(self, address: str, value: str) -> bool:
         """写 S7 WString(UTF-16BE,保留 PLC 侧声明长,超声明长拒绝)。
@@ -618,7 +660,9 @@ class AsyncSiemensS7Client(AsyncBaseClient):
             raise ValueError(_("S7 字符串地址不带位号:{!r}").format(address))
         encoded = value.encode("utf-16-be")
         if len(encoded) != len(value) * 2:
-            raise ValueError(_("S7 WString 仅支持 BMP 字符(不含代理对):{!r}").format(address))
+            raise ValueError(
+                _("S7 WString 仅支持 BMP 字符(不含代理对):{!r}").format(address)
+            )
         head = await self._session().read_area(
             area_code(parsed.area), parsed.db_number, parsed.byte_index, 2
         )
@@ -627,7 +671,9 @@ class AsyncSiemensS7Client(AsyncBaseClient):
             # 回退口径与 STRING 同款;超 2 字节声明长字段显式拒绝(review-1008 P3)
             if len(value) > 65535:
                 raise ValueError(
-                    _("S7 WString 写入值超出声明长字段上限 65535,收到:{} 字符").format(len(value))
+                    _("S7 WString 写入值超出声明长字段上限 65535,收到:{} 字符").format(
+                        len(value)
+                    )
                 )
             declared_max = len(value)
         if len(value) > declared_max:
@@ -638,7 +684,10 @@ class AsyncSiemensS7Client(AsyncBaseClient):
             )
         header = declared_max.to_bytes(2, "big") + len(value).to_bytes(2, "big")
         await self._session().write_area(
-            area_code(parsed.area), parsed.db_number, parsed.byte_index, header + encoded
+            area_code(parsed.area),
+            parsed.db_number,
+            parsed.byte_index,
+            header + encoded,
         )
         return value
 
@@ -689,18 +738,24 @@ class AsyncSiemensS7Client(AsyncBaseClient):
         for address, data_type in items:
             data_type_enum = DataType.coerce(data_type)
             if data_type_enum not in _SIZES:
-                raise ValueError(_("S7 批量读取不支持的数据类型:{}").format(data_type_enum))
+                raise ValueError(
+                    _("S7 批量读取不支持的数据类型:{}").format(data_type_enum)
+                )
             parsed = parse_s7_address(address)
             if data_type_enum is DataType.BOOL:
                 if parsed.bit is None:
                     raise ValueError(
-                        _("S7 按位读取需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)").format(address)
+                        _("S7 按位读取需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)").format(
+                            address
+                        )
                     )
                 plan.append(("bit", len(specs), parsed.bit, data_type_enum))
             else:
                 if parsed.bit is not None:
                     raise ValueError(
-                        _("S7 位地址只能按 BOOL 读写:{!r}(数值请用字节起点地址)").format(address)
+                        _(
+                            "S7 位地址只能按 BOOL 读写:{!r}(数值请用字节起点地址)"
+                        ).format(address)
                     )
                 plan.append(("word", len(specs), None, data_type_enum))
             specs.append(
@@ -769,7 +824,9 @@ class AsyncSiemensS7Client(AsyncBaseClient):
         if data_type_enum is DataType.STRING:
             raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
         if data_type_enum not in _SIZES or data_type_enum is DataType.BOOL:
-            raise ValueError(_("S7 read_range 不支持的数据类型:{}").format(data_type_enum))
+            raise ValueError(
+                _("S7 read_range 不支持的数据类型:{}").format(data_type_enum)
+            )
         parsed = parse_s7_address(address)
         if parsed.bit is not None:
             raise ValueError(
@@ -779,11 +836,14 @@ class AsyncSiemensS7Client(AsyncBaseClient):
 
         async def operation() -> List[PrimitiveValue]:
             data = await self._session().read_area(
-                area_code(parsed.area), parsed.db_number, parsed.byte_index, size * count
+                area_code(parsed.area),
+                parsed.db_number,
+                parsed.byte_index,
+                size * count,
             )
             values: List[PrimitiveValue] = []
             for index in range(count):
-                blob = data[index * size:(index + 1) * size]
+                blob = data[index * size : (index + 1) * size]
                 if data_type_enum is DataType.FLOAT:
                     values.append(struct.unpack(">f", blob)[0])
                 elif data_type_enum is DataType.DOUBLE:
@@ -793,7 +853,8 @@ class AsyncSiemensS7Client(AsyncBaseClient):
                         int.from_bytes(
                             blob,
                             "big",
-                            signed=data_type_enum in (DataType.SHORT, DataType.INT, DataType.LONG),
+                            signed=data_type_enum
+                            in (DataType.SHORT, DataType.INT, DataType.LONG),
                         )
                     )
             return values

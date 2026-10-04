@@ -99,6 +99,15 @@ timeout_method = "thread"
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]
 
+# ruff format 统一格式化(2026-10-04 用户决议,与门禁 `ruff format --check`
+# 配套):配置与 pymodbus 对齐,四项均为 ruff 默认值,显式落盘固化口径,
+# 防上游默认漂移(quote/indent/尾逗号/换行符)。
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
 [tool.mypy]
 # 新版 mypy 最低支持 3.10 目标(3.7/3.8/3.9 均已不支持);3.7 语法兼容由
 # ruff 的 target-version 推导(requires-python >=3.7.9 → py37)兜底,运行期

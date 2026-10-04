@@ -3,6 +3,7 @@
 样本来自 ``tests/golden/mc_*.json``,由同目录 ``generate_mc_samples.py``
 用独立实现计算生成,保证本库编解码与标准帧逐字节一致。
 """
+
 from __future__ import annotations
 
 import json
@@ -43,7 +44,13 @@ def _load(stem: str) -> Dict[str, Any]:
 
 
 def _build_request(
-    frame: str, serial: int, network: int, pc: int, address: str, points: int, is_bit: bool
+    frame: str,
+    serial: int,
+    network: int,
+    pc: int,
+    address: str,
+    points: int,
+    is_bit: bool,
 ) -> bytes:
     """按用例参数构造读请求帧。"""
     parsed = parse_mc_address(address)
@@ -52,11 +59,21 @@ def _build_request(
             pc, MC_DEFAULT_MONITOR_TIMER, parsed, points, is_bit, False
         )
     return codec_qna.build_request(
-        frame, serial, network, pc, MC_DEFAULT_MONITOR_TIMER, parsed, points, is_bit, False
+        frame,
+        serial,
+        network,
+        pc,
+        MC_DEFAULT_MONITOR_TIMER,
+        parsed,
+        points,
+        is_bit,
+        False,
     )
 
 
-def _parse_read(frame: str, serial: int, response: bytes, points: int, is_bit: bool) -> List[int]:
+def _parse_read(
+    frame: str, serial: int, response: bytes, points: int, is_bit: bool
+) -> List[int]:
     """按帧型解析读响应。"""
     if frame == "1E":
         return codec_a.parse_response(response, points, is_bit, True)
@@ -66,7 +83,17 @@ def _parse_read(frame: str, serial: int, response: bytes, points: int, is_bit: b
 
 
 @pytest.mark.parametrize(
-    ("stem", "frame", "serial", "network", "pc", "address", "points", "is_bit", "values"),
+    (
+        "stem",
+        "frame",
+        "serial",
+        "network",
+        "pc",
+        "address",
+        "points",
+        "is_bit",
+        "values",
+    ),
     _READ_CASES,
 )
 def test_golden_read_roundtrip(
@@ -84,7 +111,9 @@ def test_golden_read_roundtrip(
     data = _load(stem)
     request = bytes.fromhex(data["request_hex"])
     response = bytes.fromhex(data["response_hex"])
-    assert _build_request(frame, serial, network, pc, address, points, is_bit) == request
+    assert (
+        _build_request(frame, serial, network, pc, address, points, is_bit) == request
+    )
     assert _parse_read(frame, serial, response, points, is_bit) == values
 
 
@@ -170,13 +199,23 @@ def test_1e_word_access_bit_device_requires_multiple_of_16() -> None:
     """1E 字单位访问位软元件:首编号须为 16 的倍数(SH-080008 §18.4)。"""
     with pytest.raises(ValueError):
         codec_a.build_request(
-            0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("M10"),
-            1, False, False, None,
+            0xFF,
+            MC_DEFAULT_MONITOR_TIMER,
+            parse_mc_address("M10"),
+            1,
+            False,
+            False,
+            None,
         )
     # 16 的倍数放行
     codec_a.build_request(
-        0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("M16"),
-        1, False, False, None,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("M16"),
+        1,
+        False,
+        False,
+        None,
     )
 
 
@@ -208,12 +247,9 @@ def test_build_random_read_golden() -> None:
         [(0x90, 0x000000, 2), (0x90, 0x000080, 2), (0xA0, 0x000100, 3)],
     )
     core = (
-        "06040000" "0200"
-        "000000a80400" "000100b40800"
-        "0300"
-        "000000900200" "800000900200" "000100a00300"
+        "060400000200000000a80400000100b408000300000000900200800000900200000100a00300"
     )
-    expected = "5000" "00" "ff" "ff03" "00" "2800" "0a00" + core
+    expected = "500000ffff030028000a00" + core
     assert request == bytes.fromhex(expected)
 
 
@@ -231,7 +267,7 @@ def test_build_random_read_validation() -> None:
 
 def test_parse_random_read_response() -> None:
     """多块批量读响应:字块扁平列表;位块逐点 16 位字(点内首软元件 bit0)。"""
-    data = bytes.fromhex("0100" "ffff" "3412" "0080" "0100")
+    data = bytes.fromhex("0100ffff341200800100")
     frame = (
         b"\xd0\x00"
         + b"\x00\xff\xff\x03\x00"
@@ -260,7 +296,7 @@ def test_parse_random_read_response_short_data() -> None:
 
 def test_parse_random_read_response_trailing_bytes_rejected() -> None:
     """0406 响应尾部有多余字节(UDP 数据报边界/串包):按坏帧拒绝。"""
-    data = bytes.fromhex("0100" "ffff" "3412" "0080" "0100")
+    data = bytes.fromhex("0100ffff341200800100")
     frame = (
         b"\xd0\x00"
         + b"\x00\xff\xff\x03\x00"
@@ -298,8 +334,15 @@ def test_qna_bit_suffix_rejected() -> None:
     """3E/4E 组帧层:位软元件带位号后缀直接拒绝(M10.5 不得发成 M10)。"""
     with pytest.raises(ValueError):
         codec_qna.build_request(
-            "3E", 0, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER,
-            parse_mc_address("M10.5"), 1, True, False,
+            "3E",
+            0,
+            0,
+            0xFF,
+            MC_DEFAULT_MONITOR_TIMER,
+            parse_mc_address("M10.5"),
+            1,
+            True,
+            False,
         )
 
 
@@ -331,7 +374,9 @@ def test_mc_device_code_table_l_is_92_and_no_collisions() -> None:
     by_code = defaultdict(list)
     for device, (code, _words, _base) in MC_DEVICE_CODES.items():
         by_code[code].append(device)
-    collisions = {hex(code): devices for code, devices in by_code.items() if len(devices) > 1}
+    collisions = {
+        hex(code): devices for code, devices in by_code.items() if len(devices) > 1
+    }
     assert not collisions, "MC 设备码重码:{}".format(collisions)
 
 
@@ -398,25 +443,29 @@ def test_build_random_read_devices_golden() -> None:
     D1500/Y160/M1111(X/Y 编号十六进制,故 X20 → 0x20、Y160 → 0x160)。
     """
     request = codec_qna.build_random_read_devices(
-        "3E", 0, 0, 0xFF, 0,
+        "3E",
+        0,
+        0,
+        0xFF,
+        0,
         [(_D, 0), (_TN, 0), (_M, 100), (_X, 0x20)],
         [(_D, 1500), (_Y, 0x160), (_M, 1111)],
     )
-    core = (
-        "03040000" "0400" "0300"
-        "000000a8" "000000c2" "64000090" "2000009c"
-        "dc0500a8" "6001009d" "57040090"
-    )
+    core = "0304000004000300000000a8000000c2640000902000009cdc0500a86001009d57040090"
     # 副头部 5000 + 网络 00 + PC ff + IO ff03 + 局 00 + 长度 2600 + 定时器 0000
-    assert request == bytes.fromhex("5000" "00" "ff" "ff03" "00" "2600" "0000" + core)
+    assert request == bytes.fromhex("500000ffff030026000000" + core)
 
 
 def test_parse_random_read_devices_response_golden() -> None:
     """随机读响应:字数据逐字小端 + 双字数据 4 字节小端(§8.3 印刷页 100-101)。"""
     data = (
-        bytes.fromhex("9519") + bytes.fromhex("0212")
-        + bytes.fromhex("3412") + bytes.fromhex("7856")
-        + bytes.fromhex("4e4f544c") + bytes.fromhex("11110000") + bytes.fromhex("efcdab89")
+        bytes.fromhex("9519")
+        + bytes.fromhex("0212")
+        + bytes.fromhex("3412")
+        + bytes.fromhex("7856")
+        + bytes.fromhex("4e4f544c")
+        + bytes.fromhex("11110000")
+        + bytes.fromhex("efcdab89")
     )
     frame = (
         b"\xd0\x00"
@@ -450,7 +499,11 @@ def test_build_random_read_devices_validation() -> None:
         codec_qna.build_random_read_devices("3E", 0, 0, 0xFF, 0, [], [])
     with pytest.raises(ValueError):
         codec_qna.build_random_read_devices(
-            "3E", 0, 0, 0xFF, 0,
+            "3E",
+            0,
+            0,
+            0xFF,
+            0,
             [(_D, index) for index in range(193)],
             [],
         )
@@ -463,16 +516,39 @@ def test_build_random_write_devices_golden() -> None:
     小端):字块 D0/D256/M100/X20,双字块 D1500/Y160/M1111。
     """
     request = codec_qna.build_random_write_devices(
-        "3E", 0, 0, 0xFF, 0,
-        [(0xA8, 0, 0x0550), (0xA8, 0x100, 0x0575), (0x90, 100, 0x0540), (0x9C, 0x20, 0x0583)],
+        "3E",
+        0,
+        0,
+        0xFF,
+        0,
+        [
+            (0xA8, 0, 0x0550),
+            (0xA8, 0x100, 0x0575),
+            (0x90, 100, 0x0540),
+            (0x9C, 0x20, 0x0583),
+        ],
         [(0xA8, 1500, 0x04391202), (0x9D, 0x160, 0x23752607), (0x90, 1111, 0x04250475)],
     )
     core = (
-        "02140000" "0400" "0300"
-        "000000a8" "5005" "000100a8" "7505" "64000090" "4005" "2000009c" "8305"
-        "dc0500a8" "02123904" "6001009d" "07267523" "57040090" "75042504"
+        "02140000"
+        "0400"
+        "0300"
+        "000000a8"
+        "5005"
+        "000100a8"
+        "7505"
+        "64000090"
+        "4005"
+        "2000009c"
+        "8305"
+        "dc0500a8"
+        "02123904"
+        "6001009d"
+        "07267523"
+        "57040090"
+        "75042504"
     )
-    assert request == bytes.fromhex("5000" "00" "ff" "ff03" "00" "3a00" "0000" + core)
+    assert request == bytes.fromhex("500000ffff03003a000000" + core)
 
 
 def test_build_random_write_devices_validation() -> None:
@@ -485,7 +561,11 @@ def test_build_random_write_devices_validation() -> None:
         )
     with pytest.raises(ValueError):
         codec_qna.build_random_write_devices(
-            "3E", 0, 0, 0xFF, 0,
+            "3E",
+            0,
+            0,
+            0xFF,
+            0,
             [(_D, index, 1) for index in range(161)],
             [],
         )
@@ -494,7 +574,7 @@ def test_build_random_write_devices_validation() -> None:
 def test_read_cpu_model_golden() -> None:
     """CPU 型号请求/响应(§11.2 印刷页 178:Q02UCPU → 名 + 码 0x0263,线上小端 63 02)。"""
     request = codec_qna.build_read_cpu_model("3E")
-    assert request == bytes.fromhex("5000" "00" "ff" "ff03" "00" "0600" "0a00" "01010000")
+    assert request == bytes.fromhex("500000ffff030006000a0001010000")
     data = b"Q02UCPU".ljust(16) + bytes.fromhex("6302")
     frame = (
         b"\xd0\x00"

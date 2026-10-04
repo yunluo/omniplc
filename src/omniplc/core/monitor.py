@@ -65,6 +65,7 @@
 - **STRING 不支持**:批量读层口径"变长不适合混读"(MC ``read_many``
   明示字符串走 ``read_string``),构造期即拒绝。
 """
+
 from __future__ import annotations
 
 import math
@@ -221,7 +222,9 @@ class Monitor:
     ) -> None:
         if not isinstance(points, Mapping):
             raise ValueError(
-                _("points 必须为点位映射(Dict 或 TagTable),收到:{}").format(type(points).__name__)
+                _("points 必须为点位映射(Dict 或 TagTable),收到:{}").format(
+                    type(points).__name__
+                )
             )
         if not points:
             raise ValueError(_("points 不能为空"))
@@ -229,7 +232,9 @@ class Monitor:
             raise ValueError(_("interval 必须为数值,收到:{!r}").format(interval))
         if not math.isfinite(interval) or interval < self._INTERVAL_MIN:
             raise ValueError(
-                _("interval 必须为不小于 {} 秒的有限数,收到:{!r}").format(self._INTERVAL_MIN, interval)
+                _("interval 必须为不小于 {} 秒的有限数,收到:{!r}").format(
+                    self._INTERVAL_MIN, interval
+                )
             )
         if on_change is not None and not callable(on_change):
             raise ValueError(_("on_change 必须为可调用对象或 None"))
@@ -244,12 +249,16 @@ class Monitor:
         self._points: Dict[str, _Point] = {}
         if isinstance(points, TagTable):
             for tag_id, tag in points.items():
-                self._add_point(tag_id, tag.address, tag.data_type, tag.scale, tag.offset, 0.0)
+                self._add_point(
+                    tag_id, tag.address, tag.data_type, tag.scale, tag.offset, 0.0
+                )
         else:
             for tag_id, spec in points.items():
                 if not isinstance(spec, (tuple, list)) or len(spec) != 2:
                     raise ValueError(
-                        _("点位 {!r} 的取值必须为 (地址, 数据类型) 二元组,收到:{!r}").format(tag_id, spec)
+                        _(
+                            "点位 {!r} 的取值必须为 (地址, 数据类型) 二元组,收到:{!r}"
+                        ).format(tag_id, spec)
                     )
                 address, data_type = spec
                 self._add_point(tag_id, address, data_type, 1.0, 0.0, 0.0)
@@ -268,12 +277,15 @@ class Monitor:
         self._terminal = False
         self._fail_episode = False
         self._snap: Dict[str, PointSnapshot] = {
-            tag_id: PointSnapshot(MonitorQuality.INITIAL, None, None) for tag_id in self._points
+            tag_id: PointSnapshot(MonitorQuality.INITIAL, None, None)
+            for tag_id in self._points
         }
         # 死区锚点 = 该点"上次报告值"(最近一次事件里的 new 值):死区判定
         # 与它比而非与上一拍快照比——否则缓慢漂移的单步差永远压在死区内,
         # 值漂到天边也不响(OPC-UA DataChangeFilter「与上次发送值比」同款口径)
-        self._anchors: Dict[str, Optional[PrimitiveValue]] = {tag_id: None for tag_id in self._points}
+        self._anchors: Dict[str, Optional[PrimitiveValue]] = {
+            tag_id: None for tag_id in self._points
+        }
         self._counters: Dict[str, int] = {
             "cycle_count": 0,
             "fail_count": 0,
@@ -296,7 +308,12 @@ class Monitor:
     # ------------------------------------------------------------------
 
     def _add_point(
-        self, tag_id: str, address: str, data_type: Union[str, DataType], scale: float, offset: float,
+        self,
+        tag_id: str,
+        address: str,
+        data_type: Union[str, DataType],
+        scale: float,
+        offset: float,
         deadband: float,
     ) -> None:
         """校验一个点位并写入内部字典(内部方法,仅构造期调用)。"""
@@ -310,14 +327,18 @@ class Monitor:
         try:
             dtype = DataType.coerce(data_type)
         except ValueError as exc:
-            raise ValueError(_("点位 {!r} 的数据类型非法:{}").format(tag_id, exc)) from exc
+            raise ValueError(
+                _("点位 {!r} 的数据类型非法:{}").format(tag_id, exc)
+            ) from exc
         if dtype is DataType.STRING:
             raise ValueError(
-                _("点位 {!r} 不支持 STRING:批量读不收变长字符串,请用客户端 read_string 自行轮询").format(
-                    tag_id
-                )
+                _(
+                    "点位 {!r} 不支持 STRING:批量读不收变长字符串,请用客户端 read_string 自行轮询"
+                ).format(tag_id)
             )
-        self._points[tag_id] = _Point(tag_id, address, dtype, float(scale), float(offset), deadband)
+        self._points[tag_id] = _Point(
+            tag_id, address, dtype, float(scale), float(offset), deadband
+        )
 
     def _apply_deadband(self, deadband: Union[float, int, Mapping[str, float]]) -> None:
         """校验 deadband 参数并回填到各点(内部方法,仅构造期调用)。
@@ -327,10 +348,14 @@ class Monitor:
         NaN/inf 一律构造期拒绝。
         """
         if isinstance(deadband, bool):
-            raise ValueError(_("deadband 必须为非负有限数值或点位映射,收到:{!r}").format(deadband))
+            raise ValueError(
+                _("deadband 必须为非负有限数值或点位映射,收到:{!r}").format(deadband)
+            )
         if isinstance(deadband, (int, float)):
             if not math.isfinite(deadband) or deadband < 0:
-                raise ValueError(_("deadband 必须为非负有限数值,收到:{!r}").format(deadband))
+                raise ValueError(
+                    _("deadband 必须为非负有限数值,收到:{!r}").format(deadband)
+                )
             value = float(deadband)
             self._points = {
                 tag_id: point._replace(deadband=value)
@@ -339,20 +364,24 @@ class Monitor:
             return
         if not isinstance(deadband, Mapping):
             raise ValueError(
-                _("deadband 必须为非负有限数值或点位映射(Dict[tag_id, 死区]),收到:{}").format(
-                    type(deadband).__name__
-                )
+                _(
+                    "deadband 必须为非负有限数值或点位映射(Dict[tag_id, 死区]),收到:{}"
+                ).format(type(deadband).__name__)
             )
         for tag_id, value in deadband.items():
             if tag_id not in self._points:
                 raise ValueError(_("deadband 引用了未知点位:{!r}").format(tag_id))
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 raise ValueError(
-                    _("点位 {!r} 的 deadband 必须为非负有限数值,收到:{!r}").format(tag_id, value)
+                    _("点位 {!r} 的 deadband 必须为非负有限数值,收到:{!r}").format(
+                        tag_id, value
+                    )
                 )
             if not math.isfinite(value) or value < 0:
                 raise ValueError(
-                    _("点位 {!r} 的 deadband 必须为非负有限数值,收到:{!r}").format(tag_id, value)
+                    _("点位 {!r} 的 deadband 必须为非负有限数值,收到:{!r}").format(
+                        tag_id, value
+                    )
                 )
             self._points[tag_id] = self._points[tag_id]._replace(deadband=float(value))
 
@@ -460,7 +489,11 @@ class Monitor:
         点数);超预算时 :meth:`stop` 先返回、线程仍在收尾最后一个周期,
         随后自然退出,无害。
         """
-        return self._interval + (self._client.retries + 1) * self._client.receive_timeout + 1.0
+        return (
+            self._interval
+            + (self._client.retries + 1) * self._client.receive_timeout
+            + 1.0
+        )
 
     # ------------------------------------------------------------------
     # 内部:采集周期
@@ -565,7 +598,9 @@ class Monitor:
             snapshot = PointSnapshot(quality, value, updated)
             new_snap[tag_id] = snapshot
             if self._changed(point, previous, snapshot, self._anchors[tag_id]):
-                events.append(MonitorEvent(tag_id, previous.value, value, quality, updated))
+                events.append(
+                    MonitorEvent(tag_id, previous.value, value, quality, updated)
+                )
                 # 锚点 = 上次事件的 new 值(含质量跨界事件):判定、报告同一值源
                 self._anchors[tag_id] = value
         self._snap = new_snap
@@ -599,10 +634,17 @@ class Monitor:
         首拍(锚点 None/旧值 None)、质量跨界、bool 点与 NaN 跳变不受
         死区压制。
         """
-        if (previous.quality is MonitorQuality.GOOD) != (current.quality is MonitorQuality.GOOD):
+        if (previous.quality is MonitorQuality.GOOD) != (
+            current.quality is MonitorQuality.GOOD
+        ):
             return True
         old, new = previous.value, current.value
-        if isinstance(old, float) and isinstance(new, float) and math.isnan(old) and math.isnan(new):
+        if (
+            isinstance(old, float)
+            and isinstance(new, float)
+            and math.isnan(old)
+            and math.isnan(new)
+        ):
             return False
         if old == new:
             return False
@@ -628,7 +670,11 @@ class Monitor:
             return value
         if point.scale == 1.0 and point.offset == 0.0:
             return value
-        if isinstance(value, int) and not isinstance(value, bool) and abs(value) > 2 ** 53:
+        if (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and abs(value) > 2**53
+        ):
             # 非恒等缩放必经 float64:|值| > 2^53 时低位静默丢失,至少告警。
             # not isinstance(value, bool) 在此恒真(bool 已在首分支直通)——
             # 保留以求与 base_client.read_tag 同构(有意保留,review-1006 §九 D1)

@@ -10,6 +10,7 @@
 - 类型化读写方法 ``read_float``/``write_short``/… 只在这里实现一次,
   委托给驱动子类实现的协议原语 :meth:`_read` / :meth:`_write`
 """
+
 from __future__ import annotations
 
 import math
@@ -21,7 +22,20 @@ import time
 import weakref
 from abc import ABC, abstractmethod
 from types import TracebackType
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Type, TypeVar, Union, cast
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+    cast,
+)
 
 from .constants import (
     DEFAULT_CONNECT_TIMEOUT,
@@ -97,7 +111,9 @@ def validate_endpoint(ip_address: str, port: int) -> None:
     if not ip_address or not ip_address.strip():
         raise ValueError(_("ip_address 不能为空"))
     if not PORT_MIN <= int(port) <= PORT_MAX:
-        raise ValueError(_("port 必须在 {}~{} 之间,收到:{}").format(PORT_MIN, PORT_MAX, port))
+        raise ValueError(
+            _("port 必须在 {}~{} 之间,收到:{}").format(PORT_MIN, PORT_MAX, port)
+        )
 
 
 class BaseClient(ABC):
@@ -291,7 +307,11 @@ class BaseClient(ABC):
             try:
                 transport.close()
             except OSError as exc:
-                self._set_error(_("关闭连接失败:{}").format(exc), _categorize(exc), _extract_code(exc))
+                self._set_error(
+                    _("关闭连接失败:{}").format(exc),
+                    _categorize(exc),
+                    _extract_code(exc),
+                )
                 # 连接事实上已终结(transport 引用已清),失败也计入断开
                 with self._state_lock:
                     self._counters["disconnect_count"] += 1
@@ -579,7 +599,9 @@ class BaseClient(ABC):
     @reconnect_backoff.setter
     def reconnect_backoff(self, enabled: bool) -> None:
         if not isinstance(enabled, bool):
-            raise ValueError(_("reconnect_backoff 必须为布尔值,收到:{!r}").format(enabled))
+            raise ValueError(
+                _("reconnect_backoff 必须为布尔值,收到:{!r}").format(enabled)
+            )
         self._reconnect_backoff = enabled
 
     @property
@@ -760,8 +782,10 @@ class BaseClient(ABC):
             raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
         DataType.coerce(data_type)
         raise ValueError(
-            _("当前驱动 {} 不支持连续批量读 read_range(起始地址+数量),"
-            "请改用 read_many/read_batch 逐点列出地址").format(type(self).__name__)
+            _(
+                "当前驱动 {} 不支持连续批量读 read_range(起始地址+数量),"
+                "请改用 read_many/read_batch 逐点列出地址"
+            ).format(type(self).__name__)
         )
 
     def write_many(
@@ -772,7 +796,9 @@ class BaseClient(ABC):
         :param items: ``(地址, 数据类型, 值)`` 三元组序列
         :return: 与 items 顺序对应的布尔结果列表
         """
-        return [self.write(address, data_type, value) for address, data_type, value in items]
+        return [
+            self.write(address, data_type, value) for address, data_type, value in items
+        ]
 
     # ------------------------------------------------------------------
     # 类型化读写(一次实现,全协议共享)
@@ -838,7 +864,9 @@ class BaseClient(ABC):
             # 驱动 _read_string 返回非 str(如 bytes)属库内缺陷:repr 包装
             # 会把二进制噪声伪装成"读到的字符串",显式拒绝并记录
             self._set_error(
-                _("read_string 内部类型错误:驱动返回 {} 而非 str").format(type(value).__name__),
+                _("read_string 内部类型错误:驱动返回 {} 而非 str").format(
+                    type(value).__name__
+                ),
                 ErrorCategory.UNKNOWN,
                 None,
             )
@@ -936,7 +964,11 @@ class BaseClient(ABC):
             return True, value
         if resolved.scale == 1.0 and resolved.offset == 0.0:
             return True, value
-        if isinstance(value, int) and not isinstance(value, bool) and abs(value) > 2 ** 53:
+        if (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and abs(value) > 2**53
+        ):
             # 非恒等缩放必经 float64:|值| > 2^53 时低位静默丢失,至少告警。
             # not isinstance(value, bool) 在此恒真(bool 已在上方直通)——与
             # monitor._apply_scale 同构,有意保留(review-1006 §九 D1)
@@ -964,12 +996,14 @@ class BaseClient(ABC):
                 # TagTable 校验只覆盖表构造路径;直接传 Tag 实例可绕过——
                 # scale=inf 时逆缩放结果恒 0(静默写 0 触发设备动作)、NaN 写 nan
                 raise ValueError(
-                    _("点位 {!r} 的 scale/offset 必须为有限数:scale={!r}, offset={!r}").format(
-                        resolved.tag_id, resolved.scale, resolved.offset
-                    )
+                    _(
+                        "点位 {!r} 的 scale/offset 必须为有限数:scale={!r}, offset={!r}"
+                    ).format(resolved.tag_id, resolved.scale, resolved.offset)
                 )
             if resolved.scale == 0:
-                raise ValueError(_("点位 {!r} 的 scale 不能为 0,无法逆缩放").format(resolved.tag_id))
+                raise ValueError(
+                    _("点位 {!r} 的 scale 不能为 0,无法逆缩放").format(resolved.tag_id)
+                )
             if resolved.scale == 1.0 and resolved.offset == 0.0:
                 # 恒等缩放不过 float64 往返(保 64 位整数精度);但整数值 float
                 # 仍要还原为 int——现场"算得 float 再写整数点位"依赖该行为
@@ -1084,7 +1118,10 @@ class BaseClient(ABC):
     # ------------------------------------------------------------------
 
     def _execute(
-        self, operation: Callable[[], _T], is_write: bool = False, heartbeat: bool = False
+        self,
+        operation: Callable[[], _T],
+        is_write: bool = False,
+        heartbeat: bool = False,
     ) -> Tuple[bool, Optional[_T]]:
         """事务模板:在事务锁内执行一次协议操作(内部方法)。
 
@@ -1140,7 +1177,9 @@ class BaseClient(ABC):
                     # 注意:重试与重试之间存在"迟到响应落入接收缓冲"的竞态
                     # 窗口(旧响应被当重试应答消费),写重试另有双写风险——
                     # 见 TransportTimeoutError docstring 与 write_retries。
-                    self._set_error(_describe(exc), _categorize(exc), _extract_code(exc))
+                    self._set_error(
+                        _describe(exc), _categorize(exc), _extract_code(exc)
+                    )
                     continue
                 except DeviceError as exc:
                     code = _extract_code(exc)
@@ -1157,7 +1196,9 @@ class BaseClient(ABC):
                             self._counters["device_error_count"] += 1
                     return False, None
                 except (OSError, OmniPLCInternalError) as exc:
-                    self._set_error(_describe(exc), _categorize(exc), _extract_code(exc))
+                    self._set_error(
+                        _describe(exc), _categorize(exc), _extract_code(exc)
+                    )
                     self._mark_disconnected()
             return False, None
 
@@ -1177,7 +1218,7 @@ class BaseClient(ABC):
         """登记一次建连失败并推进退避门控(内部方法,须锁内调用)。"""
         exponent = min(self._connect_fail_count, RECONNECT_BACKOFF_MAX_EXPONENT)
         cap = min(
-            RECONNECT_BACKOFF_BASE * (RECONNECT_BACKOFF_FACTOR ** exponent),
+            RECONNECT_BACKOFF_BASE * (RECONNECT_BACKOFF_FACTOR**exponent),
             RECONNECT_BACKOFF_MAX,
         )
         self._next_connect_at = time.monotonic() + random.uniform(0.0, cap)
@@ -1340,7 +1381,7 @@ def _extract_code(exc: BaseException) -> Optional[int]:
 
 
 def _narrow_int(
-    result: Tuple[bool, Optional[PrimitiveValue]]
+    result: Tuple[bool, Optional[PrimitiveValue]],
 ) -> Tuple[bool, Optional[int]]:
     """把通用读结果收窄为整数签名(内部函数)。"""
     narrowed: Tuple[bool, Optional[PrimitiveValue]] = _narrow(result, int, "整数")
@@ -1348,7 +1389,7 @@ def _narrow_int(
 
 
 def _narrow_float(
-    result: Tuple[bool, Optional[PrimitiveValue]]
+    result: Tuple[bool, Optional[PrimitiveValue]],
 ) -> Tuple[bool, Optional[float]]:
     """把通用读结果收窄为浮点签名(内部函数)。"""
     narrowed: Tuple[bool, Optional[PrimitiveValue]] = _narrow(result, float, "浮点数")

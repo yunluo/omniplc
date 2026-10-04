@@ -34,6 +34,7 @@
   (读写了哪个节点/变量、按什么类型、返回什么值;MTConnect 输出 GET
   请求与 HTTP 状态)
 """
+
 from __future__ import annotations
 
 import logging

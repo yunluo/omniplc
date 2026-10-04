@@ -4,6 +4,7 @@
 同步层一致——对拍断言两侧 ``sent`` 全序列逐字节相同(握手/协商/事务);
 会话型协议的假 TCP 用 size 感知连续池(与 test_siemens_s7_clients 同构)。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -212,9 +213,7 @@ def test_read_batch_multi_parity(monkeypatch: pytest.MonkeyPatch, loop: Any) -> 
         return client.read_batch([("DB1.DBX0.1", "BOOL"), ("DB1.DBB2", "SHORT")])
 
     async def async_action(client: Any):
-        return await client.read_batch(
-            [("DB1.DBX0.1", "BOOL"), ("DB1.DBB2", "SHORT")]
-        )
+        return await client.read_batch([("DB1.DBX0.1", "BOOL"), ("DB1.DBB2", "SHORT")])
 
     _parity_case(monkeypatch, loop, responses, sync_action, async_action)
 
@@ -283,9 +282,7 @@ def test_wstring_roundtrip_parity(monkeypatch: pytest.MonkeyPatch, loop: Any) ->
 # ----------------------------------------------------------------------
 
 
-def test_native_disconnect_sends_dr(
-    monkeypatch: pytest.MonkeyPatch, loop: Any
-) -> None:
+def test_native_disconnect_sends_dr(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
     """disconnect 钩子:先发 COTP DR(dst_ref=CC 回显 0x000A)再关传输。"""
     holder: Dict[str, Any] = {}
 

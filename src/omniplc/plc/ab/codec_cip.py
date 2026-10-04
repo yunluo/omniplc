@@ -21,6 +21,7 @@
 
 本模块全部为纯函数(bytes ↔ 结构),不接触 socket。
 """
+
 from __future__ import annotations
 
 import struct
@@ -129,6 +130,7 @@ _CONNECTION_RESET_STATUSES: "frozenset" = frozenset(
 def is_connection_reset_status(status: int) -> bool:
     """CIP 状态是否表示 connected 连接失效(0x01/0x07),供事务层判定重连。"""
     return status in _CONNECTION_RESET_STATUSES
+
 
 # ---- ENIP 封装命令扩展(发现/调试) ----
 EIP_COMMAND_LIST_IDENTITY: int = 0x0063
@@ -248,6 +250,7 @@ def is_bit_access_type(cip_type: int) -> bool:
 # ENIP 封装
 # ----------------------------------------------------------------------
 
+
 def build_register_session() -> bytes:
     """构造 RegisterSession 请求(会话注册)。"""
     return struct.pack(
@@ -335,8 +338,11 @@ def _check_enip_reply(
             )
         )
     command, length, _unused, status = struct.unpack_from("<HHII", reply, 0)
-    allowed = (expected_command,) if isinstance(expected_command, int) \
+    allowed = (
+        (expected_command,)
+        if isinstance(expected_command, int)
         else tuple(expected_command)
+    )
     if command not in allowed:
         canonical = allowed[0]
         raise ProtocolFrameError(
@@ -362,6 +368,7 @@ def _check_enip_reply(
 # ----------------------------------------------------------------------
 # CIP Unconnected Send 包裹与标签服务
 # ----------------------------------------------------------------------
+
 
 def build_uc_send(request: bytes, slot: int) -> bytes:
     """把标签服务请求包裹进 CIP Unconnected Send(路由:背板端口 + 槽号)。
@@ -395,7 +402,9 @@ def build_uc_send(request: bytes, slot: int) -> bytes:
 
 
 def build_symbol_path(
-    members: Tuple[str, ...], indices: Tuple[Tuple[int, ...], ...], zero_last_index: bool = False
+    members: Tuple[str, ...],
+    indices: Tuple[Tuple[int, ...], ...],
+    zero_last_index: bool = False,
 ) -> bytes:
     """构造标签请求路径(IOI):逐级符号段 + 元素段。
 
@@ -545,7 +554,7 @@ def parse_service_reply_with_status(
     if route_status != 0:
         raise DeviceError(_status_text(route_status), route_status)
     return _parse_service_payload_with_status(
-        cip[_service_data_offset(cip):], request_service
+        cip[_service_data_offset(cip) :], request_service
     )
 
 
@@ -565,11 +574,13 @@ def _parse_service_payload_with_status(
     status = cip[2]
     if status != 0 and status != CIP_STATUS_PARTIAL_TRANSFER:
         ext = _extended_status_text(status, cip)
-        msg = _status_text(status) if ext is None else "{} — {}".format(
-            _status_text(status), ext
+        msg = (
+            _status_text(status)
+            if ext is None
+            else "{} — {}".format(_status_text(status), ext)
         )
         raise DeviceError(msg, status)
-    return status, cip[_service_data_offset(cip):]
+    return status, cip[_service_data_offset(cip) :]
 
 
 def parse_tag_list_payload(data: bytes) -> List[AbTagEntry]:
@@ -596,7 +607,7 @@ def parse_tag_list_payload(data: bytes) -> List[AbTagEntry]:
                     format_hex(data)
                 )
             )
-        instance_id = int.from_bytes(data[offset:offset + 4], "little")
+        instance_id = int.from_bytes(data[offset : offset + 4], "little")
         offset += 4
         if offset + 2 > total:
             raise ProtocolFrameError(
@@ -604,7 +615,7 @@ def parse_tag_list_payload(data: bytes) -> List[AbTagEntry]:
                     format_hex(data)
                 )
             )
-        name_len = int.from_bytes(data[offset:offset + 2], "little")
+        name_len = int.from_bytes(data[offset : offset + 2], "little")
         offset += 2
         if offset + name_len + 2 + 12 > total:
             raise ProtocolFrameError(
@@ -612,14 +623,14 @@ def parse_tag_list_payload(data: bytes) -> List[AbTagEntry]:
                     format_hex(data)
                 )
             )
-        name = data[offset:offset + name_len].decode("utf-8", errors="replace")
+        name = data[offset : offset + name_len].decode("utf-8", errors="replace")
         offset += name_len
-        symbol_type = int.from_bytes(data[offset:offset + 2], "little")
+        symbol_type = int.from_bytes(data[offset : offset + 2], "little")
         offset += 2
         dims: Tuple[int, int, int] = (
-            int.from_bytes(data[offset:offset + 4], "little"),
-            int.from_bytes(data[offset + 4:offset + 8], "little"),
-            int.from_bytes(data[offset + 8:offset + 12], "little"),
+            int.from_bytes(data[offset : offset + 4], "little"),
+            int.from_bytes(data[offset + 4 : offset + 8], "little"),
+            int.from_bytes(data[offset + 8 : offset + 12], "little"),
         )
         offset += 12
         tags.append(
@@ -668,7 +679,9 @@ def build_multiple_service_packet(requests: Sequence[bytes]) -> bytes:
     data = bytes(head) + bytes(segments)
     return _service_request(
         CIP_SERVICE_MULTIPLE,
-        build_class_instance_path(CIP_CLASS_MESSAGE_ROUTER, CIP_INSTANCE_MESSAGE_ROUTER),
+        build_class_instance_path(
+            CIP_CLASS_MESSAGE_ROUTER, CIP_INSTANCE_MESSAGE_ROUTER
+        ),
         data,
     )
 
@@ -692,14 +705,16 @@ def parse_multiple_service_payload(
     count = int.from_bytes(data[0:2], "little")
     if count != len(expected_services):
         raise ValueError(
-            _("多服务包应答条数不符:期望 {},实际 {}").format(len(expected_services), count)
+            _("多服务包应答条数不符:期望 {},实际 {}").format(
+                len(expected_services), count
+            )
         )
     segments: List[bytes] = []
     for index in range(count):
         base = 2 + index * 2
-        offset = int.from_bytes(data[base:base + 2], "little")
+        offset = int.from_bytes(data[base : base + 2], "little")
         if index + 1 < count:
-            end = int.from_bytes(data[base + 2:base + 4], "little")
+            end = int.from_bytes(data[base + 2 : base + 4], "little")
         else:
             end = len(data)
         segments.append(data[offset:end])
@@ -709,7 +724,9 @@ def parse_multiple_service_payload(
     ]
 
 
-def build_tag_write(path: bytes, cip_type: int, payload: bytes, elements: int = 1) -> bytes:
+def build_tag_write(
+    path: bytes, cip_type: int, payload: bytes, elements: int = 1
+) -> bytes:
     """构造 Tag Write 请求(服务 0x4D,原子类型:类型码 + 0x00 + 点数 + 数据)。"""
     body = struct.pack("<BBH", cip_type, 0, elements) + payload
     return _service_request(CIP_SERVICE_WRITE_TAG, path, body)
@@ -759,6 +776,7 @@ def bit_masks(cip_type: int, bit: int, value: bool) -> Tuple[int, int]:
 # ----------------------------------------------------------------------
 # connected 消息(Forward Open/Close + SendUnitData)
 # ----------------------------------------------------------------------
+
 
 def _forward_open_params(is_large: bool, connection_size: int) -> int:
     """网络连接参数域:P2P + 固定尺寸 + 连接尺寸(内部函数)。
@@ -902,7 +920,9 @@ def parse_forward_close_reply(reply: bytes) -> int:
     reply_service = cip[0]
     if reply_service != (CIP_SERVICE_FORWARD_CLOSE | 0x80):
         raise ProtocolFrameError(
-            _("Forward Close 应答服务码不符:期望 0xCE,实际 0x{:02X}").format(reply_service)
+            _("Forward Close 应答服务码不符:期望 0xCE,实际 0x{:02X}").format(
+                reply_service
+            )
         )
     return cip[2]
 
@@ -952,16 +972,20 @@ def parse_send_unit_data_reply(
             )
         )
     item_count, address_type, address_length = struct.unpack_from("<HHH", prefix, 6)
-    if item_count != 2 or address_type != _CPF_ITEM_CONNECTED_ADDRESS or address_length != 4:
+    if (
+        item_count != 2
+        or address_type != _CPF_ITEM_CONNECTED_ADDRESS
+        or address_length != 4
+    ):
         raise ProtocolFrameError(
             _("SendUnitData CPF 地址项非法(收到的原始帧:{})").format(format_hex(reply))
         )
     connection_id = struct.unpack_from("<I", prefix, 12)[0]
     if connection_id != to_connection_id:
         raise ProtocolFrameError(
-            _("连接地址项 T->O ID 不符:期望 0x{:08X},实际 0x{:08X}(收到的原始帧:{})").format(
-                to_connection_id, connection_id, format_hex(reply)
-            )
+            _(
+                "连接地址项 T->O ID 不符:期望 0x{:08X},实际 0x{:08X}(收到的原始帧:{})"
+            ).format(to_connection_id, connection_id, format_hex(reply))
         )
     data_type, data_length, reply_sequence = struct.unpack_from("<HHH", prefix, 16)
     if data_type != _CPF_ITEM_CONNECTED_DATA:
@@ -990,6 +1014,7 @@ def parse_send_unit_data_reply(
 # 应答解析
 # ----------------------------------------------------------------------
 
+
 def _parse_rr_data_cip(reply: bytes) -> bytes:
     """校验 SendRRData 封装与 CPF,返回 CIP 数据(内部函数)。
 
@@ -1001,9 +1026,7 @@ def _parse_rr_data_cip(reply: bytes) -> bytes:
 
     坏帧消息带**收到的原始帧**十六进制转储,便于现场与抓包比对。
     """
-    _check_enip_reply(
-        reply, (EIP_COMMAND_SEND_RR_DATA, EIP_COMMAND_UNREGISTER_SESSION)
-    )
+    _check_enip_reply(reply, (EIP_COMMAND_SEND_RR_DATA, EIP_COMMAND_UNREGISTER_SESSION))
     prefix = reply[EIP_HEADER_SIZE:]
     if len(prefix) < EIP_RRDATA_PREFIX_SIZE:
         raise ProtocolFrameError(
@@ -1011,8 +1034,8 @@ def _parse_rr_data_cip(reply: bytes) -> bytes:
                 len(prefix), format_hex(reply)
             )
         )
-    item_count, address_type, address_length, data_type, data_length = struct.unpack_from(
-        "<HHHHH", prefix, 6
+    item_count, address_type, address_length, data_type, data_length = (
+        struct.unpack_from("<HHHHH", prefix, 6)
     )
     if item_count != 2:
         raise ProtocolFrameError(
@@ -1023,7 +1046,9 @@ def _parse_rr_data_cip(reply: bytes) -> bytes:
     if address_type == _CPF_ITEM_NULL_ADDRESS:
         if address_length != 0:
             raise ProtocolFrameError(
-                _("SendRRData CPF 地址项非法(收到的原始帧:{})").format(format_hex(reply))
+                _("SendRRData CPF 地址项非法(收到的原始帧:{})").format(
+                    format_hex(reply)
+                )
             )
         if data_type != _CPF_ITEM_UNCONNECTED_DATA:
             raise ProtocolFrameError(
@@ -1104,7 +1129,7 @@ def parse_service_reply(reply: bytes, request_service: int) -> bytes:
     if route_status != 0:
         raise DeviceError(_status_text(route_status), route_status)
 
-    return _parse_service_payload(cip[_service_data_offset(cip):], request_service)
+    return _parse_service_payload(cip[_service_data_offset(cip) :], request_service)
 
 
 def parse_direct_service_reply(reply: bytes, request_service: int) -> bytes:
@@ -1142,11 +1167,13 @@ def _parse_service_payload(cip: bytes, request_service: int) -> bytes:
     status = cip[2]
     if status != 0:
         ext = _extended_status_text(status, cip)
-        msg = _status_text(status) if ext is None else "{} — {}".format(
-            _status_text(status), ext
+        msg = (
+            _status_text(status)
+            if ext is None
+            else "{} — {}".format(_status_text(status), ext)
         )
         raise DeviceError(msg, status)
-    return cip[_service_data_offset(cip):]
+    return cip[_service_data_offset(cip) :]
 
 
 def status_text(status: int) -> str:
@@ -1228,6 +1255,7 @@ def parse_tag_read_payload(payload: bytes) -> Tuple[int, bytes]:
 # 通用 CIP 服务:ListIdentity / GetAttributesAll / GetAttributeList
 # ----------------------------------------------------------------------
 
+
 def build_list_identity() -> bytes:
     """构造 ListIdentity ENIP 请求(命令 0x63,载荷 0 字节,无 CIP 会话)。"""
     return struct.pack(
@@ -1286,9 +1314,9 @@ def parse_list_identity_reply(reply: bytes) -> Dict[str, object]:
     #  Item Length 恰好 32 时读 name_len 越界——第八轮 P2-2)
     if len(body) < 18 + 15:
         raise ProtocolFrameError(
-            _("ListIdentity Item 数据不足(应有版本 2 + SocketAddr 16 + Identity ≥15):{} 字节").format(
-                len(body)
-            )
+            _(
+                "ListIdentity Item 数据不足(应有版本 2 + SocketAddr 16 + Identity ≥15):{} 字节"
+            ).format(len(body))
         )
     identity = body[18:]
     vendor = struct.unpack_from("<H", identity, 0)[0]
@@ -1300,7 +1328,7 @@ def parse_list_identity_reply(reply: bytes) -> Dict[str, object]:
     name_len = identity[14]
     if len(identity) < 15 + name_len + 1:
         raise ProtocolFrameError(_("ListIdentity product_name 截断"))
-    product_name = bytes(identity[15:15 + name_len]).decode("ascii", errors="replace")
+    product_name = bytes(identity[15 : 15 + name_len]).decode("ascii", errors="replace")
     state = identity[15 + name_len]
     return {
         "vendor": vendor,
@@ -1339,7 +1367,7 @@ def parse_module_identity_payload(payload: bytes) -> Dict[str, object]:
     name_len = payload[14]
     if len(payload) < 15 + name_len:
         raise ProtocolFrameError(_("Identity Object product_name 截断"))
-    product_name = bytes(payload[15:15 + name_len]).decode("ascii", errors="replace")
+    product_name = bytes(payload[15 : 15 + name_len]).decode("ascii", errors="replace")
     return {
         "vendor": vendor,
         "product_type": product_type,
@@ -1414,7 +1442,7 @@ def decode_identity_string(data: bytes) -> str:
     if not data:
         return ""
     n = min(data[0], len(data) - 1)
-    return bytes(data[1:1 + n]).decode("ascii", errors="replace")
+    return bytes(data[1 : 1 + n]).decode("ascii", errors="replace")
 
 
 def decode_identity_string_consumed(data: bytes) -> Tuple[str, int]:
@@ -1434,7 +1462,7 @@ def decode_identity_string_consumed(data: bytes) -> Tuple[str, int]:
                 n, len(data) - 1
             )
         )
-    return bytes(data[1:1 + n]).decode("ascii", errors="replace"), 1 + n
+    return bytes(data[1 : 1 + n]).decode("ascii", errors="replace"), 1 + n
 
 
 def decode_values(
@@ -1448,7 +1476,10 @@ def decode_values(
         raise ProtocolFrameError(
             _("应答数据不足:期望 {} 字节,实际 {} 字节").format(size * count, len(data))
         )
-    return [struct.unpack_from(fmt, data, offset)[0] for offset in range(0, size * count, size)]
+    return [
+        struct.unpack_from(fmt, data, offset)[0]
+        for offset in range(0, size * count, size)
+    ]
 
 
 def decode_word(data: bytes, cip_type: int) -> int:
@@ -1472,9 +1503,11 @@ def decode_string_payload(data: bytes, encoding: str) -> str:
     length = struct.unpack_from("<I", data, 0)[0]
     if length > len(data) - 4:
         raise ProtocolFrameError(
-            _("STRING 长度域超出应答:声明 {},可用 {} 字节").format(length, len(data) - 4)
+            _("STRING 长度域超出应答:声明 {},可用 {} 字节").format(
+                length, len(data) - 4
+            )
         )
-    return bytes(data[4:4 + length]).decode(encoding)
+    return bytes(data[4 : 4 + length]).decode(encoding)
 
 
 def encode_string_struct(value: str, encoding: str) -> bytes:
@@ -1485,9 +1518,15 @@ def encode_string_struct(value: str, encoding: str) -> bytes:
     raw = value.encode(encoding)
     if len(raw) > AB_EIP_STRING_MAX_CHARS:
         raise ValueError(
-            _("AB STRING 最多 {} 字符,实际 {} 字符").format(AB_EIP_STRING_MAX_CHARS, len(raw))
+            _("AB STRING 最多 {} 字符,实际 {} 字符").format(
+                AB_EIP_STRING_MAX_CHARS, len(raw)
+            )
         )
-    return struct.pack("<I", len(raw)) + raw + b"\x00" * (type_size(CIP_TYPE_STRUCT) - 4 - len(raw))
+    return (
+        struct.pack("<I", len(raw))
+        + raw
+        + b"\x00" * (type_size(CIP_TYPE_STRUCT) - 4 - len(raw))
+    )
 
 
 def encode_value(data_type: DataType, value: PrimitiveValue) -> bytes:

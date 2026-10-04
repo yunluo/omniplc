@@ -1,4 +1,5 @@
 """v0.34.0 可靠性测试:失败结构化(ErrorCategory)与连接退避门控。"""
+
 from __future__ import annotations
 
 import socket
@@ -191,9 +192,7 @@ class TestReconnectBackoff:
     """连接退避门控:full jitter 时间戳门控,零 sleep。"""
 
     def test_gate_blocks_immediate_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            base_client_mod.random, "uniform", lambda a, b: 0.25
-        )
+        monkeypatch.setattr(base_client_mod.random, "uniform", lambda a, b: 0.25)
         client = _ScriptedClient(fail_connect_times=1)
         ok, _ = client.read("hr0", "short")
         assert ok is False  # 真实建连失败
@@ -248,7 +247,9 @@ class TestReconnectBackoff:
         client.read("hr0", "short")  # 门控拒绝
         assert client.stats["error_count"] == 1  # 只有真实建连失败计入
 
-    def test_gate_expires_allowing_reconnect(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_gate_expires_allowing_reconnect(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(base_client_mod.random, "uniform", lambda a, b: 0.05)
         client = _ScriptedClient(fail_connect_times=1)
         ok, _ = client.read("hr0", "short")
@@ -258,7 +259,9 @@ class TestReconnectBackoff:
         assert ok is True
         assert value == 3.14
 
-    def test_zero_jitter_allows_immediate_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_zero_jitter_allows_immediate_retry(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """uniform 取下界 0:门控时间戳=now,立即重试放行。"""
         monkeypatch.setattr(base_client_mod.random, "uniform", lambda a, b: 0.0)
         client = _ScriptedClient(fail_connect_times=1)
@@ -312,7 +315,9 @@ class TestAioCloseCancellation:
         assert client._next_connect_at == 0.0
         assert client.next_connect_in is None
 
-    def test_backoff_resets_on_disconnect(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_backoff_resets_on_disconnect(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(base_client_mod.random, "uniform", lambda a, b: 0.25)
         client = _ScriptedClient(fail_connect_times=1)
         client.read("hr0", "short")
@@ -416,7 +421,9 @@ class TestAioBackoffAndErrorSurfaces:
         try:
             for reader in readers:
                 done: List[bool] = []
-                thread = threading.Thread(target=lambda r=reader: (r(), done.append(True)))
+                thread = threading.Thread(
+                    target=lambda r=reader: (r(), done.append(True))
+                )
                 thread.start()
                 thread.join(timeout=1.0)
                 assert not thread.is_alive(), "aio 属性读被事务锁阻塞"

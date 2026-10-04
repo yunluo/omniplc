@@ -17,6 +17,7 @@ Modbus 线圈/保持寄存器地址,见 :mod:`.address`。
     X17 / Y17  输入/输出(八进制编号;H5U 到 X/Y1777,H3U 到 X/Y377)
     D100.3    字软元件位访问(读-改-写)
 """
+
 from __future__ import annotations
 
 from typing import Union
@@ -63,10 +64,14 @@ class _InovanceBase(ModbusBaseClient):
         return to_modbus_address(parsed, False)
 
     def _read(self, address: str, data_type: DataType) -> PrimitiveValue:
-        return ModbusBaseClient._read(self, self._translate(address, data_type), data_type)
+        return ModbusBaseClient._read(
+            self, self._translate(address, data_type), data_type
+        )
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
-        ModbusBaseClient._write(self, self._translate(address, data_type), data_type, value)
+        ModbusBaseClient._write(
+            self, self._translate(address, data_type), data_type, value
+        )
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         return ModbusBaseClient._read_string(

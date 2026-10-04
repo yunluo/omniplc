@@ -8,6 +8,7 @@
 - 坏响应(帧长不符/FT 非法/命令字不符)→ 标记断开
 - TCP 分段收包与 UDP 整包接收;异步镜像;字符串字节读写
 """
+
 from __future__ import annotations
 
 import struct
@@ -53,6 +54,7 @@ def test_tcp_frame_length_over_limit(monkeypatch: pytest.MonkeyPatch) -> None:
 # 地址解析
 # ----------------------------------------------------------------------
 
+
 def test_parse_address() -> None:
     """地址解析:十六进制编号、单位判定与 L/H/W 后缀。"""
     assert parse_toyopuc_address("d0100").number == 0x100
@@ -76,9 +78,9 @@ def test_packed_bit_device_index_is_word_index() -> None:
     合法编号被误算;现直接以字索引校验,与 encode_*_address 一致。
     """
     # 合法:字索引落在打包段(M: 0x000-0x07F / 0x100-0x17F)
-    assert encode_word_address(parse_toyopuc_address("M010W")) == 0x190   # 0x180+0x10
-    assert encode_word_address(parse_toyopuc_address("M100W")) == 0x280   # 0x180+0x100
-    assert encode_byte_address(parse_toyopuc_address("M010L")) == 0x320   # 0x300+0x10*2
+    assert encode_word_address(parse_toyopuc_address("M010W")) == 0x190  # 0x180+0x10
+    assert encode_word_address(parse_toyopuc_address("M100W")) == 0x280  # 0x180+0x100
+    assert encode_byte_address(parse_toyopuc_address("M010L")) == 0x320  # 0x300+0x10*2
     assert encode_byte_address(parse_toyopuc_address("M010H")) == 0x321
     # 越界:字索引 0x080 / 0x200 不在打包段 → 解析期拒绝(旧实现 number>>4 会放行)
     for bad in ("M080W", "M200W", "K030W", "M0201W"):
@@ -89,12 +91,12 @@ def test_packed_bit_device_index_is_word_index() -> None:
 def test_parse_address_errors() -> None:
     """地址解析:越界与非法后缀。"""
     for bad in (
-        "ZZ100",      # 未知软元件
-        "D0100W",     # 字软元件不支持 W 后缀
-        "M2000",      # 位编号越界(不在 0x000~0x7FF / 0x1000~0x17FF)
-        "K300",       # 位编号越界(K 上限 0x2FF)
-        "D10000",     # 编号超出 16 位
-        "D0100Z",     # 非法后缀
+        "ZZ100",  # 未知软元件
+        "D0100W",  # 字软元件不支持 W 后缀
+        "M2000",  # 位编号越界(不在 0x000~0x7FF / 0x1000~0x17FF)
+        "K300",  # 位编号越界(K 上限 0x2FF)
+        "D10000",  # 编号超出 16 位
+        "D0100Z",  # 非法后缀
         "",
     ):
         with pytest.raises(ValueError):
@@ -105,13 +107,18 @@ def test_parse_address_errors() -> None:
 # 帧编解码
 # ----------------------------------------------------------------------
 
+
 def test_codec_build_frames() -> None:
     """帧编码黄金样本:帧长 = CMD + 数据,地址/点数小端。"""
     assert codec.build_word_read(0x1100, 1) == b"\x00\x00\x05\x00\x1c\x00\x11\x01\x00"
-    assert codec.build_word_write(0x1100, [0x1234, 5]) == \
-        b"\x00\x00\x07\x00\x1d\x00\x11\x34\x12\x05\x00"
+    assert (
+        codec.build_word_write(0x1100, [0x1234, 5])
+        == b"\x00\x00\x07\x00\x1d\x00\x11\x34\x12\x05\x00"
+    )
     assert codec.build_byte_read(0x2200, 4) == b"\x00\x00\x05\x00\x1e\x00\x22\x04\x00"
-    assert codec.build_byte_write(0x2200, b"AB") == b"\x00\x00\x05\x00\x1f\x00\x22\x41\x42"
+    assert (
+        codec.build_byte_write(0x2200, b"AB") == b"\x00\x00\x05\x00\x1f\x00\x22\x41\x42"
+    )
     assert codec.build_bit_read(0x1A01) == b"\x00\x00\x03\x00\x20\x01\x1a"
     assert codec.build_bit_write(0x1A01, True) == b"\x00\x00\x04\x00\x21\x01\x1a\x01"
     assert codec.pack_u16(0x1234) == b"\x34\x12"
@@ -134,10 +141,22 @@ def test_codec_build_limits() -> None:
 
 def test_codec_parse_response() -> None:
     """响应解码:正常帧、出错帧(详细码在 CMD 或数据末字节)、坏帧。"""
-    assert codec.parse_response(_response(0x1C, b"\x14\x00")) == (0x1C, 0x00, b"\x14\x00")
+    assert codec.parse_response(_response(0x1C, b"\x14\x00")) == (
+        0x1C,
+        0x00,
+        b"\x14\x00",
+    )
     # RC=10 无数据:详细出错代码在 CMD 字节
-    assert codec.parse_response(bytes((0x80, 0x10, 0x01, 0x00, 0x40))) == (0x40, 0x10, b"")
-    for bad in (b"\x80\x00\x03\x00", b"\x00\x00\x03\x00\x1c", _response(0x1C, b"\x00") + b"\x00"):
+    assert codec.parse_response(bytes((0x80, 0x10, 0x01, 0x00, 0x40))) == (
+        0x40,
+        0x10,
+        b"",
+    )
+    for bad in (
+        b"\x80\x00\x03\x00",
+        b"\x00\x00\x03\x00\x1c",
+        _response(0x1C, b"\x00") + b"\x00",
+    ):
         with pytest.raises(ProtocolFrameError):
             codec.parse_response(bad)
 
@@ -163,6 +182,7 @@ def test_codec_check_response() -> None:
 # ----------------------------------------------------------------------
 # TCP 全链路(脚本化传输)
 # ----------------------------------------------------------------------
+
 
 def test_tcp_read_ushort_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP:连续字读(CMD=1C)请求与响应全链路。"""
@@ -235,9 +255,7 @@ def test_tcp_read_bit_device(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_tcp_read_range_shorts(monkeypatch: pytest.MonkeyPatch) -> None:
     """read_range:D0100 起 3 个 SHORT = 连续字读 CMD=1C 3 字单事务。"""
     client = ToyopucTcpClient("127.0.0.1", 1025)
-    scripted = ScriptedTransport(
-        _chunks(_response(0x1C, b"\x0a\x00\x14\x00\x1e\x00"))
-    )
+    scripted = ScriptedTransport(_chunks(_response(0x1C, b"\x0a\x00\x14\x00\x1e\x00")))
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     ok, values = client.read_range("D0100", 3, "short")
@@ -273,9 +291,7 @@ def test_tcp_read_range_64bit_types(monkeypatch: pytest.MonkeyPatch) -> None:
     assert values == [-5, 1 << 62]
     assert bytes(scripted.sent) == codec.build_word_read(0x1100, 8)
 
-    scripted2 = ScriptedTransport(
-        _chunks(_response(0x1C, struct.pack("<d", 1.5)))
-    )
+    scripted2 = ScriptedTransport(_chunks(_response(0x1C, struct.pack("<d", 1.5))))
     monkeypatch.setattr(client, "_create_transport", lambda: scripted2)
     client.disconnect()
     client.connect()
@@ -289,7 +305,7 @@ def test_tcp_read_range_rejects() -> None:
     """read_range 入参校验:位软元件 BOOL/位地址/count/STRING/超限。"""
     client = ToyopucTcpClient("127.0.0.1", 1025)
     with pytest.raises(ValueError):
-        client.read_range("M0201", 4, "bool")   # 位软元件无批量位读命令
+        client.read_range("M0201", 4, "bool")  # 位软元件无批量位读命令
     with pytest.raises(ValueError):
         client.read_range("D0100L", 2, "short")  # 字节访问地址不支持
     with pytest.raises(ValueError):
@@ -330,8 +346,10 @@ def test_tcp_write_bit(monkeypatch: pytest.MonkeyPatch) -> None:
     client.connect()
     assert client.write_bool("M0201", True) is True
     assert client.write_bool("M0201", False) is True
-    assert bytes(scripted.sent) == b"\x00\x00\x04\x00\x21\x01\x1a\x01" \
-                                    b"\x00\x00\x04\x00\x21\x01\x1a\x00"
+    assert (
+        bytes(scripted.sent) == b"\x00\x00\x04\x00\x21\x01\x1a\x01"
+        b"\x00\x00\x04\x00\x21\x01\x1a\x00"
+    )
 
 
 def test_tcp_write_float_consecutive(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -347,9 +365,7 @@ def test_tcp_write_float_consecutive(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_tcp_write_negative_int_and_long(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP:负 32/64 位写按二补数编码(回归:曾 to_bytes 拒负抛 OverflowError)。"""
     client = ToyopucTcpClient("127.0.0.1", 1025)
-    scripted = ScriptedTransport(
-        _chunks(_response(0x1D)) + _chunks(_response(0x1D))
-    )
+    scripted = ScriptedTransport(_chunks(_response(0x1D)) + _chunks(_response(0x1D)))
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     assert client.write_int("D0100", -5) is True
@@ -357,8 +373,10 @@ def test_tcp_write_negative_int_and_long(monkeypatch: pytest.MonkeyPatch) -> Non
     assert bytes(scripted.sent) == b"\x00\x00\x07\x00\x1d\x00\x11\xfb\xff\xff\xff"
     assert client.write_long("D0100", -5) is True
     # -5 → 64 位二补数,低字 fffb、其余 ffff(sent 为两帧累计,取第二帧:首帧 11 字节)
-    assert bytes(scripted.sent)[11:] == b"\x00\x00\x0b\x00\x1d\x00\x11" \
-                                       b"\xfb\xff\xff\xff\xff\xff\xff\xff"
+    assert (
+        bytes(scripted.sent)[11:] == b"\x00\x00\x0b\x00\x1d\x00\x11"
+        b"\xfb\xff\xff\xff\xff\xff\xff\xff"
+    )
     assert client.connected is True
 
 
@@ -368,15 +386,17 @@ def test_tcp_write_range_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(client, "_create_transport", lambda: ScriptedTransport([]))
     client.connect()
     with pytest.raises(ValueError):
-        client.write_int("D0100", 2**31)          # int 越 32 位上限
+        client.write_int("D0100", 2**31)  # int 越 32 位上限
     with pytest.raises(ValueError):
-        client.write_int("D0100", -(2**31) - 1)   # int 越 32 位下限
+        client.write_int("D0100", -(2**31) - 1)  # int 越 32 位下限
     with pytest.raises(ValueError):
-        client.write_long("D0100", 2**63)         # long 越 64 位上限
+        client.write_long("D0100", 2**63)  # long 越 64 位上限
     with pytest.raises(ValueError):
         client.write_long("D0100", -(2**63) - 1)  # long 越 64 位下限
     with pytest.raises(ValueError):
-        client.write_float("D0100", 1e300)        # float32 溢出(1e400 已成 inf,float64 可表示)
+        client.write_float(
+            "D0100", 1e300
+        )  # float32 溢出(1e400 已成 inf,float64 可表示)
     assert client.connected is True
 
 
@@ -414,7 +434,8 @@ def test_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> None:
     """出错代码(0x40 地址越界)→ DeviceError 不断线。"""
     client = ToyopucTcpClient("127.0.0.1", 1025)
     scripted = ScriptedTransport(
-        _chunks(bytes((0x80, 0x10, 0x01, 0x00, 0x40))) + _chunks(_response(0x1C, b"\x14\x00"))
+        _chunks(bytes((0x80, 0x10, 0x01, 0x00, 0x40)))
+        + _chunks(_response(0x1C, b"\x14\x00"))
     )
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
@@ -448,6 +469,7 @@ def test_command_mismatch_marks_disconnected(monkeypatch: pytest.MonkeyPatch) ->
 # ----------------------------------------------------------------------
 # UDP 与异步
 # ----------------------------------------------------------------------
+
 
 def test_udp_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """UDP:一请求一数据报,整包校验。"""

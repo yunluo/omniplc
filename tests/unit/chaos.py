@@ -13,6 +13,7 @@
         client = ModbusTcpClient("127.0.0.1", port)
         ...
 """
+
 from __future__ import annotations
 
 import socket
@@ -85,5 +86,5 @@ def recv_request(conn: socket.socket, size: int = 4096) -> bytes:
 def drip(conn: socket.socket, payload: bytes, delay: float, chunk: int = 1) -> None:
     """把 ``payload`` 按 ``chunk`` 字节分片、每片间隔 ``delay`` 秒发出(慢速对端)。"""
     for index in range(0, len(payload), chunk):
-        conn.sendall(payload[index:index + chunk])
+        conn.sendall(payload[index : index + chunk])
         time.sleep(delay)

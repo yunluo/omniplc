@@ -26,6 +26,7 @@ LINT/ULINT)沿用 ``DBD``(或 ``DBB``/``DBW``)起点记号即可,**长度由
 DataType 而非记号后缀决定**。
 解析失败统一抛 ``ValueError``(参数错误约定)。
 """
+
 from __future__ import annotations
 
 import re
@@ -72,7 +73,9 @@ def parse_s7_address(address: str) -> S7Address:
         bit_text = match.group(4)
         if not 1 <= db_number <= S7_DB_NUMBER_MAX:
             raise ValueError(
-                _("S7 DB 编号必须在 1~{} 之间,收到:{!r}").format(S7_DB_NUMBER_MAX, address)
+                _("S7 DB 编号必须在 1~{} 之间,收到:{!r}").format(
+                    S7_DB_NUMBER_MAX, address
+                )
             )
         _check_byte_index(byte_index, address)
         if kind == "X":
@@ -85,7 +88,9 @@ def parse_s7_address(address: str) -> S7Address:
         else:
             if bit_text is not None:
                 raise ValueError(
-                    _("字节起点地址不带位号:{!r}(位访问用 DBX,如 DB1.DBX0.3)").format(address)
+                    _("字节起点地址不带位号:{!r}(位访问用 DBX,如 DB1.DBX0.3)").format(
+                        address
+                    )
                 )
             bit = None
         return S7Address("DB", db_number, byte_index, bit)
@@ -107,19 +112,25 @@ def parse_s7_address(address: str) -> S7Address:
         return S7Address(area, 0, byte_index, bit)
 
     raise ValueError(
-        _("S7 地址非法:{!r}(示例:DB1.DBX0.3 / DB1.DBD6 / M10.2 / MW10 / IW64)").format(address)
+        _("S7 地址非法:{!r}(示例:DB1.DBX0.3 / DB1.DBD6 / M10.2 / MW10 / IW64)").format(
+            address
+        )
     )
 
 
 def _check_bit(bit: int, address: str) -> None:
     """位号范围校验 0~7(内部函数)。"""
     if not 0 <= bit <= 7:
-        raise ValueError(_("S7 位号必须在 0~7 之间,收到:{!r} 的 {}").format(address, bit))
+        raise ValueError(
+            _("S7 位号必须在 0~7 之间,收到:{!r} 的 {}").format(address, bit)
+        )
 
 
 def _check_byte_index(byte_index: int, address: str) -> None:
     """字节起点范围校验(内部函数;上限 = 线上 3 字节位地址字段 ÷ 8)。"""
     if not 0 <= byte_index <= S7_BYTE_INDEX_MAX:
         raise ValueError(
-            _("S7 字节起点必须在 0~{} 之间,收到:{!r}").format(S7_BYTE_INDEX_MAX, address)
+            _("S7 字节起点必须在 0~{} 之间,收到:{!r}").format(
+                S7_BYTE_INDEX_MAX, address
+            )
         )

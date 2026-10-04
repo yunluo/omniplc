@@ -3,6 +3,7 @@
 样本来自 ``tests/golden/fins_*.json``,由同目录 ``generate_fins_samples.py``
 用独立实现计算生成。
 """
+
 from __future__ import annotations
 
 import json
@@ -20,7 +21,11 @@ _FINS_ECHO_HEAD = b"\xc0\x00\x02\x00\x0a\x00\x00\x05\x00"
 
 def _request_frame(sid: int = 1, command: int = 0x0101) -> bytes:
     """构造与回显校验配套的最小请求 FINS 帧(测试辅助)。"""
-    return b"\x80\x00\x02\x00\x0a\x00\x00\x05\x00" + bytes([sid]) + command.to_bytes(2, "big")
+    return (
+        b"\x80\x00\x02\x00\x0a\x00\x00\x05\x00"
+        + bytes([sid])
+        + command.to_bytes(2, "big")
+    )
 
 
 GOLDEN_DIR = Path(__file__).resolve().parent.parent / "golden"
@@ -49,7 +54,7 @@ def _load(stem: str) -> Dict[str, Any]:
 def _unwrap_tcp(frame: bytes) -> bytes:
     """剥离 FINS/TCP 头,返回内层 FINS 帧(走 codec 校验路径)。"""
     length = codec.parse_tcp_head(frame[:8])
-    content = frame[8:8 + length]
+    content = frame[8 : 8 + length]
     codec.extract_tcp_error(content)
     return codec.extract_tcp_payload(content)
 
@@ -66,16 +71,32 @@ def test_golden_area_read_roundtrip(
     dst, src = setup["destination"], setup["source"]
     parsed = parse_fins_address(address)
     built = codec.build_area_read(
-        dst[0], dst[1], dst[2], src[0], src[1], src[2],
-        setup["sid"], parsed, count, False,
+        dst[0],
+        dst[1],
+        dst[2],
+        src[0],
+        src[1],
+        src[2],
+        setup["sid"],
+        parsed,
+        count,
+        False,
     )
     if setup["transport"] == "tcp":
         built = codec.build_tcp_frame(built)
     assert built == request
     fins = _unwrap_tcp(response) if setup["transport"] == "tcp" else response
     request_frame = codec.build_area_read(
-        dst[0], dst[1], dst[2], src[0], src[1], src[2],
-        setup["sid"], parsed, count, False,
+        dst[0],
+        dst[1],
+        dst[2],
+        src[0],
+        src[1],
+        src[2],
+        setup["sid"],
+        parsed,
+        count,
+        False,
     )
     assert codec.parse_response(fins, request_frame, count, False, True) == values
 
@@ -91,8 +112,16 @@ def test_golden_area_write_roundtrip(
     setup = data["setup"]
     dst, src = setup["destination"], setup["source"]
     built = codec.build_area_write(
-        dst[0], dst[1], dst[2], src[0], src[1], src[2],
-        setup["sid"], parse_fins_address(address), values, False,
+        dst[0],
+        dst[1],
+        dst[2],
+        src[0],
+        src[1],
+        src[2],
+        setup["sid"],
+        parse_fins_address(address),
+        values,
+        False,
     )
     assert built == request
     codec.parse_response(response, built, 0, False, False)
@@ -146,7 +175,7 @@ def test_build_multiple_area_read() -> None:
         0, 5, 0, 0, 10, 0, 1, [(0x82, 100), (0xB0, 5)]
     )
     assert frame[10:12] == b"\x01\x04"
-    assert frame[12:] == bytes.fromhex("82006400" "b0000500")
+    assert frame[12:] == bytes.fromhex("82006400b0000500")
 
 
 def test_build_multiple_area_read_validation() -> None:
@@ -164,9 +193,14 @@ def test_build_multiple_area_read_validation() -> None:
 def test_parse_multiple_area_read() -> None:
     """多存储区读响应:每条 = 区码回显 1 字节 + 字数据 2 字节大端。"""
     frame = (
-        _FINS_ECHO_HEAD + b"\x01" + b"\x01\x04" + b"\x00\x00"
-        + b"\x82" + (0x1234).to_bytes(2, "big")
-        + b"\xb0" + (0x0007).to_bytes(2, "big")
+        _FINS_ECHO_HEAD
+        + b"\x01"
+        + b"\x01\x04"
+        + b"\x00\x00"
+        + b"\x82"
+        + (0x1234).to_bytes(2, "big")
+        + b"\xb0"
+        + (0x0007).to_bytes(2, "big")
     )
     assert codec.parse_multiple_area_read(
         frame, _request_frame(sid=1, command=0x0104), [0x82, 0xB0]
@@ -178,8 +212,17 @@ def test_parse_multiple_area_read_errors() -> None:
     base = _FINS_ECHO_HEAD + b"\x01" + b"\x01\x04"
     request = _request_frame(sid=1, command=0x0104)
     with pytest.raises(ProtocolFrameError):
-        codec.parse_multiple_area_read(base + b"\x00\x00" + b"\x82", request, [0x82, 0xB0])
-    bad_echo = base + b"\x00\x00" + b"\x83" + (1).to_bytes(2, "big") + b"\xb0" + (0).to_bytes(2, "big")
+        codec.parse_multiple_area_read(
+            base + b"\x00\x00" + b"\x82", request, [0x82, 0xB0]
+        )
+    bad_echo = (
+        base
+        + b"\x00\x00"
+        + b"\x83"
+        + (1).to_bytes(2, "big")
+        + b"\xb0"
+        + (0).to_bytes(2, "big")
+    )
     with pytest.raises(ProtocolFrameError):
         codec.parse_multiple_area_read(bad_echo, request, [0x82, 0xB0])
     with pytest.raises(DeviceError):
@@ -194,7 +237,13 @@ def test_parse_multiple_area_read_errors() -> None:
 def test_parse_response_rejects_wrong_icf() -> None:
     """应答帧 ICF 回显校验:响应 ICF 必须为 0xC0,请求 ICF(0x80)即按坏帧。"""
     request = _request_frame(sid=1, command=0x0101)
-    bad_icf = b"\x80" + b"\x00\x02\x00\x0a\x00\x00\x05\x00" + b"\x01\x01\x01" + b"\x00\x00" + b"\x00\x14"
+    bad_icf = (
+        b"\x80"
+        + b"\x00\x02\x00\x0a\x00\x00\x05\x00"
+        + b"\x01\x01\x01"
+        + b"\x00\x00"
+        + b"\x00\x14"
+    )
     with pytest.raises(ProtocolFrameError) as exc_info:
         codec.parse_response(bad_icf, request, 1, False, True)
     assert "ICF" in exc_info.value.args[0]
@@ -204,7 +253,12 @@ def test_parse_response_rejects_wrong_sid() -> None:
     """应答帧 SID 回显校验:与请求 SID(本事务)不符即坏帧(串话/迟到识别)。"""
     request = _request_frame(sid=1, command=0x0101)
     # 字节 9 是 SID 位置;此处取 0x02 与请求 0x01 不符
-    wrong_sid = b"\xc0\x00\x02\x00\x0a\x00\x00\x05\x00\x02" + b"\x01\x01" + b"\x00\x00" + b"\x00\x14"
+    wrong_sid = (
+        b"\xc0\x00\x02\x00\x0a\x00\x00\x05\x00\x02"
+        + b"\x01\x01"
+        + b"\x00\x00"
+        + b"\x00\x14"
+    )
     with pytest.raises(ProtocolFrameError) as exc_info:
         codec.parse_response(wrong_sid, request, 1, False, True)
     assert "SID" in exc_info.value.args[0]
@@ -214,7 +268,12 @@ def test_parse_response_rejects_wrong_command() -> None:
     """应答帧命令码回显校验:与请求命令不符即坏帧(如应答被当成另一命令的响应)。"""
     request = _request_frame(sid=1, command=0x0101)
     # 字节 9=SID=0x01(与请求一致),字节 10-11=命令 0x0102(请求 0x0101,不符)
-    wrong_cmd = b"\xc0\x00\x02\x00\x0a\x00\x00\x05\x00\x01" + b"\x01\x02" + b"\x00\x00" + b"\x00\x14"
+    wrong_cmd = (
+        b"\xc0\x00\x02\x00\x0a\x00\x00\x05\x00\x01"
+        + b"\x01\x02"
+        + b"\x00\x00"
+        + b"\x00\x14"
+    )
     with pytest.raises(ProtocolFrameError) as exc_info:
         codec.parse_response(wrong_cmd, request, 1, False, True)
     assert "命令码" in exc_info.value.args[0]
@@ -223,7 +282,14 @@ def test_parse_response_rejects_wrong_command() -> None:
 def test_parse_multiple_area_read_rejects_wrong_sid() -> None:
     """0104 多存储区读响应 SID 回显校验。"""
     # SID=0x02 与请求 0x01 不符——回显字节置于帧头第 10 字节
-    base = _FINS_ECHO_HEAD + b"\x00\x02" + b"\x01\x04" + b"\x00\x00" + b"\x82" + (0x1234).to_bytes(2, "big")
+    base = (
+        _FINS_ECHO_HEAD
+        + b"\x00\x02"
+        + b"\x01\x04"
+        + b"\x00\x00"
+        + b"\x82"
+        + (0x1234).to_bytes(2, "big")
+    )
     request = _request_frame(sid=1, command=0x0104)
     with pytest.raises(ProtocolFrameError) as exc_info:
         codec.parse_multiple_area_read(base, request, [0x82])
@@ -279,12 +345,7 @@ def test_parse_response_rejects_relay_flag_with_zero_base() -> None:
 def test_parse_response_rejects_trailing_bytes() -> None:
     """读响应数据区之后出现多余字节按坏帧处理(长度严格,防帧失步)。"""
     response = (
-        _FINS_ECHO_HEAD
-        + b"\x01"
-        + b"\x01\x01"
-        + b"\x00\x00"
-        + b"\x00\x14"
-        + b"\x00"
+        _FINS_ECHO_HEAD + b"\x01" + b"\x01\x01" + b"\x00\x00" + b"\x00\x14" + b"\x00"
     )
     with pytest.raises(ProtocolFrameError):
         codec.parse_response(response, _request_frame(), 1, False, True)

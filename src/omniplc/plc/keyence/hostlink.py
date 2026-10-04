@@ -20,6 +20,7 @@ LONG/ULONG    ``RDS DM100.U 4`` 四字小端拼 64 位整数
 DOUBLE        ``RDS DM100.U 4`` 四字小端拼 float64
 ============  ==============================================
 """
+
 from __future__ import annotations
 
 import socket
@@ -113,7 +114,9 @@ class _KeyenceHostLinkBase(BaseClient):
                     received += 1
                     if received > KV_MAX_LINE:
                         raise ProtocolFrameError(
-                            _("KV Host Link 响应行超过 {} 字节上限(头部字节:{})").format(
+                            _(
+                                "KV Host Link 响应行超过 {} 字节上限(头部字节:{})"
+                            ).format(
                                 KV_MAX_LINE,
                                 _truncate_hex(b"".join(chunks)),
                             )
@@ -147,7 +150,11 @@ class _KeyenceHostLinkBase(BaseClient):
             DataType.DOUBLE,
         ):
             return self._read_word(parsed, data_type)
-        raise ValueError(_("KV Host Link 不支持的数据类型或软元件:{!r}({})").format(address, data_type))
+        raise ValueError(
+            _("KV Host Link 不支持的数据类型或软元件:{!r}({})").format(
+                address, data_type
+            )
+        )
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """按数据类型分发到位/字写入原语。"""
@@ -169,7 +176,11 @@ class _KeyenceHostLinkBase(BaseClient):
         ):
             self._write_word(parsed, data_type, value)
             return
-        raise ValueError(_("KV Host Link 不支持的数据类型或软元件:{!r}({})").format(address, data_type))
+        raise ValueError(
+            _("KV Host Link 不支持的数据类型或软元件:{!r}({})").format(
+                address, data_type
+            )
+        )
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """读字符串:连续 .U 字 → 小端拼字节 → 解码。"""
@@ -184,7 +195,9 @@ class _KeyenceHostLinkBase(BaseClient):
         raw = convert.encode_string(
             value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
         )
-        words = [int.from_bytes(raw[i:i + 2], "little") for i in range(0, len(raw), 2)]
+        words = [
+            int.from_bytes(raw[i : i + 2], "little") for i in range(0, len(raw), 2)
+        ]
         self._write_consecutive_words(parsed, words)
         return value
 
@@ -201,7 +214,9 @@ class _KeyenceHostLinkBase(BaseClient):
                 )
             return codec.parse_bit_token(tokens[0])
         if parsed.bit is None:
-            raise ValueError(_("位软元件布尔读取需要位软元件或字软元件位访问,如 DM100.5"))
+            raise ValueError(
+                _("位软元件布尔读取需要位软元件或字软元件位访问,如 DM100.5")
+            )
         word = self._read_word_token(parsed, ".U")
         return bool((word >> parsed.bit) & 1)
 
@@ -211,7 +226,9 @@ class _KeyenceHostLinkBase(BaseClient):
             self._write_single(parsed, "", "1" if value else "0")
             return
         if parsed.bit is None:
-            raise ValueError(_("位软元件布尔写入需要位软元件或字软元件位访问,如 DM100.5"))
+            raise ValueError(
+                _("位软元件布尔写入需要位软元件或字软元件位访问,如 DM100.5")
+            )
         word = self._read_word_token(parsed, ".U")
         updated = (word | (1 << parsed.bit)) if value else (word & ~(1 << parsed.bit))
         self._write_single(parsed, ".U", codec.format_value(updated & 0xFFFF, ".U"))
@@ -240,7 +257,9 @@ class _KeyenceHostLinkBase(BaseClient):
         words = self._read_consecutive(parsed, 4)
         return struct.unpack("<d", convert.words_to_bytes(words)[:8])[0]
 
-    def _write_word(self, parsed: KvAddress, data_type: DataType, value: PrimitiveValue) -> None:
+    def _write_word(
+        self, parsed: KvAddress, data_type: DataType, value: PrimitiveValue
+    ) -> None:
         """按数据类型写入字软元件。"""
         if data_type is DataType.SHORT:
             self._write_single(
@@ -305,21 +324,23 @@ class _KeyenceHostLinkBase(BaseClient):
             )
         return codec.parse_word_token(tokens[0], data_format)
 
-    def _write_single(self, parsed: KvAddress, data_format: str, value_text: str) -> None:
+    def _write_single(
+        self, parsed: KvAddress, data_format: str, value_text: str
+    ) -> None:
         """单点写并校验 OK 应答(内部方法)。"""
-        _expect_ok(self._transact(codec.build_write(_token(parsed, data_format), value_text)))
+        _expect_ok(
+            self._transact(codec.build_write(_token(parsed, data_format), value_text))
+        )
 
     def _read_consecutive(self, parsed: KvAddress, count: int) -> List[int]:
         """RDS 连续读 .U 字,返回 0~65535 原始字列表(内部方法)。"""
-        response = self._transact(
-            codec.build_read(_token(parsed, ".U"), count)
-        )
+        response = self._transact(codec.build_read(_token(parsed, ".U"), count))
         tokens = codec.split_tokens(response)
         if len(tokens) != count:
             raise ProtocolFrameError(
-                _("连续读响应令牌数不符:期望 {},收到 {}:{}(收到的原始响应:{!r})").format(
-                    count, len(tokens), response, response
-                )
+                _(
+                    "连续读响应令牌数不符:期望 {},收到 {}:{}(收到的原始响应:{!r})"
+                ).format(count, len(tokens), response, response)
             )
         return [codec.parse_word_token(token, ".U") for token in tokens]
 
@@ -385,6 +406,7 @@ class KeyenceHostLinkUdpClient(_KeyenceHostLinkBase):
 # 模块级辅助函数
 # ----------------------------------------------------------------------
 
+
 def _token(parsed: KvAddress, data_format: str) -> str:
     """软元件规范文本 + 数据格式后缀(如 ``"DM100.U"``,内部函数)。"""
     return "{}{}".format(parsed.to_text(), data_format)
@@ -406,9 +428,7 @@ def _expect_ok(response: str) -> None:
         docstring 的承诺一致)
     """
     if response.strip().upper() != "OK":
-        raise ProtocolFrameError(
-            _("写命令应答异常:期望 OK,收到 {!r}").format(response)
-        )
+        raise ProtocolFrameError(_("写命令应答异常:期望 OK,收到 {!r}").format(response))
 
 
 def _truncate_hex(data: bytes, limit: int = 64) -> str:

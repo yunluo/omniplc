@@ -7,6 +7,7 @@
 - 断线重连:send 失败标记断开,下次扫码惰性重连
 - bank 越界参数校验、数据读写原语拒绝
 """
+
 from __future__ import annotations
 
 import socket
@@ -26,7 +27,9 @@ def client() -> KeyenceSrClient:
 
 
 def _mount(
-    monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient, scripted: ScriptedTransport
+    monkeypatch: pytest.MonkeyPatch,
+    client: KeyenceSrClient,
+    scripted: ScriptedTransport,
 ) -> None:
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
 
@@ -43,7 +46,9 @@ def test_scan_success(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient) 
     assert client.last_error is None
 
 
-def test_scan_with_bank(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient) -> None:
+def test_scan_with_bank(
+    monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient
+) -> None:
     """指定 bank:LON,{bank:02d} 命令。"""
     line = b"XYZ\r"
     scripted = ScriptedTransport(_chunks_of(line))
@@ -53,7 +58,9 @@ def test_scan_with_bank(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient
     assert bytes(scripted.sent).startswith(b"LON,01\r")
 
 
-def test_scan_with_bank_upper_bound(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient) -> None:
+def test_scan_with_bank_upper_bound(
+    monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient
+) -> None:
     """bank 上界 16(手册 LON,b 为 01~16):LON,16 合法。"""
     scripted = ScriptedTransport(_chunks_of(b"XYZ\r"))
     _mount(monkeypatch, client, scripted)
@@ -72,7 +79,9 @@ def test_scan_bank_validation(client: KeyenceSrClient) -> None:
         client.scan(bank=-1)
 
 
-def test_scan_error_response(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient) -> None:
+def test_scan_error_response(
+    monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient
+) -> None:
     """ERROR 应答 = 未读到条码,链路完好不断线。"""
     line = b"ERROR\r"
     scripted = ScriptedTransport(_chunks_of(line))
@@ -98,7 +107,9 @@ def test_scan_command_error_response_rejected(
     assert client.stats["transactions"] == 1
 
 
-def test_scan_ok_no_read(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient) -> None:
+def test_scan_ok_no_read(
+    monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient
+) -> None:
     """OK 应答 = 无读出。"""
     line = b"OK\r"
     scripted = ScriptedTransport(_chunks_of(line))
@@ -108,7 +119,9 @@ def test_scan_ok_no_read(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClien
     assert client.last_error is not None and "无读出" in client.last_error
 
 
-def test_scan_read_timeout(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient) -> None:
+def test_scan_read_timeout(
+    monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient
+) -> None:
     """LOFF 后无应答(读超时)= 链路完好,不断线,且不计设备错误码。"""
 
     class TimeoutTransport(ScriptedTransport):
@@ -131,7 +144,9 @@ def test_scan_read_timeout(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrCli
     assert bytes(scripted.sent) == b"LON\rLOFF\r"
 
 
-def test_scan_retry_uses_write_retries(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient) -> None:
+def test_scan_retry_uses_write_retries(
+    monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient
+) -> None:
     """扫码按动作型操作走事务模板:重试次数取 write_retries,不是 retries。"""
 
     class TimeoutTransport(ScriptedTransport):
@@ -174,7 +189,9 @@ def test_scan_send_failure_lazy_reconnect(monkeypatch: pytest.MonkeyPatch) -> No
     assert client.connected is True
 
 
-def test_reset_roundtrip(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient) -> None:
+def test_reset_roundtrip(
+    monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient
+) -> None:
     """reset:BCLR + RESET 双 OK。"""
     lines = _chunks_of(b"OK\rOK\r")
     scripted = ScriptedTransport(lines)
@@ -184,7 +201,9 @@ def test_reset_roundtrip(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClien
     assert bytes(scripted.sent) == b"BCLR\rRESET\r"
 
 
-def test_reset_failure(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient) -> None:
+def test_reset_failure(
+    monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient
+) -> None:
     """reset:应答非 OK → False(DeviceError,不断线)。"""
     line = b"ER\r"
     scripted = ScriptedTransport(_chunks_of(line))
@@ -195,7 +214,9 @@ def test_reset_failure(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient)
     assert client.last_error is not None and "OK" in client.last_error
 
 
-def test_data_read_write_rejected(monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient) -> None:
+def test_data_read_write_rejected(
+    monkeypatch: pytest.MonkeyPatch, client: KeyenceSrClient
+) -> None:
     """扫码枪不支持 PLC 数据读写:能力缺失 = DeviceError,不断线。"""
     scripted = ScriptedTransport([])
     _mount(monkeypatch, client, scripted)
@@ -242,7 +263,7 @@ def test_async_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _chunks_of(line: bytes) -> list:
-    return [line[i:i + 1] for i in range(len(line))]
+    return [line[i : i + 1] for i in range(len(line))]
 
 
 class _HalfLineThenClean(ScriptedTransport):

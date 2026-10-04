@@ -16,6 +16,7 @@
 公共 API 沿用库约定:读码 ``scan()`` 返回 ``(是否读到条码, 条码文本)``,
 失败原因记入 :attr:`last_error`;``reset()`` 返回 ``bool``。
 """
+
 from __future__ import annotations
 
 import socket
@@ -37,7 +38,12 @@ from ..core.constants import (
     SR_RESP_ERROR,
     SR_RESP_OK,
 )
-from ..core.errors import DeviceError, ErrorCategory, OmniPLCInternalError, TransportTimeoutError
+from ..core.errors import (
+    DeviceError,
+    ErrorCategory,
+    OmniPLCInternalError,
+    TransportTimeoutError,
+)
 from ..transport import BaseTransport, TcpTransport
 from ..core.types import DataType, PrimitiveValue
 from ..core.i18n import _
@@ -97,7 +103,9 @@ class KeyenceSrClient(BaseClient):
     # 扫码 API
     # ------------------------------------------------------------------
 
-    def scan(self, bank: Optional[int] = None, timeout: Optional[float] = None) -> Tuple[bool, Optional[str]]:
+    def scan(
+        self, bank: Optional[int] = None, timeout: Optional[float] = None
+    ) -> Tuple[bool, Optional[str]]:
         """触发一次扫码(事务模板内完成 LON → 窗口 → LOFF → 读应答)。
 
         扫码是**动作型**操作(触发一次激光读出),按写语义走事务模板——
@@ -113,7 +121,9 @@ class KeyenceSrClient(BaseClient):
         """
         if bank is not None and not SR_BANK_MIN <= int(bank) <= SR_BANK_MAX:
             raise ValueError(
-                _("bank 必须在 {}~{} 之间,收到:{}").format(SR_BANK_MIN, SR_BANK_MAX, bank)
+                _("bank 必须在 {}~{} 之间,收到:{}").format(
+                    SR_BANK_MIN, SR_BANK_MAX, bank
+                )
             )
         read_timeout = self._receive_timeout if timeout is None else float(timeout)
         if read_timeout <= 0:
@@ -194,6 +204,7 @@ class KeyenceSrClient(BaseClient):
         复位是动作型命令,按写语义走事务模板(重试用 :attr:`write_retries`,
         默认 0,避免重复复位)。
         """
+
         def operation() -> bool:
             transport = self._require_transport()
             self._command_expect_ok(transport, SR_CMD_BUFFER_CLEAR)
@@ -228,7 +239,9 @@ class KeyenceSrClient(BaseClient):
                 started = True
                 chunks.append(byte)
                 if len(chunks) > SR_RECV_MAX:
-                    raise OmniPLCInternalError(_("SR 应答超过 {} 字节上限").format(SR_RECV_MAX))
+                    raise OmniPLCInternalError(
+                        _("SR 应答超过 {} 字节上限").format(SR_RECV_MAX)
+                    )
         finally:
             transport.receive_timeout = previous_timeout
         return b"".join(chunks)
@@ -265,14 +278,19 @@ class KeyenceSrClient(BaseClient):
     def _command_expect_ok(self, transport: BaseTransport, command: bytes) -> None:
         """发送命令并校验 OK 应答(内部方法)。"""
         transport.send(command)
-        text = self._read_line(transport, self._receive_timeout).decode(
-            self._encoding, errors=self._encoding_errors
-        ).strip()
+        text = (
+            self._read_line(transport, self._receive_timeout)
+            .decode(self._encoding, errors=self._encoding_errors)
+            .strip()
+        )
         if text != SR_RESP_OK:
             # code 0 = 无具体错误码(设备应答异常但链路正常,不断线)
-            raise DeviceError(_("SR 命令 {} 应答异常:期望 OK,收到 {!r}").format(
-                command.decode("ascii").rstrip("\r"), text
-            ), 0)
+            raise DeviceError(
+                _("SR 命令 {} 应答异常:期望 OK,收到 {!r}").format(
+                    command.decode("ascii").rstrip("\r"), text
+                ),
+                0,
+            )
 
     def _create_transport(self) -> BaseTransport:
         return TcpTransport(self._ip_address, self._port)

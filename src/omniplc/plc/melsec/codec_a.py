@@ -11,6 +11,7 @@
 - 结束代码 0x5B 的响应后跟 1 字节异常细分码(SH-080008 §18.2 印刷页 395
   算例 ``5BH 10H``;TCP 接收需多读,防止字节流错位)
 """
+
 from __future__ import annotations
 
 from typing import List, Optional, Tuple
@@ -88,12 +89,16 @@ def build_request(
     code, is_bit_device, base = device_info(address.device)
     if is_bit and not is_bit_device:
         raise ValueError(
-            _("字软元件 {} 不支持位单位成批访问,请按字访问后提取位").format(address.device)
+            _("字软元件 {} 不支持位单位成批访问,请按字访问后提取位").format(
+                address.device
+            )
         )
     if is_bit and is_bit_device:
         reject_bit_suffix_on_bit_device(address)
     if not 1 <= points <= MC_1E_MAX_POINTS:
-        raise ValueError(_("1E 访问点数超出范围 1~{}:{}").format(MC_1E_MAX_POINTS, points))
+        raise ValueError(
+            _("1E 访问点数超出范围 1~{}:{}").format(MC_1E_MAX_POINTS, points)
+        )
     number = device_number(address.device, address.number, base)
     if not is_bit and is_bit_device and number % 16 != 0:
         raise ValueError(
@@ -137,13 +142,20 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
     ) + 0x80
     if frame[0] != expected_head:
         raise ProtocolFrameError(
-            _("1E 响应副头部不符:期望 0x{:02X},收到 0x{:02X}").format(expected_head, frame[0])
+            _("1E 响应副头部不符:期望 0x{:02X},收到 0x{:02X}").format(
+                expected_head, frame[0]
+            )
         )
     end_code = frame[1]
     if end_code != 0:
-        if end_code == MC_1E_ERROR_EXTRA and len(frame) < MC_1E_RESPONSE_HEAD_SIZE + MC_1E_ERROR_EXTRA_SIZE:
+        if (
+            end_code == MC_1E_ERROR_EXTRA
+            and len(frame) < MC_1E_RESPONSE_HEAD_SIZE + MC_1E_ERROR_EXTRA_SIZE
+        ):
             raise ProtocolFrameError(_("1E 错误响应缺少扩展信息字节"))
-        raise DeviceError(_("MC(1E) 结束代码 0x{:02X},详见 A 系列手册").format(end_code), end_code)
+        raise DeviceError(
+            _("MC(1E) 结束代码 0x{:02X},详见 A 系列手册").format(end_code), end_code
+        )
     if not is_read:
         if len(frame) != MC_1E_RESPONSE_HEAD_SIZE:
             # 1E 帧无长度域,写响应成功时应答恰为 2 字节头;多余字节滞留
@@ -156,7 +168,7 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
             )
         return []
     expected = (points + 1) // 2 if is_bit else points * 2
-    data = frame[2:2 + expected]
+    data = frame[2 : 2 + expected]
     if len(data) != expected:
         raise ProtocolFrameError(
             _("1E 响应数据不足:期望 {} 字节,实际 {}").format(expected, len(data))
@@ -172,7 +184,7 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
             1 if data[index // 2] & (0x10 if index % 2 == 0 else 0x01) else 0
             for index in range(points)
         ]
-    return [int.from_bytes(data[i:i + 2], "little") for i in range(0, expected, 2)]
+    return [int.from_bytes(data[i : i + 2], "little") for i in range(0, expected, 2)]
 
 
 def _write_payload(points: int, is_bit: bool, data: List[int]) -> bytes:

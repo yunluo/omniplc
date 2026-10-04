@@ -1,4 +1,5 @@
 """传输层单元测试:TCP/UDP 走本机 echo 服务。"""
+
 from __future__ import annotations
 
 import logging
@@ -86,7 +87,9 @@ class TestUdpTransport:
         with pytest.raises(TransportClosedError):
             transport.send(b"x")
 
-    def test_connect_failure_closes_socket(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_connect_failure_closes_socket(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """UDP connect 失败须关闭刚建的套接字(回归:惰性重连反复泄漏 FD)。"""
         closed: list = []
 
@@ -128,7 +131,7 @@ class TestUdpTransport:
                 pass
 
             def recv_into(self, buffer: bytearray, _size: int, _flags: int = 0) -> int:
-                buffer[:] = b"\xAA" * len(buffer)
+                buffer[:] = b"\xaa" * len(buffer)
                 return 2000
 
             def recv(self, _size: int) -> bytes:
@@ -151,8 +154,10 @@ class TestUdpTransport:
         assert "2000" in str(excinfo.value)
         # 截断日志必出现,带"实收 2000B,缓冲 1024B,超出 976B"
         truncate_records = [
-            record for record in caplog.records
-            if record.levelno == logging.WARNING and "UDP 数据报截断" in record.getMessage()
+            record
+            for record in caplog.records
+            if record.levelno == logging.WARNING
+            and "UDP 数据报截断" in record.getMessage()
         ]
         assert len(truncate_records) == 1
         assert "2000" in truncate_records[0].getMessage()
@@ -170,7 +175,7 @@ class TestUdpTransport:
                 pass
 
             def recv_into(self, buffer: bytearray, _size: int, _flags: int = 0) -> int:
-                buffer[:100] = b"\xAA" * 100
+                buffer[:100] = b"\xaa" * 100
                 return 100
 
             def close(self) -> None:
@@ -185,10 +190,12 @@ class TestUdpTransport:
                 frame = transport.recv(1024)
         finally:
             transport.close()
-        assert frame == b"\xAA" * 100
+        assert frame == b"\xaa" * 100
         truncate_records = [
-            record for record in caplog.records
-            if record.levelno == logging.WARNING and "UDP 数据报截断" in record.getMessage()
+            record
+            for record in caplog.records
+            if record.levelno == logging.WARNING
+            and "UDP 数据报截断" in record.getMessage()
         ]
         assert len(truncate_records) == 0
 
@@ -296,7 +303,9 @@ class TestSerialTransportRecv:
         finally:
             transport.close()
 
-    def test_recv_timeout_zero_bytes_keeps_link(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_recv_timeout_zero_bytes_keeps_link(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """0 字节已读超时:TransportTimeoutError(不断线),串口保持打开。"""
         from omniplc.core.errors import TransportTimeoutError
 
@@ -308,7 +317,9 @@ class TestSerialTransportRecv:
         finally:
             transport.close()
 
-    def test_recv_partial_truncation_closes_port(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_recv_partial_truncation_closes_port(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """部分字节已读后超时(帧截断):TransportClosedError + 串口已主动关闭
         ——残渣已被消费、无法回退,下一帧开头必然错位,断线重开是唯一
         重新同步手段(与 RTU CRC 校验失败后的断线恢复同一逻辑)。

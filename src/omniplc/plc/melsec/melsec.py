@@ -13,6 +13,7 @@
 :mod:`.codec_serial_a`;接收策略按走线区分:TCP 按响应头长度
 分段收包,UDP 整包接收,串口按控制码与长度域逐段收包。
 """
+
 from __future__ import annotations
 
 from abc import abstractmethod
@@ -62,7 +63,13 @@ from ...core.validation import (
     require_bool,
     require_int,
 )
-from ...transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport, UdpTransport
+from ...transport import (
+    BaseTransport,
+    SerialConfig,
+    SerialTransport,
+    TcpTransport,
+    UdpTransport,
+)
 from ...core.types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity
 from ...core.i18n import _
 
@@ -73,6 +80,8 @@ _MC_DEVICE_CODES_FX5U_XY: Dict[str, Tuple[int, int, int]] = {
     "X": (0x9C, 1, 8),
     "Y": (0x9D, 1, 8),
 }
+
+
 class _MelsecMcBase(BaseClient):
     """MC 客户端公共基类:帧型/序列号管理与软元件地址分发(私有)。
 
@@ -186,12 +195,18 @@ class _MelsecMcBase(BaseClient):
             if is_bit_device and not self._bit_device_word_access_allowed:
                 # 位软元件塞进字单位请求会被 PLC 拒绝或按 16 点/字错读
                 raise ValueError(
-                    _("MC 位软元件 {}{} 只支持 BOOL,字单位请改用字软元件"
-                    "(如 D)或逐点位读").format(parsed.device, parsed.number)
+                    _(
+                        "MC 位软元件 {}{} 只支持 BOOL,字单位请改用字软元件"
+                        "(如 D)或逐点位读"
+                    ).format(parsed.device, parsed.number)
                 )
         if data_type in (DataType.SHORT, DataType.USHORT):
             data = self._read_words(parsed, 1)
-            return data[0] if data_type is DataType.USHORT else convert.to_signed(data[0], 16)
+            return (
+                data[0]
+                if data_type is DataType.USHORT
+                else convert.to_signed(data[0], 16)
+            )
         if data_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
             data = self._read_words(parsed, 2)
             return _decode_32(data, data_type)
@@ -212,7 +227,9 @@ class _MelsecMcBase(BaseClient):
                 self._write_bits(parsed, [1 if flag else 0])
             else:
                 words = self._read_words(parsed, 1)
-                self._write_words(parsed, [convert.set_bit(words[0], parsed.bit or 0, flag)])
+                self._write_words(
+                    parsed, [convert.set_bit(words[0], parsed.bit or 0, flag)]
+                )
             return
         if data_type is DataType.SHORT:
             self._write_words(parsed, [check_int16(value)])
@@ -242,8 +259,12 @@ class _MelsecMcBase(BaseClient):
         parsed = parse_mc_address(address)
         if parsed.bit is not None:
             raise ValueError(_("字符串地址不支持位号后缀:{!r}").format(address))
-        raw = convert.encode_string(value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding)
-        words = [int.from_bytes(raw[i:i + 2], "little") for i in range(0, len(raw), 2)]
+        raw = convert.encode_string(
+            value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
+        )
+        words = [
+            int.from_bytes(raw[i : i + 2], "little") for i in range(0, len(raw), 2)
+        ]
         self._write_words(parsed, words)
         return value
 
@@ -310,12 +331,16 @@ class _MelsecMcBase(BaseClient):
             if not is_bit_device and parsed.bit is None:
                 # 字软元件无位号:连续"字 bit0"语义不明,拒绝(同 Modbus 口径)
                 raise ValueError(
-                    _("MC read_range 的 BOOL 需要位软元件(如 M0)或字软元件位号"
-                    "单点读(如 D100.3),收到:{!r}").format(address)
+                    _(
+                        "MC read_range 的 BOOL 需要位软元件(如 M0)或字软元件位号"
+                        "单点读(如 D100.3),收到:{!r}"
+                    ).format(address)
                 )
             if not is_bit_device:
                 raise ValueError(
-                    _("MC read_range 不支持字软元件位号后缀:{!r}(请逐点读)").format(address)
+                    _("MC read_range 不支持字软元件位号后缀:{!r}(请逐点读)").format(
+                        address
+                    )
                 )
             codec_qna.reject_bit_suffix_on_bit_device(parsed)
 
@@ -326,8 +351,10 @@ class _MelsecMcBase(BaseClient):
         else:
             if is_bit_device and not self._bit_device_word_access_allowed:
                 raise ValueError(
-                    _("MC 位软元件 {}{} 只支持 BOOL,字单位请改用字软元件"
-                    "(如 D)或逐点位读").format(parsed.device, parsed.number)
+                    _(
+                        "MC 位软元件 {}{} 只支持 BOOL,字单位请改用字软元件"
+                        "(如 D)或逐点位读"
+                    ).format(parsed.device, parsed.number)
                 )
             width = 1
             if data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
@@ -345,13 +372,18 @@ class _MelsecMcBase(BaseClient):
                 words = self._read_words(parsed, count * width)
                 values: List[PrimitiveValue] = []
                 for index in range(count):
-                    chunk = words[index * width:(index + 1) * width]
+                    chunk = words[index * width : (index + 1) * width]
                     if data_type_enum in (DataType.SHORT, DataType.USHORT):
                         values.append(
-                            chunk[0] if data_type_enum is DataType.USHORT
+                            chunk[0]
+                            if data_type_enum is DataType.USHORT
                             else convert.to_signed(chunk[0], 16)
                         )
-                    elif data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
+                    elif data_type_enum in (
+                        DataType.INT,
+                        DataType.UINT,
+                        DataType.FLOAT,
+                    ):
                         values.append(_decode_32(chunk, data_type_enum))
                     else:
                         values.append(_decode_64(chunk, data_type_enum))
@@ -378,7 +410,9 @@ class _MelsecMcBase(BaseClient):
         if self._frame not in (McFrame.FRAME_3E, McFrame.FRAME_4E):
             return super().read_many(addresses, data_type)
         data_type_enum = DataType.coerce(data_type)
-        ok, values = self.read_batch([(address, data_type_enum) for address in addresses])
+        ok, values = self.read_batch(
+            [(address, data_type_enum) for address in addresses]
+        )
         if not ok or values is None:
             return [(False, None) for _ in addresses]
         return [(True, value) for value in values]
@@ -424,8 +458,10 @@ class _MelsecMcBase(BaseClient):
                 # 位软元件塞进 0406 字块会被 PLC 拒绝或按 16 点/字错读;
                 # 位软元件只用 BOOL,字单位请改字软元件(如 D)
                 raise ValueError(
-                    _("MC 批量读:位软元件 {}{} 只支持 BOOL,字单位请改用字软元件"
-                    "(如 D)或逐点读取").format(parsed.device, parsed.number)
+                    _(
+                        "MC 批量读:位软元件 {}{} 只支持 BOOL,字单位请改用字软元件"
+                        "(如 D)或逐点读取"
+                    ).format(parsed.device, parsed.number)
                 )
             number = codec_qna.device_number(parsed.device, parsed.number, base)
             if data_type_enum is DataType.BOOL:
@@ -436,7 +472,9 @@ class _MelsecMcBase(BaseClient):
                     bit_requests.append((code, number, plan_index))
                 else:
                     word_blocks.append((code, number, 1))
-                    plan.append(("wordbit", word_index, parsed.bit or 0, data_type_enum))
+                    plan.append(
+                        ("wordbit", word_index, parsed.bit or 0, data_type_enum)
+                    )
                     word_index += 1
                 continue
             if data_type_enum in (DataType.SHORT, DataType.USHORT):
@@ -488,9 +526,9 @@ class _MelsecMcBase(BaseClient):
                         else convert.to_signed(words[index], 16)
                     )
                 elif item_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
-                    values.append(_decode_32(words[index:index + 2], item_type))
+                    values.append(_decode_32(words[index : index + 2], item_type))
                 else:
-                    values.append(_decode_64(words[index:index + 4], item_type))
+                    values.append(_decode_64(words[index : index + 4], item_type))
             return values
 
         return self._execute(operation)
@@ -565,11 +603,13 @@ class _MelsecMcBase(BaseClient):
                 else:
                     # INT/UINT/FLOAT:字访问走两字解码;双字访问按 32 位原始值还原
                     if index < word_count:
-                        values.append(_decode_32(list(words[index:index + 2]), item_type))
+                        values.append(
+                            _decode_32(list(words[index : index + 2]), item_type)
+                        )
                     else:
-                        values.append(_decode_dword(
-                            dwords[index - word_count], item_type
-                        ))
+                        values.append(
+                            _decode_dword(dwords[index - word_count], item_type)
+                        )
             return values
 
         return self._execute(operation)
@@ -653,14 +693,18 @@ class _MelsecMcBase(BaseClient):
                 parsed = self._translate_address(parse_mc_address(address))
                 if parsed.bit is not None:
                     raise ValueError(
-                        _("MC 随机写地址不支持位号后缀:{!r}(位软元件直接写编号,按 16 点/字)").format(address)
+                        _(
+                            "MC 随机写地址不支持位号后缀:{!r}(位软元件直接写编号,按 16 点/字)"
+                        ).format(address)
                     )
                 code, is_bit_device, base = self._device_info(parsed.device)
                 number = codec_qna.device_number(parsed.device, parsed.number, base)
                 if is_bit_device and not 0 <= number <= 0xFFFFFF - 15:
                     # 位软元件按 16 点/字指定:编号 + 15 不得超过 3 字节域
                     raise ValueError(
-                        _("MC 随机写位软元件编号越界:{}{}").format(parsed.device, parsed.number)
+                        _("MC 随机写位软元件编号越界:{}{}").format(
+                            parsed.device, parsed.number
+                        )
                     )
                 number_value = require_int(value)
                 if not 0 <= number_value <= (1 << (byte_count * 8)) - 1:
@@ -771,12 +815,16 @@ class _MelsecMcBase(BaseClient):
 
     def _write_bits(self, parsed: McAddress, values: List[int]) -> None:
         """位软元件成批写(位单位核心命令,位号后缀校验在组帧层)。"""
-        request = self._build_frame(parsed, len(values), is_bit=True, is_write=True, data=values)
+        request = self._build_frame(
+            parsed, len(values), is_bit=True, is_write=True, data=values
+        )
         self._parse_write(self._transact(request), True)
 
     def _write_words(self, parsed: McAddress, words: List[int]) -> None:
         """字软元件成批写(字单位核心命令)。"""
-        request = self._build_frame(parsed, len(words), is_bit=False, is_write=True, data=words)
+        request = self._build_frame(
+            parsed, len(words), is_bit=False, is_write=True, data=words
+        )
         self._parse_write(self._transact(request), False)
 
     # ------------------------------------------------------------------
@@ -824,7 +872,13 @@ class _MelsecMcBase(BaseClient):
         """
         if self._frame is McFrame.FRAME_1E:
             return codec_a.build_request(
-                self._pc_number, MC_DEFAULT_MONITOR_TIMER, parsed, points, is_bit, is_write, data
+                self._pc_number,
+                MC_DEFAULT_MONITOR_TIMER,
+                parsed,
+                points,
+                is_bit,
+                is_write,
+                data,
             )
         return codec_qna.build_request(
             self._frame.value,
@@ -845,7 +899,12 @@ class _MelsecMcBase(BaseClient):
         if self._frame is McFrame.FRAME_1E:
             return codec_a.parse_response(response, points, is_bit, True)
         return codec_qna.parse_response(
-            response, self._frame.value, points, is_bit, True, expected_serial=self._serial
+            response,
+            self._frame.value,
+            points,
+            is_bit,
+            True,
+            expected_serial=self._serial,
         )
 
     def _parse_write(self, response: bytes, is_bit: bool) -> None:
@@ -858,7 +917,12 @@ class _MelsecMcBase(BaseClient):
             codec_a.parse_response(response, 0, is_bit, False)
         else:
             codec_qna.parse_response(
-                response, self._frame.value, 0, False, False, expected_serial=self._serial
+                response,
+                self._frame.value,
+                0,
+                False,
+                False,
+                expected_serial=self._serial,
             )
 
     def _next_serial(self) -> int:
@@ -886,9 +950,15 @@ class _MelsecMcBase(BaseClient):
             if tail_size:
                 return head + transport.recv(tail_size)
             return head
-        head_size = MC_4E_RESPONSE_HEAD_SIZE if self._frame is McFrame.FRAME_4E else MC_RESPONSE_HEAD_SIZE
+        head_size = (
+            MC_4E_RESPONSE_HEAD_SIZE
+            if self._frame is McFrame.FRAME_4E
+            else MC_RESPONSE_HEAD_SIZE
+        )
         head = transport.recv(head_size)
-        return head + transport.recv(codec_qna.parse_response_head(head, self._frame.value))
+        return head + transport.recv(
+            codec_qna.parse_response_head(head, self._frame.value)
+        )
 
     @abstractmethod
     def _create_transport(self) -> BaseTransport:
@@ -1013,15 +1083,11 @@ class MelsecMcSerialClient(_MelsecMcBase):
         self._init_frame(frame, network_number, pc_number)
         self._pc_number = codec_serial.check_pc_number(pc_number)
         self._station_number = codec_serial.check_station_number(station_number)
-        self._self_station_number = check_byte_field(
-            "本站号", self_station_number
-        )
+        self._self_station_number = check_byte_field("本站号", self_station_number)
         self._module_io = check_byte_field(
             "目标模块 I/O 编号", module_io, MC_MODULE_IO_MAX
         )
-        self._module_station = check_byte_field(
-            "目标模块局号", module_station
-        )
+        self._module_station = check_byte_field("目标模块局号", module_station)
         self._message_wait = codec_serial_a.check_message_wait(message_wait)
         self._serial_config: Optional[SerialConfig] = None
 
@@ -1251,10 +1317,10 @@ class MelsecMcSerialClient(_MelsecMcBase):
                     buf.extend(chunk)
                     return
             raise TransportClosedError(
-                _("4C 收包超时({}s),帧已截断(已收 {} 字节),"
-                "已放弃本帧,下次事务将重连以重新同步").format(
-                    previous_timeout, len(buf)
-                )
+                _(
+                    "4C 收包超时({}s),帧已截断(已收 {} 字节),"
+                    "已放弃本帧,下次事务将重连以重新同步"
+                ).format(previous_timeout, len(buf))
             )
 
         def _ensure(count: int) -> None:
@@ -1264,11 +1330,13 @@ class MelsecMcSerialClient(_MelsecMcBase):
 
         try:
             _ensure(2)
-            head = bytes(buf[pos:pos + 2])
+            head = bytes(buf[pos : pos + 2])
             pos += 2
             if head != bytes([codec_serial.DLE, codec_serial.STX]):
                 raise ProtocolFrameError(
-                    _("4C 响应必须以 DLE STX 开头:0x{:02X} 0x{:02X}").format(head[0], head[1])
+                    _("4C 响应必须以 DLE STX 开头:0x{:02X} 0x{:02X}").format(
+                        head[0], head[1]
+                    )
                 )
             _ensure(1)
             first = buf[pos]
@@ -1287,16 +1355,16 @@ class MelsecMcSerialClient(_MelsecMcBase):
             length = first | second << 8
             if length < 12:
                 raise ProtocolFrameError(
-                    _("4C 应答数据长非法(至少含帧识别码+路由+应答识别码+结束代码):{}").format(
-                        length
-                    )
+                    _(
+                        "4C 应答数据长非法(至少含帧识别码+路由+应答识别码+结束代码):{}"
+                    ).format(length)
                 )
             if length > MC_SERIAL_MAX_FRAME:
                 raise ProtocolFrameError(
                     _("4C 应答数据长超限:{} > {}").format(length, MC_SERIAL_MAX_FRAME)
                 )
             _ensure(1)
-            frame_id = bytes(buf[pos:pos + 1])
+            frame_id = bytes(buf[pos : pos + 1])
             pos += 1
             if frame_id[0] != MC_SERIAL_FRAME_ID_4C:
                 raise ProtocolFrameError(
@@ -1320,7 +1388,7 @@ class MelsecMcSerialClient(_MelsecMcBase):
                         )
                 body.append(raw)
             _ensure(4)
-            trailer = bytes(buf[pos:pos + 4])
+            trailer = bytes(buf[pos : pos + 4])
             return length.to_bytes(2, "little") + frame_id + bytes(body) + trailer
         finally:
             transport.receive_timeout = previous_timeout
@@ -1329,6 +1397,7 @@ class MelsecMcSerialClient(_MelsecMcBase):
 # ----------------------------------------------------------------------
 # 模块级辅助函数
 # ----------------------------------------------------------------------
+
 
 def _merge_bit_blocks(
     bit_requests: Sequence[Tuple[int, int, int]],

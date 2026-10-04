@@ -39,6 +39,7 @@ MTConnect),需要时用 :mod:`omniplc.aio` 或同步客户端过渡。
 
     asyncio.run(main())
 """
+
 from __future__ import annotations
 
 from .base import AsyncBaseClient

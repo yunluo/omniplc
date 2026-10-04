@@ -4,6 +4,7 @@
 ``generate_modbus_samples.py`` 用独立实现计算生成,保证本库编解码
 与标准报文逐字节一致(编码方向 + 解码方向 + 异常路径)。
 """
+
 from __future__ import annotations
 
 import json
@@ -46,17 +47,34 @@ _RW_CASES: List[Tuple[str, int, int, int, List[int]]] = [
     ("modbus_rtu_read_write_multi_001", 3, 6, 14, [0x00FF, 0x00FF, 0x00FF]),
 ]
 # (文件名, 读取码, 对象号, 符合级别, more_follows, 下一对象号, 对象列表)
-_DEVICE_ID_CASES: List[Tuple[str, int, int, int, bool, int, List[Tuple[int, bytes]]]] = [
+_DEVICE_ID_CASES: List[
+    Tuple[str, int, int, int, bool, int, List[Tuple[int, bytes]]]
+] = [
     (
-        "modbus_tcp_device_id_001", 0x01, 0x00, 0x01, False, 0x00,
+        "modbus_tcp_device_id_001",
+        0x01,
+        0x00,
+        0x01,
+        False,
+        0x00,
         [(0x00, b"OmniPLC Industries"), (0x01, b"MDL-2024"), (0x02, b"V2.11")],
     ),
     (
-        "modbus_rtu_device_id_001", 0x01, 0x00, 0x01, False, 0x00,
+        "modbus_rtu_device_id_001",
+        0x01,
+        0x00,
+        0x01,
+        False,
+        0x00,
         [(0x00, b"OmniPLC Industries"), (0x01, b"MDL-2024"), (0x02, b"V2.11")],
     ),
     (
-        "modbus_tcp_device_id_more_001", 0x01, 0x00, 0x01, True, 0x02,
+        "modbus_tcp_device_id_more_001",
+        0x01,
+        0x00,
+        0x01,
+        True,
+        0x02,
         [(0x00, b"OmniPLC Industries"), (0x01, b"MDL-2024")],
     ),
 ]
@@ -68,7 +86,9 @@ def _load(stem: str) -> Dict[str, Any]:
         return json.load(handle)
 
 
-def _build_request_pdu(function_code: int, offset: int, count: int, values: List[int]) -> bytes:
+def _build_request_pdu(
+    function_code: int, offset: int, count: int, values: List[int]
+) -> bytes:
     """按用例参数构造请求 PDU。"""
     if function_code in (5, 6):
         return codec.build_write_single_pdu(function_code, offset, values[0])
@@ -105,7 +125,9 @@ def test_golden_read_roundtrip(
     data = _load(stem)
     request = bytes.fromhex(data["request_hex"])
     response = bytes.fromhex(data["response_hex"])
-    assert _wrap(stem, _build_request_pdu(function_code, offset, count, values)) == request
+    assert (
+        _wrap(stem, _build_request_pdu(function_code, offset, count, values)) == request
+    )
     station, pdu = _unwrap(stem, response)
     assert station == int(data.get("setup", {}).get("station", 1))
     assert codec.parse_read_response(pdu, function_code, count) == values
@@ -160,9 +182,10 @@ def test_golden_read_write_registers_roundtrip(
     )
     assert _wrap(stem, pdu) == request
     _, response_pdu = _unwrap(stem, response)
-    assert codec.parse_read_write_registers_response(response_pdu, read_count) == data[
-        "expect"
-    ]["values"]
+    assert (
+        codec.parse_read_write_registers_response(response_pdu, read_count)
+        == data["expect"]["values"]
+    )
 
 
 @pytest.mark.parametrize(

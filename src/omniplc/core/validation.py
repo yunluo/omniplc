@@ -3,6 +3,7 @@
 数值范围校验失败抛 ``ValueError``(参数错误约定,直接抛给调用方);
 与"通信失败转 (False, None)/False"的内部异常约定相区分。
 """
+
 from __future__ import annotations
 
 from .constants import INT16_MAX, INT16_MIN, UINT16_MAX, UINT8_MAX
@@ -35,7 +36,9 @@ def check_int16(value: PrimitiveValue) -> int:
     """校验 16 位有符号整数范围,返回 0~65535 原始字。"""
     number = require_int(value)
     if not INT16_MIN <= number <= INT16_MAX:
-        raise ValueError(_("short 超出范围 {}~{}:{}").format(INT16_MIN, INT16_MAX, number))
+        raise ValueError(
+            _("short 超出范围 {}~{}:{}").format(INT16_MIN, INT16_MAX, number)
+        )
     return number & 0xFFFF
 
 

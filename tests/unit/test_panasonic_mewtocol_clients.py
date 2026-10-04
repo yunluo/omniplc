@@ -4,6 +4,7 @@
 RD/WD 数据区、低字在前+字内高字节在前的多字编解码、读-改-写、
 错误响应(!帧)不断线、BCC/站号错误按坏帧断开、UDP 整包、异步镜像。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -36,7 +37,9 @@ def _err(code: str) -> bytes:
     return (body + codec_mewtocol.bcc(body) + "\r").encode("ascii")
 
 
-def _mount(monkeypatch: pytest.MonkeyPatch, client, scripted: ScriptedTransport) -> None:
+def _mount(
+    monkeypatch: pytest.MonkeyPatch, client, scripted: ScriptedTransport
+) -> None:
     """挂载脚本传输(走正常 connect 流程)。"""
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
 
@@ -80,8 +83,10 @@ def test_read_bool_rcs(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.read_bool("R1F") == (True, True)
     assert bytes(scripted.sent) == codec_mewtocol.build_read_contact("01", "R", 1, 15)
     body = "%01#RCSR001F"
-    assert bytes(scripted.sent) == body.encode("ascii") + \
-        codec_mewtocol.bcc(body).encode("ascii") + b"\r"
+    assert (
+        bytes(scripted.sent)
+        == body.encode("ascii") + codec_mewtocol.bcc(body).encode("ascii") + b"\r"
+    )
 
 
 def test_read_ushort_rd(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -91,8 +96,12 @@ def test_read_ushort_rd(monkeypatch: pytest.MonkeyPatch) -> None:
     _mount(monkeypatch, client, scripted)
     client.connect()
     assert client.read_ushort("D100") == (True, 10000)
-    assert bytes(scripted.sent) == b"%01#RDD0010000100" + \
-        codec_mewtocol.bcc("%01#RDD0010000100").encode("ascii") + b"\r"
+    assert (
+        bytes(scripted.sent)
+        == b"%01#RDD0010000100"
+        + codec_mewtocol.bcc("%01#RDD0010000100").encode("ascii")
+        + b"\r"
+    )
 
 
 def test_read_multi_word_low_word_first(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -110,8 +119,8 @@ def test_read_multi_word_low_word_first(monkeypatch: pytest.MonkeyPatch) -> None
     sent = bytes(scripted.sent)
     body = "%01#RDD0000000001"  # 两事务同为 RD D00000~D00001(int32/float 读 2 字)
     frame = (body + codec_mewtocol.bcc(body) + "\r").encode("ascii")
-    assert sent[:len(frame)] == frame
-    assert sent[len(frame):].startswith(frame)
+    assert sent[: len(frame)] == frame
+    assert sent[len(frame) :].startswith(frame)
 
 
 # ----------------------------------------------------------------------
@@ -130,8 +139,10 @@ def test_read_range_shorts_rd(monkeypatch: pytest.MonkeyPatch) -> None:
     assert ok is True
     assert values == [10, 20, 30]
     body = "%01#RDD0010000102"
-    assert bytes(scripted.sent) == body.encode("ascii") + \
-        codec_mewtocol.bcc(body).encode("ascii") + b"\r"
+    assert (
+        bytes(scripted.sent)
+        == body.encode("ascii") + codec_mewtocol.bcc(body).encode("ascii") + b"\r"
+    )
 
 
 def test_read_range_ints_low_word_first(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -151,7 +162,7 @@ def test_read_range_rejects() -> None:
     """read_range 入参校验:接点区/位号/count/STRING。"""
     client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
     with pytest.raises(ValueError):
-        client.read_range("R1F", 4, "bool")    # 接点区无批量接点命令
+        client.read_range("R1F", 4, "bool")  # 接点区无批量接点命令
     with pytest.raises(ValueError):
         client.read_range("D100.3", 2, "bool")  # 字软元件位号不支持
     with pytest.raises(ValueError):
@@ -172,8 +183,12 @@ def test_write_words_wd(monkeypatch: pytest.MonkeyPatch) -> None:
     client.connect()
     assert client.write_ushort("D0", 100) is True
     expected_body = "%01#WDD00000000000064"
-    assert bytes(scripted.sent) == expected_body.encode("ascii") + \
-        codec_mewtocol.bcc(expected_body).encode("ascii") + b"\r"
+    assert (
+        bytes(scripted.sent)
+        == expected_body.encode("ascii")
+        + codec_mewtocol.bcc(expected_body).encode("ascii")
+        + b"\r"
+    )
 
 
 def test_write_bool_wcs(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -184,8 +199,12 @@ def test_write_bool_wcs(monkeypatch: pytest.MonkeyPatch) -> None:
     client.connect()
     assert client.write_bool("Y0.3", True) is True
     expected_body = "%01#WCSY00031"
-    assert bytes(scripted.sent) == expected_body.encode("ascii") + \
-        codec_mewtocol.bcc(expected_body).encode("ascii") + b"\r"
+    assert (
+        bytes(scripted.sent)
+        == expected_body.encode("ascii")
+        + codec_mewtocol.bcc(expected_body).encode("ascii")
+        + b"\r"
+    )
 
 
 def test_word_bit_write_read_modify_write(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -193,17 +212,25 @@ def test_word_bit_write_read_modify_write(monkeypatch: pytest.MonkeyPatch) -> No
     client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
     read_frame = _resp("RD", "0004")
     write_frame = _resp("WD")
-    scripted = ScriptedTransport([read_frame[:4], read_frame[4:], write_frame[:4], write_frame[4:]])
+    scripted = ScriptedTransport(
+        [read_frame[:4], read_frame[4:], write_frame[:4], write_frame[4:]]
+    )
     _mount(monkeypatch, client, scripted)
     client.connect()
     assert client.write_bool("D100.3", True) is True
     sent = bytes(scripted.sent)
     read_body = "%01#RDD0010000100"
     write_body = "%01#WDD0010000100000C"
-    assert sent.startswith(read_body.encode("ascii") +
-                          codec_mewtocol.bcc(read_body).encode("ascii") + b"\r")
-    assert sent.endswith(write_body.encode("ascii") +
-                         codec_mewtocol.bcc(write_body).encode("ascii") + b"\r")
+    assert sent.startswith(
+        read_body.encode("ascii")
+        + codec_mewtocol.bcc(read_body).encode("ascii")
+        + b"\r"
+    )
+    assert sent.endswith(
+        write_body.encode("ascii")
+        + codec_mewtocol.bcc(write_body).encode("ascii")
+        + b"\r"
+    )
 
 
 def test_l_area_dual_context(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -243,7 +270,11 @@ def test_error_response_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> Non
     client.connect()
     assert client.read_ushort("D99999") == (False, None)
     assert client.connected is True
-    assert client.last_error is not None and "21" in client.last_error and "NACK" in client.last_error
+    assert (
+        client.last_error is not None
+        and "21" in client.last_error
+        and "NACK" in client.last_error
+    )
 
 
 def test_error_code_non_numeric_keeps_return_contract(
@@ -285,7 +316,9 @@ def test_bcc_mismatch_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> Non
     assert format_hex(corrupted) in client.last_error
 
 
-def test_station_echo_mismatch_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_station_echo_mismatch_marks_disconnected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """站号回显不符按坏帧处理。"""
     client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
     body = "%02$RD2710"

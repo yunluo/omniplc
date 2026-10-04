@@ -19,6 +19,7 @@ TCP 按响应头(4 字节)判断正常/错误后精确收齐;UDP 一次收整包
 模块 docstring;32/64 位"低字在前、字内高字节在前"与 TOYOPUC 同族日系
 惯例一致(库内旁证)。
 """
+
 from __future__ import annotations
 
 from abc import abstractmethod
@@ -81,7 +82,11 @@ class _MewtocolBase(BaseClient):
             return self._read_bool_impl(parsed)
         if data_type in (DataType.SHORT, DataType.USHORT):
             data = self._read_words(parsed, 1)
-            return data[0] if data_type is DataType.USHORT else convert.to_signed(data[0], 16)
+            return (
+                data[0]
+                if data_type is DataType.USHORT
+                else convert.to_signed(data[0], 16)
+            )
         if data_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
             data = self._read_words(parsed, 2)
             return _decode_32(data, data_type)
@@ -100,7 +105,11 @@ class _MewtocolBase(BaseClient):
             if parsed.area in MEWTOCOL_CONTACT_AREAS:
                 self._transact(
                     codec_mewtocol.build_write_contact(
-                        self._station_text, parsed.area, parsed.word, parsed.bit or 0, flag
+                        self._station_text,
+                        parsed.area,
+                        parsed.word,
+                        parsed.bit or 0,
+                        flag,
                     ),
                     0,
                     "WC",
@@ -142,7 +151,7 @@ class _MewtocolBase(BaseClient):
         raw = convert.encode_string(
             value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
         )
-        words = [int.from_bytes(raw[i:i + 2], "big") for i in range(0, len(raw), 2)]
+        words = [int.from_bytes(raw[i : i + 2], "big") for i in range(0, len(raw), 2)]
         self._write_words(parsed, words)
         return value
 
@@ -171,7 +180,9 @@ class _MewtocolBase(BaseClient):
     def _read_words(self, parsed: MewtocolAddress, word_count: int) -> List[int]:
         """RD 成批读字软元件,返回 0~65535 逐字数据(高字节在前编码)。"""
         data_text = self._transact(
-            codec_mewtocol.build_read_words(self._station_text, parsed.area, parsed.word, word_count),
+            codec_mewtocol.build_read_words(
+                self._station_text, parsed.area, parsed.word, word_count
+            ),
             word_count * 4,
             "RD",
         )
@@ -182,7 +193,7 @@ class _MewtocolBase(BaseClient):
                 )
             )
         try:
-            return [int(data_text[i:i + 4], 16) for i in range(0, len(data_text), 4)]
+            return [int(data_text[i : i + 4], 16) for i in range(0, len(data_text), 4)]
         except ValueError as exc:
             raise ProtocolFrameError(
                 _("MEWTOCOL 读响应含非十六进制数据:{!r}").format(data_text)
@@ -217,19 +228,26 @@ class _MewtocolBase(BaseClient):
         parsed = parse_mewtocol_address(address, False)
         if data_type_enum is DataType.BOOL or parsed.area in MEWTOCOL_CONTACT_AREAS:
             raise ValueError(
-                _("MEWTOCOL read_range 仅支持数据区数值类型连续读(接点区无批量"
-                "接点命令),收到:{!r}").format(address)
+                _(
+                    "MEWTOCOL read_range 仅支持数据区数值类型连续读(接点区无批量"
+                    "接点命令),收到:{!r}"
+                ).format(address)
             )
         if parsed.bit is not None:
             raise ValueError(
-                _("MEWTOCOL read_range 不支持字软元件位号后缀:{!r}(请逐点读)").format(address)
+                _("MEWTOCOL read_range 不支持字软元件位号后缀:{!r}(请逐点读)").format(
+                    address
+                )
             )
         width = 1
         if data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
             width = 2
         elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             width = 4
-        if count * width > MEWTOCOL_WORD_FIELD_MAX or parsed.word + count * width > MEWTOCOL_WORD_FIELD_MAX + 1:
+        if (
+            count * width > MEWTOCOL_WORD_FIELD_MAX
+            or parsed.word + count * width > MEWTOCOL_WORD_FIELD_MAX + 1
+        ):
             raise ValueError(
                 _("MEWTOCOL read_range 编号域越界(0~{}):start={} 字数={}").format(
                     MEWTOCOL_WORD_FIELD_MAX, parsed.word, count * width
@@ -240,10 +258,11 @@ class _MewtocolBase(BaseClient):
             words = self._read_words(parsed, count * width)
             values: List[PrimitiveValue] = []
             for index in range(count):
-                chunk = words[index * width:(index + 1) * width]
+                chunk = words[index * width : (index + 1) * width]
                 if data_type_enum in (DataType.SHORT, DataType.USHORT):
                     values.append(
-                        chunk[0] if data_type_enum is DataType.USHORT
+                        chunk[0]
+                        if data_type_enum is DataType.USHORT
                         else convert.to_signed(chunk[0], 16)
                     )
                 elif data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
@@ -260,7 +279,9 @@ class _MewtocolBase(BaseClient):
     def _write_words(self, parsed: MewtocolAddress, words: List[int]) -> None:
         """WD 成批写字软元件(逐字 4 位十六进制、高字节在前)。"""
         self._transact(
-            codec_mewtocol.build_write_words(self._station_text, parsed.area, parsed.word, words),
+            codec_mewtocol.build_write_words(
+                self._station_text, parsed.area, parsed.word, words
+            ),
             0,
             "WD",
         )
@@ -278,10 +299,10 @@ class _MewtocolBase(BaseClient):
             expected = codec_mewtocol.parse_expected_size(data_chars)
             if expected > MEWTOCOL_MAX_DATAGRAM:
                 raise ValueError(
-                    _("MEWTOCOL UDP 长读超出整包缓冲:预算响应 {} 字节 > {}"
-                    "(UDP 侧请减小单次字数或改 TCP 走线)").format(
-                        expected, MEWTOCOL_MAX_DATAGRAM
-                    )
+                    _(
+                        "MEWTOCOL UDP 长读超出整包缓冲:预算响应 {} 字节 > {}"
+                        "(UDP 侧请减小单次字数或改 TCP 走线)"
+                    ).format(expected, MEWTOCOL_MAX_DATAGRAM)
                 )
         transport.send(request)
         if transport.datagram:
@@ -353,6 +374,7 @@ class PanasonicMewtocolUdpClient(_MewtocolBase):
 # ----------------------------------------------------------------------
 # 模块级辅助函数
 # ----------------------------------------------------------------------
+
 
 def _decode_32(data: Sequence[int], data_type: DataType) -> PrimitiveValue:
     """两字数据按类型解码:低字在前、字内高字节在前(内部函数)。"""

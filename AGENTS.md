@@ -9,7 +9,7 @@
   便于 cherry-pick / revert;`git add` 只加显式文件,**禁止 `git add -A`**。
 - **push 需单独确认**:任何 `git push`(含标签——标签推送会触发 GitHub Release +
   PyPI 可信发布,**不可撤回**)必须用户明确发话,绝不自动推。
-- 提交前门禁四件套全绿(见下);commit 消息中文,格式 `<类型>(<范围>): <一句话总结>`。
+- 提交前门禁五件套全绿(见下);commit 消息中文,格式 `<类型>(<范围>): <一句话总结>`。
 
 ## 范围红线
 
@@ -67,10 +67,11 @@
 - 加密/扫描件:加密 PDF pdfplumber 打不开时提示另行解密;扫描件无文本层时
   `extract_text()` 返回 None,改找有文本层的手册或标「待核」。
 
-## 门禁四件套(任一挂下即不通过)
+## 门禁五件套(任一挂下即不通过)
 
 ```pwsh
 uv run --extra dev python -m pytest tests -q   # 3.7.9 全量
+uvx ruff format --check src tests              # 格式零漂移(改动先 uvx ruff format src tests)
 uvx ruff check src tests
 uvx --python 3.12 mypy src/omniplc
 uvx ty check src/omniplc

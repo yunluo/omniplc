@@ -26,6 +26,7 @@ RTU 串口走线需要串口传输层,**不在本层**(与 MC 1C/3C/4C 同批口
     async with AsyncInovanceTcpClient("192.168.1.88", 502, 1) as client:
         ok, value = await client.read_float("D100")
 """
+
 from __future__ import annotations
 
 from typing import List, Optional, Tuple
@@ -150,9 +151,7 @@ class AsyncInovanceMcTcpClient(AsyncMelsecMcTcpClient):
         :param pc_number: PC 编号(默认 0xFF,与三菱 MC 客户端约定一致)
         :raises ValueError: 参数非法
         """
-        super().__init__(
-            ip_address, port, McFrame.FRAME_3E, network_number, pc_number
-        )
+        super().__init__(ip_address, port, McFrame.FRAME_3E, network_number, pc_number)
         # H5U 手册 16.4 命令支持面仅披露 0401/1401/0403/1402,无 0101 CPU
         # 型号读——探活与自动心跳显式关闭(与同步 InovanceMcTcpClient 同口径)
         self._has_ping = False

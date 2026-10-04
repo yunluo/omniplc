@@ -4,6 +4,7 @@
 本组用例走真建链 / 真收包,验证失败干净(不挂死、正确分类、该拆连就拆连、
 能自动重连),覆盖驱动走线层(TCP)的现场级异常。
 """
+
 from __future__ import annotations
 
 import socket

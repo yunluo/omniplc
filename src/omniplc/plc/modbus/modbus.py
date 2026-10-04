@@ -12,6 +12,7 @@ V1.02(串行线实现指南)为准;中文资源见
 `modbus.cn 规范页 <https://www.modbus.cn/modbus-specifications>`。
 地址语法见 :mod:`omniplc.plc.modbus.address`。
 """
+
 from __future__ import annotations
 
 import time
@@ -109,7 +110,9 @@ class ModbusBaseClient(BaseClient):
         """站号范围校验(内部方法)。"""
         if not MODBUS_STATION_MIN <= value <= MODBUS_STATION_MAX:
             raise ValueError(
-                _("站号必须在 {}~{} 之间,收到:{}").format(MODBUS_STATION_MIN, MODBUS_STATION_MAX, value)
+                _("站号必须在 {}~{} 之间,收到:{}").format(
+                    MODBUS_STATION_MIN, MODBUS_STATION_MAX, value
+                )
             )
         return int(value)
 
@@ -166,11 +169,15 @@ class ModbusBaseClient(BaseClient):
             self._write_registers_impl(parsed, registers)
             return
         if data_type is DataType.FLOAT:
-            registers = list(convert.float32_to_registers(require_float(value), self._word_order))
+            registers = list(
+                convert.float32_to_registers(require_float(value), self._word_order)
+            )
             self._write_registers_impl(parsed, registers)
             return
         if data_type is DataType.DOUBLE:
-            registers = list(convert.float64_to_registers(require_float(value), self._word_order))
+            registers = list(
+                convert.float64_to_registers(require_float(value), self._word_order)
+            )
             self._write_registers_impl(parsed, registers)
             return
         raise ValueError(_("Modbus 不支持的数据类型:{}").format(data_type))
@@ -179,7 +186,9 @@ class ModbusBaseClient(BaseClient):
         """从寄存器区读字符串:连续寄存器 → 按大端拼字节 → 解码。"""
         parsed = parse_address(address)
         if parsed.area not in (ModbusArea.HOLDING_REGISTER, ModbusArea.INPUT_REGISTER):
-            raise ValueError(_("字符串只能从寄存器区域(hr/ir)读取,收到:{!r}").format(address))
+            raise ValueError(
+                _("字符串只能从寄存器区域(hr/ir)读取,收到:{!r}").format(address)
+            )
         if parsed.bit is not None:
             raise ValueError(_("字符串地址不支持位号后缀:{!r}").format(address))
         registers = self._read_registers(parsed, (length + 1) // 2)
@@ -190,12 +199,16 @@ class ModbusBaseClient(BaseClient):
         """向寄存器区写字符串:编码 → 补齐偶数字节 → 按大端拆寄存器。"""
         parsed = parse_address(address)
         if parsed.area != ModbusArea.HOLDING_REGISTER:
-            raise ValueError(_("字符串只能写入保持寄存器区域(hr),收到:{!r}").format(address))
+            raise ValueError(
+                _("字符串只能写入保持寄存器区域(hr),收到:{!r}").format(address)
+            )
         if parsed.bit is not None:
             raise ValueError(_("字符串地址不支持位号后缀:{!r}").format(address))
-        raw = convert.encode_string(value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding)
+        raw = convert.encode_string(
+            value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
+        )
         registers = [
-            int.from_bytes(raw[i:i + 2], "big") for i in range(0, len(raw), 2)
+            int.from_bytes(raw[i : i + 2], "big") for i in range(0, len(raw), 2)
         ]
         self._write_registers_impl(parsed, registers)
         return value
@@ -231,7 +244,9 @@ class ModbusBaseClient(BaseClient):
         """
         data_type_enum = DataType.coerce(data_type)
         # 入参合法性前置校验:任一地址非法即同步抛出,不进事务
-        parsed = [(_check_address(addr, data_type_enum), data_type_enum) for addr in addresses]
+        parsed = [
+            (_check_address(addr, data_type_enum), data_type_enum) for addr in addresses
+        ]
         ok, values = self._execute(lambda: self._coalesce_and_read(parsed))
         if not ok or values is None:
             return [(False, None) for _ in addresses]
@@ -304,12 +319,16 @@ class ModbusBaseClient(BaseClient):
             if parsed.bit is not None:
                 # 寄存器位号语义 = "该字的第 N 位",没有"连续 N 个位"的自然解释
                 raise ValueError(
-                    _("read_range 位区读不支持位号后缀:{!r}(位区直接用 c/di)").format(address)
+                    _("read_range 位区读不支持位号后缀:{!r}(位区直接用 c/di)").format(
+                        address
+                    )
                 )
             if parsed.area in (ModbusArea.HOLDING_REGISTER, ModbusArea.INPUT_REGISTER):
                 raise ValueError(
-                    _("read_range 的 BOOL 仅支持线圈(c)/离散输入(di)区,寄存器区请逐点"
-                    "(hr0.3)或按字读后自取位:{!r}").format(address)
+                    _(
+                        "read_range 的 BOOL 仅支持线圈(c)/离散输入(di)区,寄存器区请逐点"
+                        "(hr0.3)或按字读后自取位:{!r}"
+                    ).format(address)
                 )
             if parsed.offset + count > MODBUS_ADDRESS_MAX + 1:
                 raise ValueError(
@@ -337,9 +356,9 @@ class ModbusBaseClient(BaseClient):
                 )
             if width_bits * count > MODBUS_MAX_READ_REGISTERS:
                 raise ValueError(
-                    _("FC 03/04 单笔读取寄存器数上限 {}(规范 §6.3/§6.4),收到:{}").format(
-                        MODBUS_MAX_READ_REGISTERS, width_bits * count
-                    )
+                    _(
+                        "FC 03/04 单笔读取寄存器数上限 {}(规范 §6.3/§6.4),收到:{}"
+                    ).format(MODBUS_MAX_READ_REGISTERS, width_bits * count)
                 )
 
         def operation() -> List[PrimitiveValue]:
@@ -348,17 +367,22 @@ class ModbusBaseClient(BaseClient):
             registers = self._read_registers(parsed, width_bits * count)
             values: List[PrimitiveValue] = []
             for index in range(count):
-                chunk = registers[index * width_bits:(index + 1) * width_bits]
+                chunk = registers[index * width_bits : (index + 1) * width_bits]
                 if data_type_enum in (DataType.SHORT, DataType.USHORT):
                     raw = chunk[0].to_bytes(2, "big")
                     values.append(
-                        convert.bytes_to_short(raw) if data_type_enum is DataType.SHORT
+                        convert.bytes_to_short(raw)
+                        if data_type_enum is DataType.SHORT
                         else convert.bytes_to_ushort(raw)
                     )
                 elif data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
-                    values.append(_decode_32bit(chunk, data_type_enum, self._word_order))
+                    values.append(
+                        _decode_32bit(chunk, data_type_enum, self._word_order)
+                    )
                 else:
-                    values.append(_decode_64bit(chunk, data_type_enum, self._word_order))
+                    values.append(
+                        _decode_64bit(chunk, data_type_enum, self._word_order)
+                    )
             return values
 
         ok, values = self._execute(operation)
@@ -471,7 +495,11 @@ class ModbusBaseClient(BaseClient):
         for address, dtype, value in items:
             data_type_enum = DataType.coerce(dtype)
             parsed_items.append(
-                (_check_address(address, data_type_enum, is_write=True), data_type_enum, value)
+                (
+                    _check_address(address, data_type_enum, is_write=True),
+                    data_type_enum,
+                    value,
+                )
             )
         # 外层不再套 _execute:每个 chunk / RMW 项各自成事务(见 _coalesce_and_write),
         # 否则外层会把内层刚记下的失败当成功 _clear_error(),失败原因丢失
@@ -511,7 +539,11 @@ class ModbusBaseClient(BaseClient):
         for address, dtype, value in items:
             data_type_enum = DataType.coerce(dtype)
             parsed_items.append(
-                (_check_address(address, data_type_enum, is_write=True), data_type_enum, value)
+                (
+                    _check_address(address, data_type_enum, is_write=True),
+                    data_type_enum,
+                    value,
+                )
             )
         # 整批容错:任一 FC 失败 → (False, None);异常穿透到 _execute,
         # 失败原因(设备异常码 / 越界)随 last_error 与分类记录;
@@ -615,7 +647,10 @@ class ModbusBaseClient(BaseClient):
                 result[item_index] = ok
 
         # 3) 合并:按 (area, kind, width, dtype) 分组
-        groups: Dict[Tuple[ModbusArea, str, int, DataType], List[Tuple[int, _CoalesceEntry, List[int]]]] = {}
+        groups: Dict[
+            Tuple[ModbusArea, str, int, DataType],
+            List[Tuple[int, _CoalesceEntry, List[int]]],
+        ] = {}
         for item_index, entry, encoded in plan:
             key = (entry.parsed.area, entry.kind, entry.width, entry.dtype)
             groups.setdefault(key, []).append((item_index, entry, encoded))
@@ -623,16 +658,12 @@ class ModbusBaseClient(BaseClient):
         # 4) 每组:排序 → 合并 → 逐 chunk 写 + 回填
         for (area, kind, _width, _dtype), group in groups.items():
             group.sort(key=lambda t: t[1].parsed.offset)
-            max_unit = MODBUS_MAX_WRITE_BITS if kind == "bit" else MODBUS_MAX_WRITE_REGISTERS
-            chunks = _coalesce_group(
-                [t[1] for t in group], kind, max_unit
+            max_unit = (
+                MODBUS_MAX_WRITE_BITS if kind == "bit" else MODBUS_MAX_WRITE_REGISTERS
             )
+            chunks = _coalesce_group([t[1] for t in group], kind, max_unit)
             for chunk_entries in chunks:
-                chunk_items = [
-                    item
-                    for item in group
-                    if item[1] in chunk_entries
-                ]
+                chunk_items = [item for item in group if item[1] in chunk_entries]
                 if fail_fast:
                     _write_chunk(self, area, kind, chunk_items)
                     for item_index, _entry, _area in chunk_items:
@@ -679,7 +710,9 @@ class ModbusBaseClient(BaseClient):
     def _write_bool_impl(self, parsed: ModbusAddress, value: bool) -> None:
         """写一个布尔量:线圈走 FC5;保持寄存器位走"读-改-写"(同一事务锁内原子完成)。"""
         if parsed.area == ModbusArea.COIL:
-            pdu = codec.build_write_single_pdu(parsed.write_single_function_code, parsed.offset, 1 if value else 0)
+            pdu = codec.build_write_single_pdu(
+                parsed.write_single_function_code, parsed.offset, 1 if value else 0
+            )
             self._write_pdu(pdu)
             return
         if parsed.area != ModbusArea.HOLDING_REGISTER:
@@ -693,7 +726,9 @@ class ModbusBaseClient(BaseClient):
         registers = self._read_registers(parsed, 1)
         updated = convert.set_bit(registers[0], bit, value)
         self._write_pdu(
-            codec.build_write_single_pdu(parsed.write_single_function_code, parsed.offset, updated)
+            codec.build_write_single_pdu(
+                parsed.write_single_function_code, parsed.offset, updated
+            )
         )
 
     def _write_bools_impl(self, parsed: ModbusAddress, values: List[bool]) -> None:
@@ -703,20 +738,34 @@ class ModbusBaseClient(BaseClient):
         :param values: 连续 ``count`` 个线圈的真值表(LSB first)
         """
         if parsed.area != ModbusArea.COIL:
-            raise ValueError(_("FC 15 仅支持线圈区域,收到:{!r}").format(parsed.area.value))
+            raise ValueError(
+                _("FC 15 仅支持线圈区域,收到:{!r}").format(parsed.area.value)
+            )
         # codec 内部按位打包,期望 List[int];此处 bool 是 int 的子类可直接传
         int_values: List[int] = [1 if flag else 0 for flag in values]
         self._write_pdu(
-            codec.build_write_multi_pdu(parsed.write_multi_function_code, parsed.offset, int_values)
+            codec.build_write_multi_pdu(
+                parsed.write_multi_function_code, parsed.offset, int_values
+            )
         )
 
     def _write_single_register(self, parsed: ModbusAddress, value: int) -> None:
         """写单个保持寄存器(FC 6)。"""
-        self._write_pdu(codec.build_write_single_pdu(parsed.write_single_function_code, parsed.offset, value))
+        self._write_pdu(
+            codec.build_write_single_pdu(
+                parsed.write_single_function_code, parsed.offset, value
+            )
+        )
 
-    def _write_registers_impl(self, parsed: ModbusAddress, registers: List[int]) -> None:
+    def _write_registers_impl(
+        self, parsed: ModbusAddress, registers: List[int]
+    ) -> None:
         """批量写保持寄存器(FC 16)。"""
-        self._write_pdu(codec.build_write_multi_pdu(parsed.write_multi_function_code, parsed.offset, registers))
+        self._write_pdu(
+            codec.build_write_multi_pdu(
+                parsed.write_multi_function_code, parsed.offset, registers
+            )
+        )
 
     def write_mask_register(
         self,
@@ -743,19 +792,26 @@ class ModbusBaseClient(BaseClient):
         """
         parsed = parse_address(address)
         if parsed.area != ModbusArea.HOLDING_REGISTER:
-            raise ValueError(_("掩码写只支持保持寄存器区域(hr),收到:{!r}").format(address))
+            raise ValueError(
+                _("掩码写只支持保持寄存器区域(hr),收到:{!r}").format(address)
+            )
         if parsed.bit is not None:
             raise ValueError(_("掩码写地址不支持位号后缀:{!r}").format(address))
-        order = byte_order.value if isinstance(byte_order, ByteOrder) else str(byte_order)
+        order = (
+            byte_order.value if isinstance(byte_order, ByteOrder) else str(byte_order)
+        )
         pdu = codec.build_mask_write_pdu(
             parsed.offset, require_int(and_mask), require_int(or_mask), order
         )
 
         def operation() -> None:
             # 广播(RTU 站号 0)不等响应,与 FC05/06/15/16/21 同口径
-            response = self._transact(pdu, expect_response=not (
-                self._station == 0 and self._BROADCAST_WITHOUT_RESPONSE
-            ))
+            response = self._transact(
+                pdu,
+                expect_response=not (
+                    self._station == 0 and self._BROADCAST_WITHOUT_RESPONSE
+                ),
+            )
             if response:
                 codec.parse_mask_write_response(response, pdu)
 
@@ -807,8 +863,10 @@ class ModbusBaseClient(BaseClient):
                     # 校验项);跨段网关只是次要可能,提示措辞据此摆正
                     # (第八轮 P3)
                     raise DeviceError(
-                        _("{};若读/写地址均在设备合法范围内,可能是部分网关"
-                        "不支持跨段 FC23,可改用 write_many + read_many").format(exc),
+                        _(
+                            "{};若读/写地址均在设备合法范围内,可能是部分网关"
+                            "不支持跨段 FC23,可改用 write_many + read_many"
+                        ).format(exc),
                         exc.code,
                     ) from exc
                 raise
@@ -855,9 +913,7 @@ class ModbusBaseClient(BaseClient):
         """
         codec.check_device_id_object(int(object_id))
         self._reject_broadcast_read()
-        return self._execute(
-            lambda: self._read_device_object_once(int(object_id))
-        )
+        return self._execute(lambda: self._read_device_object_once(int(object_id)))
 
     def read_exception_status(self) -> Tuple[bool, Optional[int]]:
         """读异常状态(FC07,规范 §6.7):返回设备 1 字节异常状态字。
@@ -893,7 +949,9 @@ class ModbusBaseClient(BaseClient):
             )
         )
 
-    def diagnostics(self, sub_function: int, data: int = 0x0000) -> Tuple[bool, Optional[int]]:
+    def diagnostics(
+        self, sub_function: int, data: int = 0x0000
+    ) -> Tuple[bool, Optional[int]]:
         """诊断(FC08,规范 §6.8):返回设备回显的 2 字节数据域。
 
         常用子功能:``0x0000`` 回显查询、``0x000A`` 清计数器与诊断寄存器、
@@ -914,9 +972,12 @@ class ModbusBaseClient(BaseClient):
 
         def operation() -> int:
             pdu = codec.build_diagnostics_pdu(int(sub_function), int(data))
-            response = self._transact(pdu, expect_response=not (
-                self._station == 0 and self._BROADCAST_WITHOUT_RESPONSE
-            ))
+            response = self._transact(
+                pdu,
+                expect_response=not (
+                    self._station == 0 and self._BROADCAST_WITHOUT_RESPONSE
+                ),
+            )
             if not response:
                 return 0  # 广播清计数器:无响应,数据域无意义
             return codec.parse_diagnostics_response(response, int(sub_function))
@@ -1007,15 +1068,22 @@ class ModbusBaseClient(BaseClient):
         :raises ValueError: 入参非法
         """
         trimmed = [
-            (require_int(file), require_int(record), [require_int(value) for value in values])
+            (
+                require_int(file),
+                require_int(record),
+                [require_int(value) for value in values],
+            )
             for file, record, values in records
         ]
 
         def operation() -> None:
             pdu = codec.build_write_file_record_pdu(trimmed)
-            response = self._transact(pdu, expect_response=not (
-                self._station == 0 and self._BROADCAST_WITHOUT_RESPONSE
-            ))
+            response = self._transact(
+                pdu,
+                expect_response=not (
+                    self._station == 0 and self._BROADCAST_WITHOUT_RESPONSE
+                ),
+            )
             if response:
                 # 广播(RTU 站号 0)无响应:跳过回显校验;单播须逐字节回显
                 codec.parse_write_file_record_response(response, pdu)
@@ -1062,8 +1130,10 @@ class ModbusBaseClient(BaseClient):
                 # 参数错误——按 DeviceError 分类,走"设备返回错误"口径,
                 # 不以 ValueError 逃出 read_device_id
                 raise DeviceError(
-                    _("设备标识翻页指针非法:设备下发 next_object_id=0x{:02X}"
-                    "(越界或落在规范保留区间)").format(object_id),
+                    _(
+                        "设备标识翻页指针非法:设备下发 next_object_id=0x{:02X}"
+                        "(越界或落在规范保留区间)"
+                    ).format(object_id),
                     0,
                 )
             pdu = codec.build_device_id_pdu(code, object_id)
@@ -1090,9 +1160,7 @@ class ModbusBaseClient(BaseClient):
 
         :raises DeviceError: PLC 返回异常码(对象不存在为异常码 02)
         """
-        pdu = codec.build_device_id_pdu(
-            MODBUS_DEVICE_ID_CODE_INDIVIDUAL, object_id
-        )
+        pdu = codec.build_device_id_pdu(MODBUS_DEVICE_ID_CODE_INDIVIDUAL, object_id)
         parsed = codec.parse_device_id_response(
             self._transact(pdu),
             expected_read_code=MODBUS_DEVICE_ID_CODE_INDIVIDUAL,
@@ -1113,9 +1181,12 @@ class ModbusBaseClient(BaseClient):
         5 字节的回显,回显不符按坏帧处理(错配/串包);具备广播语义的走线
         (RTU 站号 0)在广播下不等响应,跳过回显校验。
         """
-        response = self._transact(pdu, expect_response=not (
-            self._station == 0 and self._BROADCAST_WITHOUT_RESPONSE
-        ))
+        response = self._transact(
+            pdu,
+            expect_response=not (
+                self._station == 0 and self._BROADCAST_WITHOUT_RESPONSE
+            ),
+        )
         if response:
             codec.parse_write_response(response, pdu)
 
@@ -1139,7 +1210,12 @@ class ModbusTcpClient(ModbusBaseClient):
     :example: ``client = ModbusTcpClient("192.168.0.10", 502, 1)``
     """
 
-    def __init__(self, ip_address: str = "127.0.0.1", port: int = MODBUS_DEFAULT_PORT, station: int = MODBUS_DEFAULT_STATION) -> None:
+    def __init__(
+        self,
+        ip_address: str = "127.0.0.1",
+        port: int = MODBUS_DEFAULT_PORT,
+        station: int = MODBUS_DEFAULT_STATION,
+    ) -> None:
         """初始化 Modbus TCP 客户端。
 
         :param ip_address: PLC 的 IP 或主机名
@@ -1169,9 +1245,9 @@ class ModbusTcpClient(ModbusBaseClient):
     def _transact(self, pdu: bytes, expect_response: bool = True) -> bytes:
         """MBAP 事务:组帧→发送→按长度收→校验事务号/站号→返回 PDU。
 
-        TCP 无广播语义(Unit ID 为路由字段),站号 0 照常等待响应。
-        事务号/站号不匹配属坏帧,异常文本带收到的原始帧(便于判断是
-       迟到的上一条响应、串口/网关错配还是对端语义不符)。
+         TCP 无广播语义(Unit ID 为路由字段),站号 0 照常等待响应。
+         事务号/站号不匹配属坏帧,异常文本带收到的原始帧(便于判断是
+        迟到的上一条响应、串口/网关错配还是对端语义不符)。
         """
         transport = self._require_transport()
         sent_id = self._bump_id("_transaction_id", 16)
@@ -1398,6 +1474,7 @@ class ModbusRtuClient(ModbusBaseClient):
 # 模块级辅助函数
 # ----------------------------------------------------------------------
 
+
 def _coerce_word_order(value: Union[WordOrder, str]) -> WordOrder:
     """把 str/WordOrder 统一转换为 WordOrder。"""
     if isinstance(value, WordOrder):
@@ -1580,11 +1657,15 @@ def _read_and_fill(
             continue
         if dtype in (DataType.INT, DataType.UINT, DataType.FLOAT):
             slice_words = words[word_idx : word_idx + 2]
-            result[entry.item_index] = _decode_32bit(slice_words, dtype, client.word_order)
+            result[entry.item_index] = _decode_32bit(
+                slice_words, dtype, client.word_order
+            )
             continue
         if dtype in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             slice_words = words[word_idx : word_idx + 4]
-            result[entry.item_index] = _decode_64bit(slice_words, dtype, client.word_order)
+            result[entry.item_index] = _decode_64bit(
+                slice_words, dtype, client.word_order
+            )
             continue
         raise ValueError(_("Modbus 不支持的数据类型:{}").format(dtype))
 
@@ -1621,9 +1702,9 @@ def _check_address(
             if parsed.bit is None and parsed.area != ModbusArea.COIL:
                 # 不带位号的 BOOL 写仅线圈;ir/di 只读,hr 位写走 RMW(带位号)
                 raise ValueError(
-                    _("布尔写仅支持线圈区(c)或寄存器位号后缀(hr0.3),收到:{}({})").format(
-                        parsed.area.value, address
-                    )
+                    _(
+                        "布尔写仅支持线圈区(c)或寄存器位号后缀(hr0.3),收到:{}({})"
+                    ).format(parsed.area.value, address)
                 )
             if parsed.bit is not None and parsed.area in (
                 ModbusArea.DISCRETE_INPUT,
@@ -1640,7 +1721,9 @@ def _check_address(
                 )
             )
         if is_write and parsed.area == ModbusArea.INPUT_REGISTER:
-            raise ValueError(_("输入寄存器(ir)只读,写请用保持寄存器(hr):{!r}").format(address))
+            raise ValueError(
+                _("输入寄存器(ir)只读,写请用保持寄存器(hr):{!r}").format(address)
+            )
         units = data_type.register_size
     if parsed.offset + units > MODBUS_ADDRESS_MAX + 1:
         raise ValueError(
@@ -1658,7 +1741,9 @@ def _check_holding_register(address: str, label: str) -> ModbusAddress:
     """
     parsed = parse_address(address)
     if parsed.area != ModbusArea.HOLDING_REGISTER:
-        raise ValueError(_("{}只支持保持寄存器区域(hr),收到:{!r}").format(label, address))
+        raise ValueError(
+            _("{}只支持保持寄存器区域(hr),收到:{!r}").format(label, address)
+        )
     if parsed.bit is not None:
         raise ValueError(_("{}不支持位号后缀:{!r}").format(label, address))
     return parsed
@@ -1681,17 +1766,17 @@ def _device_id_code(level: Union[str, int]) -> int:
             return _DEVICE_ID_LEVELS[level.strip().lower()]
         except KeyError:
             raise ValueError(
-                _("设备标识层次未知:{!r},支持 basic / regular / extended"
-                "(单个对象请用 read_device_object)").format(level)
+                _(
+                    "设备标识层次未知:{!r},支持 basic / regular / extended"
+                    "(单个对象请用 read_device_object)"
+                ).format(level)
             )
     try:
         code = int(level)
     except (TypeError, ValueError):
         raise ValueError(_("设备标识层次非法:{!r}").format(level))
     if code == MODBUS_DEVICE_ID_CODE_INDIVIDUAL:
-        raise ValueError(
-            _("个体访问(读取码 4)请用 read_device_object(object_id)")
-        )
+        raise ValueError(_("个体访问(读取码 4)请用 read_device_object(object_id)"))
     if code not in (
         MODBUS_DEVICE_ID_CODE_BASIC,
         MODBUS_DEVICE_ID_CODE_REGULAR,
@@ -1743,7 +1828,9 @@ def _recv_device_id_tail(transport: BaseTransport) -> bytes:
     return bytes(tail)
 
 
-def _decode_32bit(registers: List[int], data_type: DataType, word_order: WordOrder) -> PrimitiveValue:
+def _decode_32bit(
+    registers: List[int], data_type: DataType, word_order: WordOrder
+) -> PrimitiveValue:
     """按类型解码 2 寄存器值。"""
     if data_type is DataType.INT:
         return convert.registers_to_int32(registers, word_order)
@@ -1752,7 +1839,9 @@ def _decode_32bit(registers: List[int], data_type: DataType, word_order: WordOrd
     return convert.registers_to_float32(registers, word_order)
 
 
-def _decode_64bit(registers: List[int], data_type: DataType, word_order: WordOrder) -> PrimitiveValue:
+def _decode_64bit(
+    registers: List[int], data_type: DataType, word_order: WordOrder
+) -> PrimitiveValue:
     """按类型解码 4 寄存器值。"""
     if data_type is DataType.LONG:
         return convert.registers_to_int64(registers, word_order)
@@ -1761,7 +1850,9 @@ def _decode_64bit(registers: List[int], data_type: DataType, word_order: WordOrd
     return convert.registers_to_float64(registers, word_order)
 
 
-def _encode_32bit(value: PrimitiveValue, data_type: DataType, word_order: WordOrder) -> List[int]:
+def _encode_32bit(
+    value: PrimitiveValue, data_type: DataType, word_order: WordOrder
+) -> List[int]:
     """按类型编码 32 位整数为 2 寄存器。"""
     number = require_int(value)
     if data_type is DataType.INT:
@@ -1773,7 +1864,9 @@ def _encode_32bit(value: PrimitiveValue, data_type: DataType, word_order: WordOr
     return list(convert.uint32_to_registers(number, word_order))
 
 
-def _encode_64bit(value: PrimitiveValue, data_type: DataType, word_order: WordOrder) -> List[int]:
+def _encode_64bit(
+    value: PrimitiveValue, data_type: DataType, word_order: WordOrder
+) -> List[int]:
     """按类型编码 64 位整数为 4 寄存器。"""
     number = require_int(value)
     if data_type is DataType.LONG:

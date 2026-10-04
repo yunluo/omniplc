@@ -18,6 +18,7 @@
     async with AsyncOmronFinsTcpClient("192.168.250.1") as client:
         ok, value = await client.read_ushort("D100")
 """
+
 from __future__ import annotations
 
 import datetime
@@ -206,7 +207,9 @@ class AsyncOmronFinsBase(AsyncBaseClient):
         """
         return await self._execute(self._clock_read_operation)
 
-    async def write_clock(self, clock: Union[codec.FinsClock, datetime.datetime]) -> bool:
+    async def write_clock(
+        self, clock: Union[codec.FinsClock, datetime.datetime]
+    ) -> bool:
         """写 PLC 时钟(FINS 0702 CLOCK WRITE,W342 §5-3-20 印刷页 198-199)。
 
         语义与同步侧 :meth:`~omniplc.OmronFinsTcpClient.write_clock` 一致
@@ -217,7 +220,11 @@ class AsyncOmronFinsBase(AsyncBaseClient):
         :return: 是否成功
         :raises ValueError: 时钟字段越界(入参期拒绝,零字节发送)
         """
-        fields = clock if isinstance(clock, codec.FinsClock) else codec.FinsClock.from_datetime(clock)
+        fields = (
+            clock
+            if isinstance(clock, codec.FinsClock)
+            else codec.FinsClock.from_datetime(clock)
+        )
         # 入参期校验前置(与同步侧同口径):未连接时 _execute 走不到事务内
         codec.validate_clock(fields)
 
@@ -291,9 +298,9 @@ class AsyncOmronFinsBase(AsyncBaseClient):
             flag = require_bool(value)
             if parsed.area in FINS_TIMER_COUNTER_AREAS:
                 raise ValueError(
-                    _("T/C 完成标志由系统驱动,只读:{!r}(写当前值请用字访问,如 write_ushort({!r}, 100))").format(
-                        address, parsed.area + str(parsed.offset)
-                    )
+                    _(
+                        "T/C 完成标志由系统驱动,只读:{!r}(写当前值请用字访问,如 write_ushort({!r}, 100))"
+                    ).format(address, parsed.area + str(parsed.offset))
                 )
             if parsed.area in FINS_BIT_WRITABLE_AREAS:
                 await self._write_bits(parsed, [1 if flag else 0])
@@ -335,7 +342,7 @@ class AsyncOmronFinsBase(AsyncBaseClient):
         raw = convert.encode_string(
             value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
         )
-        words = [int.from_bytes(raw[i:i + 2], "big") for i in range(0, len(raw), 2)]
+        words = [int.from_bytes(raw[i : i + 2], "big") for i in range(0, len(raw), 2)]
         await self._write_words(parsed, words)
         return value
 
@@ -376,11 +383,15 @@ class AsyncOmronFinsBase(AsyncBaseClient):
                 )
             if parsed.area not in FINS_BIT_WRITABLE_AREAS:
                 raise ValueError(
-                    _("FINS read_range 的 BOOL 连续读需要位存储区(CIO/W/H/A):{!r}").format(address)
+                    _(
+                        "FINS read_range 的 BOOL 连续读需要位存储区(CIO/W/H/A):{!r}"
+                    ).format(address)
                 )
             if parsed.bit is not None:
                 raise ValueError(
-                    _("FINS read_range 位区读不带位号:{!r}(位号即点位,直接用 CIO/W/H/A)").format(address)
+                    _(
+                        "FINS read_range 位区读不带位号:{!r}(位号即点位,直接用 CIO/W/H/A)"
+                    ).format(address)
                 )
             if count > FINS_MAX_READ_ELEMENTS:
                 # 位区每元素 1 位,同受单命令 999 上限(W342 p.168);与
@@ -415,7 +426,7 @@ class AsyncOmronFinsBase(AsyncBaseClient):
             return False, None
         values: List[PrimitiveValue] = []
         for index in range(count):
-            chunk = raw_words[index * width:(index + 1) * width]
+            chunk = raw_words[index * width : (index + 1) * width]
             values.append(_words_to_value(chunk, data_type_enum))
         return True, values
 
@@ -473,7 +484,9 @@ class AsyncOmronFinsBase(AsyncBaseClient):
             if data_type_enum is DataType.BOOL:
                 if parsed.area in FINS_TIMER_COUNTER_AREAS:
                     raise ValueError(
-                        _("T/C 完成标志不支持批量读取(0104 仅字区):{!r}").format(address)
+                        _("T/C 完成标志不支持批量读取(0104 仅字区):{!r}").format(
+                            address
+                        )
                     )
                 _unused, word_code = codec.memory_codes(parsed.area, parsed.bank)
                 plan.append(("wordbit", len(entries), parsed.bit or 0, data_type_enum))
@@ -486,7 +499,9 @@ class AsyncOmronFinsBase(AsyncBaseClient):
             elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
                 words = 4
             else:
-                raise ValueError(_("FINS 批量读取不支持的数据类型:{}").format(data_type_enum))
+                raise ValueError(
+                    _("FINS 批量读取不支持的数据类型:{}").format(data_type_enum)
+                )
             _unused, word_code = codec.memory_codes(parsed.area, parsed.bank)
             plan.append(("word", len(entries), words, data_type_enum))
             for index in range(words):
@@ -512,7 +527,9 @@ class AsyncOmronFinsBase(AsyncBaseClient):
                 if kind == "wordbit":
                     values.append(bool(convert.get_bit(words[index], extra)))
                 else:
-                    values.append(_words_to_value(words[index:index + extra], item_type))
+                    values.append(
+                        _words_to_value(words[index : index + extra], item_type)
+                    )
             return values
 
         return await self._execute(operation)
@@ -570,9 +587,9 @@ class AsyncOmronFinsBase(AsyncBaseClient):
         """
         if word_count > FINS_MAX_READ_ELEMENTS:
             raise ValueError(
-                _("FINS 单命令读元素数超出 Ethernet/Controller Link 上限 {}:{}(W342 §5-2-2)").format(
-                    FINS_MAX_READ_ELEMENTS, word_count
-                )
+                _(
+                    "FINS 单命令读元素数超出 Ethernet/Controller Link 上限 {}:{}(W342 §5-2-2)"
+                ).format(FINS_MAX_READ_ELEMENTS, word_count)
             )
         frame = self._build_read(parsed, word_count, is_bit=False)
         return codec.parse_response(
@@ -594,9 +611,9 @@ class AsyncOmronFinsBase(AsyncBaseClient):
         """
         if len(words) > FINS_MAX_WRITE_ELEMENTS:
             raise ValueError(
-                _("FINS 单命令写元素数超出 Ethernet/Controller Link 上限 {}:{}(W342 §5-2-2)").format(
-                    FINS_MAX_WRITE_ELEMENTS, len(words)
-                )
+                _(
+                    "FINS 单命令写元素数超出 Ethernet/Controller Link 上限 {}:{}(W342 §5-2-2)"
+                ).format(FINS_MAX_WRITE_ELEMENTS, len(words))
             )
         frame = self._build_write(parsed, words, is_bit=False)
         codec.parse_response(

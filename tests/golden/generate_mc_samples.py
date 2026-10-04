@@ -7,6 +7,7 @@ SLMP 参考规范(SH-080956)。
 
     uv run python tests/golden/generate_mc_samples.py
 """
+
 from __future__ import annotations
 
 import json
@@ -60,14 +61,30 @@ def qna_request(
 def qna_response(frame: str, serial: int, end_code: int, data: bytes = b"") -> bytes:
     """3E/4E 响应帧(独立实现)。"""
     if frame == "4E":
-        head = b"\xd4\x00" + serial.to_bytes(2, "little") + b"\x00\x00" + b"\x00\xff\xff\x03\x00"
+        head = (
+            b"\xd4\x00"
+            + serial.to_bytes(2, "little")
+            + b"\x00\x00"
+            + b"\x00\xff\xff\x03\x00"
+        )
     else:
         head = b"\xd0\x00" + b"\x00\xff\xff\x03\x00"
-    return head + (2 + len(data)).to_bytes(2, "little") + end_code.to_bytes(2, "little") + data
+    return (
+        head
+        + (2 + len(data)).to_bytes(2, "little")
+        + end_code.to_bytes(2, "little")
+        + data
+    )
 
 
 def one_e_request(
-    pc: int, timer: int, subtitle: int, number: int, code: int, points: int, payload: bytes = b""
+    pc: int,
+    timer: int,
+    subtitle: int,
+    number: int,
+    code: int,
+    points: int,
+    payload: bytes = b"",
 ) -> bytes:
     """1E 请求帧(独立实现)。"""
     return (
@@ -128,7 +145,9 @@ def main() -> None:
     add(
         "mc_3e_batch_write_001",
         "3E 成批写:D100 起 2 字,值 10/258",
-        qna_request("3E", 0, 0, 0xFF, 10, True, False, 100, 0xA8, 2, words_le([10, 258])),
+        qna_request(
+            "3E", 0, 0, 0xFF, 10, True, False, 100, 0xA8, 2, words_le([10, 258])
+        ),
         qna_response("3E", 0, 0),
         {"echo": True},
         {"frame": "3E", "network": 0, "station": 255, "monitoring_timer": 10},
@@ -139,7 +158,13 @@ def main() -> None:
         qna_request("4E", 1, 0, 0xFF, 10, False, False, 100, 0xA8, 2),
         qna_response("4E", 1, 0, words_le([20, 10])),
         {"values": [20, 10]},
-        {"frame": "4E", "network": 0, "station": 255, "monitoring_timer": 10, "serial": 1},
+        {
+            "frame": "4E",
+            "network": 0,
+            "station": 255,
+            "monitoring_timer": 10,
+            "serial": 1,
+        },
     )
     add(
         "mc_3e_error_001",
@@ -169,7 +194,9 @@ def main() -> None:
     for sample in samples:
         filename = sample.pop("file")
         path = HERE / "{}.json".format(filename)
-        path.write_text(json.dumps(sample, ensure_ascii=False, indent=4) + "\n", encoding="utf-8")
+        path.write_text(
+            json.dumps(sample, ensure_ascii=False, indent=4) + "\n", encoding="utf-8"
+        )
         print("written:", path)
 
 

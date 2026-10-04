@@ -25,6 +25,7 @@ UDT 整体读取、分片读写在 v1.x 规划。
 继承定制点:`_route_path` / `_wrap_unconnected` / `_parse_unconnected_reply`,
 欧姆龙 NJ/NX CIP(:mod:`omniplc.plc.omron.cip`)即据此覆写三处走线差异。
 """
+
 from __future__ import annotations
 
 import random
@@ -34,7 +35,12 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 from . import codec_cip
 from .codec_cip import CIP_CLASS_IDENTITY, CIP_INSTANCE_IDENTITY
 from .address import AbTag, parse_ab_tag
-from ...core.base_client import BaseClient, _categorize, _extract_code, validate_endpoint
+from ...core.base_client import (
+    BaseClient,
+    _categorize,
+    _extract_code,
+    validate_endpoint,
+)
 from ...core.constants import (
     AB_EIP_DEFAULT_PORT,
     AB_EIP_DEFAULT_SLOT,
@@ -91,9 +97,7 @@ class AllenBradleyEthIpClient(BaseClient):
         BaseClient.__init__(self, ip_address, port)
         slot = int(slot)
         if not 0 <= slot <= AB_EIP_SLOT_MAX:
-            raise ValueError(
-                _("槽号超出范围 0~{}:{}").format(AB_EIP_SLOT_MAX, slot)
-            )
+            raise ValueError(_("槽号超出范围 0~{}:{}").format(AB_EIP_SLOT_MAX, slot))
         if int(rpi_us) <= 0:
             raise ValueError(_("rpi_us 必须大于 0,收到:{}").format(rpi_us))
         self._slot = slot
@@ -349,9 +353,7 @@ class AllenBradleyEthIpClient(BaseClient):
             codec_cip.build_class_instance_path(class_id, instance),
             body,
         )
-        return self._execute(
-            lambda: self._transact(request, service), is_write=False
-        )
+        return self._execute(lambda: self._transact(request, service), is_write=False)
 
     def list_identity(self) -> Tuple[bool, Optional[dict]]:
         """ListIdentity(ENIP 0x63)单播:无 CIP 会话也能调用。
@@ -360,9 +362,9 @@ class AllenBradleyEthIpClient(BaseClient):
         处于已连接态以走 :meth:`_recv_frame` 收应答。
         """
         return self._execute(
-            lambda: codec_cip.parse_list_identity_reply(self._send_recv_raw_enip(
-                codec_cip.build_list_identity()
-            )),
+            lambda: codec_cip.parse_list_identity_reply(
+                self._send_recv_raw_enip(codec_cip.build_list_identity())
+            ),
             is_write=False,
         )
 
@@ -384,7 +386,11 @@ class AllenBradleyEthIpClient(BaseClient):
             return True, codec_cip.parse_module_identity_payload(payload)
         except Exception as exc:
             with self._lock:
-                self._set_error(_("GetAttributesAll 解码失败:{}").format(exc), _categorize(exc), _extract_code(exc))
+                self._set_error(
+                    _("GetAttributesAll 解码失败:{}").format(exc),
+                    _categorize(exc),
+                    _extract_code(exc),
+                )
             return False, None
 
     def _ping_probe(self) -> dict:
@@ -395,7 +401,9 @@ class AllenBradleyEthIpClient(BaseClient):
         """
         request = codec_cip._service_request(
             codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL,
-            codec_cip.build_class_instance_path(CIP_CLASS_IDENTITY, CIP_INSTANCE_IDENTITY),
+            codec_cip.build_class_instance_path(
+                CIP_CLASS_IDENTITY, CIP_INSTANCE_IDENTITY
+            ),
             b"",
         )
         payload = self._transact(request, codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL)
@@ -467,9 +475,7 @@ class AllenBradleyEthIpClient(BaseClient):
                 return tags
             if not page:
                 # 状态 0x06 但本页零条目:无游标可推进,按不收敛防御终止
-                raise ProtocolFrameError(
-                    _("点位枚举分页停滞:状态 0x06 但本页无条目")
-                )
+                raise ProtocolFrameError(_("点位枚举分页停滞:状态 0x06 但本页无条目"))
             instance = page[-1].instance_id + 1
         raise ProtocolFrameError(
             _("点位枚举分页轮数超过上限 {}").format(codec_cip.AB_TAG_LIST_MAX_PAGES)
@@ -513,18 +519,24 @@ class AllenBradleyEthIpClient(BaseClient):
         )
         if not ok or payload is None:
             return False, None
-        if class_id == CIP_CLASS_IDENTITY and instance == CIP_INSTANCE_IDENTITY \
-                and attrs and all(a in _IDENTITY_ATTRIBUTE_DECODERS for a in attrs):
+        if (
+            class_id == CIP_CLASS_IDENTITY
+            and instance == CIP_INSTANCE_IDENTITY
+            and attrs
+            and all(a in _IDENTITY_ATTRIBUTE_DECODERS for a in attrs)
+        ):
             try:
-                decoders = tuple(
-                    (a, _IDENTITY_ATTRIBUTE_DECODERS[a]) for a in attrs
-                )
+                decoders = tuple((a, _IDENTITY_ATTRIBUTE_DECODERS[a]) for a in attrs)
                 return True, codec_cip.parse_get_attribute_list_payload(
                     payload, decoders
                 )
             except Exception as exc:
                 with self._lock:
-                    self._set_error(_("GetAttributeList 解码失败:{}").format(exc), _categorize(exc), _extract_code(exc))
+                    self._set_error(
+                        _("GetAttributeList 解码失败:{}").format(exc),
+                        _categorize(exc),
+                        _extract_code(exc),
+                    )
                 return False, None
         # 非 Identity 对象:返回原始项区(属性号+状态+值 逐项),调用方自解
         return True, [(a, payload) for a in attrs]
@@ -575,13 +587,9 @@ class AllenBradleyEthIpClient(BaseClient):
     # 读原语
     # ------------------------------------------------------------------
 
-    def _read_tag_values(
-        self, parsed: AbTag, elements: int
-    ) -> Tuple[int, bytes]:
+    def _read_tag_values(self, parsed: AbTag, elements: int) -> Tuple[int, bytes]:
         """标签读:返回 ``(实际类型码, 值数据域)``,并按基名缓存类型(内部)。"""
-        request = codec_cip.build_tag_read(
-            codec_cip.tag_type_path(parsed), elements
-        )
+        request = codec_cip.build_tag_read(codec_cip.tag_type_path(parsed), elements)
         cip_type, data = codec_cip.parse_tag_read_payload(
             self._transact(request, codec_cip.CIP_SERVICE_READ_TAG)
         )
@@ -608,9 +616,7 @@ class AllenBradleyEthIpClient(BaseClient):
         if parsed.bit is not None:
             cip_type = self._ensure_type(parsed)
             if cip_type == codec_cip.CIP_TYPE_BOOL:
-                raise ValueError(
-                    _("BOOL 标签不支持位号后缀:{!r}").format(parsed.name)
-                )
+                raise ValueError(_("BOOL 标签不支持位号后缀:{!r}").format(parsed.name))
             return self._read_bit_of_word(parsed, cip_type)
         cip_type = self._ensure_type(parsed)
         if cip_type == codec_cip.CIP_TYPE_BOOL:
@@ -636,7 +642,9 @@ class AllenBradleyEthIpClient(BaseClient):
         index = _single_array_index(parsed)
         word_path = _word_index_path(parsed, index)
         _unused, data = self._read_tag_values(word_path, 1)
-        return bool((codec_cip.decode_word(data, codec_cip.CIP_TYPE_DWORD) >> (index % 32)) & 1)
+        return bool(
+            (codec_cip.decode_word(data, codec_cip.CIP_TYPE_DWORD) >> (index % 32)) & 1
+        )
 
     def _batch_bool_array_address(self, parsed: AbTag, index: int) -> Tuple[AbTag, int]:
         """批量读 BOOL 数组元素的读取路径与位提取口径(继承定制点)。
@@ -647,9 +655,7 @@ class AllenBradleyEthIpClient(BaseClient):
         """
         return _word_index_path(parsed, index), index % 32
 
-    def _read_string(
-        self, address: str, length: int, encoding: str
-    ) -> PrimitiveValue:
+    def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """读 STRING 标签:结构体应答 ``len(u32) + 字符``。"""
         parsed = parse_ab_tag(address)
         if parsed.bit is not None:
@@ -676,7 +682,9 @@ class AllenBradleyEthIpClient(BaseClient):
         (原因见 :attr:`last_error`);需要逐点容错请逐点调用 :meth:`read`。
         """
         data_type_enum = DataType.coerce(data_type)
-        ok, values = self.read_batch([(address, data_type_enum) for address in addresses])
+        ok, values = self.read_batch(
+            [(address, data_type_enum) for address in addresses]
+        )
         if not ok or values is None:
             return [(False, None) for _ in addresses]
         return [(True, value) for value in values]
@@ -718,28 +726,34 @@ class AllenBradleyEthIpClient(BaseClient):
                             )
                         bit = parsed.bit or 0
                         _check_bit_range(parsed, cip_type, bit)
-                        requests.append(codec_cip.build_tag_read(
-                            codec_cip.tag_type_path(_strip_bit(parsed)), 1
-                        ))
+                        requests.append(
+                            codec_cip.build_tag_read(
+                                codec_cip.tag_type_path(_strip_bit(parsed)), 1
+                            )
+                        )
                         plan.append(("bitofword", address, bit, data_type_enum))
                     elif cip_type == codec_cip.CIP_TYPE_DWORD:
                         index = _single_array_index(parsed)
-                        read_parsed, bit_index = self._batch_bool_array_address(parsed, index)
-                        requests.append(codec_cip.build_tag_read(
-                            codec_cip.tag_type_path(read_parsed), 1
-                        ))
+                        read_parsed, bit_index = self._batch_bool_array_address(
+                            parsed, index
+                        )
+                        requests.append(
+                            codec_cip.build_tag_read(
+                                codec_cip.tag_type_path(read_parsed), 1
+                            )
+                        )
                         plan.append(("boolarray", address, bit_index, data_type_enum))
                     else:
-                        requests.append(codec_cip.build_tag_read(
-                            codec_cip.tag_type_path(parsed), 1
-                        ))
+                        requests.append(
+                            codec_cip.build_tag_read(codec_cip.tag_type_path(parsed), 1)
+                        )
                         plan.append(("booltag", address, 0, data_type_enum))
                     continue
                 if parsed.bit is not None:
                     raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
-                requests.append(codec_cip.build_tag_read(
-                    codec_cip.tag_type_path(parsed), 1
-                ))
+                requests.append(
+                    codec_cip.build_tag_read(codec_cip.tag_type_path(parsed), 1)
+                )
                 if data_type_enum is DataType.STRING:
                     plan.append(("string", address, 0, data_type_enum))
                 else:
@@ -747,10 +761,12 @@ class AllenBradleyEthIpClient(BaseClient):
             payloads: List[bytes] = []
             for chunk in _chunk_batch_requests(requests):
                 packet = codec_cip.build_multiple_service_packet(chunk)
-                payloads.extend(codec_cip.parse_multiple_service_payload(
-                    self._transact(packet, codec_cip.CIP_SERVICE_MULTIPLE),
-                    [codec_cip.CIP_SERVICE_READ_TAG] * len(chunk),
-                ))
+                payloads.extend(
+                    codec_cip.parse_multiple_service_payload(
+                        self._transact(packet, codec_cip.CIP_SERVICE_MULTIPLE),
+                        [codec_cip.CIP_SERVICE_READ_TAG] * len(chunk),
+                    )
+                )
             values: List[PrimitiveValue] = []
             for (kind, address, extra, data_type_enum), payload in zip(plan, payloads):
                 parsed = parse_ab_tag(address)
@@ -778,15 +794,22 @@ class AllenBradleyEthIpClient(BaseClient):
                         )
                     values.append(bool(codec_cip.decode_values(data, cip_type, 1)[0]))
                 elif kind == "bitofword":
-                    values.append(bool((codec_cip.decode_word(data, cip_type) >> extra) & 1))
+                    values.append(
+                        bool((codec_cip.decode_word(data, cip_type) >> extra) & 1)
+                    )
                 else:  # boolarray
                     if cip_type == codec_cip.CIP_TYPE_DWORD:
-                        values.append(bool(
-                            (codec_cip.decode_word(data, cip_type) >> (extra % 32)) & 1
-                        ))
+                        values.append(
+                            bool(
+                                (codec_cip.decode_word(data, cip_type) >> (extra % 32))
+                                & 1
+                            )
+                        )
                     elif cip_type == codec_cip.CIP_TYPE_BOOL:
                         # NJ/NX 等按元素自描述的设备:元素应答即 BOOL 本体
-                        values.append(bool(codec_cip.decode_values(data, cip_type, 1)[0]))
+                        values.append(
+                            bool(codec_cip.decode_values(data, cip_type, 1)[0])
+                        )
                     else:
                         raise ValueError(
                             _("标签 {!r} 实际类型 {} 不是 BOOL").format(
@@ -817,7 +840,9 @@ class AllenBradleyEthIpClient(BaseClient):
         self._check_type(address, cip_type, expected)
         payload = codec_cip.encode_value(data_type, value)
         self._transact(
-            codec_cip.build_tag_write(codec_cip.tag_type_path(parsed), cip_type, payload),
+            codec_cip.build_tag_write(
+                codec_cip.tag_type_path(parsed), cip_type, payload
+            ),
             codec_cip.CIP_SERVICE_WRITE_TAG,
         )
 
@@ -826,9 +851,7 @@ class AllenBradleyEthIpClient(BaseClient):
         if parsed.bit is not None:
             cip_type = self._ensure_type(parsed)
             if cip_type == codec_cip.CIP_TYPE_BOOL:
-                raise ValueError(
-                    _("BOOL 标签不支持位号后缀:{!r}").format(parsed.name)
-                )
+                raise ValueError(_("BOOL 标签不支持位号后缀:{!r}").format(parsed.name))
             bit = parsed.bit or 0
             _check_bit_range(parsed, cip_type, bit)
             self._modify_word(_strip_bit(parsed), cip_type, bit, flag)
@@ -846,7 +869,9 @@ class AllenBradleyEthIpClient(BaseClient):
             return
         if cip_type == codec_cip.CIP_TYPE_DWORD:
             index = _single_array_index(parsed)
-            self._modify_word(_word_index_path(parsed, index), cip_type, index % 32, flag)
+            self._modify_word(
+                _word_index_path(parsed, index), cip_type, index % 32, flag
+            )
             return
         raise ValueError(
             _("标签 {!r} 实际类型 {} 不是 BOOL").format(
@@ -864,9 +889,7 @@ class AllenBradleyEthIpClient(BaseClient):
             codec_cip.CIP_SERVICE_READ_MODIFY_WRITE,
         )
 
-    def _write_string(
-        self, address: str, value: str, encoding: str
-    ) -> PrimitiveValue:
+    def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
         """写 STRING 标签:结构体类型域(0xA0 + 模板 0x0FCE)+ 88 字节布局。"""
         parsed = parse_ab_tag(address)
         if parsed.bit is not None:

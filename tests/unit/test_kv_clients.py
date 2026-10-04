@@ -8,6 +8,7 @@
 - 出错代码 → DeviceError 不断线;坏响应 → 标记断开
 - 字软元件位访问的"读-改-写"两段事务
 """
+
 from __future__ import annotations
 
 import struct
@@ -24,7 +25,7 @@ from scripted import ScriptedTransport
 
 def _chunks(line: bytes) -> list:
     """把一行响应切成单字节分片(匹配 TCP recv(1) 逐字节收包契约)。"""
-    return [line[i:i + 1] for i in range(len(line))]
+    return [line[i : i + 1] for i in range(len(line))]
 
 
 def test_parse_address_bases() -> None:
@@ -51,7 +52,9 @@ def test_codec_frames() -> None:
     assert codec.build_read("DM100.U") == b"RD DM100.U\r"
     assert codec.build_read("DM100.U", 2) == b"RDS DM100.U 2\r"
     assert codec.build_write("R10", "1") == b"WR R10 1\r"
-    assert codec.build_write_consecutive("DM100.U", ["1", "2"]) == b"WRS DM100.U 2 1 2\r"
+    assert (
+        codec.build_write_consecutive("DM100.U", ["1", "2"]) == b"WRS DM100.U 2 1 2\r"
+    )
     assert codec.parse_response(b"OK\r\n") == "OK"
     assert codec.parse_bit_token("ON") is True
     assert codec.parse_word_token("65535", ".U") == 65535
@@ -69,7 +72,7 @@ def test_tcp_read_ushort_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP:RDS 请求逐字节正确,响应解析出 .U 值。"""
     client = KeyenceHostLinkTcpClient("127.0.0.1", 8000)
     response = b"20\r\n"
-    scripted = ScriptedTransport([response[i:i + 1] for i in range(len(response))])
+    scripted = ScriptedTransport([response[i : i + 1] for i in range(len(response))])
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     assert client.read_ushort("DM100") == (True, 20)
@@ -145,6 +148,7 @@ def test_tcp_read_error_code_becomes_device_error_keeps_connection(
     assert client.last_error_code is None  # E0 → code=0,按基类契约归 None
     assert client.connected is True  # 链路完好,不拆连
 
+
 def test_tcp_read_bit_device(monkeypatch: pytest.MonkeyPatch) -> None:
     """TCP:位软元件 RD 无后缀,ON/OFF 令牌解析。"""
     client = KeyenceHostLinkTcpClient("127.0.0.1", 8000)
@@ -160,7 +164,9 @@ def test_tcp_read_float_two_words(monkeypatch: pytest.MonkeyPatch) -> None:
     client = KeyenceHostLinkTcpClient("127.0.0.1", 8000)
     raw = struct.pack("<f", 3.14)
     words = struct.unpack("<HH", raw)
-    scripted = ScriptedTransport(_chunks(bytes("{} {}\r\n".format(words[0], words[1]), "ascii")))
+    scripted = ScriptedTransport(
+        _chunks(bytes("{} {}\r\n".format(words[0], words[1]), "ascii"))
+    )
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     ok, value = client.read_float("DM100")
@@ -287,7 +293,9 @@ def test_response_hex_dump_truncated() -> None:
     assert _truncate_hex(short) == "01 02"
 
 
-def test_udp_missing_terminator_is_protocol_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_udp_missing_terminator_is_protocol_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """UDP 数据报缺 CR/LF → 分类 PROTOCOL,消息带收到的原始数据。"""
     client = KeyenceHostLinkUdpClient("127.0.0.1", 8000)
     scripted = ScriptedTransport([b"20"], datagram=True)  # 少了结束符

@@ -27,6 +27,7 @@ Guide》V1.5.3(2024/01/10,``Doc/``)。指南印刷页码引用(下称「指南�
 触发前置(读码器侧):TriggerMode=On + TriggerSource=Software(可经
 :meth:`set_enum_value` 设置或 IDMVS 配置),采集进行中(StartGrabbing)。
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -134,6 +135,7 @@ def _frame_is_noread(frame: "HikrobotSdkFrame") -> bool:
 # --------------------------------------------------------------------------
 class _MV_CODEREADER_POINT_I(ctypes.Structure):
     """条码角点坐标(MvCodeReaderParams.h 行 437-441)。"""
+
     _fields_ = [
         ("x", ctypes.c_int),
         ("y", ctypes.c_int),
@@ -142,6 +144,7 @@ class _MV_CODEREADER_POINT_I(ctypes.Structure):
 
 class _MV_CODEREADER_CODE_INFO(ctypes.Structure):
     """条码质量(MvCodeReaderParams.h 行 513-561):等级 0~4,越高越好。"""
+
     _fields_ = [
         ("nOverQuality", ctypes.c_int),
         ("nDeCode", ctypes.c_int),
@@ -181,6 +184,7 @@ class _MV_CODEREADER_CODE_INFO(ctypes.Structure):
 
 class _MV_CODEREADER_BCR_INFO_EX2(ctypes.Structure):
     """单条码信息(扩展字符 + 质量,MvCodeReaderParams.h 行 606-635)。"""
+
     _fields_ = [
         ("nID", ctypes.c_uint),
         ("chCode", ctypes.c_char * _MV_CODEREADER_MAX_BCR_CODE_LEN_EX),
@@ -213,6 +217,7 @@ class _MV_CODEREADER_BCR_INFO_EX2(ctypes.Structure):
 class _MV_CODEREADER_RESULT_BCR_EX2(ctypes.Structure):
     """条码结果列表(仅作为指针目标类型,由 SDK 内部存储填充,
     MvCodeReaderParams.h 行 638-645)。"""
+
     _fields_ = [
         ("nCodeNum", ctypes.c_uint),
         ("stBcrInfoEx2", _MV_CODEREADER_BCR_INFO_EX2 * _MAX_CODEREADER_BCR_COUNT_EX),
@@ -224,6 +229,7 @@ class _MV_CODEREADER_RESULT_BCR_EX2(ctypes.Structure):
 
 class _MV_CODEREADER_GIGE_DEVICE_INFO(ctypes.Structure):
     """GigE 设备信息(MvCodeReaderParams.h 行 126-149)。"""
+
     _fields_ = [
         ("nIpCfgOption", ctypes.c_uint),
         ("nIpCfgCurrent", ctypes.c_uint),
@@ -251,6 +257,7 @@ class _MV_CODEREADER_GIGE_DEVICE_INFO(ctypes.Structure):
 
 class _MV_CODEREADER_USB3_DEVICE_INFO(ctypes.Structure):
     """U3V 设备信息(MvCodeReaderParams.h 行 152-171)。"""
+
     _fields_ = [
         ("CrtlInEndPoint", ctypes.c_ubyte),
         ("CrtlOutEndPoint", ctypes.c_ubyte),
@@ -281,6 +288,7 @@ class _SpecialInfoUnion(ctypes.Union):
 
 class _MV_CODEREADER_DEVICE_INFO(ctypes.Structure):
     """设备信息(MvCodeReaderParams.h 行 174-194)。"""
+
     _fields_ = [
         ("nMajorVer", ctypes.c_ushort),
         ("nMinorVer", ctypes.c_ushort),
@@ -297,9 +305,13 @@ class _MV_CODEREADER_DEVICE_INFO(ctypes.Structure):
 
 class _MV_CODEREADER_DEVICE_INFO_LIST(ctypes.Structure):
     """设备信息列表(MvCodeReaderParams.h 行 197-202):SDK 填充内部存储指针。"""
+
     _fields_ = [
         ("nDeviceNum", ctypes.c_uint),
-        ("pDeviceInfo", ctypes.POINTER(_MV_CODEREADER_DEVICE_INFO) * _MV_CODEREADER_MAX_DEVICE_NUM),
+        (
+            "pDeviceInfo",
+            ctypes.POINTER(_MV_CODEREADER_DEVICE_INFO) * _MV_CODEREADER_MAX_DEVICE_NUM,
+        ),
     ]
 
 
@@ -337,6 +349,7 @@ class _MV_CODEREADER_IMAGE_OUT_INFO_EX2(ctypes.Structure):
     调用方缓冲,漏一个即 8 字节越界写,合计 16B;外层 pstCodeListEx 头文件
     类型为 ``RESULT_BCR_EX*`` 非 EX2,本库不解引用故按 void* 占位)。
     """
+
     _fields_ = [
         ("nWidth", ctypes.c_ushort),
         ("nHeight", ctypes.c_ushort),
@@ -365,6 +378,7 @@ class _MV_CODEREADER_IMAGE_OUT_INFO_EX2(ctypes.Structure):
 
 class _MV_CODEREADER_INTVALUE_EX(ctypes.Structure):
     """整型参数值(MvCodeReaderParams.h 行 401-408)。"""
+
     _fields_ = [
         ("nCurValue", ctypes.c_int64),
         ("nMax", ctypes.c_int64),
@@ -376,6 +390,7 @@ class _MV_CODEREADER_INTVALUE_EX(ctypes.Structure):
 
 class _MV_CODEREADER_ENUMVALUE(ctypes.Structure):
     """枚举参数值(MvCodeReaderParams.h 行 382-388)。"""
+
     _fields_ = [
         ("nCurValue", ctypes.c_uint),
         ("nSupportedNum", ctypes.c_uint),
@@ -386,6 +401,7 @@ class _MV_CODEREADER_ENUMVALUE(ctypes.Structure):
 
 class _MV_CODEREADER_FLOATVALUE(ctypes.Structure):
     """浮点参数值(MvCodeReaderParams.h 行 411-417)。"""
+
     _fields_ = [
         ("fCurValue", ctypes.c_float),
         ("fMax", ctypes.c_float),
@@ -396,6 +412,7 @@ class _MV_CODEREADER_FLOATVALUE(ctypes.Structure):
 
 class _MV_CODEREADER_STRINGVALUE(ctypes.Structure):
     """字符串参数值(MvCodeReaderParams.h 行 420-425)。"""
+
     _fields_ = [
         ("chCurValue", ctypes.c_char * 256),
         ("nMaxLength", ctypes.c_int64),
@@ -540,9 +557,7 @@ def _resolve_dll(sdk_dir: Optional[str], dll_path: Optional[str]) -> str:
         if os.path.isfile(candidate):
             return candidate
     raise OmniPLCInternalError(
-        _("SDK 动态库未找到:{}(请确认 sdk_dir 指向含 {} 的目录)").format(
-            name, bit_dir
-        )
+        _("SDK 动态库未找到:{}(请确认 sdk_dir 指向含 {} 的目录)").format(name, bit_dir)
     )
 
 
@@ -713,9 +728,7 @@ def _check_rc(rc: int, action: str) -> None:
         return
     if any(low <= code <= high for low, high in _SDK_LINK_ERROR_RANGES):
         raise OSError(_("SDK 链路类错误({}):0x{:08X}").format(action, code))
-    raise DeviceError(
-        _("SDK 调用失败({}):0x{:08X}").format(action, code), code
-    )
+    raise DeviceError(_("SDK 调用失败({}):0x{:08X}").format(action, code), code)
 
 
 def _ip_to_uint(ip: str) -> int:
@@ -776,7 +789,9 @@ class _HikrobotSdkSession(BaseTransport):
         dev_info = self._find_device_by_ip(target)
         handle = ctypes.c_void_p()
         _check_rc(
-            self._functions.CreateHandle(ctypes.pointer(handle), ctypes.pointer(dev_info)),
+            self._functions.CreateHandle(
+                ctypes.pointer(handle), ctypes.pointer(dev_info)
+            ),
             _("创建句柄"),
         )
         self._handle = handle.value
@@ -813,9 +828,9 @@ class _HikrobotSdkSession(BaseTransport):
                 ):
                     return info
         raise DeviceError(
-            _("枚举未找到目标设备 {}(私有协议与 GigE/USB 枚举均未命中,请核对 IP 与网口)").format(
-                self._ip_address
-            ),
+            _(
+                "枚举未找到目标设备 {}(私有协议与 GigE/USB 枚举均未命中,请核对 IP 与网口)"
+            ).format(self._ip_address),
             0,
         )
 
@@ -874,9 +889,7 @@ class _HikrobotSdkSession(BaseTransport):
             self._handle, b"TriggerSoftware"
         )
 
-    def get_one_frame_ex2(
-        self, data_ptr: object, info: object, timeout_ms: int
-    ) -> int:
+    def get_one_frame_ex2(self, data_ptr: object, info: object, timeout_ms: int) -> int:
         """取一帧(Ex2,含条码质量;内部方法;返回 SDK 原始码)。
 
         超时无帧返回 ``MV_CODEREADER_E_NODATA``(指南 §3.3.3 印刷页 27-28)。
@@ -1194,9 +1207,7 @@ class HikrobotIdSdkClient(BaseClient):
 
     def _scan_once(self, timeout: float) -> HikrobotSdkFrame:
         """软触发 + 取一帧(内部方法,须事务内调用)。"""
-        _check_rc(
-            self._session().trigger_software(), _("软触发")
-        )
+        _check_rc(self._session().trigger_software(), _("软触发"))
         return self._get_frame(timeout)
 
     def _get_frame(self, timeout: float) -> HikrobotSdkFrame:
@@ -1212,7 +1223,10 @@ class HikrobotIdSdkClient(BaseClient):
         rc = session.get_one_frame_ex2(
             ctypes.pointer(data_ptr), ctypes.pointer(info), int(timeout * 1000)
         )
-        if rc == _MV_CODEREADER_E_NODATA or (rc & 0xFFFFFFFF) == _MV_CODEREADER_E_NODATA:
+        if (
+            rc == _MV_CODEREADER_E_NODATA
+            or (rc & 0xFFFFFFFF) == _MV_CODEREADER_E_NODATA
+        ):
             # 超时无帧:与 TCP/串口超时同口径——TransportTimeoutError(code=0)
             # 不计 device_error_count、不断线;比较同时覆盖 c_int restype 的
             # 负数形态(真 DLL)与测试桩的正数形态
@@ -1300,9 +1314,7 @@ def _parse_frame(
                         item.nBarType, "0x{:X}".format(item.nBarType)
                     ),
                     length=item.nLen,
-                    points=tuple(
-                        (item.pt[i].x, item.pt[i].y) for i in range(4)
-                    ),
+                    points=tuple((item.pt[i].x, item.pt[i].y) for i in range(4)),
                     angle_deg=item.nAngle / 10.0,
                     quality=quality,
                     id=item.nID,

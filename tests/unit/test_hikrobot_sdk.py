@@ -12,6 +12,7 @@ C++) Developer Guide》V1.5.3 的流程语义在 Python 侧模拟,结构体使�
 - 未读到码(NODATA/无条码)→ (False, None) 不断线
 - 参数访问面:Get/Set Int/Enum/Bool/Float/String + SetCommandValue
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -158,7 +159,9 @@ class _FakeSdk:
             if self.frame_rc:
                 return self.frame_rc
             if self.frame is not None:
-                ctypes.memmove(info, ctypes.byref(self.frame), ctypes.sizeof(self.frame))
+                ctypes.memmove(
+                    info, ctypes.byref(self.frame), ctypes.sizeof(self.frame)
+                )
                 # 图像长度与缓冲一致,防 string_at 越界(真机由 SDK 保证)
                 info[0].nFrameLen = len(self.image_data)
             if self.image_data:
@@ -250,9 +253,7 @@ class _FakeSdk:
 
     def MV_CODEREADER_SetStringValue(self):
         def fn(handle, key, value):
-            self.calls.append(
-                "SetString:{}={}".format(key.decode(), value.decode())
-            )
+            self.calls.append("SetString:{}={}".format(key.decode(), value.decode()))
             return self.param_rc
 
         return _FakeFn(fn)
@@ -342,8 +343,9 @@ class _FakeDll:
             "SetStringValue",
             "SetCommandValue",
         ):
-            setattr(self, "MV_CODEREADER_" + name, getattr(sdk, "MV_CODEREADER_" + name)())
-
+            setattr(
+                self, "MV_CODEREADER_" + name, getattr(sdk, "MV_CODEREADER_" + name)()
+            )
 
 
 def test_connect_and_scan_success(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -362,7 +364,12 @@ def test_connect_and_scan_success(monkeypatch: pytest.MonkeyPatch) -> None:
                 "ppm": 30,
                 "sharpness": 125,
             },
-            {"content": "X<\\x01>Y", "bar_type": 128, "points": [(1, 2), (3, 4), (5, 6), (7, 8)], "angle_deg": 0},
+            {
+                "content": "X<\\x01>Y",
+                "bar_type": 128,
+                "points": [(1, 2), (3, 4), (5, 6), (7, 8)],
+                "angle_deg": 0,
+            },
         ]
     )
     client, sdk = _make_client(monkeypatch, sdk)
@@ -432,7 +439,14 @@ def test_read_frame_passive(monkeypatch: pytest.MonkeyPatch) -> None:
     sdk = _FakeSdk()
     sdk.add_gige_device(_IP)
     sdk.frame = _make_frame(
-        codes=[{"content": "IO-TRIG", "bar_type": 2, "points": [(0, 0)] * 4, "angle_deg": 0}]
+        codes=[
+            {
+                "content": "IO-TRIG",
+                "bar_type": 2,
+                "points": [(0, 0)] * 4,
+                "angle_deg": 0,
+            }
+        ]
     )
     client, sdk = _make_client(monkeypatch, sdk)
     ok, frame = client.read_frame(timeout=2.0)
@@ -446,7 +460,9 @@ def test_with_image(monkeypatch: pytest.MonkeyPatch) -> None:
     sdk = _FakeSdk()
     sdk.add_gige_device(_IP)
     sdk.frame = _make_frame(
-        codes=[{"content": "ABC", "bar_type": 1, "points": [(0, 0)] * 4, "angle_deg": 0}]
+        codes=[
+            {"content": "ABC", "bar_type": 1, "points": [(0, 0)] * 4, "angle_deg": 0}
+        ]
     )
     client, _sdk = _make_client(monkeypatch, sdk, with_image=True)
     ok, frame = client.scan(timeout=2.0)
@@ -525,7 +541,7 @@ def test_ex2_struct_size_matches_header() -> None:
     import sys
 
     size = ctypes.sizeof(_MV_CODEREADER_IMAGE_OUT_INFO_EX2)
-    expected = 192 if sys.maxsize < 2 ** 32 else 200
+    expected = 192 if sys.maxsize < 2**32 else 200
     assert size == expected, (
         "IMAGE_OUT_INFO_EX2 布局与 V2.0.0 头文件不符(实际 {} 期望 {}):"
         "请对照 MvCodeReaderParams.h L751-823 逐字段核对".format(size, expected)
@@ -542,8 +558,18 @@ def test_scan_noread_marker_frame(monkeypatch: pytest.MonkeyPatch) -> None:
     sdk.add_gige_device(_IP)
     sdk.frame = _make_frame(
         codes=[
-            {"content": "NoRead1D", "bar_type": 1000, "points": [(0, 0)] * 4, "angle_deg": 0},
-            {"content": "NoRead2D", "bar_type": 1001, "points": [(0, 0)] * 4, "angle_deg": 0},
+            {
+                "content": "NoRead1D",
+                "bar_type": 1000,
+                "points": [(0, 0)] * 4,
+                "angle_deg": 0,
+            },
+            {
+                "content": "NoRead2D",
+                "bar_type": 1001,
+                "points": [(0, 0)] * 4,
+                "angle_deg": 0,
+            },
         ]
     )
     client, _sdk = _make_client(monkeypatch, sdk)
@@ -560,8 +586,18 @@ def test_scan_mixed_noread_and_real_code(
     sdk.add_gige_device(_IP)
     sdk.frame = _make_frame(
         codes=[
-            {"content": "NoRead2D", "bar_type": 1001, "points": [(0, 0)] * 4, "angle_deg": 0},
-            {"content": "ABC123", "bar_type": 2, "points": [(0, 0)] * 4, "angle_deg": 0},
+            {
+                "content": "NoRead2D",
+                "bar_type": 1001,
+                "points": [(0, 0)] * 4,
+                "angle_deg": 0,
+            },
+            {
+                "content": "ABC123",
+                "bar_type": 2,
+                "points": [(0, 0)] * 4,
+                "angle_deg": 0,
+            },
         ]
     )
     client, _sdk = _make_client(monkeypatch, sdk)

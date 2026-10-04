@@ -47,6 +47,7 @@ C052/C053(16.5 印刷页 662「要操作的长度超过单次通信最大处理�
 在汇川设备上**未经核证**(C059「指令码不存在」是手册错误码表对未知指令
 的应答,支持与否以真机为准);基类逐点 0401/1401 路径在支持面内。
 """
+
 from __future__ import annotations
 
 from typing import List, Optional, Tuple
@@ -78,7 +79,9 @@ def _to_melsec_address(parsed: McAddress) -> McAddress:
         try:
             number = int(parsed.number, 10)
         except ValueError:
-            raise ValueError(_("汇川 R 编号为十进制,解析失败:{!r}").format(parsed.number))
+            raise ValueError(
+                _("汇川 R 编号为十进制,解析失败:{!r}").format(parsed.number)
+            )
         return McAddress("D", str(number + INOVANCE_MC_R_BASE), parsed.bit)
     if device in ("X", "Y"):
         try:

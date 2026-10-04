@@ -15,6 +15,7 @@
 - B1 BaseClient 健康统计快照
 - B2 超时/错误码口径(超时不计设备错误码、``code=0`` 归 ``None``、超时跨走线重试)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -109,6 +110,7 @@ class TestRecvDeadline:
 
     def test_tcp_trickle_hits_deadline(self) -> None:
         """假 socket 每次吐 1 字节,但 receive_timeout=0.2s 应在 ~0.2s 抛 socket.timeout。"""
+
         # 构造一个每次只回 1 字节的 socket
         class TrickleSocket:
             def __init__(self) -> None:
@@ -516,9 +518,7 @@ class TestMxComCleanup:
 
         monkeypatch.setattr(mx, "_com_initialize", _fake_init)
         monkeypatch.setattr(mx, "_com_uninitialize", _fake_uninit)
-        monkeypatch.setattr(
-            mx, "_new_com_object", lambda _station: _FakeCom()
-        )
+        monkeypatch.setattr(mx, "_new_com_object", lambda _station: _FakeCom())
 
         link = mx._MxComLink(0)
         link.connect()
@@ -532,7 +532,9 @@ class TestMxComCleanup:
         assert init_calls == [1]
         assert uninit_calls == [1]
 
-    def test_close_failure_still_clears_com(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_close_failure_still_clears_com(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         class _FakeCom:
             def Open(self) -> int:
                 return 0

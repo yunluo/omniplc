@@ -9,6 +9,7 @@
 - UDP 静默对端 → ``TransportTimeoutError``(不断线语义)
 - UDP 超长报文(WSAEMSGSIZE 10040)→ ``DeviceError(code=-10040)``(假 socket)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -83,9 +84,7 @@ def test_tcp_recv_timeout_is_socket_timeout(loop: Any) -> None:
     """TCP 读超时抛 ``socket.timeout``(OSError 语义 → 事务层拆连,与同步同口径)。"""
 
     async def scenario() -> None:
-        server = await asyncio.start_server(
-            lambda r, w: None, "127.0.0.1", 0
-        )
+        server = await asyncio.start_server(lambda r, w: None, "127.0.0.1", 0)
         port = server.sockets[0].getsockname()[1]
         transport = AsyncTcpTransport("127.0.0.1", port)
         transport.receive_timeout = 0.2

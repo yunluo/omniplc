@@ -9,6 +9,7 @@ V1.1.2 §4.6.1/§4.6.2(串口触发文本 start/stop)与《工业读码器通信
 - 多码编排:trigger() → read_result() → stop()
 - 构造期校验:文本长度/等长拒绝/noread_text 非空;configure_serial 落位
 """
+
 from __future__ import annotations
 
 import pytest
@@ -44,9 +45,7 @@ def test_scan_success_sequence(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_scan_lf_only_line(monkeypatch: pytest.MonkeyPatch) -> None:
     """结果行仅 LF 结尾同样成行;元数据模板文本原样透传。"""
-    client = _make_client(
-        monkeypatch, [b"A1 <code_type>DM <code_quality>4\n"]
-    )
+    client = _make_client(monkeypatch, [b"A1 <code_type>DM <code_quality>4\n"])
     ok, text = client.scan(timeout=2.0)
     assert ok is True
     assert text == "A1 <code_type>DM <code_quality>4"

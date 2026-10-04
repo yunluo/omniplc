@@ -4,6 +4,7 @@
 (R 统一编址/X/Y 八进制换算后逐字节同帧);异步侧只重写薄层,帧语义必须
 与同步层一致。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -81,7 +82,9 @@ def _qna_read_response(values) -> bytes:
     """构造 3E 读响应。"""
     data = b"".join(int(v).to_bytes(2, "little") for v in values)
     head = b"\xd0\x00" + b"\x00\xff\xff\x03\x00"
-    return head + (2 + len(data)).to_bytes(2, "little") + (0).to_bytes(2, "little") + data
+    return (
+        head + (2 + len(data)).to_bytes(2, "little") + (0).to_bytes(2, "little") + data
+    )
 
 
 def _split_3e(frame: bytes):
@@ -136,7 +139,9 @@ def test_modbus_tcp_read_parity(monkeypatch: pytest.MonkeyPatch, loop: Any) -> N
     assert holder["state"] == sync_state
 
 
-def test_modbus_tcp_counter_translate(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
+def test_modbus_tcp_counter_translate(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
     """C205(32 位计数器)读 INT:翻译到 hr63242 双寄存器展开(与同步同帧)。"""
     resp = _modbus_read_regs([0, 0])
     chunks = list(_split_mbap(resp))
@@ -195,7 +200,9 @@ def test_modbus_tcp_bit_read_octal(monkeypatch: pytest.MonkeyPatch, loop: Any) -
     assert holder["sent"][8:10] == (0xF80F).to_bytes(2, "big")
 
 
-def test_modbus_tcp_counter_type_gate(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
+def test_modbus_tcp_counter_type_gate(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
     """C205 以 16 位类型访问:事务路径 ValueError(32 位门控;两层口径一致)。
 
     门控在 ``_translate``(事务内)——连接成功后才走到;未连接时
@@ -203,9 +210,7 @@ def test_modbus_tcp_counter_type_gate(monkeypatch: pytest.MonkeyPatch, loop: Any
     同步侧同法实测)。
     """
     sync_client = InovanceTcpClient("127.0.0.1", 502, 1)
-    monkeypatch.setattr(
-        sync_client, "_create_transport", lambda: ScriptedTransport([])
-    )
+    monkeypatch.setattr(sync_client, "_create_transport", lambda: ScriptedTransport([]))
     sync_client.connect()
     with pytest.raises(ValueError):
         sync_client.read("C205", DataType.USHORT)
@@ -262,8 +267,15 @@ def test_mc_read_parity_r_notation(monkeypatch: pytest.MonkeyPatch, loop: Any) -
     assert holder["result"] == sync_result == (True, 20)
     assert holder["sent"] == bytes(sync_scripted.sent)
     expected = codec_qna.build_request(
-        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER,
-        parse_mc_address("D8100"), 1, False, False,
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("D8100"),
+        1,
+        False,
+        False,
     )
     assert holder["sent"] == expected, "R100 应按 D8100 组帧"
 
@@ -295,8 +307,15 @@ def test_mc_read_parity_xy_octal(monkeypatch: pytest.MonkeyPatch, loop: Any) -> 
     assert holder["result"] == sync_result
     assert holder["sent"] == bytes(sync_scripted.sent)
     expected = codec_qna.build_request(
-        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER,
-        parse_mc_address("XF"), 1, True, False,
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("XF"),
+        1,
+        True,
+        False,
     )
     assert holder["sent"] == expected, "X17(八进制)应按 XF(十六进制)组帧"
 
@@ -309,7 +328,13 @@ def test_mc_read_range_xy_octal(monkeypatch: pytest.MonkeyPatch, loop: Any) -> N
     review-1002 P1-1 同款缺陷在 native 复活,且旧测试零 read_range 覆盖。
     """
     # 位单位读 1 点:响应数据 = 1 字节半字节打包(第 1 点在高半字节,SH-080008)
-    resp = b"\xd0\x00" + b"\x00\xff\xff\x03\x00" + (3).to_bytes(2, "little") + (0).to_bytes(2, "little") + b"\x10"
+    resp = (
+        b"\xd0\x00"
+        + b"\x00\xff\xff\x03\x00"
+        + (3).to_bytes(2, "little")
+        + (0).to_bytes(2, "little")
+        + b"\x10"
+    )
     chunks = list(_split_3e(resp))
 
     sync_client = InovanceMcTcpClient("127.0.0.1", 2000)
@@ -334,8 +359,15 @@ def test_mc_read_range_xy_octal(monkeypatch: pytest.MonkeyPatch, loop: Any) -> N
     assert holder["result"] == sync_result == (True, [True])
     assert holder["sent"] == bytes(sync_scripted.sent)
     expected = codec_qna.build_request(
-        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER,
-        parse_mc_address("XF"), 1, True, False,
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("XF"),
+        1,
+        True,
+        False,
     )
     assert holder["sent"] == expected, "read_range X17 应按 XF 恰好一次换算组帧"
 

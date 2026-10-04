@@ -3,6 +3,7 @@
 数据类型名称与本库 ``read_*``/``write_*`` 方法后缀保持一致
 (行业常见约定),便于调用方按统一命名切换数据类型。
 """
+
 from __future__ import annotations
 
 from enum import Enum

@@ -7,6 +7,7 @@
 - ``omniplc.aio`` 星号导入面 == 其 ``__all__``(只有 A* 异步类;
   同步客户端/常量/内部助手只是实现依赖,不得进使用者命名空间)
 """
+
 from __future__ import annotations
 
 import re

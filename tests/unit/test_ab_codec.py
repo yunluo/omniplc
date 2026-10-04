@@ -2,6 +2,7 @@
 
 字面字节向量按 CIP/EtherNet/IP 规范推得(见 architecture.md §8.1)。
 """
+
 from __future__ import annotations
 
 import struct
@@ -51,7 +52,7 @@ def test_parse_ab_tag_invalid() -> None:
 def test_register_session_golden() -> None:
     """RegisterSession 请求字面字节(命令 0x0065 + 协议版本 1)。"""
     assert codec_cip.build_register_session() == bytes.fromhex(
-        "65000400" "0000000000000000000000000000000000000000" "01000000"
+        "65000400000000000000000000000000000000000000000001000000"
     )
 
 
@@ -63,7 +64,9 @@ def test_parse_register_session() -> None:
     with pytest.raises(ProtocolFrameError):
         codec_cip.parse_register_session(bad_status)
     with pytest.raises(ProtocolFrameError):
-        codec_cip.parse_register_session(struct.pack("<HHIIQIHH", 0x66, 4, 0, 0, 0, 0, 1, 0))
+        codec_cip.parse_register_session(
+            struct.pack("<HHIIQIHH", 0x66, 4, 0, 0, 0, 0, 1, 0)
+        )
 
 
 def test_unregister_session_golden() -> None:
@@ -79,7 +82,8 @@ def test_uc_send_read_frame_golden() -> None:
     request = codec_cip.build_tag_read(_MYDINT_PATH, 1)
     frame = codec_cip.build_rr_data(_SESSION, codec_cip.build_uc_send(request, 0))
     assert frame == bytes.fromhex(
-        "6f002a0078563412" "00000000000000000000000000000000"  # ENIP 头
+        "6f002a0078563412"
+        "00000000000000000000000000000000"  # ENIP 头
         "000000000100020000000000b2001a00"  # CPF 前缀(超时 1 秒)
         "5202200624010af00c00"  # UC Send 头
         "4c0491064d7944696e740100"  # Tag Read 服务
@@ -100,9 +104,9 @@ def test_symbol_path_segments() -> None:
     """路径构造:符号段偶对齐 + 元素段按大小选码(段内补齐)+ 末级下标置零。"""
     path = codec_cip.build_symbol_path(("M",), ((5, 70000),))
     # 70000 = 0x00011170(小端 70 11 01 00)
-    assert path == bytes.fromhex("91014d00" "2805" "2a0070110100")
+    assert path == bytes.fromhex("91014d0028052a0070110100")
     path = codec_cip.build_symbol_path(("Bits",), ((12,),), zero_last_index=True)
-    assert path == bytes.fromhex("910442697473" "2800")
+    assert path == bytes.fromhex("9104426974732800")
 
 
 def test_symbol_path_odd_index_segment_padded() -> None:
@@ -113,7 +117,7 @@ def test_symbol_path_odd_index_segment_padded() -> None:
     现按 padded EPATH 段内补齐(pylogix/pycomm3 同型),路径恒偶长。
     """
     path = codec_cip.build_symbol_path(("MyDint",), ((300,),))
-    assert path == bytes.fromhex("91064d7944696e74" "29002c01")
+    assert path == bytes.fromhex("91064d7944696e7429002c01")
     assert len(path) % 2 == 0
     # 下标 ≥65536 同样偶长(0x2A 段 = 1+1+4 = 6 字节)
     path = codec_cip.build_symbol_path(("Big",), ((70000,),))
@@ -123,7 +127,7 @@ def test_symbol_path_odd_index_segment_padded() -> None:
 def test_tag_write_frames() -> None:
     """写帧:原子类型域(码 + 0x00 + 点数)与 STRING 类型域(A0 + 02 + 模板)。"""
     request = codec_cip.build_tag_write(_MYDINT_PATH, 0xC4, b"\x39\x05\x00\x00")
-    assert request == bytes.fromhex("4d04" "91064d7944696e74" "c4000100" "39050000")
+    assert request == bytes.fromhex("4d0491064d7944696e74c400010039050000")
     request = codec_cip.build_string_write(_MYDINT_PATH, b"\x02\x00\x00\x00AB")
     assert request[10:12] == bytes.fromhex("a002")
     assert request[12:14] == struct.pack("<H", 0x0FCE)
@@ -133,9 +137,7 @@ def test_tag_write_frames() -> None:
 def test_read_modify_write_frame() -> None:
     """0x4E 帧:掩码字节数 + OR + AND(小端)。"""
     request = codec_cip.build_read_modify_write(_MYDINT_PATH, 0xC4, 8, 0xFFFFFFF7)
-    assert request == bytes.fromhex(
-        "4e04" "91064d7944696e74" "0400" "08000000" "f7ffffff"
-    )
+    assert request == bytes.fromhex("4e0491064d7944696e74040008000000f7ffffff")
 
 
 def test_bit_masks() -> None:
@@ -169,7 +171,7 @@ def _wrapped_reply(
 
 def test_parse_service_reply_golden() -> None:
     """读应答解析黄金向量:剥 UC/内嵌两层头后剩类型域 + 数据。"""
-    payload = bytes.fromhex("c400" "39050000")
+    payload = bytes.fromhex("c40039050000")
     reply = _wrapped_reply(payload)
     assert struct.unpack_from("<H", reply, 2)[0] == 16 + 14
     data = codec_cip.parse_service_reply(reply, codec_cip.CIP_SERVICE_READ_TAG)
@@ -202,14 +204,15 @@ def test_parse_service_reply_errors() -> None:
 
 def test_parse_service_reply_tolerates_0x66_reply() -> None:
     """0x66 应答头宽容(偏差模拟器):规范 CPF 体与连接式 CPF 体都取数据项。"""
-    payload = bytes.fromhex("c400" "39050000")
+    payload = bytes.fromhex("c40039050000")
     reply = _wrapped_reply(payload)
-    deviant = struct.pack(
-        "<HHIIQI", 0x66, len(reply) - 24, _SESSION, 0, 0, 0
-    ) + reply[24:]
-    assert codec_cip.parse_service_reply(
-        deviant, codec_cip.CIP_SERVICE_READ_TAG
-    ) == payload
+    deviant = (
+        struct.pack("<HHIIQI", 0x66, len(reply) - 24, _SESSION, 0, 0, 0) + reply[24:]
+    )
+    assert (
+        codec_cip.parse_service_reply(deviant, codec_cip.CIP_SERVICE_READ_TAG)
+        == payload
+    )
 
     embedded = bytes((codec_cip.CIP_SERVICE_READ_TAG | 0x80, 0, 0, 0)) + payload
     cip = bytes((0xD2, 0, 0, 0)) + embedded
@@ -223,20 +226,21 @@ def test_parse_service_reply_tolerates_0x66_reply() -> None:
         + struct.pack("<H", 7)
     )
     connected = header + prefix + cip
-    assert codec_cip.parse_service_reply(
-        connected, codec_cip.CIP_SERVICE_READ_TAG
-    ) == payload
+    assert (
+        codec_cip.parse_service_reply(connected, codec_cip.CIP_SERVICE_READ_TAG)
+        == payload
+    )
 
-    wrong = struct.pack(
-        "<HHIIQI", 0x65, len(reply) - 24, _SESSION, 0, 0, 0
-    ) + reply[24:]
+    wrong = (
+        struct.pack("<HHIIQI", 0x65, len(reply) - 24, _SESSION, 0, 0, 0) + reply[24:]
+    )
     with pytest.raises(ProtocolFrameError):
         codec_cip.parse_service_reply(wrong, codec_cip.CIP_SERVICE_READ_TAG)
 
 
 def test_parse_service_reply_bare_body_without_d2() -> None:
     """偏差模拟器(个别服务端)剥掉 0xD2 路由信封:应答体即内嵌服务应答。"""
-    payload = bytes.fromhex("c400" "39050000")
+    payload = bytes.fromhex("c40039050000")
     cip = bytes((codec_cip.CIP_SERVICE_READ_TAG | 0x80, 0, 0, 0)) + payload
     header = struct.pack("<HHIIQI", 0x66, 22 + len(cip), _SESSION, 0, 0, 0)
     prefix = (
@@ -248,36 +252,33 @@ def test_parse_service_reply_bare_body_without_d2() -> None:
         + struct.pack("<H", 7)
     )
     frame = header + prefix + cip
-    assert codec_cip.parse_service_reply(frame, codec_cip.CIP_SERVICE_READ_TAG) == payload
+    assert (
+        codec_cip.parse_service_reply(frame, codec_cip.CIP_SERVICE_READ_TAG) == payload
+    )
 
 
 def test_parse_direct_service_reply() -> None:
     """直发应答(NJ/NX,无 0xD2 外层):一层服务头 + 数据;错误路径同契约。"""
-    payload = bytes.fromhex("c400" "05000000")
+    payload = bytes.fromhex("c40005000000")
     cip = bytes((codec_cip.CIP_SERVICE_READ_TAG | 0x80, 0, 0, 0)) + payload
     header = struct.pack("<HHIIQI", 0x6F, 16 + len(cip), _SESSION, 0, 0, 0)
     prefix = struct.pack("<IHHHHHH", 0, 0, 2, 0, 0, 0xB2, len(cip))
     reply = header + prefix + cip
-    assert codec_cip.parse_direct_service_reply(
-        reply, codec_cip.CIP_SERVICE_READ_TAG
-    ) == payload
-    bad_cip = (
-        bytes((codec_cip.CIP_SERVICE_READ_TAG | 0x80, 0, 0x16, 0)) + payload
+    assert (
+        codec_cip.parse_direct_service_reply(reply, codec_cip.CIP_SERVICE_READ_TAG)
+        == payload
     )
+    bad_cip = bytes((codec_cip.CIP_SERVICE_READ_TAG | 0x80, 0, 0x16, 0)) + payload
     bad_reply = (
         struct.pack("<HHIIQI", 0x6F, 16 + len(bad_cip), _SESSION, 0, 0, 0)
         + struct.pack("<IHHHHHH", 0, 0, 2, 0, 0, 0xB2, len(bad_cip))
         + bad_cip
     )
     with pytest.raises(DeviceError) as exc_info:
-        codec_cip.parse_direct_service_reply(
-            bad_reply, codec_cip.CIP_SERVICE_READ_TAG
-        )
+        codec_cip.parse_direct_service_reply(bad_reply, codec_cip.CIP_SERVICE_READ_TAG)
     assert exc_info.value.code == 0x16
     with pytest.raises(ProtocolFrameError):
-        codec_cip.parse_direct_service_reply(
-            reply, codec_cip.CIP_SERVICE_WRITE_TAG
-        )
+        codec_cip.parse_direct_service_reply(reply, codec_cip.CIP_SERVICE_WRITE_TAG)
 
 
 def test_parse_tag_read_payload_struct() -> None:
@@ -326,6 +327,7 @@ def test_encode_value_ranges() -> None:
 # connected 消息(Forward Open/Close + SendUnitData)
 # ----------------------------------------------------------------------
 
+
 def _rr_data_reply(cip: bytes) -> bytes:
     """裸 CIP 应答的 RRData 包装(测试脚手架)。"""
     header = struct.pack("<HHIIQI", 0x6F, 16 + len(cip), _SESSION, 0, 0, 0)
@@ -340,21 +342,26 @@ def test_forward_open_golden() -> None:
     )
     assert request == bytes.fromhex(
         "5402200624010a0e"  # 服务 + CM 路径 + 优先级/超时
-        "00000000" "78560000"  # O->T CID(0=目标分配)+ T->O CID
-        "3412" "3713" "2a000000"  # 连接序列号 + 厂商号 + 发起方序列号
+        "00000000"
+        "78560000"  # O->T CID(0=目标分配)+ T->O CID
+        "3412"
+        "3713"
+        "2a000000"  # 连接序列号 + 厂商号 + 发起方序列号
         "03000000"  # 超时乘数 + 3 保留
-        "a0860100" "f843"  # O->T RPI(100ms) + 参数(P2P+固定+504)
-        "a0860100" "f843"  # T->O RPI(100ms) + 参数
-        "a3" "03" "010020022401"  # 传输触发 + 路径字数 + 背板/槽/消息路由
+        "a0860100"
+        "f843"  # O->T RPI(100ms) + 参数(P2P+固定+504)
+        "a0860100"
+        "f843"  # T->O RPI(100ms) + 参数
+        "a3"
+        "03"
+        "010020022401"  # 传输触发 + 路径字数 + 背板/槽/消息路由
     )
 
 
 def test_forward_open_empty_route() -> None:
     """空路由段(NJ/NX 内置口):路径只剩消息路由对象,字数 2。"""
-    request = codec_cip.build_forward_open(
-        False, 504, 0x1234, 0x5678, 0x1337, 42, b""
-    )
-    assert request.endswith(bytes.fromhex("02" "20022401"))
+    request = codec_cip.build_forward_open(False, 504, 0x1234, 0x5678, 0x1337, 42, b"")
+    assert request.endswith(bytes.fromhex("0220022401"))
     with pytest.raises(ValueError):
         codec_cip.build_forward_open(False, 504, 0, 0, 0, 0, b"\x01")
 
@@ -422,11 +429,7 @@ def test_forward_open_reply() -> None:
 def test_forward_close_golden_and_reply() -> None:
     """Forward Close 字面字节与应答状态解析。"""
     request = codec_cip.build_forward_close(0x1234, 0x1337, 42, b"\x01\x00")
-    assert request == bytes.fromhex(
-        "4e0220062401" "0a0e"
-        "3412" "3713" "2a000000"
-        "03" "00" "010020022401"
-    )
+    assert request == bytes.fromhex("4e02200624010a0e341237132a0000000300010020022401")
     reply = _rr_data_reply(bytes((0xCE, 0, 0, 0)))
     assert codec_cip.parse_forward_close_reply(reply) == 0
     reply = _rr_data_reply(bytes((0xCC, 0, 0, 0)))
@@ -441,9 +444,12 @@ def test_send_unit_data_golden() -> None:
     request = codec_cip.build_tag_read(_MYDINT_PATH, 1)
     frame = codec_cip.build_send_unit_data(_SESSION, 0xAABBCCDD, 1, request)
     assert frame == bytes.fromhex(
-        "70002200" "78563412" "00000000000000000000000000000000"  # ENIP 头(len=22+12)
+        "70002200"
+        "78563412"
+        "00000000000000000000000000000000"  # ENIP 头(len=22+12)
         "0000000001000200"  # interface + timeout(1 秒) + 项数
-        "a1000400" "ddccbbaa"  # 连接地址项:O->T 连接 ID
+        "a1000400"
+        "ddccbbaa"  # 连接地址项:O->T 连接 ID
         "b1000e000100"  # 连接数据项:len=12+2、序列号 1
         "4c0491064d7944696e740100"  # Tag Read
     )
@@ -482,6 +488,7 @@ def test_parse_send_unit_data_reply() -> None:
 # 通用 CIP 服务 + 扩展码诊断
 # ----------------------------------------------------------------------
 
+
 def test_build_get_attributes_all_identity_object() -> None:
     """GetAttributesAll on Identity Object (class=0x01 instance=0x01) 字节布局。
 
@@ -510,15 +517,19 @@ def test_parse_get_attribute_list_payload_golden() -> None:
     """
     payload = (
         struct.pack("<H", 2)
-        + struct.pack("<HH", 1, 0) + struct.pack("<H", 0x0001)
-        + struct.pack("<HH", 7, 0) + bytes((5,)) + b"PLC-A"
+        + struct.pack("<HH", 1, 0)
+        + struct.pack("<H", 0x0001)
+        + struct.pack("<HH", 7, 0)
+        + bytes((5,))
+        + b"PLC-A"
     )
     decoders = (
         (1, lambda d: (struct.unpack_from("<H", d, 0)[0], 2)),
         (7, codec_cip.decode_identity_string_consumed),
     )
     assert codec_cip.parse_get_attribute_list_payload(payload, decoders) == [
-        (1, 0x0001), (7, "PLC-A"),
+        (1, 0x0001),
+        (7, "PLC-A"),
     ]
 
 
@@ -526,9 +537,12 @@ def test_parse_get_attribute_list_payload_item_status() -> None:
     """逐项状态非 0:该项无值域,返回 (属性号, None),后续项仍按序解。"""
     payload = (
         struct.pack("<H", 3)
-        + struct.pack("<HH", 1, 0) + struct.pack("<H", 0x0001)
+        + struct.pack("<HH", 1, 0)
+        + struct.pack("<H", 0x0001)
         + struct.pack("<HH", 6, 0x14)  # 状态非 0:无值
-        + struct.pack("<HH", 7, 0) + bytes((1,)) + b"X"
+        + struct.pack("<HH", 7, 0)
+        + bytes((1,))
+        + b"X"
     )
     decoders = (
         (1, lambda d: (struct.unpack_from("<H", d, 0)[0], 2)),
@@ -536,7 +550,9 @@ def test_parse_get_attribute_list_payload_item_status() -> None:
         (7, codec_cip.decode_identity_string_consumed),
     )
     assert codec_cip.parse_get_attribute_list_payload(payload, decoders) == [
-        (1, 0x0001), (6, None), (7, "X"),
+        (1, 0x0001),
+        (6, None),
+        (7, "X"),
     ]
 
 
@@ -545,6 +561,7 @@ def test_parse_get_attribute_list_payload_errors() -> None:
 
     值区截断由解码器自报(库内解器抛 ProtocolFrameError;严不严由调用方决定)。
     """
+
     def _strict_uint16(d: bytes) -> tuple:
         if len(d) < 2:
             raise ProtocolFrameError("属性值截断")
@@ -583,12 +600,12 @@ def test_service_reply_additional_status_word_step() -> None:
     embedded = (
         bytes((codec_cip.CIP_SERVICE_READ_TAG | 0x80, 0, 0, 1))
         + struct.pack("<H", 0)
-        + bytes.fromhex("c400" "39050000")
+        + bytes.fromhex("c40039050000")
     )
     reply = _rr_data_reply(bytes((0xD2, 0, 0, 0)) + embedded)
     assert codec_cip.parse_service_reply(
         reply, codec_cip.CIP_SERVICE_READ_TAG
-    ) == bytes.fromhex("c400" "39050000")
+    ) == bytes.fromhex("c40039050000")
 
 
 def test_forward_open_reply_additional_status_step() -> None:
@@ -615,17 +632,26 @@ def test_parse_list_identity_reply_full_fields() -> None:
     revision=(30, 11), status=0x0001, serial=0x89ABCDEF,
     product_name="1769-L23"(8 字节), state=0xFF。
     """
-    identity_body = struct.pack(
-        "<HHHBBH",
-        0x1234,  # vendor
-        0x000E,  # product_type
-        0x5678,  # product_code
-        30, 11,  # revision major/minor
-        0x0001,  # status
-    ) + struct.pack("<I", 0x89ABCDEF) + bytes((8,)) + b"1769-L23" + bytes((0xFF,))
+    identity_body = (
+        struct.pack(
+            "<HHHBBH",
+            0x1234,  # vendor
+            0x000E,  # product_type
+            0x5678,  # product_code
+            30,
+            11,  # revision major/minor
+            0x0001,  # status
+        )
+        + struct.pack("<I", 0x89ABCDEF)
+        + bytes((8,))
+        + b"1769-L23"
+        + bytes((0xFF,))
+    )
     socket_addr = struct.pack("<HH4s8s", 0, 44818, b"\xc0\xa8\x01\x0a", b"\x00" * 8)
     item_data = struct.pack("<H", 1) + socket_addr + identity_body  # 封装版本 1
-    item = struct.pack("<HH", codec_cip.CIP_ITEM_LIST_IDENTITY, len(item_data)) + item_data
+    item = (
+        struct.pack("<HH", codec_cip.CIP_ITEM_LIST_IDENTITY, len(item_data)) + item_data
+    )
     payload = struct.pack("<H", 1) + item  # Item Count = 1
     header = struct.pack(
         "<HHIIQI",
@@ -651,19 +677,35 @@ def test_parse_list_identity_reply_full_fields() -> None:
 
 def test_parse_list_identity_reply_bad_item() -> None:
     """ListIdentity 应答 Item 计数/类型码非法按坏帧拒绝(不静默错位解码)。"""
-    identity_body = struct.pack("<HHHBBH", 1, 14, 2, 1, 0, 0) + struct.pack("<I", 1) + bytes((0,)) + bytes((0xFF,))
+    identity_body = (
+        struct.pack("<HHHBBH", 1, 14, 2, 1, 0, 0)
+        + struct.pack("<I", 1)
+        + bytes((0,))
+        + bytes((0xFF,))
+    )
     item_data = struct.pack("<H", 1) + b"\x00" * 16 + identity_body
 
     def _frame(item: bytes) -> bytes:
         payload = struct.pack("<H", 1) + item
-        return struct.pack("<HHIIQI", codec_cip.EIP_COMMAND_LIST_IDENTITY, len(payload), 0, 0, 0, 0) + payload
+        return (
+            struct.pack(
+                "<HHIIQI", codec_cip.EIP_COMMAND_LIST_IDENTITY, len(payload), 0, 0, 0, 0
+            )
+            + payload
+        )
 
-    bad_count = struct.pack("<HH", codec_cip.CIP_ITEM_LIST_IDENTITY, len(item_data)) + item_data
+    bad_count = (
+        struct.pack("<HH", codec_cip.CIP_ITEM_LIST_IDENTITY, len(item_data)) + item_data
+    )
     with pytest.raises(ProtocolFrameError):
-        codec_cip.parse_list_identity_reply(_frame(struct.pack("<H", 2) + bad_count))  # Item Count=2
+        codec_cip.parse_list_identity_reply(
+            _frame(struct.pack("<H", 2) + bad_count)
+        )  # Item Count=2
     bad_type = struct.pack("<HH", 0x0000, len(item_data)) + item_data
     with pytest.raises(ProtocolFrameError):
-        codec_cip.parse_list_identity_reply(_frame(struct.pack("<H", 1) + bad_type))  # Type ≠ 0x000C
+        codec_cip.parse_list_identity_reply(
+            _frame(struct.pack("<H", 1) + bad_type)
+        )  # Type ≠ 0x000C
     truncated = struct.pack("<HH", codec_cip.CIP_ITEM_LIST_IDENTITY, 9999) + item_data
     with pytest.raises(ProtocolFrameError):
         codec_cip.parse_list_identity_reply(_frame(struct.pack("<H", 1) + truncated))
@@ -671,14 +713,20 @@ def test_parse_list_identity_reply_bad_item() -> None:
 
 def test_parse_module_identity_payload() -> None:
     """GetAttributesAll 裸数据(7 字段 Identity Object)解码。"""
-    payload = struct.pack(
-        "<HHHBBH",
-        0x0001,  # vendor = Rockwell
-        0x000E,  # product_type = PLC
-        0x1234,  # product_code
-        24, 6,  # revision major/minor
-        0x0001,  # status
-    ) + struct.pack("<I", 0xDEADBEEF) + bytes((5,)) + b"PLC-A"
+    payload = (
+        struct.pack(
+            "<HHHBBH",
+            0x0001,  # vendor = Rockwell
+            0x000E,  # product_type = PLC
+            0x1234,  # product_code
+            24,
+            6,  # revision major/minor
+            0x0001,  # status
+        )
+        + struct.pack("<I", 0xDEADBEEF)
+        + bytes((5,))
+        + b"PLC-A"
+    )
     info = codec_cip.parse_module_identity_payload(payload)
     assert info["vendor"] == 0x0001
     assert info["product_type"] == 0x000E
@@ -703,9 +751,15 @@ def test_extended_status_attached_to_device_error() -> None:
     # 手动构造完整 ENIP 帧,确保 length 域匹配实际长度
     uc_send = bytes((0xD2, 0x00, 0x00, 0x00))
     cip_payload = uc_send + cip_with_ext
-    cpf_prefix = (
-        struct.pack("<IHHHHHH", 0, 0, 2, codec_cip._CPF_ITEM_NULL_ADDRESS, 0,
-                    codec_cip._CPF_ITEM_UNCONNECTED_DATA, len(cip_payload))
+    cpf_prefix = struct.pack(
+        "<IHHHHHH",
+        0,
+        0,
+        2,
+        codec_cip._CPF_ITEM_NULL_ADDRESS,
+        0,
+        codec_cip._CPF_ITEM_UNCONNECTED_DATA,
+        len(cip_payload),
     )
     body = cpf_prefix + cip_payload
     header = struct.pack(
@@ -735,15 +789,20 @@ def test_extended_status_unknown_omitted() -> None:
 
     DeviceError.message 只含通用状态文本;code 仍为 0x04。
     """
-    cip = (
-        bytes((codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL | 0x80, 0x00, 0x04, 0x02))
-        + struct.pack("<H", 0x9999)
-    )
+    cip = bytes(
+        (codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL | 0x80, 0x00, 0x04, 0x02)
+    ) + struct.pack("<H", 0x9999)
     uc_send = bytes((0xD2, 0x00, 0x00, 0x00))
     cip_payload = uc_send + cip
-    cpf_prefix = (
-        struct.pack("<IHHHHHH", 0, 0, 2, codec_cip._CPF_ITEM_NULL_ADDRESS, 0,
-                    codec_cip._CPF_ITEM_UNCONNECTED_DATA, len(cip_payload))
+    cpf_prefix = struct.pack(
+        "<IHHHHHH",
+        0,
+        0,
+        2,
+        codec_cip._CPF_ITEM_NULL_ADDRESS,
+        0,
+        codec_cip._CPF_ITEM_UNCONNECTED_DATA,
+        len(cip_payload),
     )
     body = cpf_prefix + cip_payload
     header = struct.pack(
@@ -763,12 +822,19 @@ def test_parse_service_reply_tolerates_zero_echo_write_reply() -> None:
 
     写应答 CIP 体 = 00 00 00 00(回显省略 + 保留 0 + 状态 0 + 附加长 0)。
     """
+
     def _reply_with_embedded(embedded: bytes) -> bytes:
         uc_send = bytes((0xD2, 0x00, 0x00, 0x00))
         cip_payload = uc_send + embedded
         cpf_prefix = struct.pack(
-            "<IHHHHHH", 0, 0, 2, codec_cip._CPF_ITEM_NULL_ADDRESS, 0,
-            codec_cip._CPF_ITEM_UNCONNECTED_DATA, len(cip_payload)
+            "<IHHHHHH",
+            0,
+            0,
+            2,
+            codec_cip._CPF_ITEM_NULL_ADDRESS,
+            0,
+            codec_cip._CPF_ITEM_UNCONNECTED_DATA,
+            len(cip_payload),
         )
         body = cpf_prefix + cip_payload
         header = struct.pack(
@@ -785,14 +851,14 @@ def test_parse_service_reply_tolerates_zero_echo_write_reply() -> None:
 
 def test_build_multiple_service_packet() -> None:
     """多服务包:0x0A + 消息路由器路径 + 条数/偏移(自条数域起算)/补齐。"""
-    packet = codec_cip.build_multiple_service_packet([
-        bytes.fromhex("4c01020304"),  # 5 字节(奇)
-        bytes.fromhex("4c0105060708"),  # 6 字节(偶)
-    ])
-    # 条数 0200;偏移:第 1 条 6(2+2*2),第 2 条 6+5+1(补齐)=0x0C
-    assert packet == bytes.fromhex(
-        "0a02" "20022401" "0200" "0600" "0c00" "4c01020304" "00" "4c0105060708"
+    packet = codec_cip.build_multiple_service_packet(
+        [
+            bytes.fromhex("4c01020304"),  # 5 字节(奇)
+            bytes.fromhex("4c0105060708"),  # 6 字节(偶)
+        ]
     )
+    # 条数 0200;偏移:第 1 条 6(2+2*2),第 2 条 6+5+1(补齐)=0x0C
+    assert packet == bytes.fromhex("0a0220022401020006000c004c01020304004c0105060708")
 
 
 def test_build_multiple_service_packet_validation() -> None:
@@ -800,9 +866,7 @@ def test_build_multiple_service_packet_validation() -> None:
     with pytest.raises(ValueError):
         codec_cip.build_multiple_service_packet([])
     with pytest.raises(ValueError):
-        codec_cip.build_multiple_service_packet(
-            [b"\x4c\x01\x01"] * 33
-        )
+        codec_cip.build_multiple_service_packet([b"\x4c\x01\x01"] * 33)
 
 
 def test_parse_multiple_service_payload() -> None:

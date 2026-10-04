@@ -13,6 +13,7 @@
 这正是"校验时机一致"的判据。FINS/TCP 用例额外喂一条合法的握手应答,让两侧都
 真的进入已连接状态(否则 FINS 用例会因为握手失败而"一致地失败",失去意义)。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -55,32 +56,64 @@ def _fins_chunks() -> List[bytes]:
 def _cases() -> List[Tuple[str, str, str, str, _Op]]:
     """(协议族, 同步类名, 原生类名, 用例名, 操作)。"""
     shared: List[Tuple[str, str, _Op]] = [
-        ("read_string_zero_len", "read_string 长度 0", lambda c: c.read_string("hr0", 0)),
-        ("write_string_empty", "write_string 空串", lambda c: c.write_string("hr0", "")),
+        (
+            "read_string_zero_len",
+            "read_string 长度 0",
+            lambda c: c.read_string("hr0", 0),
+        ),
+        (
+            "write_string_empty",
+            "write_string 空串",
+            lambda c: c.write_string("hr0", ""),
+        ),
         ("write_bool_int5", "write_bool 拒 int 5", lambda c: c.write_bool("hr0", 5)),
         ("write_bool_str", "write_bool 拒字符串", lambda c: c.write_bool("hr0", "1")),
         ("read_unknown_type", "未知数据类型", lambda c: c.read("hr0", "NOT_A_TYPE")),
-        ("read_type_string", "read 传 STRING", lambda c: c.read("hr0", DataType.STRING)),
+        (
+            "read_type_string",
+            "read 传 STRING",
+            lambda c: c.read("hr0", DataType.STRING),
+        ),
     ]
     per_family = {
         "modbus": [
             ("bad_address", "坏地址", lambda c: c.read("xx9", DataType.USHORT)),
-            ("write_ushort_range", "ushort 越界", lambda c: c.write_ushort("hr0", 70000)),
+            (
+                "write_ushort_range",
+                "ushort 越界",
+                lambda c: c.write_ushort("hr0", 70000),
+            ),
             ("write_short_range", "short 越界", lambda c: c.write_short("hr0", -40000)),
             ("string_on_coil", "位区读字符串", lambda c: c.read_string("coil0", 4)),
         ],
         "melsec": [
             ("bad_device", "未知软元件", lambda c: c.read("QQ100", DataType.USHORT)),
             ("write_short_range", "short 越界", lambda c: c.write_short("D100", 40000)),
-            ("bool_word_no_bit", "字软元件无位号读 BOOL", lambda c: c.read_bool("D100")),
-            ("bit_address_suffix", "位软元件带位号", lambda c: c.read("M10.3", DataType.BOOL)),
+            (
+                "bool_word_no_bit",
+                "字软元件无位号读 BOOL",
+                lambda c: c.read_bool("D100"),
+            ),
+            (
+                "bit_address_suffix",
+                "位软元件带位号",
+                lambda c: c.read("M10.3", DataType.BOOL),
+            ),
             ("string_bit_suffix", "字符串带位号", lambda c: c.read_string("D100.5", 4)),
-            ("write_string_bit_suffix", "字符串写带位号", lambda c: c.write_string("D100.5", "AB")),
+            (
+                "write_string_bit_suffix",
+                "字符串写带位号",
+                lambda c: c.write_string("D100.5", "AB"),
+            ),
         ],
         "fins": [
             ("bad_area", "未知区域", lambda c: c.read("QQ100", DataType.USHORT)),
             ("write_short_range", "short 越界", lambda c: c.write_short("D100", 40000)),
-            ("bool_word_no_bit", "字软元件无位号读 BOOL", lambda c: c.read_bool("D100")),
+            (
+                "bool_word_no_bit",
+                "字软元件无位号读 BOOL",
+                lambda c: c.read_bool("D100"),
+            ),
         ],
     }
     table: List[Tuple[str, str, str, str, _Op]] = []
@@ -96,11 +129,7 @@ def _cases() -> List[Tuple[str, str, str, str, _Op]]:
 
 def _make_sync(family: str, cls_name: str) -> Any:
     cls = getattr(pkg, cls_name)
-    client = (
-        cls("127.0.0.1", 502, 1)
-        if family == "modbus"
-        else cls("127.0.0.1", 9600)
-    )
+    client = cls("127.0.0.1", 502, 1) if family == "modbus" else cls("127.0.0.1", 9600)
     chunks = _fins_chunks() if family == "fins" else []
     scripted = ScriptedTransport(list(chunks))
     client._create_transport = lambda: scripted  # type: ignore[method-assign]
@@ -109,9 +138,7 @@ def _make_sync(family: str, cls_name: str) -> Any:
 
 def _make_async(family: str, cls_name: str) -> Any:
     cls = getattr(native, cls_name)
-    client = (
-        cls("127.0.0.1", 502, 1) if family == "modbus" else cls("127.0.0.1", 9600)
-    )
+    client = cls("127.0.0.1", 502, 1) if family == "modbus" else cls("127.0.0.1", 9600)
     chunks = _fins_chunks() if family == "fins" else []
     scripted = ScriptedAsyncTransport(list(chunks))
     client._create_transport = lambda: scripted  # type: ignore[method-assign]

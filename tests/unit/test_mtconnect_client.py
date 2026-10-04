@@ -3,6 +3,7 @@
 连接工厂 ``_new_connection`` 以模块级函数隔离(同 MX Component 惯例),
 测试替换为内存版假连接:按路径返回罐头 XML,可注入 socket/协议异常。
 """
+
 from __future__ import annotations
 
 import http.client
@@ -124,7 +125,7 @@ class FakeResponse:
     def read(self, amt: Optional[int] = None) -> bytes:
         if amt is None:
             amt = len(self._body) - self._offset
-        chunk = self._body[self._offset:self._offset + amt]
+        chunk = self._body[self._offset : self._offset + amt]
         self._offset += len(chunk)
         return chunk
 
@@ -176,6 +177,7 @@ def _client(monkeypatch: pytest.MonkeyPatch) -> MTConnectClient:
 # 快照与类型化读
 # ----------------------------------------------------------------------
 
+
 def test_connect_uses_connect_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     """建连用 connect_timeout(HTTPConnection timeout = TCP 握手)(第八轮 P2-5)。
 
@@ -197,7 +199,9 @@ def test_connect_uses_connect_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     client.disconnect()
 
 
-def test_coerce_non_numeric_text_is_device_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_coerce_non_numeric_text_is_device_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Agent 文本与声明类型不符 → DeviceError(0) 走 (False, None) 契约(第八轮 P2-7)。"""
     client = _client(monkeypatch)
     assert client.read_short("exec") == (False, None)  # "ACTIVE" 非数值文本
@@ -224,7 +228,10 @@ def test_typed_reads(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.read_float("Sspeed") == (True, 8400.0)
     assert client.read_int("pcount") == (True, 12)
     assert client.read_string("program") == (True, "O0022.nc")
-    assert client.read_string("program", 8, "gbk") == (True, "O0022.nc")  # length/encoding 不适用
+    assert client.read_string("program", 8, "gbk") == (
+        True,
+        "O0022.nc",
+    )  # length/encoding 不适用
     assert client.read_float("Xact") == (True, 123.456)
 
 
@@ -303,6 +310,7 @@ def test_write_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
 # ----------------------------------------------------------------------
 # HTTP 状态 / 错误文档 / 断线重连
 # ----------------------------------------------------------------------
+
 
 def test_http_error_document(monkeypatch: pytest.MonkeyPatch) -> None:
     """HTTP 404 + MTConnectError 文档 → DeviceError(不断线)。"""
@@ -388,7 +396,9 @@ def test_stale_keepalive_transparent_retry(monkeypatch: pytest.MonkeyPatch) -> N
     assert len(created) == 2  # 重试用了重建的新连接
 
 
-def test_stale_retry_second_failure_disconnects(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stale_retry_second_failure_disconnects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """重建重试仍失败 → 按断线上抛;下次读经惰性重连恢复。"""
     created: list = []
 
@@ -414,6 +424,7 @@ def test_stale_retry_second_failure_disconnects(monkeypatch: pytest.MonkeyPatch)
 # ----------------------------------------------------------------------
 # probe / 条件项
 # ----------------------------------------------------------------------
+
 
 def test_probe(monkeypatch: pytest.MonkeyPatch) -> None:
     """/probe 返回第一个 Device 的属性。"""
@@ -442,6 +453,7 @@ def test_read_conditions(monkeypatch: pytest.MonkeyPatch) -> None:
 # ----------------------------------------------------------------------
 # 异步镜像
 # ----------------------------------------------------------------------
+
 
 def test_async_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
     """异步镜像:snapshot/类型化读/条件项/probe 经单工作线程驱动同步实例。"""
@@ -472,6 +484,7 @@ def test_async_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
 # ----------------------------------------------------------------------
 # 会话适配器:未连接即用
 # ----------------------------------------------------------------------
+
 
 def test_session_without_connect() -> None:
     """未建立会话调用 request → TransportClosedError。"""
@@ -525,8 +538,10 @@ def test_overlong_numeric_text_rejected(monkeypatch: pytest.MonkeyPatch) -> None
         "<MTConnectStreams xmlns='urn:mtconnect.org:MTConnectStreams:1.3'>"
         "<Streams><DeviceStream name='M' uuid='u'>"
         "<ComponentStream component='Controller' id='c1'><Samples>"
-        "<Position dataItemId='Xact'>" + "9" * 200 +
-        "</Position></Samples></ComponentStream></DeviceStream>"
+        "<Position dataItemId='Xact'>"
+        + "9"
+        * 200
+        + "</Position></Samples></ComponentStream></DeviceStream>"
         "</Streams></MTConnectStreams>"
     ).encode("utf-8")
     conn.responses = {"/current": (200, body)}
@@ -631,6 +646,7 @@ def test_doctype_utf16_payload_rejected(monkeypatch: pytest.MonkeyPatch) -> None
 # MTConnect 专项:/sample、/asset、多 Device、空元素 UNAVAILABLE、path 过滤
 # ----------------------------------------------------------------------
 
+
 def _client_with(monkeypatch: pytest.MonkeyPatch, responses: dict) -> MTConnectClient:
     """挂假连接工厂并预置路径 → 响应,返回已连接客户端(测试脚手架)。"""
     conn = FakeHTTPConnection("127.0.0.1", 5000)
@@ -655,9 +671,7 @@ def test_empty_element_treated_unavailable(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_probe_all_devices(monkeypatch: pytest.MonkeyPatch) -> None:
     """/probe 多 Device:probe_all 返回全部;probe 仍取首个(兼容)。"""
-    client = _client_with(
-        monkeypatch, {"/probe": (200, _PROBE_XML.encode("utf-8"))}
-    )
+    client = _client_with(monkeypatch, {"/probe": (200, _PROBE_XML.encode("utf-8"))})
     ok, devices = client.probe_all()
     assert ok is True and devices is not None
     assert [d["name"] for d in devices] == ["VMC-850", "ROBOT-2"]
@@ -668,9 +682,7 @@ def test_probe_all_devices(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_read_sample_history(monkeypatch: pytest.MonkeyPatch) -> None:
     """/sample 历史流:from/count 进查询串,Header.nextSequence 与逐样本返回。"""
     path = "/sample?from=43&count=2"
-    client = _client_with(
-        monkeypatch, {path: (200, _SAMPLE_XML.encode("utf-8"))}
-    )
+    client = _client_with(monkeypatch, {path: (200, _SAMPLE_XML.encode("utf-8"))})
     ok, result = client.read_sample(from_sequence=43, count=2)
     assert ok is True and result is not None
     assert result["next_sequence"] == 45
@@ -711,7 +723,9 @@ def test_read_assets_all_and_by_id(monkeypatch: pytest.MonkeyPatch) -> None:
     assert ok is True and subset is not None and len(subset) == 2
 
 
-def test_read_assets_id_with_special_chars_is_quoted(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_read_assets_id_with_special_chars_is_quoted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """回归:asset id 含空格/?/# 时 URL 编码后拼路径(不破坏请求行)。
 
     原实现直接拼接原始 id——含特殊字符时请求行畸形;现 ``quote(id,
@@ -730,9 +744,7 @@ def test_read_assets_id_with_special_chars_is_quoted(monkeypatch: pytest.MonkeyP
 def test_snapshot_path_filter(monkeypatch: pytest.MonkeyPatch) -> None:
     """snapshot 支持 path 查询(/current?path=...)。"""
     path = "/current?path=%2F%2FLinear"
-    client = _client_with(
-        monkeypatch, {path: (200, _CURRENT_XML.encode("utf-8"))}
-    )
+    client = _client_with(monkeypatch, {path: (200, _CURRENT_XML.encode("utf-8"))})
     ok, items = client.snapshot(path="//Linear")
     assert ok is True and items is not None and items["Xact"] == "123.456"
 
@@ -775,7 +787,7 @@ def test_read_integer_out_of_declared_range(monkeypatch: pytest.MonkeyPatch) -> 
         '<ComponentStream component="C" id="c"><Samples>'
         '<Position dataItemId="big">40000</Position>'
         '<Position dataItemId="ok">123</Position>'
-        '</Samples></ComponentStream></DeviceStream></Streams></MTConnectStreams>'
+        "</Samples></ComponentStream></DeviceStream></Streams></MTConnectStreams>"
     )
     client = _client_with(monkeypatch, {"/current": (200, xml.encode("utf-8"))})
     assert client.read_short("big") == (False, None)

@@ -26,6 +26,7 @@ LONG→Int64、ULONG→UInt64、FLOAT→Float、DOUBLE→Double、STRING→Strin
 v0.8 范围:匿名/NoSecurity 连接下的节点读写;v0.35 新增 Browse +
 订阅(数据变化 + 事件)。安全策略配置 / 聚合采样订阅留后续。
 """
+
 from __future__ import annotations
 
 import logging
@@ -52,7 +53,12 @@ from ...core.constants import (
     UINT64_MAX,
 )
 from ...core.debug import log_op
-from ...core.errors import DeviceError, ErrorCategory, OmniPLCInternalError, TransportClosedError
+from ...core.errors import (
+    DeviceError,
+    ErrorCategory,
+    OmniPLCInternalError,
+    TransportClosedError,
+)
 from ...core.validation import (
     check_range,
     check_uint16,
@@ -82,7 +88,9 @@ _VARIANT_TYPE_NAMES = {
 OPCUA_SERVER_TIME_NODE = "i=2258"
 """Server_ServerStatus_CurrentTime 标准变量(0 命名空间;探活探测命令)。"""
 
-_ENDPOINT_RE = re.compile(r"^opc\.tcp://([^/\s:]+|\[[0-9A-Fa-f:]+\])(?::(\d{1,5}))?(?:/.*)?$", re.IGNORECASE)
+_ENDPOINT_RE = re.compile(
+    r"^opc\.tcp://([^/\s:]+|\[[0-9A-Fa-f:]+\])(?::(\d{1,5}))?(?:/.*)?$", re.IGNORECASE
+)
 """opc.tcp 端点 URL:主机(IPv4/IPv6 字面量/主机名)+ 可选端口 + 可选路径。"""
 
 
@@ -177,7 +185,11 @@ class _OpcUaSession(BaseTransport):
         try:
             client = asyncua.sync.Client(self._endpoint, timeout=self._receive_timeout)
         except Exception as exc:
-            raise OSError(_("OPC-UA 会话创建失败:{}(请确认已 pip install omniplc[opcua])").format(exc))
+            raise OSError(
+                _("OPC-UA 会话创建失败:{}(请确认已 pip install omniplc[opcua])").format(
+                    exc
+                )
+            )
         try:
             client.connect()
         except OSError:
@@ -185,9 +197,7 @@ class _OpcUaSession(BaseTransport):
             raise
         except Exception as exc:
             _safe_disconnect(client)
-            raise OSError(
-                _("OPC-UA 连接失败:{}({})").format(type(exc).__name__, exc)
-            )
+            raise OSError(_("OPC-UA 连接失败:{}({})").format(type(exc).__name__, exc))
         self._client = client
         log_op(self._debug_label, "会话已建立")
 
@@ -252,7 +262,9 @@ class _OpcUaSession(BaseTransport):
                     _("OPC-UA 节点读失败({}):{}").format(text, status.name),
                     int(status.value),
                 )
-            values.append(data_value.Value.Value if data_value.Value is not None else None)
+            values.append(
+                data_value.Value.Value if data_value.Value is not None else None
+            )
         log_op(self._debug_label, "批量读 %d 节点", len(node_texts))
         return values
 
@@ -263,7 +275,9 @@ class _OpcUaSession(BaseTransport):
         try:
             variant_type = getattr(asyncua.ua.VariantType, variant_name)
         except Exception:
-            raise OmniPLCInternalError(_("OPC-UA VariantType 解析失败:{}").format(variant_name))
+            raise OmniPLCInternalError(
+                _("OPC-UA VariantType 解析失败:{}").format(variant_name)
+            )
         try:
             self.client.get_node(node_text).write_value(value, variant_type)
         except OSError:
@@ -384,9 +398,7 @@ class _EventHandler:
         except Exception as exc:
             try:
                 self._client._set_error(  # noqa: SLF001
-                    _("OPC-UA Event 回调异常:{}:{}").format(
-                        type(exc).__name__, exc
-                    ),
+                    _("OPC-UA Event 回调异常:{}:{}").format(type(exc).__name__, exc),
                     ErrorCategory.UNKNOWN,
                     None,
                 )
@@ -591,7 +603,9 @@ class OpcUaClient(BaseClient):
         if not isinstance(value, str):
             raise ValueError(_("字符串必须是 str,收到:{}").format(type(value).__name__))
         parsed = parse_opcua_nodeid(address)
-        self._session().write_value(parsed.text, value, _VARIANT_TYPE_NAMES[DataType.STRING])
+        self._session().write_value(
+            parsed.text, value, _VARIANT_TYPE_NAMES[DataType.STRING]
+        )
         return value
 
     def _ping_probe(self) -> Any:
@@ -617,7 +631,9 @@ class OpcUaClient(BaseClient):
         (原因见 :attr:`last_error`);需要逐点容错请逐点调用 :meth:`read`。
         """
         data_type_enum = DataType.coerce(data_type)
-        ok, values = self.read_batch([(address, data_type_enum) for address in addresses])
+        ok, values = self.read_batch(
+            [(address, data_type_enum) for address in addresses]
+        )
         if not ok or values is None:
             return [(False, None) for _ in addresses]
         return [(True, value) for value in values]
@@ -643,9 +659,7 @@ class OpcUaClient(BaseClient):
         for address, data_type in items:
             data_type_enum = DataType.coerce(data_type)
             if data_type_enum not in _VARIANT_TYPE_NAMES:
-                raise ValueError(
-                    _("OPC-UA 不支持的数据类型:{}").format(data_type_enum)
-                )
+                raise ValueError(_("OPC-UA 不支持的数据类型:{}").format(data_type_enum))
             plan.append((parse_opcua_nodeid(address).text, data_type_enum))
 
         def operation() -> List[PrimitiveValue]:
@@ -706,9 +720,9 @@ class OpcUaClient(BaseClient):
                     identifier = int(part[2:])
             if identifier is None or parsed_ref.namespace != 0:
                 raise ValueError(
-                    _("reference_type_id 须为命名空间 0 的数字标识符(如 i=33):{!r}").format(
-                        reference_type_id
-                    )
+                    _(
+                        "reference_type_id 须为命名空间 0 的数字标识符(如 i=33):{!r}"
+                    ).format(reference_type_id)
                 )
             reference_type_resolved = identifier
 
@@ -764,7 +778,11 @@ class OpcUaClient(BaseClient):
             if recursive and (max_depth is None or current_depth < max_depth):
                 try:
                     entry["children"] = self._browse_node(
-                        child, recursive, current_depth + 1, max_depth, reference_type_id
+                        child,
+                        recursive,
+                        current_depth + 1,
+                        max_depth,
+                        reference_type_id,
                     )
                 except Exception:
                     entry["children"] = {}  # 子层失败 → 空 dict,不挂外层
@@ -803,14 +821,20 @@ class OpcUaClient(BaseClient):
         """
         if sampling_interval_ms <= 0:
             raise ValueError(
-                _("sampling_interval_ms 必须大于 0,收到:{}").format(sampling_interval_ms)
+                _("sampling_interval_ms 必须大于 0,收到:{}").format(
+                    sampling_interval_ms
+                )
             )
         if deadband_value is not None and deadband_value < 0:
-            raise ValueError(_("deadband_value 不能为负,收到:{}").format(deadband_value))
+            raise ValueError(
+                _("deadband_value 不能为负,收到:{}").format(deadband_value)
+            )
         if not node_text:
             raise ValueError(_("node_text 不能为空"))
         if not callable(on_change):
-            raise ValueError(_("on_change 必须是可调用对象,收到:{!r}").format(type(on_change)))
+            raise ValueError(
+                _("on_change 必须是可调用对象,收到:{!r}").format(type(on_change))
+            )
         filter_obj = _build_data_change_filter(deadband_value, deadband_type)
 
         def operation() -> OpcUaSubscription:
@@ -938,7 +962,9 @@ class OpcUaClient(BaseClient):
         if not node_text:
             raise ValueError(_("node_text 不能为空"))
         if not callable(on_event):
-            raise ValueError(_("on_event 必须是可调用对象,收到:{!r}").format(type(on_event)))
+            raise ValueError(
+                _("on_event 必须是可调用对象,收到:{!r}").format(type(on_event))
+            )
 
         def operation() -> OpcUaSubscription:
             session = self._session()
@@ -993,13 +1019,16 @@ class OpcUaClient(BaseClient):
 # 模块级辅助函数
 # ----------------------------------------------------------------------
 
+
 def _build_endpoint(ip_address: str, port: int, path: str) -> str:
     """由 IP/端口/路径组装 opc.tcp 端点 URL(内部函数)。
 
     :raises ValueError: 组装结果非法
     """
     cleaned = path.strip().strip("/")
-    url = "opc.tcp://{}:{}{}".format(ip_address.strip(), port, f"/{cleaned}" if cleaned else "")
+    url = "opc.tcp://{}:{}{}".format(
+        ip_address.strip(), port, f"/{cleaned}" if cleaned else ""
+    )
     _validate_endpoint_url(url)
     return url
 
@@ -1021,7 +1050,11 @@ def _validate_endpoint_url(endpoint: str) -> None:
         )
     port_text = match.group(2)
     if port_text is not None and not PORT_MIN <= int(port_text) <= PORT_MAX:
-        raise ValueError(_("OPC-UA 端点端口必须在 {}~{} 之间,收到:{}").format(PORT_MIN, PORT_MAX, port_text))
+        raise ValueError(
+            _("OPC-UA 端点端口必须在 {}~{} 之间,收到:{}").format(
+                PORT_MIN, PORT_MAX, port_text
+            )
+        )
 
 
 _OPCUA_INT_RANGES: Dict[DataType, Tuple[int, int, str]] = {
@@ -1047,7 +1080,9 @@ def _narrow_int(value: int, data_type: DataType) -> int:
         low, high, name = _OPCUA_INT_RANGES[data_type]
         return check_range(value, low, high, name)
     except ValueError as exc:
-        raise DeviceError(_("OPC-UA 服务端返回值超声明类型范围:{}").format(exc), 0) from exc
+        raise DeviceError(
+            _("OPC-UA 服务端返回值超声明类型范围:{}").format(exc), 0
+        ) from exc
 
 
 def _coerce_read(value: Any, data_type: DataType, address: str) -> PrimitiveValue:
@@ -1066,8 +1101,14 @@ def _coerce_read(value: Any, data_type: DataType, address: str) -> PrimitiveValu
                 _("OPC-UA 节点返回类型不符(期望布尔):{} ← {!r}").format(address, value)
             )
         return value
-    if data_type in (DataType.SHORT, DataType.USHORT, DataType.INT, DataType.UINT,
-                     DataType.LONG, DataType.ULONG):
+    if data_type in (
+        DataType.SHORT,
+        DataType.USHORT,
+        DataType.INT,
+        DataType.UINT,
+        DataType.LONG,
+        DataType.ULONG,
+    ):
         if isinstance(value, bool) or not isinstance(value, int):
             raise ValueError(
                 _("OPC-UA 节点返回类型不符(期望整数):{} ← {!r}").format(address, value)
@@ -1132,14 +1173,16 @@ def _require_int_range(number: int, data_type: DataType) -> None:
     """整数范围校验(内部函数)。"""
     low, high = _INT_RANGES[data_type]
     if not low <= number <= high:
-        raise ValueError(_("{} 超出范围 {}~{}:{}").format(data_type.name, low, high, number))
+        raise ValueError(
+            _("{} 超出范围 {}~{}:{}").format(data_type.name, low, high, number)
+        )
 
 
 _BROWSE_ALIASES = {
-    "Root": "i=84",       # OPC-UA RootFolder
-    "Objects": "i=85",     # ObjectsFolder
-    "Types": "i=86",       # TypesFolder
-    "Views": "i=87",       # ViewsFolder
+    "Root": "i=84",  # OPC-UA RootFolder
+    "Objects": "i=85",  # ObjectsFolder
+    "Types": "i=86",  # TypesFolder
+    "Views": "i=87",  # ViewsFolder
 }
 """OPC-UA 顶层语义别名 → 标准 NodeId(供 :meth:`OpcUaClient.browse` 用;
 ``parse_opcua_nodeid`` 不识别非 ``ns=X;...`` 格式,翻译后才能拿到 Node)。"""

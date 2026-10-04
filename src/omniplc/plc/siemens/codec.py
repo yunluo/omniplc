@@ -12,6 +12,7 @@ Sally7/S7netplus 交叉;snap7 C++ 源码 LGPL 只比对行为不抄码)。
 
 真机 pcap 是黄金帧的唯一权威,落地前黄金帧以参考实现字节锁定。
 """
+
 from __future__ import annotations
 
 import struct
@@ -275,9 +276,7 @@ def parse_s7_response(
     :raises S7ProtocolError: 协议 ID/类型/序列号/分段长度不符
     """
     if len(pdu) < 10:
-        raise S7ProtocolError(
-            _("S7 应答过短:实收 {} 字节(至少 10)").format(len(pdu))
-        )
+        raise S7ProtocolError(_("S7 应答过短:实收 {} 字节(至少 10)").format(len(pdu)))
     pdu_type = pdu[1]
     if pdu_type == PDU_USERDATA:
         header = struct.unpack(">BBHHHH", pdu[:10])
@@ -291,17 +290,23 @@ def parse_s7_response(
                 _("S7 应答过短:实收 {} 字节(ACK 型至少 12)").format(len(pdu))
             )
         header = struct.unpack(">BBHHHHBB", pdu[:12])
-        (_protocol_id, _pdu_type, _reserved, sequence,
-         param_len, data_len, error_class, error_code) = header
+        (
+            _protocol_id,
+            _pdu_type,
+            _reserved,
+            sequence,
+            param_len,
+            data_len,
+            error_class,
+            error_code,
+        ) = header
         offset = 12
     else:
         raise S7ProtocolError(
             _("S7 应答类型非法:0x{:02X}(应为 ACK/ACK_DATA/USERDATA)").format(pdu_type)
         )
     if pdu[:1] != bytes((PROTOCOL_ID,)):
-        raise S7ProtocolError(
-            _("S7 协议 ID 非法:0x{:02X}(应为 0x32)").format(pdu[0])
-        )
+        raise S7ProtocolError(_("S7 协议 ID 非法:0x{:02X}(应为 0x32)").format(pdu[0]))
     if sequence != (expected_sequence & 0xFFFF):
         raise S7ProtocolError(
             _("S7 序列号回显不符:期望 {},收到 {}").format(
@@ -310,7 +315,9 @@ def parse_s7_response(
         )
     if error_class != 0:
         raise DeviceError(
-            _("S7 协议错误:class=0x{:02X} code=0x{:02X}").format(error_class, error_code),
+            _("S7 协议错误:class=0x{:02X} code=0x{:02X}").format(
+                error_class, error_code
+            ),
             (error_class << 8) | error_code,
         )
     if offset + param_len + data_len > len(pdu):
@@ -319,8 +326,8 @@ def parse_s7_response(
                 param_len, data_len, len(pdu) - offset
             )
         )
-    parameters = pdu[offset:offset + param_len]
-    data = pdu[offset + param_len:offset + param_len + data_len]
+    parameters = pdu[offset : offset + param_len]
+    data = pdu[offset + param_len : offset + param_len + data_len]
     function = parameters[0] if parameters else 0
     return function, error_class, error_code, parameters, data
 
@@ -333,9 +340,7 @@ def build_setup_comm(pdu_length: int, sequence: int) -> bytes:
 
     依据:python-snap7 3.2.0 `build_setup_communication_request`(L373-398)。
     """
-    parameters = struct.pack(
-        ">BBHHH", FUNC_SETUP_COMM, 0x00, 1, 1, pdu_length
-    )
+    parameters = struct.pack(">BBHHH", FUNC_SETUP_COMM, 0x00, 1, 1, pdu_length)
     return build_s7_request(PDU_REQUEST, sequence, parameters)
 
 
@@ -372,8 +377,9 @@ def build_address_spec(
     """
     if not 0 <= byte_index <= 0xFFFFFF:
         raise ValueError(
-            _("S7 位地址必须落在 3 字节字段内(0~16777215,字节起点上限 2097151),收到:{}")
-            .format(byte_index)
+            _(
+                "S7 位地址必须落在 3 字节字段内(0~16777215,字节起点上限 2097151),收到:{}"
+            ).format(byte_index)
         )
     address_bytes = struct.pack(">I", byte_index)[1:]
     return struct.pack(
@@ -409,7 +415,9 @@ def build_read(
         该上限,此为防御校验防裸 struct.error 穿透)
     """
     if not 1 <= count <= 0xFFFF:
-        raise ValueError(_("S7 单请求读元素数必须在 1~65535 之间,收到:{}").format(count))
+        raise ValueError(
+            _("S7 单请求读元素数必须在 1~65535 之间,收到:{}").format(count)
+        )
     parameters = struct.pack(">BB", FUNC_READ, 1) + build_address_spec(
         area, db_number, byte_index, word_len, count
     )
@@ -459,8 +467,7 @@ def parse_read_response(
     # L1768-1774 同款;review-1008 P1:跨功能/串帧旧应答曾被误收)
     if function != FUNC_READ or len(parameters) < 2 or parameters[1] != item_count:
         raise S7ProtocolError(
-            _("S7 读应答非法:功能码 0x{:02X}/条目数 {}(期望功能 0x04、条目 {})")
-            .format(
+            _("S7 读应答非法:功能码 0x{:02X}/条目数 {}(期望功能 0x04、条目 {})").format(
                 function,
                 parameters[1] if len(parameters) > 1 else -1,
                 item_count,
@@ -472,11 +479,13 @@ def parse_read_response(
     for index in range(item_count):
         if offset + 4 > total:
             raise S7ProtocolError(
-                _("S7 读应答第 {} 项被截断(收到的原始数据:{})").format(index, format_hex(data))
+                _("S7 读应答第 {} 项被截断(收到的原始数据:{})").format(
+                    index, format_hex(data)
+                )
             )
         return_code = data[offset]
         transport_size = data[offset + 1]
-        bit_length = struct.unpack(">H", data[offset + 2:offset + 4])[0]
+        bit_length = struct.unpack(">H", data[offset + 2 : offset + 4])[0]
         offset += 4
         if return_code != RETURN_CODE_OK:
             raise DeviceError(
@@ -492,14 +501,17 @@ def parse_read_response(
         if byte_lengths is not None and index < len(byte_lengths):
             if byte_length != byte_lengths[index]:
                 raise S7ProtocolError(
-                    _("S7 读应答第 {} 项数据长 {} 字节与请求期望 {} 字节不符(原始数据:{})")
-                    .format(index, byte_length, byte_lengths[index], format_hex(data))
+                    _(
+                        "S7 读应答第 {} 项数据长 {} 字节与请求期望 {} 字节不符(原始数据:{})"
+                    ).format(index, byte_length, byte_lengths[index], format_hex(data))
                 )
         if offset + byte_length > total:
             raise S7ProtocolError(
-                _("S7 读应答第 {} 项数据被截断(收到的原始数据:{})").format(index, format_hex(data))
+                _("S7 读应答第 {} 项数据被截断(收到的原始数据:{})").format(
+                    index, format_hex(data)
+                )
             )
-        results.append(data[offset:offset + byte_length])
+        results.append(data[offset : offset + byte_length])
         offset += byte_length
         if index < item_count - 1 and byte_length % 2 != 0:
             offset += 1  # 奇数长非末项的偶对齐填充
@@ -578,7 +590,9 @@ def build_write(
         )
     count = len(data) // item_size
     if not 1 <= count <= 0xFFFF:
-        raise ValueError(_("S7 单请求写元素数必须在 1~65535 之间,收到:{}").format(count))
+        raise ValueError(
+            _("S7 单请求写元素数必须在 1~65535 之间,收到:{}").format(count)
+        )
     parameters = struct.pack(">BB", FUNC_WRITE, 1) + build_address_spec(
         area, db_number, byte_index, word_len, count
     )
@@ -599,8 +613,7 @@ def parse_write_response(pdu: bytes, sequence: int, item_count: int) -> None:
     function, _eclass, _ecode, parameters, data = parse_s7_response(pdu, sequence)
     if function != FUNC_WRITE or len(parameters) < 2 or parameters[1] != item_count:
         raise S7ProtocolError(
-            _("S7 写应答非法:功能码 0x{:02X}/条目数 {}(期望功能 0x05、条目 {})")
-            .format(
+            _("S7 写应答非法:功能码 0x{:02X}/条目数 {}(期望功能 0x05、条目 {})").format(
                 function,
                 parameters[1] if len(parameters) > 1 else -1,
                 item_count,
@@ -647,7 +660,10 @@ def build_read_szl(szl_id: int, szl_index: int, sequence: int) -> bytes:
 
 
 def parse_szl_response(
-    pdu: bytes, sequence: int, szl_id: Optional[int] = None, szl_index: Optional[int] = None
+    pdu: bytes,
+    sequence: int,
+    szl_id: Optional[int] = None,
+    szl_index: Optional[int] = None,
 ) -> bytes:
     """解析 SZL 应答,返回 SZL 记录区(完整 8 字节 SZL 头已剥离)。
 
@@ -677,8 +693,9 @@ def parse_szl_response(
         raise S7ProtocolError(_("S7 SZL 应答参数区非法"))
     if parameters[5] != (0x80 | SZL_GROUP) or parameters[6] != SZL_READ_SUBFUNCTION:
         raise S7ProtocolError(
-            _("S7 SZL 应答类型/子功能不符:0x{:02X}/0x{:02X}(期望 0x{:02X}/0x{:02X})")
-            .format(
+            _(
+                "S7 SZL 应答类型/子功能不符:0x{:02X}/0x{:02X}(期望 0x{:02X}/0x{:02X})"
+            ).format(
                 parameters[5],
                 parameters[6],
                 0x80 | SZL_GROUP,
@@ -692,9 +709,7 @@ def parse_szl_response(
             param_error,
         )
     if len(data) < 4:
-        raise S7ProtocolError(
-            _("S7 SZL 应答数据段过短:实收 {} 字节").format(len(data))
-        )
+        raise S7ProtocolError(_("S7 SZL 应答数据段过短:实收 {} 字节").format(len(data)))
     return_code = data[0]
     if return_code != RETURN_CODE_OK:
         raise DeviceError(
@@ -713,7 +728,9 @@ def parse_szl_response(
     resp_id, resp_index = struct.unpack(">HH", payload[0:4])
     if szl_id is not None and resp_id != szl_id:
         raise S7ProtocolError(
-            _("S7 SZL 应答 ID 回显不符:期望 0x{:04X},实收 0x{:04X}").format(szl_id, resp_id)
+            _("S7 SZL 应答 ID 回显不符:期望 0x{:04X},实收 0x{:04X}").format(
+                szl_id, resp_id
+            )
         )
     if szl_index is not None and resp_index != szl_index:
         raise S7ProtocolError(

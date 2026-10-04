@@ -26,6 +26,7 @@ QnA 兼容 3E 完全一致,因此本模块继承
 软元件范围由 PLC 校验(越界按结束码报设备故障)。默认端口沿用三菱
 惯例 2000(占位),实际以 PLC 模块配置为准。
 """
+
 from __future__ import annotations
 
 from typing import List, Optional, Tuple
@@ -64,7 +65,9 @@ def _to_melsec_address(parsed: McAddress) -> McAddress:
             return McAddress("SM", str(linear - PANASONIC_MC_SM_LINEAR_BASE), None)
         return McAddress(device, str(linear), None)
     if device == "D" and int(parsed.number, 10) >= PANASONIC_MC_SD_BASE:
-        return McAddress("SD", str(int(parsed.number, 10) - PANASONIC_MC_SD_BASE), parsed.bit)
+        return McAddress(
+            "SD", str(int(parsed.number, 10) - PANASONIC_MC_SD_BASE), parsed.bit
+        )
     return parsed
 
 
@@ -79,15 +82,17 @@ def _linearize(device: str, number_text: str, bit: Optional[int]) -> Tuple[int, 
     else:
         if not number_text:
             raise ValueError(
-                _("松下位软元件 {} 需要字号+位号(如 {}000F)或点号形式(如 {}.15)").format(
-                    device, device, device
-                )
+                _(
+                    "松下位软元件 {} 需要字号+位号(如 {}000F)或点号形式(如 {}.15)"
+                ).format(device, device, device)
             )
         word_text, bit_value = number_text[:-1], int(number_text[-1], 16)
     if not word_text:
         raise ValueError(
-            _("松下位软元件 {} 地址缺少字号:{!r}"
-            "(字号+位号形式如 {}000F,点号形式如 {}.15)").format(device, number_text, device, device)
+            _(
+                "松下位软元件 {} 地址缺少字号:{!r}"
+                "(字号+位号形式如 {}000F,点号形式如 {}.15)"
+            ).format(device, number_text, device, device)
         )
     try:
         word = int(word_text, 10)

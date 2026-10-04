@@ -43,34 +43,68 @@
      本规则为参考实现裁决结果,拿到手册后可再核;裁决结论记入
      `docs/architecture.md` §8.1。
 """
+
 from __future__ import annotations
 
 import re
 from functools import lru_cache
 from typing import Dict, NamedTuple, Tuple
 
-from ...core.constants import ADDRESS_CACHE_MAXSIZE, TOYOPUC_BIT_DEVICES, TOYOPUC_WORD_DEVICES
+from ...core.constants import (
+    ADDRESS_CACHE_MAXSIZE,
+    TOYOPUC_BIT_DEVICES,
+    TOYOPUC_WORD_DEVICES,
+)
 from ...core.i18n import _
 
 _TOYOPUC_ADDRESS_RE = re.compile(r"^([A-Z]{1,2})([0-9A-F]+)(L|H|W)?$")
 
 _WORD_BASE: Dict[str, int] = {
-    "P": 0x0000, "K": 0x0020, "V": 0x0050, "T": 0x0060, "C": 0x0060,
-    "L": 0x0080, "X": 0x0100, "Y": 0x0100, "M": 0x0180,
-    "S": 0x0200, "N": 0x0600, "R": 0x0800, "D": 0x1000, "B": 0x6000,
+    "P": 0x0000,
+    "K": 0x0020,
+    "V": 0x0050,
+    "T": 0x0060,
+    "C": 0x0060,
+    "L": 0x0080,
+    "X": 0x0100,
+    "Y": 0x0100,
+    "M": 0x0180,
+    "S": 0x0200,
+    "N": 0x0600,
+    "R": 0x0800,
+    "D": 0x1000,
+    "B": 0x6000,
 }
 """字访问基地址(CMD=1C/1D 地址 = 基地址 + 编号)。"""
 
 _BYTE_BASE: Dict[str, int] = {
-    "P": 0x0000, "K": 0x0040, "V": 0x00A0, "T": 0x00C0, "C": 0x00C0,
-    "L": 0x0100, "X": 0x0200, "Y": 0x0200, "M": 0x0300,
-    "S": 0x0400, "N": 0x0C00, "R": 0x1000, "D": 0x2000, "B": 0xC000,
+    "P": 0x0000,
+    "K": 0x0040,
+    "V": 0x00A0,
+    "T": 0x00C0,
+    "C": 0x00C0,
+    "L": 0x0100,
+    "X": 0x0200,
+    "Y": 0x0200,
+    "M": 0x0300,
+    "S": 0x0400,
+    "N": 0x0C00,
+    "R": 0x1000,
+    "D": 0x2000,
+    "B": 0xC000,
 }
 """字节访问基地址(CMD=1E/1F 地址 = 基地址 + 编号×2 + 高字节位)。"""
 
 _BIT_BASE: Dict[str, int] = {
-    "P": 0x0000, "K": 0x0200, "V": 0x0500, "T": 0x0600, "C": 0x0600,
-    "L": 0x0800, "X": 0x1000, "Y": 0x1000, "M": 0x1800,
+    "P": 0x0000,
+    "K": 0x0200,
+    "V": 0x0500,
+    "T": 0x0600,
+    "C": 0x0600,
+    "L": 0x0800,
+    "X": 0x1000,
+    "Y": 0x1000,
+    "M": 0x1800,
 }
 """位访问基地址(CMD=20/21 地址 = 基地址 + 编号)。"""
 
@@ -135,7 +169,9 @@ def parse_toyopuc_address(address: str) -> ToyopucAddress:
     match = _TOYOPUC_ADDRESS_RE.match(address.strip().upper())
     if match is None:
         raise ValueError(
-            _("无法解析 TOYOPUC 地址:{!r}(示例:D0100 / M0201 / X0010H / M0201W)").format(address)
+            _(
+                "无法解析 TOYOPUC 地址:{!r}(示例:D0100 / M0201 / X0010H / M0201W)"
+            ).format(address)
         )
     area = match.group(1)
     if area not in _WORD_BASE:
@@ -190,7 +226,9 @@ def encode_bit_address(parsed: ToyopucAddress) -> int:
     return _BIT_BASE[parsed.area] + parsed.number
 
 
-def _require_in_segments(address: str, index: int, segments: Tuple[Tuple[int, int], ...]) -> None:
+def _require_in_segments(
+    address: str, index: int, segments: Tuple[Tuple[int, int], ...]
+) -> None:
     """校验编号落在任一合法段内(内部函数)。"""
     if not any(start <= index <= end for start, end in segments):
         raise ValueError(_("TOYOPUC 软元件编号越界:{!r}").format(address))

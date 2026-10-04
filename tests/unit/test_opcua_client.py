@@ -9,6 +9,7 @@
 - asyncua 异常翻译(UaError → DeviceError;其余 → 内部异常)
 - 异步镜像往返
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -69,6 +70,7 @@ class FakeSession(_OpcUaSession):
 # NodeId 解析
 # ----------------------------------------------------------------------
 
+
 def test_parse_nodeid() -> None:
     """NodeId 解析:四类标识符、ns 省略、前缀小写规范化。"""
     parsed = parse_opcua_nodeid("ns=2;s=Device.Tag")
@@ -93,12 +95,12 @@ def test_parse_nodeid_errors() -> None:
     """NodeId 解析:非法样本。"""
     for bad in (
         "",
-        "D100",          # 不是 NodeId 语法
-        "ns=2;",         # 缺标识符
-        "ns=x;i=1",      # 命名空间非数字
-        "ns=2;t=abc",    # 未知标识符类型
-        "s=",            # 空字符串标识符
-        "i=abc",         # 数字标识符非数字
+        "D100",  # 不是 NodeId 语法
+        "ns=2;",  # 缺标识符
+        "ns=x;i=1",  # 命名空间非数字
+        "ns=2;t=abc",  # 未知标识符类型
+        "s=",  # 空字符串标识符
+        "i=abc",  # 数字标识符非数字
     ):
         with pytest.raises(ValueError):
             parse_opcua_nodeid(bad)
@@ -152,12 +154,12 @@ def test_parse_nodeid_guid_format_strict() -> None:
     for text in valid:
         assert parse_opcua_nodeid(text).namespace == 0
     invalid = (
-        "g=ABC",                                     # 太短
-        "g=0F1E2D3C-4B5A-6978-8796",                  # 缺一段
-        "g=0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0FF",   # 多一位
-        "g=ZZ1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0",     # 非 hex 字符
-        "g=0F1E2D3C4B5A69788796A5B4C3D2E1F0",         # 无连字符
-        "g=[0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0]",   # 方括号非法(只接受花括号)
+        "g=ABC",  # 太短
+        "g=0F1E2D3C-4B5A-6978-8796",  # 缺一段
+        "g=0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0FF",  # 多一位
+        "g=ZZ1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0",  # 非 hex 字符
+        "g=0F1E2D3C4B5A69788796A5B4C3D2E1F0",  # 无连字符
+        "g=[0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0]",  # 方括号非法(只接受花括号)
     )
     for text in invalid:
         with pytest.raises(ValueError):
@@ -171,7 +173,11 @@ def test_coerce_read_narrows_integer_range() -> None:
     **服务端**而非调用方,应归设备条件,由 _execute 转 (False, None) 不断线。
     """
     assert _coerce_read(100, DataType.SHORT, "ns=1;s=x") == 100
-    for value, dtype in ((40000, DataType.SHORT), (-1, DataType.USHORT), (2 ** 32, DataType.UINT)):
+    for value, dtype in (
+        (40000, DataType.SHORT),
+        (-1, DataType.USHORT),
+        (2**32, DataType.UINT),
+    ):
         with pytest.raises(DeviceError) as exc_info:
             _coerce_read(value, dtype, "ns=1;s=x")
         assert exc_info.value.code == 0
@@ -203,10 +209,14 @@ def test_constructor_endpoint_styles() -> None:
     """构造入口:IP+端口(+路径)组装端点 URL,或 endpoint 显式覆盖。"""
     assert OpcUaClient().endpoint == "opc.tcp://192.168.0.10:4840"
     assert OpcUaClient("127.0.0.1").endpoint == "opc.tcp://127.0.0.1:4840"
-    assert OpcUaClient("127.0.0.1", 4840, "UA/Server").endpoint == \
-        "opc.tcp://127.0.0.1:4840/UA/Server"
-    assert OpcUaClient("127.0.0.1", 4840, "/UA/Server/").endpoint == \
-        "opc.tcp://127.0.0.1:4840/UA/Server"  # 路径斜杠规范化
+    assert (
+        OpcUaClient("127.0.0.1", 4840, "UA/Server").endpoint
+        == "opc.tcp://127.0.0.1:4840/UA/Server"
+    )
+    assert (
+        OpcUaClient("127.0.0.1", 4840, "/UA/Server/").endpoint
+        == "opc.tcp://127.0.0.1:4840/UA/Server"
+    )  # 路径斜杠规范化
     url = "opc.tcp://10.0.0.1:4840/Discovered/Endpoint"
     assert OpcUaClient("127.0.0.1", 4840, endpoint=url).endpoint == url  # 显式覆盖
     # 入口与其他客户端一致:错误消息显示 host:port
@@ -217,6 +227,7 @@ def test_constructor_endpoint_styles() -> None:
 # ----------------------------------------------------------------------
 # 读写全链路(假会话)
 # ----------------------------------------------------------------------
+
 
 def test_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """读:BOOL/SHORT/FLOAT/STRING 按类型收窄。"""
@@ -338,6 +349,7 @@ def test_unsupported_data_type(monkeypatch: pytest.MonkeyPatch) -> None:
 # 批量读取(UA Read 单请求)
 # ----------------------------------------------------------------------
 
+
 def test_read_batch_and_read_many(monkeypatch: pytest.MonkeyPatch) -> None:
     """批量读:read_batch/read_many 均为单次 UA Read 请求,值按序对应。"""
     client = OpcUaClient("127.0.0.1", 4840)
@@ -380,6 +392,7 @@ def test_read_batch_rejects() -> None:
 # asyncua 异常翻译(桩模块,不安装 asyncua 也可测)
 # ----------------------------------------------------------------------
 
+
 def test_translate_ua_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """UaError → DeviceError(code = StatusCode);其余 → 内部异常。"""
     pkg_asyncua = types.ModuleType("asyncua")
@@ -411,8 +424,10 @@ def test_translate_ua_error(monkeypatch: pytest.MonkeyPatch) -> None:
 # 异步镜像
 # ----------------------------------------------------------------------
 
+
 def test_async_mirror_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """异步镜像:单工作线程往返读写;endpoint 属性与同步实例一致。"""
+
     async def scenario() -> None:
         client = AOpcUaClient("127.0.0.1", 4840)
         sync = client._sync
@@ -435,12 +450,14 @@ def test_async_mirror_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
 
 try:
     import asyncua.sync as _asyncua_sync  # type: ignore
+
     _HAVE_ASYNCUA = True
 except ImportError:  # pragma: no cover
     _HAVE_ASYNCUA = False
 
 if _HAVE_ASYNCUA:
     import socket as _socket
+
     _tmp_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
     _tmp_sock.bind(("127.0.0.1", 0))
     _OPCUA_TEST_PORT = _tmp_sock.getsockname()[1]
@@ -557,13 +574,17 @@ def test_browse_recursive_finds_variable(_opcua_server_module) -> None:
         # tree[Root] -> children[Objects ns idx] -> ... -> 我们添加的变量
         # 简化路径:用扁平搜索
         flat = []
+
         def _flatten(d):
             for k, v in d.items():
                 flat.append(k)
                 if isinstance(v.get("children"), dict):
                     _flatten(v["children"])
+
         _flatten(tree)
-        assert node_id in flat, "变量 {} 未在递归树中找到, 树:{}".format(node_id, flat[:10])
+        assert node_id in flat, "变量 {} 未在递归树中找到, 树:{}".format(
+            node_id, flat[:10]
+        )
     finally:
         client.disconnect()
 
@@ -689,7 +710,9 @@ def test_subscribe_data_change_receives_update(_opcua_server_module) -> None:
     )
     client.connect()
     try:
-        ok, sub = client.subscribe_data_change(node_id, on_change, sampling_interval_ms=50)
+        ok, sub = client.subscribe_data_change(
+            node_id, on_change, sampling_interval_ms=50
+        )
         assert ok is True
         assert isinstance(sub, OpcUaSubscription)
         assert sub.node_id == node_id
@@ -698,7 +721,9 @@ def test_subscribe_data_change_receives_update(_opcua_server_module) -> None:
         # 服务端写入(直接用建节点时拿到的节点对象;裸名 get_child 匹配不上带 ns 前缀的 browse name)
         node.write_value(99)
         # 等待回调触发(<=2s)
-        assert event.wait(timeout=3.0), "DataChange 回调未触发, received={}".format(received)
+        assert event.wait(timeout=3.0), "DataChange 回调未触发, received={}".format(
+            received
+        )
         # 检查收到的回调
         assert any(v == 99 for v, _, _ in received)
     finally:
@@ -736,7 +761,9 @@ def test_subscribe_data_change_deadband_filter(_opcua_server_module) -> None:
         assert client.connected is True
         _time.sleep(0.2)
         node.write_value(99)  # 超出死区 → 应触发回调
-        assert event.wait(timeout=3.0), "死区订阅回调未触发, received={}".format(received)
+        assert event.wait(timeout=3.0), "死区订阅回调未触发, received={}".format(
+            received
+        )
         assert any(v == 99 for v, _, _ in received)
     finally:
         client.disconnect()
@@ -785,7 +812,9 @@ def test_subscribe_data_change_callback_exception_logged(_opcua_server_module) -
     )
     client.connect()
     try:
-        ok, sub = client.subscribe_data_change(node_id, on_change, sampling_interval_ms=50)
+        ok, sub = client.subscribe_data_change(
+            node_id, on_change, sampling_interval_ms=50
+        )
         assert ok is True
         _time.sleep(0.2)
         # 触发若干次值变化(直接用建节点时拿到的节点对象)
@@ -813,6 +842,7 @@ def test_subscribe_event_receives_notification(_opcua_server_module) -> None:
     # sync Server 未转发 create_custom_event_type(仅 aio Server 有),
     # 直接用 BaseEvent 实例(aio EventGenerator 接受,触发 BaseEventType)
     from asyncua.common.event_objects import BaseEvent as _BaseEvent
+
     evgen = server.get_event_generator(_BaseEvent())
 
     received: list = []
@@ -917,7 +947,9 @@ def test_disconnect_clears_active_subscriptions(_opcua_server_module) -> None:
 
 
 @pytest.mark.skipif(not _HAVE_ASYNCUA, reason="需 asyncua")
-def test_multiple_subscribes_same_node_get_separate_handles(_opcua_server_module) -> None:
+def test_multiple_subscribes_same_node_get_separate_handles(
+    _opcua_server_module,
+) -> None:
     """同一节点多次订阅 → 多个独立 handle。"""
     server, idx = _opcua_server_module
     name = "SubMulti_{}".format(_time.time_ns())
@@ -982,6 +1014,7 @@ def test_reconnect_does_not_auto_resubscribe(_opcua_server_module) -> None:
 def test_aio_subscribe_data_change_callback_on_loop(_opcua_server_module) -> None:
     """aio subscribe_data_change:回调被 call_soon_threadsafe 桥接到 aio loop 线程。"""
     import asyncio as _asyncio
+
     server, idx = _opcua_server_module
     name = "AioDC_{}".format(_time.time_ns())
     node, node_id = _make_variable(server, idx, name, 0)
@@ -1091,8 +1124,8 @@ def test_unsubscribe_is_thread_safe() -> None:
         thread.start()
     for thread in threads:
         thread.join()
-    assert len(calls) == 1            # 底层取消仅一次
-    assert results.count(True) == 1   # 仅一个线程拿到"真正取消"
+    assert len(calls) == 1  # 底层取消仅一次
+    assert results.count(True) == 1  # 仅一个线程拿到"真正取消"
 
 
 def test_set_error_counter_is_thread_safe() -> None:

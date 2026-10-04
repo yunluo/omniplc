@@ -4,6 +4,7 @@
 拆连/超时保留连接)、心跳线程随 connect 启动与 disconnect 停止、
 间隔 setter 校验、失败计数、传输失败拆连后的自动重连自愈。
 """
+
 from __future__ import annotations
 
 import threading
@@ -332,8 +333,10 @@ class TestHeartbeatFailures:
             client.script_probe_failure(OSError("[WinError 10054] 远程主机强迫关闭"))
             assert client.connect() is True
             assert _wait_until(
-                lambda: client.stats["heartbeat_ok"] >= 1
-                and client.stats["heartbeat_fail"] >= 1
+                lambda: (
+                    client.stats["heartbeat_ok"] >= 1
+                    and client.stats["heartbeat_fail"] >= 1
+                )
             )
             assert client.connected is True
             assert len(client.transports) >= 2

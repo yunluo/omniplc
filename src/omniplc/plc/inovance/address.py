@@ -27,6 +27,7 @@ T/C 为位/字双性质软元件:位访问(BOOL)取接点,字访问取当前值,
 因此 :func:`to_modbus_address` 需要 ``is_bool`` 区分。C200~C255 为 32 位
 计数器:双寄存器展开 + 类型门控见 :func:`check_counter_word_type`。
 """
+
 from __future__ import annotations
 
 import re
@@ -83,14 +84,18 @@ def parse_inovance_address(address: str) -> InovanceAddress:
     match = _INOVANCE_ADDRESS_RE.match(address.strip())
     if match is None:
         raise ValueError(
-            _("无法解析汇川地址:{!r}(示例:D100 / M10 / X17 / SD10 / D100.3)").format(address)
+            _("无法解析汇川地址:{!r}(示例:D100 / M10 / X17 / SD10 / D100.3)").format(
+                address
+            )
         )
     device = match.group(1).upper()
     number_text = match.group(2)
     bit = int(match.group(3)) if match.group(3) is not None else None
     if device in INOVANCE_OCTAL_DEVICES:
         if "8" in number_text or "9" in number_text:
-            raise ValueError(_("软元件 {} 编号为八进制,不能包含 8/9:{!r}").format(device, address))
+            raise ValueError(
+                _("软元件 {} 编号为八进制,不能包含 8/9:{!r}").format(device, address)
+            )
         number = int(number_text, 8)
         _check_bitless(device, bit, address)
     elif device in INOVANCE_BIT_DEVICES:
@@ -100,12 +105,16 @@ def parse_inovance_address(address: str) -> InovanceAddress:
         number = int(number_text)
         if bit is not None and not 0 <= bit <= MODBUS_REGISTER_BIT_MAX:
             raise ValueError(
-                _("寄存器位号必须在 0~{} 之间,收到:{}").format(MODBUS_REGISTER_BIT_MAX, bit)
+                _("寄存器位号必须在 0~{} 之间,收到:{}").format(
+                    MODBUS_REGISTER_BIT_MAX, bit
+                )
             )
     return InovanceAddress(device=device, number=number, bit=bit)
 
 
-def to_modbus_address(address: Union[InovanceAddress, str], is_bool: bool = False) -> str:
+def to_modbus_address(
+    address: Union[InovanceAddress, str], is_bool: bool = False
+) -> str:
     """把汇川地址换算为本库标准 Modbus 地址文本。
 
     位访问(BOOL):位软元件 → 线圈(如 ``M10`` → ``c10``、``X17`` → 八进制
@@ -120,7 +129,11 @@ def to_modbus_address(address: Union[InovanceAddress, str], is_bool: bool = Fals
     :return: 标准 Modbus 地址文本,交由 Modbus 客户端解析
     :raises ValueError: 地址非法或编号越界
     """
-    parsed = address if isinstance(address, InovanceAddress) else parse_inovance_address(address)
+    parsed = (
+        address
+        if isinstance(address, InovanceAddress)
+        else parse_inovance_address(address)
+    )
     if is_bool and parsed.device in INOVANCE_BIT_DEVICES:
         base, limit = INOVANCE_BIT_DEVICES[parsed.device]
         _check_number(parsed.device, parsed.number, limit)
@@ -132,9 +145,9 @@ def to_modbus_address(address: Union[InovanceAddress, str], is_bool: bool = Fals
             # 32 位计数器:双寄存器展开,位号后缀未定义(接点位访问请走 BOOL)
             if parsed.bit is not None:
                 raise ValueError(
-                    _("C{}(32 位计数器)不支持位号后缀:{!r}(接点位访问请用 BOOL 读)").format(
-                        parsed.number, address
-                    )
+                    _(
+                        "C{}(32 位计数器)不支持位号后缀:{!r}(接点位访问请用 BOOL 读)"
+                    ).format(parsed.number, address)
                 )
             return "hr{}".format(
                 INOVANCE_C32_BASE + 2 * (parsed.number - INOVANCE_C32_FIRST)
@@ -162,10 +175,9 @@ def check_counter_word_type(parsed: InovanceAddress, data_type: DataType) -> Non
         return
     if data_type not in _C32_ALLOWED_TYPES:
         raise ValueError(
-            _("C{} 为 32 位计数器(C{}~{}),仅支持 32 位类型(INT/UINT/FLOAT),"
-            "收到:{}").format(
-                parsed.number, INOVANCE_C32_FIRST, INOVANCE_C32_LAST, data_type
-            )
+            _(
+                "C{} 为 32 位计数器(C{}~{}),仅支持 32 位类型(INT/UINT/FLOAT),收到:{}"
+            ).format(parsed.number, INOVANCE_C32_FIRST, INOVANCE_C32_LAST, data_type)
         )
 
 

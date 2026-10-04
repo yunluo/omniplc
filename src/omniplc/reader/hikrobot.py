@@ -59,6 +59,7 @@ PLC)同型。因此本实例**本身就是 Modbus 主站**:既可 :meth:`scan` �
 除条码内容外,质量/码制等元数据可经该配置并入输出串,随结果区原文透传;
 结构化元数据(多码列表/质量分/位置)需读码器原生 TCP 命令协议,另行驱动。
 """
+
 from __future__ import annotations
 
 import time
@@ -162,7 +163,11 @@ class HikrobotIdModbusClient(ModbusTcpClient):
         :raises ValueError: 参数非法
         """
         super().__init__(ip_address, int(port), station)
-        if not HIKROBOT_RESULT_WORDS_MIN <= int(result_words) <= HIKROBOT_RESULT_WORDS_MAX:
+        if (
+            not HIKROBOT_RESULT_WORDS_MIN
+            <= int(result_words)
+            <= HIKROBOT_RESULT_WORDS_MAX
+        ):
             raise ValueError(
                 _("result_words 必须在 {}~{} 之间,收到:{}").format(
                     HIKROBOT_RESULT_WORDS_MIN, HIKROBOT_RESULT_WORDS_MAX, result_words
@@ -215,7 +220,9 @@ class HikrobotIdModbusClient(ModbusTcpClient):
         if timeout <= 0:
             raise ValueError(_("timeout 必须大于 0,收到:{}").format(timeout))
         if poll_interval <= 0:
-            raise ValueError(_("poll_interval 必须大于 0,收到:{}").format(poll_interval))
+            raise ValueError(
+                _("poll_interval 必须大于 0,收到:{}").format(poll_interval)
+            )
         with self._lock:
             return self._scan_locked(timeout, poll_interval)
 
@@ -248,7 +255,9 @@ class HikrobotIdModbusClient(ModbusTcpClient):
             status = words[0]
             if status & HIKROBOT_STATUS_GENERAL_FAULT:
                 # 设备内部异常(§3.6:确认错误原因后 Clear Error 可继续)
-                message = _("读码器内部故障(General Fault),请排查后调用 clear_error() 清除")
+                message = _(
+                    "读码器内部故障(General Fault),请排查后调用 clear_error() 清除"
+                )
                 self._set_error(message, ErrorCategory.DEVICE, 0)
                 raise DeviceError(message, 0)
             if trigger_armed and status & HIKROBOT_STATUS_TRIGGER_ACK:
@@ -278,9 +287,7 @@ class HikrobotIdModbusClient(ModbusTcpClient):
             if not status & (HIKROBOT_STATUS_RESULTS_OK | HIKROBOT_STATUS_RESULTS_NG):
                 break
             if time.monotonic() >= ack_deadline:
-                message = _(
-                    "Results Ack 未被设备消费(Results OK/NG 未清零),握手未闭环"
-                )
+                message = _("Results Ack 未被设备消费(Results OK/NG 未清零),握手未闭环")
                 self._set_error(message, ErrorCategory.DEVICE, 0)
                 raise DeviceError(message, 0)
             time.sleep(poll_interval)
@@ -322,7 +329,9 @@ class HikrobotIdModbusClient(ModbusTcpClient):
         if timeout <= 0:
             raise ValueError(_("timeout 必须大于 0,收到:{}").format(timeout))
         if poll_interval <= 0:
-            raise ValueError(_("poll_interval 必须大于 0,收到:{}").format(poll_interval))
+            raise ValueError(
+                _("poll_interval 必须大于 0,收到:{}").format(poll_interval)
+            )
         self._write_control(
             HIKROBOT_CTRL_TRIGGER_ENABLE | HIKROBOT_CTRL_CLEAR_ERROR, _("清除错误")
         )
@@ -393,7 +402,9 @@ class HikrobotIdModbusClient(ModbusTcpClient):
             if status & HIKROBOT_STATUS_GENERAL_FAULT:
                 # 握手级失败写三件套(review-1002 P2-5 残留:与 scan 主循环
                 # 同口径,本方法不经 _execute,裸 raise 会漏 last_error)
-                message = _("读码器内部故障(General Fault),请排查后调用 clear_error() 清除")
+                message = _(
+                    "读码器内部故障(General Fault),请排查后调用 clear_error() 清除"
+                )
                 self._set_error(message, ErrorCategory.DEVICE, 0)
                 raise DeviceError(message, 0)
             if status & bit:

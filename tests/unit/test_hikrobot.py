@@ -13,6 +13,7 @@ ModbusTcpClient 故同样 monkeypatch ``_create_transport``),按《海康机器�
 超时类用例以假时钟(每次 monotonic 调用步进)驱动,不依赖真实耗时,
 脚本耗尽(抛 ConnectionError)先于判定到达即说明轮询越界,属测试错误。
 """
+
 from __future__ import annotations
 
 import time
@@ -103,18 +104,24 @@ def test_scan_success_full_handshake(monkeypatch: pytest.MonkeyPatch) -> None:
     client, scripted = _make_client(monkeypatch, frames)
     assert client.scan(timeout=2.0, poll_interval=0.001) == (True, "ABC123")
     # 控制字写序列与手册 §3.6 一致:使能 / 触发 / 回落 / 应答
-    assert bytes(scripted.sent) == b"".join([
-        codec.build_mbap(1, _STATION, codec.build_write_single_pdu(6, 0, 0x0001)),
-        codec.build_mbap(2, _STATION, codec.build_read_pdu(3, 1, 1)),
-        codec.build_mbap(3, _STATION, codec.build_write_single_pdu(6, 0, 0x0003)),
-        codec.build_mbap(4, _STATION, codec.build_read_pdu(3, 1, _RESULT_WORDS + 1)),
-        codec.build_mbap(5, _STATION, codec.build_write_single_pdu(6, 0, 0x0001)),
-        codec.build_mbap(6, _STATION, codec.build_write_single_pdu(6, 0, 0x0005)),
-        codec.build_mbap(7, _STATION, codec.build_read_pdu(3, 1, 1)),
-    ])
+    assert bytes(scripted.sent) == b"".join(
+        [
+            codec.build_mbap(1, _STATION, codec.build_write_single_pdu(6, 0, 0x0001)),
+            codec.build_mbap(2, _STATION, codec.build_read_pdu(3, 1, 1)),
+            codec.build_mbap(3, _STATION, codec.build_write_single_pdu(6, 0, 0x0003)),
+            codec.build_mbap(
+                4, _STATION, codec.build_read_pdu(3, 1, _RESULT_WORDS + 1)
+            ),
+            codec.build_mbap(5, _STATION, codec.build_write_single_pdu(6, 0, 0x0001)),
+            codec.build_mbap(6, _STATION, codec.build_write_single_pdu(6, 0, 0x0005)),
+            codec.build_mbap(7, _STATION, codec.build_read_pdu(3, 1, 1)),
+        ]
+    )
 
 
-def test_scan_ng_returns_false_without_result_read(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_scan_ng_returns_false_without_result_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Results NG(未读到码):scan 正常返回 (False, None),握手仍闭环。"""
     frames = [
         _fc06_response(1, 0, 0x0001),
@@ -133,7 +140,9 @@ def test_scan_noread_passthrough(monkeypatch: pytest.MonkeyPatch) -> None:
     """读码器 NoRead 使能时未读到码反馈 OK + "NoRead" 字符,原样透传。"""
     payload = b"NoRead"
     words: List[int] = [6]
-    words += [int.from_bytes(payload[i:i + 2], "big") for i in range(0, len(payload), 2)]
+    words += [
+        int.from_bytes(payload[i : i + 2], "big") for i in range(0, len(payload), 2)
+    ]
     frames = [
         _fc06_response(1, 0, 0x0001),
         _fc03_response(2, [0x0001]),
@@ -165,7 +174,9 @@ def test_scan_timeout_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         _fc06_response(1, 0, 0x0001),
         _fc03_response(2, [0x0001]),
         _fc06_response(3, 0, 0x0003),
-    ] + [_block_response(4 + i, 0x0008, []) for i in range(8)]  # 持续 Decoding(整块读应答)
+    ] + [
+        _block_response(4 + i, 0x0008, []) for i in range(8)
+    ]  # 持续 Decoding(整块读应答)
     scripted = _ScriptedTransport(_chunks(frames))
     client = HikrobotIdModbusClient("127.0.0.1", 502, _STATION, _RESULT_WORDS)
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
@@ -239,9 +250,7 @@ def test_scan_ack_timeout_uses_independent_budget(
     # 步进 0.3(每笔 FC 事务的成功戳也步进假钟):Ack 首拍检查累计 2.1s——
     # 继承 deadline(1.0s)已过期必判"握手未闭环";独立预算(自 Ack 起算
     # 1s → 2.5s)覆盖两拍则通过
-    monkeypatch.setattr(
-        hikrobot_module.time, "monotonic", _FakeClock(step=0.3)
-    )
+    monkeypatch.setattr(hikrobot_module.time, "monotonic", _FakeClock(step=0.3))
     assert client.scan(timeout=1.0, poll_interval=0.001) == (True, "AB")
 
 
@@ -268,7 +277,8 @@ def test_scan_byte_swap_decoding(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_read_status_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
     """read_status():状态字各位正确展开,原始值保留。"""
     client, _scripted = _make_client(
-        monkeypatch, [_fc03_response(1, [0x0002 | 0x0100 | 0x0008])]  # Ack + Decoding + OK
+        monkeypatch,
+        [_fc03_response(1, [0x0002 | 0x0100 | 0x0008])],  # Ack + Decoding + OK
     )
     status = client.read_status()
     assert isinstance(status, HikrobotStatus)
@@ -285,8 +295,8 @@ def test_clear_error_pulses_and_verifies(monkeypatch: pytest.MonkeyPatch) -> Non
     """clear_error():置位 bit15 → 轮询故障清零 → 复位控制字。"""
     frames = [
         _fc06_response(1, 0, 0x8001),  # Enable + Clear Error
-        _fc03_response(2, [0x8000]),   # 故障仍在
-        _fc03_response(3, [0x0000]),   # 故障已清
+        _fc03_response(2, [0x8000]),  # 故障仍在
+        _fc03_response(3, [0x0000]),  # 故障已清
         _fc06_response(4, 0, 0x0001),  # 复位控制字
     ]
     client, _scripted = _make_client(monkeypatch, frames)

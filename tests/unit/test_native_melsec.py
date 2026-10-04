@@ -3,6 +3,7 @@
 对拍覆盖 TCP/UDP × 1E/3E:同一批响应分片喂同步与异步客户端,断言请求帧逐字节
 相同、结果与错误口径一致(异步侧只重写了薄分发层,帧语义必须与同步层一致)。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -34,11 +35,18 @@ from scripted_async import (
 # ----------------------------------------------------------------------
 
 
-def _qna_read_response(values: Sequence[int], serial: int = 0, end_code: int = 0) -> bytes:
+def _qna_read_response(
+    values: Sequence[int], serial: int = 0, end_code: int = 0
+) -> bytes:
     """构造 3E 读响应。"""
     data = b"".join(value.to_bytes(2, "little") for value in values)
     head = b"\xd0\x00" + b"\x00\xff\xff\x03\x00"
-    return head + (2 + len(data)).to_bytes(2, "little") + end_code.to_bytes(2, "little") + data
+    return (
+        head
+        + (2 + len(data)).to_bytes(2, "little")
+        + end_code.to_bytes(2, "little")
+        + data
+    )
 
 
 def _qna_write_response(serial: int = 0) -> bytes:
@@ -135,14 +143,16 @@ _3E_INT = _qna_read_response(_encode_32(-2, DataType.INT))
 _3E_LONG = _qna_read_response(_encode_64(-2, DataType.LONG))
 _3E_DOUBLE = _qna_read_response(_encode_64(1.5, DataType.DOUBLE))
 # 字符串按 MC 字序(小端)拆字:"OMNI" → [b"OM" 小端, b"NI" 小端]
-_OMNI_WORDS_LE = [int.from_bytes(b"OMNI"[i:i + 2], "little") for i in range(0, 4, 2)]
+_OMNI_WORDS_LE = [int.from_bytes(b"OMNI"[i : i + 2], "little") for i in range(0, 4, 2)]
 _3E_STRING_READ = _qna_read_response(_OMNI_WORDS_LE)
 _1E_READ = _one_e_read_response([20])
 _1E_WRITE = _one_e_write_response()
 # 1E 位读响应副头 = 位读请求副头(0x00) + 0x80;1 点位打包在高半字节(bit4)
 _1E_BIT_READ = bytes([0x80, 0x00, 0x10])
 _3E_BIT_READ = b"\xd0\x00\x00\xff\xff\x03\x00\x03\x00\x00\x00\x10"
-_3E_BAD_SUBHEAD = bytes([0x50, 0x00, 0x00, 0xFF, 0xFF, 0x03, 0x00, 0x02, 0x00, 0x00, 0x00])
+_3E_BAD_SUBHEAD = bytes(
+    [0x50, 0x00, 0x00, 0xFF, 0xFF, 0x03, 0x00, 0x02, 0x00, 0x00, 0x00]
+)
 
 # 点位表用例:scale/offset 取整数倍,保证逆缩放无浮点误差
 _TAG = Tag(tag_id="flow", address="D100", data_type="ushort", scale=2.0, offset=10.0)
@@ -157,32 +167,333 @@ def _split_1e(frame: bytes) -> Sequence[bytes]:
 
 
 _CASES = [
-    Case("tcp_3e_read", "3E", False, "read", "D100", DataType.USHORT, None, _split_3e(_3E_READ), True, 20, True, None),
-    Case("tcp_3e_read_float", "3E", False, "read", "D100", DataType.FLOAT, None, _split_3e(_3E_FLOAT), True, -1.5, True, None),
-    Case("tcp_3e_read_int", "3E", False, "read", "D100", DataType.INT, None, _split_3e(_3E_INT), True, -2, True, None),
-    Case("tcp_3e_read_long", "3E", False, "read", "D100", DataType.LONG, None, _split_3e(_3E_LONG), True, -2, True, None),
-    Case("tcp_3e_read_double", "3E", False, "read", "D100", DataType.DOUBLE, None, _split_3e(_3E_DOUBLE), True, 1.5, True, None),
-    Case("tcp_3e_read_string", "3E", False, "read_string", "D100", DataType.STRING, None, _split_3e(_3E_STRING_READ), True, "OMNI", True, None),
-    Case("tcp_3e_write", "3E", False, "write", "D100", DataType.USHORT, 20, _split_3e(_3E_WRITE), True, None, True, None),
-    Case("tcp_3e_write_string", "3E", False, "write_string", "D100", DataType.STRING, "OMNI", _split_3e(_3E_WRITE), True, None, True, None),
-    Case("tcp_3e_read_tag", "3E", False, "read_tag", "D100", DataType.USHORT, None, _split_3e(_3E_READ), True, 50.0, True, None, tag=_TAG),
-    Case("tcp_3e_write_tag", "3E", False, "write_tag", "D100", DataType.USHORT, 50.0, _split_3e(_3E_WRITE), True, None, True, None, tag=_TAG),
-    Case("tcp_3e_read_bit", "3E", False, "read", "M10", DataType.BOOL, None, _split_3e(_3E_BIT_READ), True, True, True, None),
-    Case("tcp_1e_read", "1E", False, "read", "D100", DataType.USHORT, None, _split_1e(_1E_READ), True, 20, True, None),
-    Case("tcp_1e_write", "1E", False, "write", "D100", DataType.USHORT, 20, _split_1e(_1E_WRITE), True, None, True, None),
-    Case("tcp_1e_read_bit", "1E", False, "read", "M10", DataType.BOOL, None, _split_1e(_1E_BIT_READ), True, True, True, None),
+    Case(
+        "tcp_3e_read",
+        "3E",
+        False,
+        "read",
+        "D100",
+        DataType.USHORT,
+        None,
+        _split_3e(_3E_READ),
+        True,
+        20,
+        True,
+        None,
+    ),
+    Case(
+        "tcp_3e_read_float",
+        "3E",
+        False,
+        "read",
+        "D100",
+        DataType.FLOAT,
+        None,
+        _split_3e(_3E_FLOAT),
+        True,
+        -1.5,
+        True,
+        None,
+    ),
+    Case(
+        "tcp_3e_read_int",
+        "3E",
+        False,
+        "read",
+        "D100",
+        DataType.INT,
+        None,
+        _split_3e(_3E_INT),
+        True,
+        -2,
+        True,
+        None,
+    ),
+    Case(
+        "tcp_3e_read_long",
+        "3E",
+        False,
+        "read",
+        "D100",
+        DataType.LONG,
+        None,
+        _split_3e(_3E_LONG),
+        True,
+        -2,
+        True,
+        None,
+    ),
+    Case(
+        "tcp_3e_read_double",
+        "3E",
+        False,
+        "read",
+        "D100",
+        DataType.DOUBLE,
+        None,
+        _split_3e(_3E_DOUBLE),
+        True,
+        1.5,
+        True,
+        None,
+    ),
+    Case(
+        "tcp_3e_read_string",
+        "3E",
+        False,
+        "read_string",
+        "D100",
+        DataType.STRING,
+        None,
+        _split_3e(_3E_STRING_READ),
+        True,
+        "OMNI",
+        True,
+        None,
+    ),
+    Case(
+        "tcp_3e_write",
+        "3E",
+        False,
+        "write",
+        "D100",
+        DataType.USHORT,
+        20,
+        _split_3e(_3E_WRITE),
+        True,
+        None,
+        True,
+        None,
+    ),
+    Case(
+        "tcp_3e_write_string",
+        "3E",
+        False,
+        "write_string",
+        "D100",
+        DataType.STRING,
+        "OMNI",
+        _split_3e(_3E_WRITE),
+        True,
+        None,
+        True,
+        None,
+    ),
+    Case(
+        "tcp_3e_read_tag",
+        "3E",
+        False,
+        "read_tag",
+        "D100",
+        DataType.USHORT,
+        None,
+        _split_3e(_3E_READ),
+        True,
+        50.0,
+        True,
+        None,
+        tag=_TAG,
+    ),
+    Case(
+        "tcp_3e_write_tag",
+        "3E",
+        False,
+        "write_tag",
+        "D100",
+        DataType.USHORT,
+        50.0,
+        _split_3e(_3E_WRITE),
+        True,
+        None,
+        True,
+        None,
+        tag=_TAG,
+    ),
+    Case(
+        "tcp_3e_read_bit",
+        "3E",
+        False,
+        "read",
+        "M10",
+        DataType.BOOL,
+        None,
+        _split_3e(_3E_BIT_READ),
+        True,
+        True,
+        True,
+        None,
+    ),
+    Case(
+        "tcp_1e_read",
+        "1E",
+        False,
+        "read",
+        "D100",
+        DataType.USHORT,
+        None,
+        _split_1e(_1E_READ),
+        True,
+        20,
+        True,
+        None,
+    ),
+    Case(
+        "tcp_1e_write",
+        "1E",
+        False,
+        "write",
+        "D100",
+        DataType.USHORT,
+        20,
+        _split_1e(_1E_WRITE),
+        True,
+        None,
+        True,
+        None,
+    ),
+    Case(
+        "tcp_1e_read_bit",
+        "1E",
+        False,
+        "read",
+        "M10",
+        DataType.BOOL,
+        None,
+        _split_1e(_1E_BIT_READ),
+        True,
+        True,
+        True,
+        None,
+    ),
     # 4E 帧(13 字节响应头 + 序列号回显校验)
-    Case("tcp_4e_read", "4E", False, "read", "D100", DataType.USHORT, None, _split_4e(_qna_4e_response([20])), True, 20, True, None),
-    Case("tcp_4e_write", "4E", False, "write", "D100", DataType.USHORT, 20, _split_4e(_qna_4e_response([])), True, None, True, None),
-    Case("tcp_4e_read_long", "4E", False, "read", "D100", DataType.LONG, None, _split_4e(_qna_4e_response(_encode_64(-2, DataType.LONG))), True, -2, True, None),
-    Case("udp_3e_read", "3E", True, "read", "D100", DataType.USHORT, None, (_3E_READ,), True, 20, True, None),
-    Case("udp_3e_read_double", "3E", True, "read", "D100", DataType.DOUBLE, None, (_3E_DOUBLE,), True, 1.5, True, None),
-    Case("udp_1e_read", "1E", True, "read", "D100", DataType.USHORT, None, (_1E_READ,), True, 20, True, None),
-    Case("udp_4e_read", "4E", True, "read", "D100", DataType.USHORT, None, (_qna_4e_response([20]),), True, 20, True, None),
+    Case(
+        "tcp_4e_read",
+        "4E",
+        False,
+        "read",
+        "D100",
+        DataType.USHORT,
+        None,
+        _split_4e(_qna_4e_response([20])),
+        True,
+        20,
+        True,
+        None,
+    ),
+    Case(
+        "tcp_4e_write",
+        "4E",
+        False,
+        "write",
+        "D100",
+        DataType.USHORT,
+        20,
+        _split_4e(_qna_4e_response([])),
+        True,
+        None,
+        True,
+        None,
+    ),
+    Case(
+        "tcp_4e_read_long",
+        "4E",
+        False,
+        "read",
+        "D100",
+        DataType.LONG,
+        None,
+        _split_4e(_qna_4e_response(_encode_64(-2, DataType.LONG))),
+        True,
+        -2,
+        True,
+        None,
+    ),
+    Case(
+        "udp_3e_read",
+        "3E",
+        True,
+        "read",
+        "D100",
+        DataType.USHORT,
+        None,
+        (_3E_READ,),
+        True,
+        20,
+        True,
+        None,
+    ),
+    Case(
+        "udp_3e_read_double",
+        "3E",
+        True,
+        "read",
+        "D100",
+        DataType.DOUBLE,
+        None,
+        (_3E_DOUBLE,),
+        True,
+        1.5,
+        True,
+        None,
+    ),
+    Case(
+        "udp_1e_read",
+        "1E",
+        True,
+        "read",
+        "D100",
+        DataType.USHORT,
+        None,
+        (_1E_READ,),
+        True,
+        20,
+        True,
+        None,
+    ),
+    Case(
+        "udp_4e_read",
+        "4E",
+        True,
+        "read",
+        "D100",
+        DataType.USHORT,
+        None,
+        (_qna_4e_response([20]),),
+        True,
+        20,
+        True,
+        None,
+    ),
     # 结束码非 0(PLC 明确报错):不断线、分类 DEVICE
-    Case("tcp_3e_device_error", "3E", False, "read", "D100", DataType.USHORT, None, _split_3e(_qna_read_response([], end_code=0xC059)), False, None, True, ErrorCategory.DEVICE),
+    Case(
+        "tcp_3e_device_error",
+        "3E",
+        False,
+        "read",
+        "D100",
+        DataType.USHORT,
+        None,
+        _split_3e(_qna_read_response([], end_code=0xC059)),
+        False,
+        None,
+        True,
+        ErrorCategory.DEVICE,
+    ),
     # 副头部非法(串话/迟到帧/网关错配):坏帧拆连,分类 PROTOCOL
-    Case("tcp_3e_bad_subhead", "3E", False, "read", "D100", DataType.USHORT, None, (_3E_BAD_SUBHEAD,), False, None, False, ErrorCategory.PROTOCOL),
+    Case(
+        "tcp_3e_bad_subhead",
+        "3E",
+        False,
+        "read",
+        "D100",
+        DataType.USHORT,
+        None,
+        (_3E_BAD_SUBHEAD,),
+        False,
+        None,
+        False,
+        ErrorCategory.PROTOCOL,
+    ),
 ]
 
 
@@ -303,12 +614,27 @@ def test_register_bit_write_is_read_modify_write(
     write_resp = _qna_write_response()
     chunks = list(_split_3e(read_resp)) + list(_split_3e(write_resp))
     expected_read = codec_qna.build_request(
-        "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER,
-        parse_mc_address("D100"), 1, False, False,
+        "3E",
+        1,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("D100"),
+        1,
+        False,
+        False,
     )
     expected_write = codec_qna.build_request(
-        "3E", 2, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER,
-        parse_mc_address("D100"), 1, False, True, data=[0x0008],
+        "3E",
+        2,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("D100"),
+        1,
+        False,
+        True,
+        data=[0x0008],
     )
 
     sync_client = MelsecMcTcpClient("127.0.0.1", 2000, "3E")
@@ -442,13 +768,13 @@ def _qna_requests(data: bytes, frame: str) -> list:
     offset = 0
     while offset < len(data):
         length = int.from_bytes(
-            data[offset + length_offset:offset + length_offset + 2], "little"
+            data[offset + length_offset : offset + length_offset + 2], "little"
         )
         total = (core_offset - 2) + length
         frames.append(
             (
-                data[offset + core_offset:offset + core_offset + 2],
-                data[offset:offset + total],
+                data[offset + core_offset : offset + core_offset + 2],
+                data[offset : offset + total],
             )
         )
         offset += total
@@ -472,59 +798,122 @@ class ExtCase(NamedTuple):
 _EXT_CASES = [
     # 0406 多块批量读:同软元件连续 BOOL 合并为 1 个位块
     ExtCase(
-        "read_many_3e_words", "3E", False, "read_many", (("D100", "D101", "D102"), "ushort"),
-        _split_3e(_qna_batch_read_response([10, 20, 30])), ("0604",),
+        "read_many_3e_words",
+        "3E",
+        False,
+        "read_many",
+        (("D100", "D101", "D102"), "ushort"),
+        _split_3e(_qna_batch_read_response([10, 20, 30])),
+        ("0604",),
     ),
     ExtCase(
-        "read_batch_3e_mixed", "3E", False, "read_batch",
+        "read_batch_3e_mixed",
+        "3E",
+        False,
+        "read_batch",
         ((("D100", "ushort"), ("D101", "float"), ("M10", "bool"), ("M11", "bool")),),
-        _split_3e(_qna_batch_read_response([7] + list(_F32_1_5), [0x8000])), ("0604",),
+        _split_3e(_qna_batch_read_response([7] + list(_F32_1_5), [0x8000])),
+        ("0604",),
     ),
     ExtCase(
-        "read_batch_4e_mixed", "4E", False, "read_batch",
+        "read_batch_4e_mixed",
+        "4E",
+        False,
+        "read_batch",
         ((("D100", "ushort"), ("M10", "bool")),),
-        _split_4e(_qna_batch_read_response([7], [0x8000], frame="4E")), ("0604",),
+        _split_4e(_qna_batch_read_response([7], [0x8000], frame="4E")),
+        ("0604",),
     ),
     # 0403 随机读:字访问 + 双字访问分节
     ExtCase(
-        "random_read_3e", "3E", False, "random_read",
+        "random_read_3e",
+        "3E",
+        False,
+        "random_read",
         ((("D0", "ushort"), ("D500", "short")), (("D100", "int"),)),
-        _split_3e(_qna_batch_read_response([100, 0xFFFE, 0x002A, 0x0000])), ("0304",),
+        _split_3e(_qna_batch_read_response([100, 0xFFFE, 0x002A, 0x0000])),
+        ("0304",),
     ),
     # 1402 随机写:无响应数据(只有应答头)
     ExtCase(
-        "random_write_3e", "3E", False, "random_write",
+        "random_write_3e",
+        "3E",
+        False,
+        "random_write",
         ((("D0", 1234),), (("D100", 0xDEADBEEF),)),
-        _split_3e(_qna_write_response()), ("0214",),
+        _split_3e(_qna_write_response()),
+        ("0214",),
     ),
     # 1402 随机写:结束码非 0 → 两侧都必须失败(原 native 丢弃响应误判成功)
     ExtCase(
-        "random_write_3e_end_code_error", "3E", False, "random_write",
+        "random_write_3e_end_code_error",
+        "3E",
+        False,
+        "random_write",
         ((("D0", 1234),),),
-        _split_3e(_qna_read_response([], end_code=0xC059)), ("0214",),
+        _split_3e(_qna_read_response([], end_code=0xC059)),
+        ("0214",),
     ),
     # 0101 CPU 型号
     ExtCase(
-        "get_cpu_type_3e", "3E", False, "get_cpu_type", (),
-        _split_3e(_cpu_model_response("Q02UCPU", 0x0263)), ("0101",),
+        "get_cpu_type_3e",
+        "3E",
+        False,
+        "get_cpu_type",
+        (),
+        _split_3e(_cpu_model_response("Q02UCPU", 0x0263)),
+        ("0101",),
     ),
     ExtCase(
-        "get_cpu_type_4e", "4E", False, "get_cpu_type", (),
-        _split_4e(_cpu_model_response("Q02UCPU", 0x0263, frame="4E")), ("0101",),
+        "get_cpu_type_4e",
+        "4E",
+        False,
+        "get_cpu_type",
+        (),
+        _split_4e(_cpu_model_response("Q02UCPU", 0x0263, frame="4E")),
+        ("0101",),
     ),
     # 帧型不支持:1E 下扩展命令入参期拒绝(零字节发送)
-    ExtCase("random_read_1e_rejected", "1E", False, "random_read",
-            ((("D0", "ushort"),), ()), (), ()),
+    ExtCase(
+        "random_read_1e_rejected",
+        "1E",
+        False,
+        "random_read",
+        ((("D0", "ushort"),), ()),
+        (),
+        (),
+    ),
     # 守卫回归(与同步层同口径,四轮复审 P0/P1 三处 native 漏守卫):
     # ① 0403 字访问列表不允许 32 位类型(每点 1 字,32 位须落双字列表)
-    ExtCase("random_read_3e_word32_rejected", "3E", False, "random_read",
-            ((("D0", "ushort"), ("D100", "int")),), (), ()),
+    ExtCase(
+        "random_read_3e_word32_rejected",
+        "3E",
+        False,
+        "random_read",
+        ((("D0", "ushort"), ("D100", "int")),),
+        (),
+        (),
+    ),
     # ② BOOL 位软元件带位号后缀拒绝(静默丢位号会读成 bit0)
-    ExtCase("random_read_3e_bool_bit_suffix_rejected", "3E", False, "random_read",
-            ((("M100.3", "bool"),),), (), ()),
+    ExtCase(
+        "random_read_3e_bool_bit_suffix_rejected",
+        "3E",
+        False,
+        "random_read",
+        ((("M100.3", "bool"),),),
+        (),
+        (),
+    ),
     # ③ 1402 随机写拒绝位号后缀(静默按 16 点/字写会清零相邻 15 位)
-    ExtCase("random_write_3e_bit_suffix_rejected", "3E", False, "random_write",
-            ((("M10.5", 1),),), (), ()),
+    ExtCase(
+        "random_write_3e_bit_suffix_rejected",
+        "3E",
+        False,
+        "random_write",
+        ((("M10.5", 1),),),
+        (),
+        (),
+    ),
 ]
 
 
@@ -584,9 +973,15 @@ def test_sync_async_parity_extended(
     assert holder["result"] == sync_result
     assert holder["state"] == sync_state
     if case.expect_fc:
-        assert tuple(
-            command.hex() for command, _frame in _qna_requests(bytes(sync_scripted.sent), case.frame)
-        ) == case.expect_fc
+        assert (
+            tuple(
+                command.hex()
+                for command, _frame in _qna_requests(
+                    bytes(sync_scripted.sent), case.frame
+                )
+            )
+            == case.expect_fc
+        )
 
 
 def test_ping_3e_uses_0101_and_1e_disabled(
@@ -626,7 +1021,15 @@ def test_read_range_3e_words_0401(monkeypatch: pytest.MonkeyPatch, loop: Any) ->
         assert ok is True
         assert values == [10, 20, 30]
         assert bytes(scripted.sent) == codec_qna.build_request(
-            "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("D100"), 3, False, False
+            "3E",
+            1,
+            0,
+            0xFF,
+            MC_DEFAULT_MONITOR_TIMER,
+            parse_mc_address("D100"),
+            3,
+            False,
+            False,
         )
         await client.close()
 
@@ -640,14 +1043,25 @@ def test_read_range_3e_bits_bool(monkeypatch: pytest.MonkeyPatch, loop: Any) -> 
     async def scenario() -> None:
         client = AsyncMelsecMcTcpClient("127.0.0.1", 2000, "3E")
         request = codec_qna.build_request(
-            "3E", 1, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("M0"), 10, True, False
+            "3E",
+            1,
+            0,
+            0xFF,
+            MC_DEFAULT_MONITOR_TIMER,
+            parse_mc_address("M0"),
+            10,
+            True,
+            False,
         )
         # 位读响应:半字节打包,每字节 2 点(高半字节在前,SH-080008 §8.2)
         bits = [1, 0, 1, 1, 0, 0, 1, 0, 1, 0]
         data = bytes((bits[i] << 4) | bits[i + 1] for i in range(0, len(bits), 2))
         frame = (
-            b"\xd0\x00" + b"\x00\xff\xff\x03\x00"
-            + (2 + len(data)).to_bytes(2, "little") + (0).to_bytes(2, "little") + data
+            b"\xd0\x00"
+            + b"\x00\xff\xff\x03\x00"
+            + (2 + len(data)).to_bytes(2, "little")
+            + (0).to_bytes(2, "little")
+            + data
         )
         scripted = ScriptedAsyncTransport(_split_3e(frame))
         monkeypatch.setattr(client, "_create_transport", lambda: scripted)
@@ -655,7 +1069,16 @@ def test_read_range_3e_bits_bool(monkeypatch: pytest.MonkeyPatch, loop: Any) -> 
         ok, values = await client.read_range("M0", 10, DataType.BOOL)
         assert ok is True
         assert values == [
-            True, False, True, True, False, False, True, False, True, False
+            True,
+            False,
+            True,
+            True,
+            False,
+            False,
+            True,
+            False,
+            True,
+            False,
         ]
         assert bytes(scripted.sent) == request
         await client.close()
@@ -681,7 +1104,7 @@ def test_read_range_1e_and_rejects(monkeypatch: pytest.MonkeyPatch, loop: Any) -
         with pytest.raises(ValueError):
             await plain.read_range("D100.3", 2, DataType.BOOL)
         with pytest.raises(ValueError):
-            await plain.read_range("M0", 2, DataType.SHORT)   # 位软元件字访问门控
+            await plain.read_range("M0", 2, DataType.SHORT)  # 位软元件字访问门控
         with pytest.raises(ValueError):
             await plain.read_range("D100", 901, DataType.SHORT)
         with pytest.raises(ValueError):

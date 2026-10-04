@@ -26,6 +26,7 @@
 (依据缺:KEYENCE 官方手册未收录该记号表的权威定义,见
 docs/protocol/README.md 待补表)。同款混合口径见 R/MR/CR 位组软元件。
 """
+
 from __future__ import annotations
 
 import re
@@ -81,7 +82,9 @@ def parse_kv_address(address: str) -> KvAddress:
     match = _KV_ADDRESS_RE.match(address.strip().upper())
     if match is None:
         raise ValueError(
-            _("无法解析 KV 地址:{!r}(示例:DM100 / R515 / B1F / X0F / DM100.5)").format(address)
+            _("无法解析 KV 地址:{!r}(示例:DM100 / R515 / B1F / X0F / DM100.5)").format(
+                address
+            )
         )
     device = match.group(1)
     number_text = match.group(2)
@@ -89,7 +92,11 @@ def parse_kv_address(address: str) -> KvAddress:
     if device in KV_BIT_BANK_DEVICES:
         number = int(number_text, 10)
         if number % KV_BIT_BANK_PACK > MODBUS_REGISTER_BIT_MAX:
-            raise ValueError(_("位组软元件编号低两位必须在 00~{},收到:{!r}").format(MODBUS_REGISTER_BIT_MAX, address))
+            raise ValueError(
+                _("位组软元件编号低两位必须在 00~{},收到:{!r}").format(
+                    MODBUS_REGISTER_BIT_MAX, address
+                )
+            )
     elif device in KV_HEX_NUMBER_DEVICES:
         number = int(number_text, 16)
     elif device in ("X", "Y"):
@@ -100,16 +107,22 @@ def parse_kv_address(address: str) -> KvAddress:
     else:
         number = int(number_text, 10)
     if bit is not None and device in KV_BIT_DEVICES:
-        raise ValueError(_("位软元件不支持位号后缀:{!r}(示例:R515 或 DM100.5)").format(address))
+        raise ValueError(
+            _("位软元件不支持位号后缀:{!r}(示例:R515 或 DM100.5)").format(address)
+        )
     return KvAddress(device=device, number=number, bit=bit)
 
 
 def format_kv_device(device: str, number: int) -> str:
     """把软元件与编号还原为规范文本(组帧用)。"""
     if device in KV_BIT_BANK_DEVICES:
-        return "{}{}{:02d}".format(device, number // KV_BIT_BANK_PACK, number % KV_BIT_BANK_PACK)
+        return "{}{}{:02d}".format(
+            device, number // KV_BIT_BANK_PACK, number % KV_BIT_BANK_PACK
+        )
     if device in ("X", "Y"):
-        return "{}{}{:X}".format(device, number // KV_BITS_PER_GROUP, number % KV_BITS_PER_GROUP)
+        return "{}{}{:X}".format(
+            device, number // KV_BITS_PER_GROUP, number % KV_BITS_PER_GROUP
+        )
     if device in KV_HEX_NUMBER_DEVICES:
         return device + format(number, "X")
     return f"{device}{number}"
@@ -126,5 +139,9 @@ def _parse_bit(text: Optional[str]) -> Optional[int]:
         return None
     bit = int(text)
     if not 0 <= bit <= MODBUS_REGISTER_BIT_MAX:
-        raise ValueError(_("字软元件位号必须在 0~{} 之间,收到:{}").format(MODBUS_REGISTER_BIT_MAX, bit))
+        raise ValueError(
+            _("字软元件位号必须在 0~{} 之间,收到:{}").format(
+                MODBUS_REGISTER_BIT_MAX, bit
+            )
+        )
     return bit

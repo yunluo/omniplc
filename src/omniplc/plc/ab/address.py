@@ -15,6 +15,7 @@ Logix 地址即标签名,支持::
 解析结果不涉及软元件码表——AB 标签自描述,实际类型由 PLC 在应答中返回。
 解析失败统一抛 ``ValueError``(参数错误约定)。
 """
+
 from __future__ import annotations
 
 import re
@@ -87,7 +88,9 @@ def parse_ab_tag(address: str) -> AbTag:
             segment = segment[: index_match.start()]
         if not _MEMBER_PATTERN.fullmatch(segment):
             raise ValueError(
-                _("AB 标签段非法(应为标识符):{!r}(地址 {!r})").format(raw_segment, address)
+                _("AB 标签段非法(应为标识符):{!r}(地址 {!r})").format(
+                    raw_segment, address
+                )
             )
         for number in segment_indexes:
             if number > _INDEX_MAX:

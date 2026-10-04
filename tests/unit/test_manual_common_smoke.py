@@ -6,6 +6,7 @@ tools/ 构造传参漂移无守卫——S7 位序错位曾潜伏五个版本(v0.
 build_client 构造全部冒烟一遍:构造成功即证明**位序/参数名/缺省值**
 与现行库签名一致;再对关键字段的传递做抽查。
 """
+
 from __future__ import annotations
 
 import sys
@@ -68,8 +69,12 @@ def test_build_client_smoke_all_drivers(conn: dict) -> None:
 
 def test_s7_positional_order_matches_current_signature() -> None:
     """S7 专项:显式给 rack/slot/port,断言按现行签名 (ip, port, rack, slot)。"""
-    conn = {"ip": "192.0.2.10", "port": 102, "driver": "siemens_s7",
-            "params": {"rack": 3, "slot": 5}}
+    conn = {
+        "ip": "192.0.2.10",
+        "port": 102,
+        "driver": "siemens_s7",
+        "params": {"rack": 3, "slot": 5},
+    }
     client = manual_common.build_client(conn)
     assert client.rack == 3
     assert client.slot == 5
@@ -77,8 +82,7 @@ def test_s7_positional_order_matches_current_signature() -> None:
 
 def test_mc_tcp_xy_octal_passthrough() -> None:
     """MC TCP xy_octal 透传(FX5U 真机核证通道,防静默错址)。"""
-    conn = {"ip": "192.0.2.10", "driver": "melsec_mc_tcp",
-            "params": {"xy_octal": True}}
+    conn = {"ip": "192.0.2.10", "driver": "melsec_mc_tcp", "params": {"xy_octal": True}}
     client = manual_common.build_client(conn)
     assert client._xy_octal is True
     # 缺省 False,配置显式性一致
@@ -99,8 +103,7 @@ def test_fins_tcp_local_node_none_keeps_auto_mode() -> None:
     assert client._auto_local_node is True
     # 显式节点原样透传,不进自动模式
     client2 = manual_common.build_client(
-        {"ip": "192.0.2.10", "driver": "omron_fins_tcp",
-         "params": {"local_node": 10}}
+        {"ip": "192.0.2.10", "driver": "omron_fins_tcp", "params": {"local_node": 10}}
     )
     assert client2._auto_local_node is False
     assert client2.local_node == 10

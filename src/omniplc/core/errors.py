@@ -12,6 +12,7 @@
 - :class:`TransportTimeoutError`:串口/UDP 传输超时(DeviceError 子类,
   不断线;TCP 超时保持 OSError 语义拆连防串帧)
 """
+
 from __future__ import annotations
 
 import asyncio

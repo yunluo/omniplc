@@ -5,6 +5,7 @@
 相同、``last_error``/``last_error_category``/``last_error_code``/``stats`` 一致
 ——异步层重写的只是薄分发层,帧语义与错误口径必须与同步层完全一致。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -24,13 +25,13 @@ from scripted import ScriptedTransport
 from scripted_async import ScriptedAsyncTransport, TcpResponder, loop_names, make_loop
 
 # 黄金响应 PDU(与同步侧同一批样本口径)
-_RESP_ONE_REGISTER = bytes([3, 2, 0x00, 0x14])          # FC03 读 1 寄存器 = 20
-_RESP_ONE_COIL = bytes([1, 1, 0x01])                    # FC01 读 1 线圈 = ON
-_RESP_FLOAT = bytes([3, 4, 0xBF, 0xC0, 0x00, 0x00])     # FC03 读 2 寄存器 = -1.5f
-_RESP_STRING = bytes([3, 4, 0x4F, 0x4D, 0x4E, 0x49])    # FC03 读 2 寄存器 = "OMNI"
-_RESP_WRITE_OK = bytes([6, 0x00, 0x00, 0x00, 0x14])     # FC06 回显
-_RESP_COIL_OK = bytes([5, 0x00, 0x00, 0xFF, 0x00])      # FC05 回显
-_RESP_DEVICE_ERROR = bytes([0x83, 0x02])                # FC03 | 0x80,异常码 02
+_RESP_ONE_REGISTER = bytes([3, 2, 0x00, 0x14])  # FC03 读 1 寄存器 = 20
+_RESP_ONE_COIL = bytes([1, 1, 0x01])  # FC01 读 1 线圈 = ON
+_RESP_FLOAT = bytes([3, 4, 0xBF, 0xC0, 0x00, 0x00])  # FC03 读 2 寄存器 = -1.5f
+_RESP_STRING = bytes([3, 4, 0x4F, 0x4D, 0x4E, 0x49])  # FC03 读 2 寄存器 = "OMNI"
+_RESP_WRITE_OK = bytes([6, 0x00, 0x00, 0x00, 0x14])  # FC06 回显
+_RESP_COIL_OK = bytes([5, 0x00, 0x00, 0xFF, 0x00])  # FC05 回显
+_RESP_DEVICE_ERROR = bytes([0x83, 0x02])  # FC03 | 0x80,异常码 02
 
 
 def _resp_registers(data: bytes) -> bytes:
@@ -69,43 +70,317 @@ class Case(NamedTuple):
 
 
 _READ_CASES = [
-    Case("ushort", "read", "hr0", DataType.USHORT, None, ((1, _RESP_ONE_REGISTER),), True, 20, True, None, None),
-    Case("bool_coil", "read", "c0", DataType.BOOL, None, ((1, _RESP_ONE_COIL),), True, True, True, None, None),
-    Case("short", "read", "hr0", DataType.SHORT, None, ((1, _resp_registers(struct.pack(">h", -2))),), True, -2, True, None, None),
-    Case("int", "read", "hr0", DataType.INT, None, ((1, _resp_registers(struct.pack(">i", -2))),), True, -2, True, None, None),
-    Case("uint", "read", "hr0", DataType.UINT, None, ((1, _resp_registers(struct.pack(">I", 4294967290))),), True, 4294967290, True, None, None),
-    Case("float", "read", "hr0", DataType.FLOAT, None, ((1, _RESP_FLOAT),), True, -1.5, True, None, None),
-    Case("long", "read", "hr0", DataType.LONG, None, ((1, _resp_registers(struct.pack(">q", -2))),), True, -2, True, None, None),
-    Case("ulong", "read", "hr0", DataType.ULONG, None, ((1, _resp_registers(struct.pack(">Q", 2 ** 64 - 5))),), True, 2 ** 64 - 5, True, None, None),
-    Case("double", "read", "hr0", DataType.DOUBLE, None, ((1, _resp_registers(struct.pack(">d", 1.5))),), True, 1.5, True, None, None),
-    Case("string", "read_string", "hr0", DataType.STRING, None, ((1, _RESP_STRING),), True, "OMNI", True, None, None),
+    Case(
+        "ushort",
+        "read",
+        "hr0",
+        DataType.USHORT,
+        None,
+        ((1, _RESP_ONE_REGISTER),),
+        True,
+        20,
+        True,
+        None,
+        None,
+    ),
+    Case(
+        "bool_coil",
+        "read",
+        "c0",
+        DataType.BOOL,
+        None,
+        ((1, _RESP_ONE_COIL),),
+        True,
+        True,
+        True,
+        None,
+        None,
+    ),
+    Case(
+        "short",
+        "read",
+        "hr0",
+        DataType.SHORT,
+        None,
+        ((1, _resp_registers(struct.pack(">h", -2))),),
+        True,
+        -2,
+        True,
+        None,
+        None,
+    ),
+    Case(
+        "int",
+        "read",
+        "hr0",
+        DataType.INT,
+        None,
+        ((1, _resp_registers(struct.pack(">i", -2))),),
+        True,
+        -2,
+        True,
+        None,
+        None,
+    ),
+    Case(
+        "uint",
+        "read",
+        "hr0",
+        DataType.UINT,
+        None,
+        ((1, _resp_registers(struct.pack(">I", 4294967290))),),
+        True,
+        4294967290,
+        True,
+        None,
+        None,
+    ),
+    Case(
+        "float",
+        "read",
+        "hr0",
+        DataType.FLOAT,
+        None,
+        ((1, _RESP_FLOAT),),
+        True,
+        -1.5,
+        True,
+        None,
+        None,
+    ),
+    Case(
+        "long",
+        "read",
+        "hr0",
+        DataType.LONG,
+        None,
+        ((1, _resp_registers(struct.pack(">q", -2))),),
+        True,
+        -2,
+        True,
+        None,
+        None,
+    ),
+    Case(
+        "ulong",
+        "read",
+        "hr0",
+        DataType.ULONG,
+        None,
+        ((1, _resp_registers(struct.pack(">Q", 2**64 - 5))),),
+        True,
+        2**64 - 5,
+        True,
+        None,
+        None,
+    ),
+    Case(
+        "double",
+        "read",
+        "hr0",
+        DataType.DOUBLE,
+        None,
+        ((1, _resp_registers(struct.pack(">d", 1.5))),),
+        True,
+        1.5,
+        True,
+        None,
+        None,
+    ),
+    Case(
+        "string",
+        "read_string",
+        "hr0",
+        DataType.STRING,
+        None,
+        ((1, _RESP_STRING),),
+        True,
+        "OMNI",
+        True,
+        None,
+        None,
+    ),
     # 点位表:scale/offset 正向与逆缩放(同一次读写的两条路径)
-    Case("read_tag", "read_tag", "hr0", DataType.USHORT, None, ((1, _RESP_ONE_REGISTER),), True, 50.0, True, None, None, tag=_TAG),
+    Case(
+        "read_tag",
+        "read_tag",
+        "hr0",
+        DataType.USHORT,
+        None,
+        ((1, _RESP_ONE_REGISTER),),
+        True,
+        50.0,
+        True,
+        None,
+        None,
+        tag=_TAG,
+    ),
     # 恒等缩放:64 位整数原值直通(回归:native 曾强制 float64 往返丢低位)
-    Case("read_tag_identity_long", "read_tag", "hr0", DataType.LONG, None,
-         ((1, _resp_registers(struct.pack(">q", 2 ** 62 + 1))),), True, 2 ** 62 + 1, True, None, None, tag=_TAG_IDENTITY_LONG),
+    Case(
+        "read_tag_identity_long",
+        "read_tag",
+        "hr0",
+        DataType.LONG,
+        None,
+        ((1, _resp_registers(struct.pack(">q", 2**62 + 1))),),
+        True,
+        2**62 + 1,
+        True,
+        None,
+        None,
+        tag=_TAG_IDENTITY_LONG,
+    ),
     # PLC 明确报错:不断线、分类 DEVICE、错误码原样落
-    Case("device_error", "read", "hr0", DataType.USHORT, None, ((1, _RESP_DEVICE_ERROR),), False, None, True, ErrorCategory.DEVICE, 2),
+    Case(
+        "device_error",
+        "read",
+        "hr0",
+        DataType.USHORT,
+        None,
+        ((1, _RESP_DEVICE_ERROR),),
+        False,
+        None,
+        True,
+        ErrorCategory.DEVICE,
+        2,
+    ),
     # 事务号不匹配(迟到帧/网关错配):坏帧 → 拆连,分类 PROTOCOL
-    Case("tid_mismatch", "read", "hr0", DataType.USHORT, None, ((99, _RESP_ONE_REGISTER),), False, None, False, ErrorCategory.PROTOCOL, None),
+    Case(
+        "tid_mismatch",
+        "read",
+        "hr0",
+        DataType.USHORT,
+        None,
+        ((99, _RESP_ONE_REGISTER),),
+        False,
+        None,
+        False,
+        ErrorCategory.PROTOCOL,
+        None,
+    ),
 ]
 
 _WRITE_CASES = [
-    Case("write_ushort", "write", "hr0", DataType.USHORT, 20, ((1, _RESP_WRITE_OK),), True, None, True, None, None),
-    Case("write_short", "write", "hr0", DataType.SHORT, -2, ((1, bytes([6, 0x00, 0x00, 0xFF, 0xFE])),), True, None, True, None, None),
-    Case("write_float", "write", "hr0", DataType.FLOAT, -1.5, ((1, bytes([0x10, 0x00, 0x00, 0x00, 0x02])),), True, None, True, None, None),
-    Case("write_double", "write", "hr0", DataType.DOUBLE, 1.5, ((1, bytes([0x10, 0x00, 0x00, 0x00, 0x04])),), True, None, True, None, None),
-    Case("write_string", "write_string", "hr0", DataType.STRING, "OMNI", ((1, bytes([0x10, 0x00, 0x00, 0x00, 0x02])),), True, None, True, None, None),
-    Case("write_tag", "write_tag", "hr0", DataType.USHORT, 50.0, ((1, _RESP_WRITE_OK),), True, None, True, None, None, tag=_TAG),
+    Case(
+        "write_ushort",
+        "write",
+        "hr0",
+        DataType.USHORT,
+        20,
+        ((1, _RESP_WRITE_OK),),
+        True,
+        None,
+        True,
+        None,
+        None,
+    ),
+    Case(
+        "write_short",
+        "write",
+        "hr0",
+        DataType.SHORT,
+        -2,
+        ((1, bytes([6, 0x00, 0x00, 0xFF, 0xFE])),),
+        True,
+        None,
+        True,
+        None,
+        None,
+    ),
+    Case(
+        "write_float",
+        "write",
+        "hr0",
+        DataType.FLOAT,
+        -1.5,
+        ((1, bytes([0x10, 0x00, 0x00, 0x00, 0x02])),),
+        True,
+        None,
+        True,
+        None,
+        None,
+    ),
+    Case(
+        "write_double",
+        "write",
+        "hr0",
+        DataType.DOUBLE,
+        1.5,
+        ((1, bytes([0x10, 0x00, 0x00, 0x00, 0x04])),),
+        True,
+        None,
+        True,
+        None,
+        None,
+    ),
+    Case(
+        "write_string",
+        "write_string",
+        "hr0",
+        DataType.STRING,
+        "OMNI",
+        ((1, bytes([0x10, 0x00, 0x00, 0x00, 0x02])),),
+        True,
+        None,
+        True,
+        None,
+        None,
+    ),
+    Case(
+        "write_tag",
+        "write_tag",
+        "hr0",
+        DataType.USHORT,
+        50.0,
+        ((1, _RESP_WRITE_OK),),
+        True,
+        None,
+        True,
+        None,
+        None,
+        tag=_TAG,
+    ),
     # 恒等缩放:64 位 int 原样下发,不过 float64 往返(回归:native 曾丢低位)
-    Case("write_tag_identity_long", "write_tag", "hr0", DataType.LONG, 2 ** 62 + 1,
-         ((1, bytes([0x10, 0x00, 0x00, 0x00, 0x04])),), True, None, True, None, None, tag=_TAG_IDENTITY_LONG),
-    Case("write_bool_coil", "write", "c0", DataType.BOOL, True, ((1, _RESP_COIL_OK),), True, None, True, None, None),
+    Case(
+        "write_tag_identity_long",
+        "write_tag",
+        "hr0",
+        DataType.LONG,
+        2**62 + 1,
+        ((1, bytes([0x10, 0x00, 0x00, 0x00, 0x04])),),
+        True,
+        None,
+        True,
+        None,
+        None,
+        tag=_TAG_IDENTITY_LONG,
+    ),
+    Case(
+        "write_bool_coil",
+        "write",
+        "c0",
+        DataType.BOOL,
+        True,
+        ((1, _RESP_COIL_OK),),
+        True,
+        None,
+        True,
+        None,
+        None,
+    ),
     # 寄存器位写 = 读-改-写两段事务(读响应 + 写回显)
     Case(
-        "write_bool_rmw", "write", "hr0.3", DataType.BOOL, True,
+        "write_bool_rmw",
+        "write",
+        "hr0.3",
+        DataType.BOOL,
+        True,
         ((1, bytes([3, 2, 0x00, 0x00])), (2, bytes([6, 0x00, 0x00, 0x00, 0x08]))),
-        True, None, True, None, None,
+        True,
+        None,
+        True,
+        None,
+        None,
     ),
 ]
 
@@ -269,7 +544,11 @@ def test_timeout_semantics_parity(monkeypatch: pytest.MonkeyPatch, loop: Any) ->
     monkeypatch.setattr(sync_client, "_create_transport", _TimeoutTransport)
     sync_client.connect()
     assert sync_client.read_ushort("hr0") == (False, None)
-    sync_state = (sync_client.connected, sync_client.last_error_category, sync_client.last_error_code)
+    sync_state = (
+        sync_client.connected,
+        sync_client.last_error_category,
+        sync_client.last_error_code,
+    )
 
     holder: Dict[str, Any] = {}
 
@@ -280,7 +559,11 @@ def test_timeout_semantics_parity(monkeypatch: pytest.MonkeyPatch, loop: Any) ->
         monkeypatch.setattr(client, "_create_transport", lambda: scripted)
         await client.connect()
         assert await client.read_ushort("hr0") == (False, None)
-        holder["state"] = (client.connected, client.last_error_category, client.last_error_code)
+        holder["state"] = (
+            client.connected,
+            client.last_error_category,
+            client.last_error_code,
+        )
 
     loop.run_until_complete(scenario())
     assert sync_state == holder["state"] == (False, ErrorCategory.TIMEOUT, None)
@@ -291,7 +574,9 @@ def test_timeout_semantics_parity(monkeypatch: pytest.MonkeyPatch, loop: Any) ->
 # ----------------------------------------------------------------------
 
 
-def test_cancel_mid_flight_disconnects(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
+def test_cancel_mid_flight_disconnects(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
     """请求已发出后取消:真中断 + 保守拆连(链路可能残留未配对应答)。"""
     holder: Dict[str, Any] = {}
 
@@ -332,7 +617,9 @@ def test_cancel_while_queued_keeps_connection(
 
     async def scenario() -> None:
         client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
-        scripted = _SlowTransport(_chunks([(1, _RESP_ONE_REGISTER), (2, _RESP_ONE_REGISTER)]))
+        scripted = _SlowTransport(
+            _chunks([(1, _RESP_ONE_REGISTER), (2, _RESP_ONE_REGISTER)])
+        )
         monkeypatch.setattr(client, "_create_transport", lambda: scripted)
         await client.connect()
         first = asyncio.ensure_future(client.read_ushort("hr0"))
@@ -363,9 +650,7 @@ _DEVICE_ID_PAGE1 = (
     bytes([0x2B, 0x0E, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x04]) + b"ACME"
 )
 """FC43 流式第 1 页:读码 1、符合级别 1、无后续、1 个对象(0x00 厂商名)。"""
-_DEVICE_ID_PAGE2 = (
-    bytes([0x2B, 0x0E, 0x01, 0x01, 0x00, 0x03, 0x01, 0x01, 0x02]) + b"PC"
-)
+_DEVICE_ID_PAGE2 = bytes([0x2B, 0x0E, 0x01, 0x01, 0x00, 0x03, 0x01, 0x01, 0x02]) + b"PC"
 """FC43 第 2 页(请求对象号 0x03 起):1 个对象(0x01 产品代码)。"""
 
 
@@ -386,60 +671,162 @@ class ExtCase(NamedTuple):
 
 _EXT_CASES = [
     # 批量读:连续地址合一笔;留空洞各起一笔
-    ExtCase("read_many_coalesced", "read_many", (("hr0", "hr1", "hr2"), "ushort"),
-            ((1, _resp_registers(struct.pack(">HHH", 10, 20, 30))),), (3,)),
-    ExtCase("read_many_gap", "read_many", (("hr0", "hr5"), "ushort"),
-            ((1, _resp_registers(struct.pack(">H", 10))), (2, _resp_registers(struct.pack(">H", 50)))), (3, 3)),
-    ExtCase("read_batch_mixed", "read_batch",
-            ((("hr0", "ushort"), ("hr1", "float"), ("c0", "bool")),),
-            ((1, _resp_registers(struct.pack(">H", 7))),
-             (2, _resp_registers(struct.pack(">f", 1.5))),
-             (3, bytes([1, 1, 0x01]))), (3, 3, 1)),
+    ExtCase(
+        "read_many_coalesced",
+        "read_many",
+        (("hr0", "hr1", "hr2"), "ushort"),
+        ((1, _resp_registers(struct.pack(">HHH", 10, 20, 30))),),
+        (3,),
+    ),
+    ExtCase(
+        "read_many_gap",
+        "read_many",
+        (("hr0", "hr5"), "ushort"),
+        (
+            (1, _resp_registers(struct.pack(">H", 10))),
+            (2, _resp_registers(struct.pack(">H", 50))),
+        ),
+        (3, 3),
+    ),
+    ExtCase(
+        "read_batch_mixed",
+        "read_batch",
+        ((("hr0", "ushort"), ("hr1", "float"), ("c0", "bool")),),
+        (
+            (1, _resp_registers(struct.pack(">H", 7))),
+            (2, _resp_registers(struct.pack(">f", 1.5))),
+            (3, bytes([1, 1, 0x01])),
+        ),
+        (3, 3, 1),
+    ),
     # 批量写:FC16 合并;寄存器位写走 RMW(FC03 读 + FC06 写)
-    ExtCase("write_many_coalesced", "write_many",
-            ((("hr0", "ushort", 10), ("hr1", "ushort", 20)),),
-            ((1, bytes([0x10, 0x00, 0x00, 0x00, 0x02])),), (0x10,)),
-    ExtCase("write_many_rmw_then_chunk", "write_many",
-            ((("hr0.3", "bool", True), ("hr1", "ushort", 20)),),
-            ((1, bytes([3, 2, 0x00, 0x00])), (2, bytes([6, 0x00, 0x00, 0x00, 0x08])),
-             (3, bytes([0x10, 0x00, 0x01, 0x00, 0x01]))), (3, 6, 0x10)),
-    ExtCase("write_batch_mixed", "write_batch",
-            ((("c0", "bool", True), ("hr1", "ushort", 20)),),
-            ((1, bytes([0x0F, 0x00, 0x00, 0x00, 0x01])),
-             (2, bytes([0x10, 0x00, 0x01, 0x00, 0x01]))), (0x0F, 0x10)),
+    ExtCase(
+        "write_many_coalesced",
+        "write_many",
+        ((("hr0", "ushort", 10), ("hr1", "ushort", 20)),),
+        ((1, bytes([0x10, 0x00, 0x00, 0x00, 0x02])),),
+        (0x10,),
+    ),
+    ExtCase(
+        "write_many_rmw_then_chunk",
+        "write_many",
+        ((("hr0.3", "bool", True), ("hr1", "ushort", 20)),),
+        (
+            (1, bytes([3, 2, 0x00, 0x00])),
+            (2, bytes([6, 0x00, 0x00, 0x00, 0x08])),
+            (3, bytes([0x10, 0x00, 0x01, 0x00, 0x01])),
+        ),
+        (3, 6, 0x10),
+    ),
+    ExtCase(
+        "write_batch_mixed",
+        "write_batch",
+        ((("c0", "bool", True), ("hr1", "ushort", 20)),),
+        (
+            (1, bytes([0x0F, 0x00, 0x00, 0x00, 0x01])),
+            (2, bytes([0x10, 0x00, 0x01, 0x00, 0x01])),
+        ),
+        (0x0F, 0x10),
+    ),
     # FC22 掩码写:正常响应 = 请求 PDU 逐字节回显
-    ExtCase("write_mask_register", "mask_write", ("hr10", 0x00F0, 0x000F),
-            ((1, codec.build_mask_write_pdu(10, 0x00F0, 0x000F, "big")),), (0x16,)),
+    ExtCase(
+        "write_mask_register",
+        "mask_write",
+        ("hr10", 0x00F0, 0x000F),
+        ((1, codec.build_mask_write_pdu(10, 0x00F0, 0x000F, "big")),),
+        (0x16,),
+    ),
     # FC23 单事务"先写后读"
-    ExtCase("read_write_registers", "rw", ("hr0", 2, "hr10", [1, 2]),
-            ((1, bytes([0x17, 0x04]) + struct.pack(">HH", 100, 200)),), (0x17,)),
+    ExtCase(
+        "read_write_registers",
+        "rw",
+        ("hr0", 2, "hr10", [1, 2]),
+        ((1, bytes([0x17, 0x04]) + struct.pack(">HH", 100, 200)),),
+        (0x17,),
+    ),
     # FC43 流式访问:单页;两页(MoreFollows)自动翻页
-    ExtCase("read_device_id_one_page", "device_id", ("basic",), ((1, _DEVICE_ID_PAGE1),), (0x2B,)),
-    ExtCase("read_device_id_paged", "device_id", ("basic",),
-            ((1, bytes([0x2B, 0x0E, 0x01, 0x01, 0xFF, 0x03, 0x01, 0x00, 0x04]) + b"ACME"),
-             (2, _DEVICE_ID_PAGE2)), (0x2B, 0x2B)),
+    ExtCase(
+        "read_device_id_one_page",
+        "device_id",
+        ("basic",),
+        ((1, _DEVICE_ID_PAGE1),),
+        (0x2B,),
+    ),
+    ExtCase(
+        "read_device_id_paged",
+        "device_id",
+        ("basic",),
+        (
+            (
+                1,
+                bytes([0x2B, 0x0E, 0x01, 0x01, 0xFF, 0x03, 0x01, 0x00, 0x04]) + b"ACME",
+            ),
+            (2, _DEVICE_ID_PAGE2),
+        ),
+        (0x2B, 0x2B),
+    ),
     # FC43 个体访问(读取码 4)
-    ExtCase("read_device_object", "device_object", (0x01,),
-            ((1, bytes([0x2B, 0x0E, 0x04, 0x01, 0x00, 0x00, 0x01, 0x01, 0x02]) + b"PC"),), (0x2B,)),
+    ExtCase(
+        "read_device_object",
+        "device_object",
+        (0x01,),
+        ((1, bytes([0x2B, 0x0E, 0x04, 0x01, 0x00, 0x00, 0x01, 0x01, 0x02]) + b"PC"),),
+        (0x2B,),
+    ),
     # 串行线诊断族:FC07 / FC17 / FC08 / FC11 / FC12
     ExtCase("read_exception_status", "fc07", (), ((1, bytes([0x07, 0xAB])),), (0x07,)),
-    ExtCase("report_server_id", "fc17", (),
-            ((1, bytes([0x11, 0x04, 0x42, 0x00, 0xAA, 0xBB])),), (0x11,)),
-    ExtCase("diagnostics", "fc08", (0x0000, 0x1234),
-            ((1, bytes([0x08, 0x00, 0x00, 0x12, 0x34])),), (0x08,)),
-    ExtCase("get_comm_event_counter", "fc11", (),
-            ((1, bytes([0x0B, 0x00, 0x00, 0x12, 0x34])),), (0x0B,)),
-    ExtCase("get_comm_event_log", "fc12", (),
-            ((1, bytes([0x0C, 0x08, 0x00, 0x00, 0x00, 0x05, 0x00, 0x03, 0xAA, 0xBB])),), (0x0C,)),
+    ExtCase(
+        "report_server_id",
+        "fc17",
+        (),
+        ((1, bytes([0x11, 0x04, 0x42, 0x00, 0xAA, 0xBB])),),
+        (0x11,),
+    ),
+    ExtCase(
+        "diagnostics",
+        "fc08",
+        (0x0000, 0x1234),
+        ((1, bytes([0x08, 0x00, 0x00, 0x12, 0x34])),),
+        (0x08,),
+    ),
+    ExtCase(
+        "get_comm_event_counter",
+        "fc11",
+        (),
+        ((1, bytes([0x0B, 0x00, 0x00, 0x12, 0x34])),),
+        (0x0B,),
+    ),
+    ExtCase(
+        "get_comm_event_log",
+        "fc12",
+        (),
+        ((1, bytes([0x0C, 0x08, 0x00, 0x00, 0x00, 0x05, 0x00, 0x03, 0xAA, 0xBB])),),
+        (0x0C,),
+    ),
     # FC20 读文件记录:子响应 = File resp. length(1) + 引用类型(1) + 数据(2N)
-    ExtCase("read_file_record", "fc20", (((1, 0, 2),),),
-            ((1, bytes([0x14, 0x06, 0x05, 0x06]) + struct.pack(">HH", 111, 222)),), (0x14,)),
+    ExtCase(
+        "read_file_record",
+        "fc20",
+        (((1, 0, 2),),),
+        ((1, bytes([0x14, 0x06, 0x05, 0x06]) + struct.pack(">HH", 111, 222)),),
+        (0x14,),
+    ),
     # FC21 写文件记录:正常响应 = 请求 PDU 逐字节回显
-    ExtCase("write_file_record", "fc21", (((1, 0, [1, 2]),),),
-            ((1, codec.build_write_file_record_pdu([(1, 0, [1, 2])])),), (0x15,)),
+    ExtCase(
+        "write_file_record",
+        "fc21",
+        (((1, 0, [1, 2]),),),
+        ((1, codec.build_write_file_record_pdu([(1, 0, [1, 2])])),),
+        (0x15,),
+    ),
     # FC24 读 FIFO 队列(byte count = 2 + 2×FIFO 数)
-    ExtCase("read_fifo_queue", "fc24", ("hr10",),
-            ((1, bytes([0x18, 0x00, 0x06, 0x00, 0x02]) + struct.pack(">HH", 7, 8)),), (0x18,)),
+    ExtCase(
+        "read_fifo_queue",
+        "fc24",
+        ("hr10",),
+        ((1, bytes([0x18, 0x00, 0x06, 0x00, 0x02]) + struct.pack(">HH", 7, 8)),),
+        (0x18,),
+    ),
 ]
 
 
@@ -490,10 +877,13 @@ def _frame_pdus(data: bytes) -> list:
     frames = []
     offset = 0
     while offset < len(data):
-        length = int.from_bytes(data[offset + 4:offset + 6], "big")
+        length = int.from_bytes(data[offset + 4 : offset + 6], "big")
         total = 6 + length  # MBAP 头 6 字节 + 长度域(含 Unit ID)
         frames.append(
-            (int.from_bytes(data[offset:offset + 2], "big"), data[offset + 7:offset + total])
+            (
+                int.from_bytes(data[offset : offset + 2], "big"),
+                data[offset + 7 : offset + total],
+            )
         )
         offset += total
     return frames
@@ -517,14 +907,18 @@ def test_sync_async_parity_extended(
     assert tuple(pdu[0] for _tid, pdu in _frame_pdus(sync_sent)) == case.expect_fc
 
 
-def test_read_many_fails_whole_batch(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
+def test_read_many_fails_whole_batch(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
     """任一笔 FC 失败 → 整批 ``(False, None)``(不放出部分值,与同步 read_many 同口径)。"""
     holder: Dict[str, Any] = {}
 
     async def scenario() -> None:
         client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
         scripted = ScriptedAsyncTransport(
-            _chunks([(1, _resp_registers(struct.pack(">H", 10))), (2, _RESP_DEVICE_ERROR)])
+            _chunks(
+                [(1, _resp_registers(struct.pack(">H", 10))), (2, _RESP_DEVICE_ERROR)]
+            )
         )
         monkeypatch.setattr(client, "_create_transport", lambda: scripted)
         await client.connect()
@@ -611,7 +1005,11 @@ def test_write_many_chunks_fail_independently(
         monkeypatch.setattr(client, "_create_transport", lambda: scripted)
         await client.connect()
         holder["result"] = await client.write_many(
-            (("hr0", DataType.USHORT, 1), ("hr1", DataType.USHORT, 2), ("hr5", DataType.USHORT, 3))
+            (
+                ("hr0", DataType.USHORT, 1),
+                ("hr1", DataType.USHORT, 2),
+                ("hr5", DataType.USHORT, 3),
+            )
         )
         await client.close()
 
@@ -659,7 +1057,9 @@ def test_multiple_clients_run_concurrently(loop: Any) -> None:
     async def scenario() -> None:
         responder = TcpResponder(lambda _pdu: _RESP_ONE_REGISTER, delay=delay)
         await responder.start()
-        clients = [AsyncModbusTcpClient("127.0.0.1", responder.port, 1) for _ in range(6)]
+        clients = [
+            AsyncModbusTcpClient("127.0.0.1", responder.port, 1) for _ in range(6)
+        ]
         started = loop.time()
         try:
             results = await asyncio.gather(
@@ -738,9 +1138,7 @@ def test_client_constructed_outside_loop(loop: Any) -> None:
     loop.run_until_complete(scenario())
 
 
-def test_string_rejects_bit_suffix(
-    monkeypatch: pytest.MonkeyPatch, loop: Any
-) -> None:
+def test_string_rejects_bit_suffix(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
     """native 字符串读写同同步侧口径:拒绝位号后缀(.bit)。
 
     回归:native 未镜像同步侧 ``modbus/modbus.py`` 的校验,``hr0.3`` 被
@@ -784,4 +1182,3 @@ def test_ping_fc08(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
         await client.close()
 
     loop.run_until_complete(scenario())
-

@@ -16,6 +16,7 @@ OPC-UA 以 **NodeId** 寻址,本文语法与标准字符串形式一致
 本模块只做语法校验与拆分,**不依赖 asyncua**——解析在参数校验
 阶段完成,组帧(会话调用)时还原为标准字符串交给 asyncua。
 """
+
 from __future__ import annotations
 
 import re
@@ -97,7 +98,9 @@ def parse_opcua_nodeid(address: str) -> OpcUaNodeId:
                 # NamespaceIndex 是 UInt16(OPC 10000-3):负数/超界先在
                 # 参数校验期拒绝,不延迟到 asyncua 编码层以深层异常爆出
                 raise ValueError(
-                    _("OPC-UA 命名空间索引超出 UInt16 范围 0~65535:{!r}").format(address)
+                    _("OPC-UA 命名空间索引超出 UInt16 范围 0~65535:{!r}").format(
+                        address
+                    )
                 )
         elif key in ("i", "b", "g"):
             if kind is not None:

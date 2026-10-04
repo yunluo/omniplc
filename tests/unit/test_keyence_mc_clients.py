@@ -4,6 +4,7 @@
 B/W 十六进制)、三菱记号拒绝、位写、字软元件位写读-改-写、TCP/UDP 两走线
 (UDP 一问一答一数据报)、异步镜像。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -47,7 +48,9 @@ def _write_response() -> bytes:
 
 def _frame_tail(data: bytes) -> bytes:
     head = b"\xd0\x00" + b"\x00\xff\xff\x03\x00"
-    return head + (2 + len(data)).to_bytes(2, "little") + (0).to_bytes(2, "little") + data
+    return (
+        head + (2 + len(data)).to_bytes(2, "little") + (0).to_bytes(2, "little") + data
+    )
 
 
 def _mount(
@@ -69,8 +72,16 @@ def _expected(
 ) -> bytes:
     """按基恩士码表构造期望请求帧。"""
     return codec_qna.build_request(
-        "3E", serial, 0, 0xFF, MC_DEFAULT_MONITOR_TIMER,
-        parse_mc_address(address), points, is_bit, is_write, data,
+        "3E",
+        serial,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address(address),
+        points,
+        is_bit,
+        is_write,
+        data,
         KEYENCE_MC_DEVICE_CODES,
     )
 
@@ -140,7 +151,9 @@ def test_hex_addressing_b_w(monkeypatch: pytest.MonkeyPatch) -> None:
     client = KeyenceMcTcpClient("127.0.0.1", 5000)
     bit_frame = _bit_read_response([0])
     word_frame = _word_read_response([1234])
-    scripted = ScriptedTransport([bit_frame[:9], bit_frame[9:], word_frame[:9], word_frame[9:]])
+    scripted = ScriptedTransport(
+        [bit_frame[:9], bit_frame[9:], word_frame[:9], word_frame[9:]]
+    )
     _mount(monkeypatch, client, scripted)
     client.connect()
     assert client.read_bool("B1F") == (True, False)
@@ -183,7 +196,9 @@ def test_word_bit_write_read_modify_write(monkeypatch: pytest.MonkeyPatch) -> No
     client = KeyenceMcTcpClient("127.0.0.1", 5000)
     read_frame = _word_read_response([0x0004])
     write_frame = _write_response()
-    scripted = ScriptedTransport([read_frame[:9], read_frame[9:], write_frame[:9], write_frame[9:]])
+    scripted = ScriptedTransport(
+        [read_frame[:9], read_frame[9:], write_frame[:9], write_frame[9:]]
+    )
     _mount(monkeypatch, client, scripted)
     client.connect()
     assert client.write_bool("DM100.3", True) is True
@@ -253,7 +268,9 @@ def test_async_mirror_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
         sync = client._sync
         frame = _word_read_response([20])
         write_frame = _write_response()
-        scripted = ScriptedTransport([frame[:9], frame[9:], write_frame[:9], write_frame[9:]])
+        scripted = ScriptedTransport(
+            [frame[:9], frame[9:], write_frame[:9], write_frame[9:]]
+        )
         monkeypatch.setattr(sync, "_create_transport", lambda: scripted)
         assert await client.connect() is True
         assert await client.read_ushort("DM100") == (True, 20)

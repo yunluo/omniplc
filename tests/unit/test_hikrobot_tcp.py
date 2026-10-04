@@ -11,6 +11,7 @@ size 感知假 socket,按《工业读码器通信指令操作手册》V1.0.3 §1
   invalid 拒绝 / 回显不符坏帧断线
 - 低阶 command() 透传:Get 参数文本返回、Set/Exec 参数校验
 """
+
 from __future__ import annotations
 
 from typing import List, Optional, Tuple

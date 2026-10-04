@@ -26,6 +26,7 @@
 **首批能力面**:单点读/写 + 类型化方法 + 字符串 + 点位表;批量
 (``read_many``/``read_batch`` 等)与各驱动扩展方法留后续批次。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -336,7 +337,7 @@ class AsyncBaseClient(ABC):
             # cancel 后 await 其真正退出(review-1002 P2):不残留 pending
             # 任务,防 run_until_complete(disconnect) 收到「Task was
             # destroyed」噪声。本协程持有事务锁 ⇒ 心跳 tick 必不在事务中
-            #(锁互斥),其挂起点(sleep/等锁)均可取消,await 不会死锁。
+            # (锁互斥),其挂起点(sleep/等锁)均可取消,await 不会死锁。
             # CancelledError 可能来自任务取消或本协程被取消,此处收尾阶段
             # 吞掉继续清理;任务自身的其他异常同样不阻断断开流程
             task.cancel()
@@ -355,7 +356,9 @@ class AsyncBaseClient(ABC):
         try:
             transport.close()
         except Exception as exc:
-            self._set_error(_("关闭连接失败:{}").format(exc), _categorize(exc), _extract_code(exc))
+            self._set_error(
+                _("关闭连接失败:{}").format(exc), _categorize(exc), _extract_code(exc)
+            )
             return False
         self._counters["disconnect_count"] += 1
         return True
@@ -560,7 +563,9 @@ class AsyncBaseClient(ABC):
     @reconnect_backoff.setter
     def reconnect_backoff(self, enabled: bool) -> None:
         if not isinstance(enabled, bool):
-            raise ValueError(_("reconnect_backoff 必须为布尔值,收到:{!r}").format(enabled))
+            raise ValueError(
+                _("reconnect_backoff 必须为布尔值,收到:{!r}").format(enabled)
+            )
         self._reconnect_backoff = enabled
 
     @property
@@ -677,8 +682,10 @@ class AsyncBaseClient(ABC):
             raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
         DataType.coerce(data_type)
         raise ValueError(
-            _("当前驱动 {} 不支持连续批量读 read_range(起始地址+数量),"
-            "请改用 read_many/read_batch 逐点列出地址").format(type(self).__name__)
+            _(
+                "当前驱动 {} 不支持连续批量读 read_range(起始地址+数量),"
+                "请改用 read_many/read_batch 逐点列出地址"
+            ).format(type(self).__name__)
         )
 
     async def write_many(
@@ -853,7 +860,11 @@ class AsyncBaseClient(ABC):
             return True, value
         if resolved.scale == 1.0 and resolved.offset == 0.0:
             return True, value
-        if isinstance(value, int) and not isinstance(value, bool) and abs(value) > 2 ** 53:
+        if (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and abs(value) > 2**53
+        ):
             # 非恒等缩放必经 float64:|值| > 2^53 时低位静默丢失,至少告警
             # (与同步层 read_tag 同口径,第八轮 P1-5)
             log_warning(
@@ -880,12 +891,14 @@ class AsyncBaseClient(ABC):
                 # TagTable 构造校验拦不住直传 Tag 实例:scale=inf 时逆缩放
                 # 结果恒 0(静默写 0 触发设备动作)、NaN 写 nan(与同步层同守卫)
                 raise ValueError(
-                    _("点位 {!r} 的 scale/offset 必须为有限数:scale={!r}, offset={!r}").format(
-                        resolved.tag_id, resolved.scale, resolved.offset
-                    )
+                    _(
+                        "点位 {!r} 的 scale/offset 必须为有限数:scale={!r}, offset={!r}"
+                    ).format(resolved.tag_id, resolved.scale, resolved.offset)
                 )
             if resolved.scale == 0:
-                raise ValueError(_("点位 {!r} 的 scale 不能为 0,无法逆缩放").format(resolved.tag_id))
+                raise ValueError(
+                    _("点位 {!r} 的 scale 不能为 0,无法逆缩放").format(resolved.tag_id)
+                )
             if resolved.scale == 1.0 and resolved.offset == 0.0:
                 # 恒等缩放不过 float64 往返(保 64 位整数精度);但整数值 float
                 # 仍要还原为 int——现场"算得 float 再写整数点位"依赖该行为
@@ -984,7 +997,9 @@ class AsyncBaseClient(ABC):
                 except TransportTimeoutError as exc:
                     # 超时但 0 字节已读:链路无残渣,不拆连也不计设备错误码;
                     # 与其他传输失败一致进入重试(与同步层同口径)
-                    self._set_error(_describe(exc), _categorize(exc), _extract_code(exc))
+                    self._set_error(
+                        _describe(exc), _categorize(exc), _extract_code(exc)
+                    )
                     continue
                 except DeviceError as exc:
                     code = _extract_code(exc)
@@ -998,7 +1013,9 @@ class AsyncBaseClient(ABC):
                         self._counters["device_error_count"] += 1
                     return False, None
                 except (OSError, OmniPLCInternalError) as exc:
-                    self._set_error(_describe(exc), _categorize(exc), _extract_code(exc))
+                    self._set_error(
+                        _describe(exc), _categorize(exc), _extract_code(exc)
+                    )
                     self._mark_disconnected()
                 else:
                     if transport is not None:
@@ -1033,7 +1050,7 @@ class AsyncBaseClient(ABC):
         """
         exponent = min(self._connect_fail_count, RECONNECT_BACKOFF_MAX_EXPONENT)
         cap = min(
-            RECONNECT_BACKOFF_BASE * (RECONNECT_BACKOFF_FACTOR ** exponent),
+            RECONNECT_BACKOFF_BASE * (RECONNECT_BACKOFF_FACTOR**exponent),
             RECONNECT_BACKOFF_MAX,
         )
         self._next_connect_at = time.monotonic() + random.uniform(0.0, cap)
@@ -1118,8 +1135,10 @@ class AsyncBaseClient(ABC):
     def _raise_loop_mismatch() -> None:
         """抛跨循环使用的统一错误(内部方法,便于措辞单点维护)。"""
         raise RuntimeError(
-            _("该客户端已在另一个事件循环中使用(连接/在途事务绑在那个循环上):"
-            "跨循环/跨线程共享同一实例不支持。请在原循环内 close 后重建实例")
+            _(
+                "该客户端已在另一个事件循环中使用(连接/在途事务绑在那个循环上):"
+                "跨循环/跨线程共享同一实例不支持。请在原循环内 close 后重建实例"
+            )
         )
 
     # ------------------------------------------------------------------

@@ -3,6 +3,7 @@
 覆盖:会话注册与惰性重连重注册、类型发现(标签自描述)、字/位/BOOL 数组/
 字符串读写、类型不符 ValueError、CIP 状态 DeviceError 不断线、异步镜像。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -70,7 +71,9 @@ def _string_payload(text: str) -> bytes:
 
 
 def _mount(
-    monkeypatch: pytest.MonkeyPatch, client: AllenBradleyEthIpClient, scripted: ScriptedTransport
+    monkeypatch: pytest.MonkeyPatch,
+    client: AllenBradleyEthIpClient,
+    scripted: ScriptedTransport,
 ) -> None:
     """挂载脚本传输(走正常 connect 流程)。"""
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
@@ -90,7 +93,9 @@ def test_defaults_and_transport() -> None:
 def test_read_dint_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """DINT 读:注册会话 + 单事务往返,类型自描述并缓存。"""
     client = AllenBradleyEthIpClient("127.0.0.1", 44818)
-    chunks = _session_chunks() + _reply_chunks(_atomic_payload(0xC4, b"\x39\x05\x00\x00"))
+    chunks = _session_chunks() + _reply_chunks(
+        _atomic_payload(0xC4, b"\x39\x05\x00\x00")
+    )
     scripted = ScriptedTransport(chunks)
     _mount(monkeypatch, client, scripted)
     client.connect()
@@ -191,7 +196,9 @@ def test_write_dint_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
         0xC4,
         b"\x39\x05\x00\x00",
     )
-    expected = codec_cip.build_rr_data(_SESSION, codec_cip.build_uc_send(write_request, 0))
+    expected = codec_cip.build_rr_data(
+        _SESSION, codec_cip.build_uc_send(write_request, 0)
+    )
     assert sent.endswith(expected)
 
 
@@ -210,7 +217,9 @@ def test_write_bool_direct_and_rmw(monkeypatch: pytest.MonkeyPatch) -> None:
     write_request = codec_cip.build_tag_write(
         codec_cip.build_symbol_path(("MyBool",), ((),)), 0xC1, b"\x01"
     )
-    assert sent.endswith(codec_cip.build_rr_data(_SESSION, codec_cip.build_uc_send(write_request, 0)))
+    assert sent.endswith(
+        codec_cip.build_rr_data(_SESSION, codec_cip.build_uc_send(write_request, 0))
+    )
 
     rmw_client = AllenBradleyEthIpClient("127.0.0.1", 44818)
     rmw_scripted = ScriptedTransport(
@@ -248,7 +257,9 @@ def test_write_bool_array_rmw(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert sent == (
         codec_cip.build_register_session()
-        + codec_cip.build_rr_data(_SESSION, codec_cip.build_uc_send(discover_request, 0))
+        + codec_cip.build_rr_data(
+            _SESSION, codec_cip.build_uc_send(discover_request, 0)
+        )
         + codec_cip.build_rr_data(_SESSION, codec_cip.build_uc_send(rmw_request, 0))
     )
 
@@ -280,7 +291,9 @@ def test_string_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_cip_status_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cip_status_device_error_keeps_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """CIP 状态 0x08:DeviceError 不断线,下一事务不重新注册。"""
     client = AllenBradleyEthIpClient("127.0.0.1", 44818)
     scripted = ScriptedTransport(
@@ -353,7 +366,9 @@ def _failed_forward_open_transport() -> _ClosingTransport:
     )
 
 
-def test_forward_open_failure_unregisters_session(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_forward_open_failure_unregisters_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Forward Open 全失败:关传输**之前**注销会话,PLC 侧不残留(会话表不泄漏)。"""
     client = _connected_client()
     scripted = _failed_forward_open_transport()
@@ -391,7 +406,7 @@ def test_connected_success_sends_no_extra_unregister(
         _session_chunks()
         + _forward_open_chunks(codec_cip.CIP_SERVICE_LARGE_FORWARD_OPEN)
         + _connected_reply_chunks(
-            _atomic_payload(0xC4, b"\x0B\x00\x00\x00"),
+            _atomic_payload(0xC4, b"\x0b\x00\x00\x00"),
             codec_cip.CIP_SERVICE_READ_TAG,
             1,
         )
@@ -498,9 +513,7 @@ def _connected_client() -> AllenBradleyEthIpClient:
 
 def test_connected_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """connected 读:Forward Open(Large)→ SendUnitData 往返,帧逐字节比对。"""
-    monkeypatch.setattr(
-        "omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID
-    )
+    monkeypatch.setattr("omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID)
     client = _connected_client()
     scripted = ScriptedTransport(
         _session_chunks()
@@ -539,9 +552,7 @@ def test_connected_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_connected_fallback_to_normal(monkeypatch: pytest.MonkeyPatch) -> None:
     """Large 被拒(状态 0x01)回落普通 Forward Open,连接尺寸 504。"""
-    monkeypatch.setattr(
-        "omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID
-    )
+    monkeypatch.setattr("omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID)
     client = _connected_client()
     scripted = ScriptedTransport(
         _session_chunks()
@@ -591,14 +602,15 @@ def test_connected_fallback_to_normal(monkeypatch: pytest.MonkeyPatch) -> None:
         codec_cip.build_register_session() + large_open + normal_open + unit_data
     )
     assert sent[len(codec_cip.build_register_session()) + 24 + 16] == 0x5B
-    assert sent[len(codec_cip.build_register_session()) + len(large_open) + 24 + 16] == 0x54
+    assert (
+        sent[len(codec_cip.build_register_session()) + len(large_open) + 24 + 16]
+        == 0x54
+    )
 
 
 def test_connected_sequence_increments(monkeypatch: pytest.MonkeyPatch) -> None:
     """connected 连续读:SendUnitData 序列号 1、2 递增。"""
-    monkeypatch.setattr(
-        "omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID
-    )
+    monkeypatch.setattr("omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID)
     client = _connected_client()
     scripted = ScriptedTransport(
         _session_chunks()
@@ -622,16 +634,14 @@ def test_connected_sequence_increments(monkeypatch: pytest.MonkeyPatch) -> None:
     tag_read = codec_cip.build_tag_read(
         codec_cip.build_symbol_path(("MyDint",), ((),)), 1
     )
-    assert sent.endswith(
-        codec_cip.build_send_unit_data(_SESSION, _OT_ID, 2, tag_read)
-    )
+    assert sent.endswith(codec_cip.build_send_unit_data(_SESSION, _OT_ID, 2, tag_read))
 
 
-def test_connected_device_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_connected_device_error_keeps_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """connected 模式 CIP 状态错误:DeviceError 不断线,不重建连接。"""
-    monkeypatch.setattr(
-        "omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID
-    )
+    monkeypatch.setattr("omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID)
     client = _connected_client()
     scripted = ScriptedTransport(
         _session_chunks()
@@ -660,9 +670,7 @@ def test_connected_connection_lost_triggers_reconnect(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """connected 模式 CIP 状态 0x07(Connection lost)同 0x01:断线并惰性重连。"""
-    monkeypatch.setattr(
-        "omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID
-    )
+    monkeypatch.setattr("omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID)
     client = _connected_client()
     scripted = ScriptedTransport(
         _session_chunks()
@@ -692,9 +700,7 @@ def test_connected_connection_lost_triggers_reconnect(
 
 def test_connected_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """connected 写:类型发现读 + SendUnitData 写(回显 0x4D)。"""
-    monkeypatch.setattr(
-        "omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID
-    )
+    monkeypatch.setattr("omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID)
     client = _connected_client()
     scripted = ScriptedTransport(
         _session_chunks()
@@ -704,9 +710,7 @@ def test_connected_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
             codec_cip.CIP_SERVICE_READ_TAG,
             1,
         )
-        + _connected_reply_chunks(
-            b"", codec_cip.CIP_SERVICE_WRITE_TAG, 2
-        )
+        + _connected_reply_chunks(b"", codec_cip.CIP_SERVICE_WRITE_TAG, 2)
     )
     _mount(monkeypatch, client, scripted)
     client.connect()
@@ -722,11 +726,11 @@ def test_connected_write_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_connected_disconnect_sends_forward_close(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_connected_disconnect_sends_forward_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """connected 断开:先发 Forward Close 再注销会话(应答缺失被容忍)。"""
-    monkeypatch.setattr(
-        "omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID
-    )
+    monkeypatch.setattr("omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID)
     client = _connected_client()
     scripted = ScriptedTransport(
         _session_chunks()
@@ -756,9 +760,7 @@ def test_async_mirror_connected_roundtrip(monkeypatch: pytest.MonkeyPatch) -> No
         monkeypatch.setattr(
             "omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID
         )
-        client = AAllenBradleyEthIpClient(
-            "127.0.0.1", 44818, connected_messaging=True
-        )
+        client = AAllenBradleyEthIpClient("127.0.0.1", 44818, connected_messaging=True)
         assert client.connected_messaging is True
         sync_client = client._sync
         assert isinstance(sync_client, AllenBradleyEthIpClient)
@@ -784,34 +786,56 @@ def test_async_mirror_connected_roundtrip(monkeypatch: pytest.MonkeyPatch) -> No
 # 通用 CIP 服务入口:ListIdentity / GetAttributesAll / GetAttributeList
 # ----------------------------------------------------------------------
 
-def _identity_object_payload(vendor: int = 0x0001, product_code: int = 0x1234,
-                             rev_major: int = 24, rev_minor: int = 6,
-                             serial: int = 0x00C0FFEE,
-                             name: bytes = b"1769-L23") -> bytes:
+
+def _identity_object_payload(
+    vendor: int = 0x0001,
+    product_code: int = 0x1234,
+    rev_major: int = 24,
+    rev_minor: int = 6,
+    serial: int = 0x00C0FFEE,
+    name: bytes = b"1769-L23",
+) -> bytes:
     """Identity Object 7 字段裸数据(供 GetAttributesAll 应答解码测试)。"""
-    return struct.pack(
-        "<HHHBBH",
-        vendor, 0x000E, product_code, rev_major, rev_minor, 0x0001
-    ) + struct.pack("<I", serial) + bytes((len(name),)) + name
+    return (
+        struct.pack(
+            "<HHHBBH", vendor, 0x000E, product_code, rev_major, rev_minor, 0x0001
+        )
+        + struct.pack("<I", serial)
+        + bytes((len(name),))
+        + name
+    )
 
 
-def _identity_list_reply(vendor: int = 0x0001, product_code: int = 0x1234,
-                         rev_major: int = 24, rev_minor: int = 6,
-                         serial: int = 0x00C0FFEE,
-                         name: bytes = b"1769-L23",
-                         state: int = 0xFF) -> bytes:
+def _identity_list_reply(
+    vendor: int = 0x0001,
+    product_code: int = 0x1234,
+    rev_major: int = 24,
+    rev_minor: int = 6,
+    serial: int = 0x00C0FFEE,
+    name: bytes = b"1769-L23",
+    state: int = 0xFF,
+) -> bytes:
     """构造 ENIP ListIdentity 完整应答帧(供客户端测试 list_identity 用)。
 
     CPF 标准布局:Item Count(2)+ Item(Type 0x000C + Length + 数据);
     Item 数据 = 封装协议版本(2)+ Socket Address(16)+ Identity Object。
     """
-    identity = struct.pack(
-        "<HHHBBH",
-        vendor, 0x000E, product_code, rev_major, rev_minor, 0x0001
-    ) + struct.pack("<I", serial) + bytes((len(name),)) + name + bytes((state,))
+    identity = (
+        struct.pack(
+            "<HHHBBH", vendor, 0x000E, product_code, rev_major, rev_minor, 0x0001
+        )
+        + struct.pack("<I", serial)
+        + bytes((len(name),))
+        + name
+        + bytes((state,))
+    )
     socket_addr = struct.pack("<HH4s8s", 0, 0, b"\x0a\x00\x00\x01", b"\x00" * 8)
-    item_data = struct.pack("<H", 1) + socket_addr + identity  # 版本 1 + sock + identity
-    item = struct.pack("<HH", codec_cip.CIP_ITEM_LIST_IDENTITY, len(item_data)) + item_data
+    item_data = (
+        struct.pack("<H", 1) + socket_addr + identity
+    )  # 版本 1 + sock + identity
+    item = (
+        struct.pack("<HH", codec_cip.CIP_ITEM_LIST_IDENTITY, len(item_data)) + item_data
+    )
     payload = struct.pack("<H", 1) + item  # Item Count = 1
     header = struct.pack(
         "<HHIIQI", codec_cip.EIP_COMMAND_LIST_IDENTITY, len(payload), _SESSION, 0, 0, 0
@@ -855,9 +879,7 @@ def test_get_attribute_all_raw_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
     sent = bytes(scripted.sent)
     expected_req = codec_cip.build_rr_data(
         _SESSION,
-        codec_cip.build_uc_send(
-            codec_cip.build_get_attributes_all(0x01, 0x01), 0
-        ),
+        codec_cip.build_uc_send(codec_cip.build_get_attributes_all(0x01, 0x01), 0),
     )
     assert expected_req in sent
 
@@ -896,8 +918,12 @@ def test_get_attribute_list_decodes_identity_attributes(
     assert ok is True
     assert decoded is not None
     assert [(a, v) for a, v in decoded] == [
-        (1, 0x0001), (2, 0x000E), (3, 0x1234),
-        (4, (24, 6)), (5, 0x0001), (6, 0x00C0FFEE),
+        (1, 0x0001),
+        (2, 0x000E),
+        (3, 0x1234),
+        (4, (24, 6)),
+        (5, 0x0001),
+        (6, 0x00C0FFEE),
         (7, "PLC-A"),
     ]
 
@@ -940,9 +966,7 @@ def test_generic_message_low_level_entry(
     assert payload == identity
     expected_req = codec_cip.build_rr_data(
         _SESSION,
-        codec_cip.build_uc_send(
-            codec_cip.build_get_attributes_all(0x01, 0x01), 0
-        ),
+        codec_cip.build_uc_send(codec_cip.build_get_attributes_all(0x01, 0x01), 0),
     )
     assert expected_req in bytes(scripted.sent)
 
@@ -953,10 +977,7 @@ def test_list_identity_returns_identity_dict(
     """list_identity() 单播:同会话内发 ListIdentity ENIP 帧并解析 Identity 字段。"""
     reply = _identity_list_reply()
     client = AllenBradleyEthIpClient("127.0.0.1", 44818)
-    scripted = ScriptedTransport(
-        _session_chunks()
-        + [reply[:24], reply[24:]]
-    )
+    scripted = ScriptedTransport(_session_chunks() + [reply[:24], reply[24:]])
     _mount(monkeypatch, client, scripted)
     ok, info = client.list_identity()
     assert ok is True
@@ -979,13 +1000,17 @@ def test_cip_extended_status_surfaces_in_last_error(
     uc_send = bytes((0xD2, 0x00, 0x00, 0x00))
     cip_payload = uc_send + embedded_ext
     cpf_prefix = struct.pack(
-        "<IHHHHHH", 0, 0, 2, codec_cip._CPF_ITEM_NULL_ADDRESS, 0,
-        codec_cip._CPF_ITEM_UNCONNECTED_DATA, len(cip_payload)
+        "<IHHHHHH",
+        0,
+        0,
+        2,
+        codec_cip._CPF_ITEM_NULL_ADDRESS,
+        0,
+        codec_cip._CPF_ITEM_UNCONNECTED_DATA,
+        len(cip_payload),
     )
     body = cpf_prefix + cip_payload
-    header = struct.pack(
-        "<HHIIQI", 0x6F, len(body), _SESSION, 0, 0, 0
-    )
+    header = struct.pack("<HHIIQI", 0x6F, len(body), _SESSION, 0, 0, 0)
     extended_reply = header + body
     client = AllenBradleyEthIpClient("127.0.0.1", 44818)
     scripted = ScriptedTransport(
@@ -1011,8 +1036,14 @@ def test_write_roundtrip_with_zero_echo_reply(
     uc_send = bytes((0xD2, 0x00, 0x00, 0x00))
     cip_payload = uc_send + zero_echo_embedded
     cpf_prefix = struct.pack(
-        "<IHHHHHH", 0, 0, 2, codec_cip._CPF_ITEM_NULL_ADDRESS, 0,
-        codec_cip._CPF_ITEM_UNCONNECTED_DATA, len(cip_payload)
+        "<IHHHHHH",
+        0,
+        0,
+        2,
+        codec_cip._CPF_ITEM_NULL_ADDRESS,
+        0,
+        codec_cip._CPF_ITEM_UNCONNECTED_DATA,
+        len(cip_payload),
     )
     body = cpf_prefix + cip_payload
     header = struct.pack("<HHIIQI", 0x6F, len(body), _SESSION, 0, 0, 0)
@@ -1048,10 +1079,12 @@ def test_read_batch_scalars(monkeypatch: pytest.MonkeyPatch) -> None:
     from omniplc.plc.ab.address import parse_ab_tag
 
     client = AllenBradleyEthIpClient("127.0.0.1", AB_EIP_DEFAULT_PORT)
-    payload = _msp_payload([
-        _atomic_payload(0xC4, struct.pack("<i", 123)),
-        _atomic_payload(0xCA, struct.pack("<f", 2.5)),
-    ])
+    payload = _msp_payload(
+        [
+            _atomic_payload(0xC4, struct.pack("<i", 123)),
+            _atomic_payload(0xCA, struct.pack("<f", 2.5)),
+        ]
+    )
     scripted = ScriptedTransport(
         _session_chunks()
         + _reply_chunks(payload=payload, service=codec_cip.CIP_SERVICE_MULTIPLE)
@@ -1062,12 +1095,21 @@ def test_read_batch_scalars(monkeypatch: pytest.MonkeyPatch) -> None:
         True,
         [123, 2.5],
     )
-    packet = codec_cip.build_multiple_service_packet([
-        codec_cip.build_tag_read(codec_cip.tag_type_path(parse_ab_tag("MyDint")), 1),
-        codec_cip.build_tag_read(codec_cip.tag_type_path(parse_ab_tag("MyReal")), 1),
-    ])
-    assert bytes(scripted.sent) == codec_cip.build_register_session() + \
-        codec_cip.build_rr_data(_SESSION, codec_cip.build_uc_send(packet, 0))
+    packet = codec_cip.build_multiple_service_packet(
+        [
+            codec_cip.build_tag_read(
+                codec_cip.tag_type_path(parse_ab_tag("MyDint")), 1
+            ),
+            codec_cip.build_tag_read(
+                codec_cip.tag_type_path(parse_ab_tag("MyReal")), 1
+            ),
+        ]
+    )
+    assert bytes(
+        scripted.sent
+    ) == codec_cip.build_register_session() + codec_cip.build_rr_data(
+        _SESSION, codec_cip.build_uc_send(packet, 0)
+    )
 
 
 def test_read_batch_bool_and_string(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1077,10 +1119,12 @@ def test_read_batch_bool_and_string(monkeypatch: pytest.MonkeyPatch) -> None:
         _session_chunks()
         + _reply_chunks(payload=_atomic_payload(0xC1, b"\x01"))
         + _reply_chunks(
-            payload=_msp_payload([
-                _atomic_payload(0xC1, b"\x01"),
-                _string_payload("PT01"),
-            ]),
+            payload=_msp_payload(
+                [
+                    _atomic_payload(0xC1, b"\x01"),
+                    _string_payload("PT01"),
+                ]
+            ),
             service=codec_cip.CIP_SERVICE_MULTIPLE,
         )
     )
@@ -1108,17 +1152,18 @@ def test_read_batch_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
     scripted = ScriptedTransport(
         _session_chunks()
         + _reply_chunks(
-            payload=_msp_payload([
-                _atomic_payload(0xC4, struct.pack("<i", index))
-                for index in range(32)
-            ]),
+            payload=_msp_payload(
+                [_atomic_payload(0xC4, struct.pack("<i", index)) for index in range(32)]
+            ),
             service=codec_cip.CIP_SERVICE_MULTIPLE,
         )
         + _reply_chunks(
-            payload=_msp_payload([
-                _atomic_payload(0xC4, struct.pack("<i", index))
-                for index in range(32, 40)
-            ]),
+            payload=_msp_payload(
+                [
+                    _atomic_payload(0xC4, struct.pack("<i", index))
+                    for index in range(32, 40)
+                ]
+            ),
             service=codec_cip.CIP_SERVICE_MULTIPLE,
         )
     )
@@ -1203,7 +1248,9 @@ def test_chunk_batch_requests_budget_split() -> None:
     chunks = _chunk_batch_requests([long_req] * 3)
     assert len(chunks) == 2
     assert [len(c) for c in chunks] == [2, 1]
-    assert all(sum(len(r) + len(r) % 2 for r in c) + 2 + 2 * len(c) <= 480 for c in chunks)
+    assert all(
+        sum(len(r) + len(r) % 2 for r in c) + 2 + 2 * len(c) <= 480 for c in chunks
+    )
 
     short_req = b"y" * 8
     chunks = _chunk_batch_requests([short_req] * 100)
@@ -1234,6 +1281,7 @@ def test_chunk_batch_requests_counts_offset_table() -> None:
 # list_tags 点位枚举(Logix Symbol Object,服务 0x55)
 # ----------------------------------------------------------------------
 
+
 def _tag_entry_bytes(
     instance: int, name: str, symbol_type: int, dims: tuple = (0, 0, 0)
 ) -> bytes:
@@ -1245,7 +1293,8 @@ def _tag_entry_bytes(
     raw = name.encode("utf-8")
     return (
         struct.pack("<I", instance)
-        + struct.pack("<H", len(raw)) + raw
+        + struct.pack("<H", len(raw))
+        + raw
         + struct.pack("<H", symbol_type)
         + b"".join(struct.pack("<I", d) for d in dims)
     )
@@ -1258,7 +1307,9 @@ def test_list_tags_request_golden() -> None:
     = b'k'``(0x6B)走 8 位段;pylogix ``pack('<H', 0x6B20)`` 小端即 ``20 6B``
     (review-1007 P0-1:0x6B20 是助记写法,非类码)。
     """
-    expected = bytes.fromhex("55 02 20 6b 24 00 03 00 01 00 02 00 08 00".replace(" ", ""))
+    expected = bytes.fromhex(
+        "55 02 20 6b 24 00 03 00 01 00 02 00 08 00".replace(" ", "")
+    )
     assert codec_cip.build_tag_list_request(0) == expected
 
 
@@ -1268,15 +1319,29 @@ def test_list_tags_single_page(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = _tag_entry_bytes(1, "MyDint", 0xC4) + _tag_entry_bytes(2, "MyBool", 0xC1)
     scripted = ScriptedTransport(
         _session_chunks()
-        + _reply_chunks(payload, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST)
+        + _reply_chunks(
+            payload, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST
+        )
     )
     _mount(monkeypatch, client, scripted)
     client.connect()
     ok, tags = client.list_tags()
     assert ok is True
     assert tags == [
-        codec_cip.AbTagEntry(name="MyDint", instance_id=1, symbol_type=0xC4, is_struct=False, dims=(0, 0, 0)),
-        codec_cip.AbTagEntry(name="MyBool", instance_id=2, symbol_type=0xC1, is_struct=False, dims=(0, 0, 0)),
+        codec_cip.AbTagEntry(
+            name="MyDint",
+            instance_id=1,
+            symbol_type=0xC4,
+            is_struct=False,
+            dims=(0, 0, 0),
+        ),
+        codec_cip.AbTagEntry(
+            name="MyBool",
+            instance_id=2,
+            symbol_type=0xC1,
+            is_struct=False,
+            dims=(0, 0, 0),
+        ),
     ]
     sent = bytes(scripted.sent)
     expected = codec_cip.build_rr_data(
@@ -1289,12 +1354,20 @@ def test_list_tags_single_page(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_list_tags_paging(monkeypatch: pytest.MonkeyPatch) -> None:
     """分页:首页状态 0x06(还有数据)以最大实例+1 续传,次页状态 0 收完。"""
     client = AllenBradleyEthIpClient("127.0.0.1", 44818)
-    page1 = _tag_entry_bytes(5, "TagA", 0xC4) + _tag_entry_bytes(7, "TagB", 0x8000 | 0x0FCE)
+    page1 = _tag_entry_bytes(5, "TagA", 0xC4) + _tag_entry_bytes(
+        7, "TagB", 0x8000 | 0x0FCE
+    )
     page2 = _tag_entry_bytes(9, "TagC", 0xC3, dims=(3, 0, 0))
     scripted = ScriptedTransport(
         _session_chunks()
-        + _reply_chunks(page1, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST, cip_status=0x06)
-        + _reply_chunks(page2, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST)
+        + _reply_chunks(
+            page1,
+            service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST,
+            cip_status=0x06,
+        )
+        + _reply_chunks(
+            page2, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST
+        )
     )
     _mount(monkeypatch, client, scripted)
     client.connect()
@@ -1314,7 +1387,9 @@ def test_list_tags_bad_frame_truncated(monkeypatch: pytest.MonkeyPatch) -> None:
     truncated = struct.pack("<I", 1) + struct.pack("<H", 10) + b"AB"  # 名长 10 实给 2
     scripted = ScriptedTransport(
         _session_chunks()
-        + _reply_chunks(truncated, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST)
+        + _reply_chunks(
+            truncated, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST
+        )
     )
     _mount(monkeypatch, client, scripted)
     client.connect()
@@ -1329,7 +1404,9 @@ def test_list_tags_name_len_field_truncated(monkeypatch: pytest.MonkeyPatch) -> 
     truncated = struct.pack("<I", 1) + b"\x5a"  # 实例号后只剩 1 字节,不足 u16 名长域
     scripted = ScriptedTransport(
         _session_chunks()
-        + _reply_chunks(truncated, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST)
+        + _reply_chunks(
+            truncated, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST
+        )
     )
     _mount(monkeypatch, client, scripted)
     client.connect()
@@ -1343,7 +1420,9 @@ def test_list_tags_utf8_name(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = _tag_entry_bytes(1, "温度Tag", 0xC4)
     scripted = ScriptedTransport(
         _session_chunks()
-        + _reply_chunks(payload, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST)
+        + _reply_chunks(
+            payload, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST
+        )
     )
     _mount(monkeypatch, client, scripted)
     client.connect()
@@ -1357,7 +1436,11 @@ def test_list_tags_stalled_page(monkeypatch: pytest.MonkeyPatch) -> None:
     client = AllenBradleyEthIpClient("127.0.0.1", 44818)
     scripted = ScriptedTransport(
         _session_chunks()
-        + _reply_chunks(b"", service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST, cip_status=0x06)
+        + _reply_chunks(
+            b"",
+            service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST,
+            cip_status=0x06,
+        )
     )
     _mount(monkeypatch, client, scripted)
     client.connect()
@@ -1374,7 +1457,9 @@ def test_list_tags_async_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
         payload = _tag_entry_bytes(1, "MyDint", 0xC4)
         scripted = ScriptedTransport(
             _session_chunks()
-            + _reply_chunks(payload, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST)
+            + _reply_chunks(
+                payload, service=codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST
+            )
         )
         monkeypatch.setattr(sync, "_create_transport", lambda: scripted)
         assert await client.connect() is True

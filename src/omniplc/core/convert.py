@@ -4,6 +4,7 @@
 既供各协议 codec 内部使用,也可直接用于寄存器原始数据的后处理,
 例如把 ``read_many`` 读到的寄存器按现场字序还原为浮点数。
 """
+
 from __future__ import annotations
 
 import struct
@@ -147,10 +148,12 @@ def bytes_to_words(
     order = _byteorder(byteorder)
     if len(data) % 2 != 0:
         raise ValueError(_("字节串长度必须为偶数,收到:{}").format(len(data)))
-    return [int.from_bytes(data[i:i + 2], order) for i in range(0, len(data), 2)]
+    return [int.from_bytes(data[i : i + 2], order) for i in range(0, len(data), 2)]
 
 
-def bytes_to_short(data: bytes, byteorder: Union[ByteOrder, str] = ByteOrder.BIG) -> int:
+def bytes_to_short(
+    data: bytes, byteorder: Union[ByteOrder, str] = ByteOrder.BIG
+) -> int:
     """按指定字节序把 2 字节解码为 16 位有符号整数。
 
     :param data: 原始字节(长度必须恰为 2——驱动切片错位时在源头报错,
@@ -163,7 +166,9 @@ def bytes_to_short(data: bytes, byteorder: Union[ByteOrder, str] = ByteOrder.BIG
     return int.from_bytes(data, _byteorder(byteorder), signed=True)
 
 
-def bytes_to_ushort(data: bytes, byteorder: Union[ByteOrder, str] = ByteOrder.BIG) -> int:
+def bytes_to_ushort(
+    data: bytes, byteorder: Union[ByteOrder, str] = ByteOrder.BIG
+) -> int:
     """按指定字节序把 2 字节解码为 16 位无符号整数。
 
     :param data: 原始字节(长度必须恰为 2)
@@ -175,7 +180,9 @@ def bytes_to_ushort(data: bytes, byteorder: Union[ByteOrder, str] = ByteOrder.BI
     return int.from_bytes(data, _byteorder(byteorder), signed=False)
 
 
-def short_to_bytes(value: int, byteorder: Union[ByteOrder, str] = ByteOrder.BIG) -> bytes:
+def short_to_bytes(
+    value: int, byteorder: Union[ByteOrder, str] = ByteOrder.BIG
+) -> bytes:
     """把 16 位有符号整数编码为 2 字节。
 
     :raises ValueError: 超出范围 -32768~32767
@@ -186,7 +193,9 @@ def short_to_bytes(value: int, byteorder: Union[ByteOrder, str] = ByteOrder.BIG)
     return number.to_bytes(2, _byteorder(byteorder), signed=True)
 
 
-def ushort_to_bytes(value: int, byteorder: Union[ByteOrder, str] = ByteOrder.BIG) -> bytes:
+def ushort_to_bytes(
+    value: int, byteorder: Union[ByteOrder, str] = ByteOrder.BIG
+) -> bytes:
     """把 16 位无符号整数编码为 2 字节。
 
     :raises ValueError: 超出范围 0~65535
@@ -197,9 +206,7 @@ def ushort_to_bytes(value: int, byteorder: Union[ByteOrder, str] = ByteOrder.BIG
     return number.to_bytes(2, _byteorder(byteorder), signed=False)
 
 
-def _require_register_count(
-    registers: Sequence[int], count: int, name: str
-) -> None:
+def _require_register_count(registers: Sequence[int], count: int, name: str) -> None:
     """校验寄存器数量(内部函数)。
 
     :raises ValueError: 数量不符
@@ -210,31 +217,49 @@ def _require_register_count(
         )
 
 
-def registers_to_int32(registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD) -> int:
+def registers_to_int32(
+    registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD
+) -> int:
     """把 2 个寄存器按指定字序解码为 32 位有符号整数。"""
     _require_register_count(registers, 2, "registers_to_int32")
-    return int.from_bytes(registers_to_canonical(registers, word_order), "big", signed=True)
+    return int.from_bytes(
+        registers_to_canonical(registers, word_order), "big", signed=True
+    )
 
 
-def registers_to_uint32(registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD) -> int:
+def registers_to_uint32(
+    registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD
+) -> int:
     """把 2 个寄存器按指定字序解码为 32 位无符号整数。"""
     _require_register_count(registers, 2, "registers_to_uint32")
-    return int.from_bytes(registers_to_canonical(registers, word_order), "big", signed=False)
+    return int.from_bytes(
+        registers_to_canonical(registers, word_order), "big", signed=False
+    )
 
 
-def registers_to_int64(registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD) -> int:
+def registers_to_int64(
+    registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD
+) -> int:
     """把 4 个寄存器按指定字序解码为 64 位有符号整数(字序映射同 float64)。"""
     _require_register_count(registers, 4, "registers_to_int64")
-    return int.from_bytes(registers_to_canonical(registers, word_order), "big", signed=True)
+    return int.from_bytes(
+        registers_to_canonical(registers, word_order), "big", signed=True
+    )
 
 
-def registers_to_uint64(registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD) -> int:
+def registers_to_uint64(
+    registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD
+) -> int:
     """把 4 个寄存器按指定字序解码为 64 位无符号整数(字序映射同 float64)。"""
     _require_register_count(registers, 4, "registers_to_uint64")
-    return int.from_bytes(registers_to_canonical(registers, word_order), "big", signed=False)
+    return int.from_bytes(
+        registers_to_canonical(registers, word_order), "big", signed=False
+    )
 
 
-def int32_to_registers(value: int, word_order: WordOrder = WordOrder.ABCD) -> Tuple[int, int]:
+def int32_to_registers(
+    value: int, word_order: WordOrder = WordOrder.ABCD
+) -> Tuple[int, int]:
     """把 32 位整数按指定字序编码为 2 个寄存器。
 
     :raises ValueError: 非整数或超出 32 位有符号范围
@@ -245,7 +270,9 @@ def int32_to_registers(value: int, word_order: WordOrder = WordOrder.ABCD) -> Tu
     )
 
 
-def uint32_to_registers(value: int, word_order: WordOrder = WordOrder.ABCD) -> Tuple[int, int]:
+def uint32_to_registers(
+    value: int, word_order: WordOrder = WordOrder.ABCD
+) -> Tuple[int, int]:
     """把 32 位无符号整数按指定字序编码为 2 个寄存器。
 
     :raises ValueError: 非整数或超出 32 位无符号范围
@@ -256,20 +283,27 @@ def uint32_to_registers(value: int, word_order: WordOrder = WordOrder.ABCD) -> T
     )
 
 
-def registers_to_float32(registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD) -> float:
+def registers_to_float32(
+    registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD
+) -> float:
     """把 2 个寄存器按指定字序解码为 32 位浮点数(float32)。"""
     _require_register_count(registers, 2, "registers_to_float32")
     return struct.unpack(">f", registers_to_canonical(registers, word_order))[0]
 
 
-def float32_to_registers(value: float, word_order: WordOrder = WordOrder.ABCD) -> Tuple[int, int]:
+def float32_to_registers(
+    value: float, word_order: WordOrder = WordOrder.ABCD
+) -> Tuple[int, int]:
     """把 32 位浮点数按指定字序编码为 2 个寄存器。"""
     return cast(
-        Tuple[int, int], _canonical_to_registers(struct.pack(">f", float(value)), word_order)
+        Tuple[int, int],
+        _canonical_to_registers(struct.pack(">f", float(value)), word_order),
     )
 
 
-def registers_to_float64(registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD) -> float:
+def registers_to_float64(
+    registers: Sequence[int], word_order: WordOrder = WordOrder.ABCD
+) -> float:
     """把 4 个寄存器按指定字序解码为 64 位浮点数(float64)。
 
     字序按语义映射到 8 字节排列:ABCD→ABCDEFGH、CDAB→GHEFCDAB、
@@ -346,7 +380,9 @@ def encode_string(value: str, length: int, encoding: str = "ascii") -> bytes:
     """
     raw = value.encode(encoding)
     if len(raw) > length:
-        raise ValueError(_("字符串编码后 {} 字节,超出目标长度 {}").format(len(raw), length))
+        raise ValueError(
+            _("字符串编码后 {} 字节,超出目标长度 {}").format(len(raw), length)
+        )
     return raw.ljust(length, b"\x00")
 
 
@@ -360,7 +396,11 @@ def _byteorder(byteorder: Union[ByteOrder, str]) -> Any:
         return cast(Any, byteorder.value)
     if byteorder in ("big", "little"):
         return cast(Any, byteorder)
-    raise ValueError(_("byteorder 必须是 ByteOrder.BIG/LITTLE 或 big/little,收到:{!r}").format(byteorder))
+    raise ValueError(
+        _("byteorder 必须是 ByteOrder.BIG/LITTLE 或 big/little,收到:{!r}").format(
+            byteorder
+        )
+    )
 
 
 def registers_to_canonical(
@@ -421,7 +461,9 @@ def words_to_value(
         raise ValueError(_("不支持的数据类型:{!r}").format(data_type))
     size = _TYPE_BYTE_SIZES[data_type]
     if len(seq) * 2 != size:
-        raise ValueError(_("{} 需要 {} 个字,收到 {} 个").format(data_type.name, size // 2, len(seq)))
+        raise ValueError(
+            _("{} 需要 {} 个字,收到 {} 个").format(data_type.name, size // 2, len(seq))
+        )
     raw = words_to_bytes(seq, byteorder)
     order = _byteorder(byteorder)
     if data_type is DataType.FLOAT:
@@ -482,7 +524,7 @@ def value_to_words(
 def _canonical_to_registers(data: bytes, word_order: WordOrder) -> Tuple[int, ...]:
     """把大端规范字节串按字序打散为寄存器元组(内部函数)。"""
     raw = _reorder_bytes(data, word_order)
-    return tuple(int.from_bytes(raw[i:i + 2], "big") for i in range(0, len(raw), 2))
+    return tuple(int.from_bytes(raw[i : i + 2], "big") for i in range(0, len(raw), 2))
 
 
 def _reorder_bytes(data: bytes, word_order: WordOrder) -> bytes:
@@ -505,7 +547,7 @@ def _reorder_bytes(data: bytes, word_order: WordOrder) -> bytes:
         return data[::-1]
     if word_order is WordOrder.CDAB:
         # 2 字节字整字交换,字序反转:ABCD → CDAB,ABCDEFGH → GHEFCDAB
-        return b"".join(data[i:i + 2] for i in range(len(data) - 2, -1, -2))
+        return b"".join(data[i : i + 2] for i in range(len(data) - 2, -1, -2))
     # BADC:每个 2 字节字内部字节交换:ABCD → BADC,ABCDEFGH → BADCFEHG
     out = bytearray(len(data))
     for i in range(0, len(data) - 1, 2):

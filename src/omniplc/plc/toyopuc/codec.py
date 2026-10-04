@@ -8,6 +8,7 @@
 - 地址与点数为 16 位小端;多字数据小端、低字在前(64 位类型同理)
 - 命令:1C/1D 连续字读/写、1E/1F 连续字节读/写、20/21 单位读/写
 """
+
 from __future__ import annotations
 
 from typing import List, Optional, Sequence, Tuple
@@ -42,7 +43,9 @@ def build_command(cmd: int, data: bytes = b"") -> bytes:
     payload = bytes(data)
     length = 1 + len(payload)
     if length > 0xFFFF:
-        raise ProtocolFrameError(_("TOYOPUC 命令数据超出 16 位帧长:{}").format(len(payload)))
+        raise ProtocolFrameError(
+            _("TOYOPUC 命令数据超出 16 位帧长:{}").format(len(payload))
+        )
     return bytes((TOYOPUC_FT_COMMAND, 0x00, length & 0xFF, length >> 8, cmd)) + payload
 
 
@@ -67,14 +70,20 @@ def unpack_u16(data: bytes) -> List[int]:
 def build_word_read(address: int, count: int) -> bytes:
     """构造连续字读命令帧(CMD=1C)。"""
     if not 1 <= count <= TOYOPUC_MAX_WORD_COUNT:
-        raise ValueError(_("连续字读取点数必须在 1~{},收到:{}").format(TOYOPUC_MAX_WORD_COUNT, count))
+        raise ValueError(
+            _("连续字读取点数必须在 1~{},收到:{}").format(TOYOPUC_MAX_WORD_COUNT, count)
+        )
     return build_command(TOYOPUC_CMD_WORD_READ, pack_u16(address) + pack_u16(count))
 
 
 def build_word_write(address: int, values: Sequence[int]) -> bytes:
     """构造连续字写命令帧(CMD=1D)。"""
     if not 1 <= len(values) <= TOYOPUC_MAX_WORD_COUNT:
-        raise ValueError(_("连续字写入点数必须在 1~{},收到:{}").format(TOYOPUC_MAX_WORD_COUNT, len(values)))
+        raise ValueError(
+            _("连续字写入点数必须在 1~{},收到:{}").format(
+                TOYOPUC_MAX_WORD_COUNT, len(values)
+            )
+        )
     payload = pack_u16(address) + b"".join(pack_u16(value) for value in values)
     return build_command(TOYOPUC_CMD_WORD_WRITE, payload)
 
@@ -82,7 +91,11 @@ def build_word_write(address: int, values: Sequence[int]) -> bytes:
 def build_byte_read(address: int, count: int) -> bytes:
     """构造连续字节读命令帧(CMD=1E)。"""
     if not 1 <= count <= TOYOPUC_MAX_BYTE_COUNT:
-        raise ValueError(_("连续字节读取点数必须在 1~{},收到:{}").format(TOYOPUC_MAX_BYTE_COUNT, count))
+        raise ValueError(
+            _("连续字节读取点数必须在 1~{},收到:{}").format(
+                TOYOPUC_MAX_BYTE_COUNT, count
+            )
+        )
     return build_command(TOYOPUC_CMD_BYTE_READ, pack_u16(address) + pack_u16(count))
 
 
@@ -90,7 +103,11 @@ def build_byte_write(address: int, values: bytes) -> bytes:
     """构造连续字节写命令帧(CMD=1F)。"""
     payload = bytes(values)
     if not 1 <= len(payload) <= TOYOPUC_MAX_BYTE_COUNT:
-        raise ValueError(_("连续字节写入点数必须在 1~{},收到:{}").format(TOYOPUC_MAX_BYTE_COUNT, len(payload)))
+        raise ValueError(
+            _("连续字节写入点数必须在 1~{},收到:{}").format(
+                TOYOPUC_MAX_BYTE_COUNT, len(payload)
+            )
+        )
     return build_command(TOYOPUC_CMD_BYTE_WRITE, pack_u16(address) + payload)
 
 
@@ -101,7 +118,9 @@ def build_bit_read(address: int) -> bytes:
 
 def build_bit_write(address: int, value: bool) -> bytes:
     """构造单位写命令帧(CMD=21)。"""
-    return build_command(TOYOPUC_CMD_BIT_WRITE, pack_u16(address) + bytes((1 if value else 0,)))
+    return build_command(
+        TOYOPUC_CMD_BIT_WRITE, pack_u16(address) + bytes((1 if value else 0,))
+    )
 
 
 def parse_response(frame: bytes) -> Tuple[int, int, bytes]:
@@ -156,7 +175,12 @@ def check_response(
             detail = data[-1] if data else cmd
             raise DeviceError(
                 _("TOYOPUC 出错 0x{:02X}:{}").format(
-                    detail, _(TOYOPUC_ERROR_TEXT.get(detail, _("未知错误,请查阅 TOYOPUC 手册")))
+                    detail,
+                    _(
+                        TOYOPUC_ERROR_TEXT.get(
+                            detail, _("未知错误,请查阅 TOYOPUC 手册")
+                        )
+                    ),
                 ),
                 detail,
             )

@@ -21,6 +21,7 @@
 
 注意:本库地址为**协议地址(0 基)**;Modicon 风格自动减 1 转换。
 """
+
 from __future__ import annotations
 
 import re
@@ -113,17 +114,25 @@ def parse_address(address: str) -> ModbusAddress:
 
     match = _PREFIX_RE.match(text)
     if match is None:
-        raise ValueError(_("无法解析 Modbus 地址:{!r}(示例:hr0 / c0 / di10 / 40001)").format(address))
+        raise ValueError(
+            _("无法解析 Modbus 地址:{!r}(示例:hr0 / c0 / di10 / 40001)").format(address)
+        )
     area = ModbusArea(match.group(1))
     offset = int(match.group(2))
     bit: Optional[int] = None
     if match.group(3) is not None:
         bit = int(match.group(3))
         if area in (ModbusArea.COIL, ModbusArea.DISCRETE_INPUT):
-            raise ValueError(_("区域 {!r} 本身就是位地址,不支持位访问:{!r}").format(area.value, address))
+            raise ValueError(
+                _("区域 {!r} 本身就是位地址,不支持位访问:{!r}").format(
+                    area.value, address
+                )
+            )
         if not 0 <= bit <= MODBUS_REGISTER_BIT_MAX:
             raise ValueError(
-                _("寄存器位号必须在 0~{} 之间,收到:{}").format(MODBUS_REGISTER_BIT_MAX, bit)
+                _("寄存器位号必须在 0~{} 之间,收到:{}").format(
+                    MODBUS_REGISTER_BIT_MAX, bit
+                )
             )
     return ModbusAddress(area=area, offset=offset, bit=bit)
 

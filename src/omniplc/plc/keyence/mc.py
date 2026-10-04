@@ -37,6 +37,7 @@ KV MC 条目。
 核证**(KV MC 协议手册待补),真机联测前应视为未知;0101 支持面核证项
 见 docs/real-machine-checklist.md。
 """
+
 from __future__ import annotations
 
 from typing import List, Optional, Tuple

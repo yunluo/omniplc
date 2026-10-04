@@ -34,6 +34,7 @@ PLC 侧拒绝(数据段返回码非 0xFF、协议 error_class)→ DeviceError
 ``read_range`` + CPU 状态(SZL 0x0424,**待真机核证**);块操作、
 SZL 全家、时钟留后续版本。
 """
+
 from __future__ import annotations
 
 import struct
@@ -258,9 +259,7 @@ class _S7Session(BaseTransport):
         offset = 0
         while offset < size:
             chunk = min(size - offset, max(1, self.pdu_size - 18))
-            chunks.append(
-                self._read_area_once(area, db_number, start + offset, chunk)
-            )
+            chunks.append(self._read_area_once(area, db_number, start + offset, chunk))
             offset += chunk
         data = b"".join(chunks)
         log_op(
@@ -302,7 +301,7 @@ class _S7Session(BaseTransport):
         while offset < len(data):
             chunk = min(len(data) - offset, max(1, self.pdu_size - 35))
             self._write_area_once(
-                area, db_number, start + offset, data[offset:offset + chunk]
+                area, db_number, start + offset, data[offset : offset + chunk]
             )
             offset += chunk
         log_op(
@@ -426,9 +425,13 @@ class SiemensS7Client(BaseClient):
         validate_endpoint(ip_address, port)
         super().__init__(ip_address, int(port))
         if not 0 <= int(rack) <= S7_RACK_MAX:
-            raise ValueError(_("机架号必须在 0~{} 之间,收到:{}").format(S7_RACK_MAX, rack))
+            raise ValueError(
+                _("机架号必须在 0~{} 之间,收到:{}").format(S7_RACK_MAX, rack)
+            )
         if not 0 <= int(slot) <= S7_SLOT_MAX:
-            raise ValueError(_("槽位号必须在 0~{} 之间,收到:{}").format(S7_SLOT_MAX, slot))
+            raise ValueError(
+                _("槽位号必须在 0~{} 之间,收到:{}").format(S7_SLOT_MAX, slot)
+            )
         self._rack = int(rack)
         self._slot = int(slot)
 
@@ -454,9 +457,7 @@ class SiemensS7Client(BaseClient):
         return transport
 
     def _create_transport(self) -> BaseTransport:
-        return _S7Session(
-            self._ip_address, self._rack, self._slot, self._port
-        )
+        return _S7Session(self._ip_address, self._rack, self._slot, self._port)
 
     # ------------------------------------------------------------------
     # 状态读与探活(SZL 0x0424)
@@ -488,14 +489,21 @@ class SiemensS7Client(BaseClient):
         if data_type is DataType.BOOL:
             if parsed.bit is None:
                 raise ValueError(
-                    _("S7 按位读取需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)").format(address)
+                    _("S7 按位读取需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)").format(
+                        address
+                    )
                 )
         elif parsed.bit is not None:
             raise ValueError(
-                _("S7 位地址只能按 BOOL 读写:{!r}(数值请用字节起点地址)").format(address)
+                _("S7 位地址只能按 BOOL 读写:{!r}(数值请用字节起点地址)").format(
+                    address
+                )
             )
         data = self._session().read_area(
-            area_code(parsed.area), parsed.db_number, parsed.byte_index, _SIZES[data_type]
+            area_code(parsed.area),
+            parsed.db_number,
+            parsed.byte_index,
+            _SIZES[data_type],
         )
         if data_type is DataType.BOOL:
             # 前置校验已保证 bit 非空,or 0 仅供类型收窄
@@ -504,7 +512,11 @@ class SiemensS7Client(BaseClient):
             return struct.unpack(">f", data)[0]
         if data_type is DataType.DOUBLE:
             return struct.unpack(">d", data)[0]
-        return int.from_bytes(data, "big", signed=data_type in (DataType.SHORT, DataType.INT, DataType.LONG))
+        return int.from_bytes(
+            data,
+            "big",
+            signed=data_type in (DataType.SHORT, DataType.INT, DataType.LONG),
+        )
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """写数据项;位为锁内读-改-写,数值按大端编码;STRING 路由
@@ -528,15 +540,22 @@ class SiemensS7Client(BaseClient):
         if data_type is DataType.BOOL:
             if parsed.bit is None:
                 raise ValueError(
-                    _("S7 按位写入需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)").format(address)
+                    _("S7 按位写入需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)").format(
+                        address
+                    )
                 )
             flag = require_bool(value)
             raw = session.read_area(
                 area_code(parsed.area), parsed.db_number, parsed.byte_index, 1
             )
-            byte = (raw[0] | (1 << parsed.bit)) if flag else (raw[0] & ~(1 << parsed.bit))
+            byte = (
+                (raw[0] | (1 << parsed.bit)) if flag else (raw[0] & ~(1 << parsed.bit))
+            )
             session.write_area(
-                area_code(parsed.area), parsed.db_number, parsed.byte_index, bytes([byte & 0xFF])
+                area_code(parsed.area),
+                parsed.db_number,
+                parsed.byte_index,
+                bytes([byte & 0xFF]),
             )
             return
         if data_type is DataType.FLOAT:
@@ -550,9 +569,13 @@ class SiemensS7Client(BaseClient):
             data = self._pack(_INT_FORMATS[data_type], number)
         if parsed.bit is not None:
             raise ValueError(
-                _("S7 位地址只能按 BOOL 读写:{!r}(数值请用字节起点地址)").format(address)
+                _("S7 位地址只能按 BOOL 读写:{!r}(数值请用字节起点地址)").format(
+                    address
+                )
             )
-        session.write_area(area_code(parsed.area), parsed.db_number, parsed.byte_index, data)
+        session.write_area(
+            area_code(parsed.area), parsed.db_number, parsed.byte_index, data
+        )
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """读 S7 String(头 2 字节 = 声明长/实际长,正文按声明长)。
@@ -574,7 +597,7 @@ class SiemensS7Client(BaseClient):
         if actual > length:
             # PLC 侧实际长 > 请求 length:截断返回,避免静默丢成空串
             actual = length
-        return convert.decode_string(data[2:2 + actual], encoding)
+        return convert.decode_string(data[2 : 2 + actual], encoding)
 
     def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
         """写 S7 String(声明长字节保留 PLC 侧现值,仅覆盖实际长字节)。
@@ -599,7 +622,9 @@ class SiemensS7Client(BaseClient):
             # 防裸 ValueError(review-1008 P3)
             if len(encoded) > 255:
                 raise ValueError(
-                    _("S7 String 写入值超出声明长字段上限 255,收到:{} 字符").format(len(encoded))
+                    _("S7 String 写入值超出声明长字段上限 255,收到:{} 字符").format(
+                        len(encoded)
+                    )
                 )
             declared_max = len(encoded)
         if len(encoded) > declared_max:
@@ -610,7 +635,10 @@ class SiemensS7Client(BaseClient):
             )
         header = bytes([declared_max, len(encoded)])
         self._session().write_area(
-            area_code(parsed.area), parsed.db_number, parsed.byte_index, header + encoded
+            area_code(parsed.area),
+            parsed.db_number,
+            parsed.byte_index,
+            header + encoded,
         )
         return value
 
@@ -630,9 +658,7 @@ class SiemensS7Client(BaseClient):
         """
         if length <= 0:
             raise ValueError(_("length 必须大于 0,收到:{}").format(length))
-        ok, value = self._execute(
-            lambda: self._read_wstring_impl(address, int(length))
-        )
+        ok, value = self._execute(lambda: self._read_wstring_impl(address, int(length)))
         if not ok or value is None:
             return False, None
         return True, str(value)
@@ -667,7 +693,7 @@ class SiemensS7Client(BaseClient):
             return ""
         if actual > length:
             actual = length
-        return convert.decode_string(data[4:4 + actual * 2], "utf-16-be")
+        return convert.decode_string(data[4 : 4 + actual * 2], "utf-16-be")
 
     def _write_wstring_impl(self, address: str, value: str) -> PrimitiveValue:
         """写 S7 WString 实现(内部方法,异常经 :meth:`write_wstring` 翻译)。
@@ -680,7 +706,9 @@ class SiemensS7Client(BaseClient):
             raise ValueError(_("S7 字符串地址不带位号:{!r}").format(address))
         encoded = value.encode("utf-16-be")
         if len(encoded) != len(value) * 2:
-            raise ValueError(_("S7 WString 仅支持 BMP 字符(不含代理对):{!r}").format(address))
+            raise ValueError(
+                _("S7 WString 仅支持 BMP 字符(不含代理对):{!r}").format(address)
+            )
         head = self._session().read_area(
             area_code(parsed.area), parsed.db_number, parsed.byte_index, 2
         )
@@ -689,7 +717,9 @@ class SiemensS7Client(BaseClient):
             # 回退口径与 STRING 同款;超 2 字节声明长字段显式拒绝(review-1008 P3)
             if len(value) > 65535:
                 raise ValueError(
-                    _("S7 WString 写入值超出声明长字段上限 65535,收到:{} 字符").format(len(value))
+                    _("S7 WString 写入值超出声明长字段上限 65535,收到:{} 字符").format(
+                        len(value)
+                    )
                 )
             declared_max = len(value)
         if len(value) > declared_max:
@@ -700,7 +730,10 @@ class SiemensS7Client(BaseClient):
             )
         header = declared_max.to_bytes(2, "big") + len(value).to_bytes(2, "big")
         self._session().write_area(
-            area_code(parsed.area), parsed.db_number, parsed.byte_index, header + encoded
+            area_code(parsed.area),
+            parsed.db_number,
+            parsed.byte_index,
+            header + encoded,
         )
         return value
 
@@ -734,7 +767,9 @@ class SiemensS7Client(BaseClient):
         if data_type_enum is DataType.STRING:
             raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
         if data_type_enum not in _SIZES or data_type_enum is DataType.BOOL:
-            raise ValueError(_("S7 read_range 不支持的数据类型:{}").format(data_type_enum))
+            raise ValueError(
+                _("S7 read_range 不支持的数据类型:{}").format(data_type_enum)
+            )
         parsed = parse_s7_address(address)
         if parsed.bit is not None:
             raise ValueError(
@@ -744,11 +779,14 @@ class SiemensS7Client(BaseClient):
 
         def operation() -> List[PrimitiveValue]:
             data = self._session().read_area(
-                area_code(parsed.area), parsed.db_number, parsed.byte_index, size * count
+                area_code(parsed.area),
+                parsed.db_number,
+                parsed.byte_index,
+                size * count,
             )
             values: List[PrimitiveValue] = []
             for index in range(count):
-                blob = data[index * size:(index + 1) * size]
+                blob = data[index * size : (index + 1) * size]
                 if data_type_enum is DataType.FLOAT:
                     values.append(struct.unpack(">f", blob)[0])
                 elif data_type_enum is DataType.DOUBLE:
@@ -758,7 +796,8 @@ class SiemensS7Client(BaseClient):
                         int.from_bytes(
                             blob,
                             "big",
-                            signed=data_type_enum in (DataType.SHORT, DataType.INT, DataType.LONG),
+                            signed=data_type_enum
+                            in (DataType.SHORT, DataType.INT, DataType.LONG),
                         )
                     )
             return values
@@ -811,18 +850,24 @@ class SiemensS7Client(BaseClient):
         for address, data_type in items:
             data_type_enum = DataType.coerce(data_type)
             if data_type_enum not in _SIZES:
-                raise ValueError(_("S7 批量读取不支持的数据类型:{}").format(data_type_enum))
+                raise ValueError(
+                    _("S7 批量读取不支持的数据类型:{}").format(data_type_enum)
+                )
             parsed = parse_s7_address(address)
             if data_type_enum is DataType.BOOL:
                 if parsed.bit is None:
                     raise ValueError(
-                        _("S7 按位读取需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)").format(address)
+                        _("S7 按位读取需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)").format(
+                            address
+                        )
                     )
                 plan.append(("bit", len(specs), parsed.bit, data_type_enum))
             else:
                 if parsed.bit is not None:
                     raise ValueError(
-                        _("S7 位地址只能按 BOOL 读写:{!r}(数值请用字节起点地址)").format(address)
+                        _(
+                            "S7 位地址只能按 BOOL 读写:{!r}(数值请用字节起点地址)"
+                        ).format(address)
                     )
                 plan.append(("word", len(specs), None, data_type_enum))
             specs.append(

@@ -3,6 +3,7 @@
 - 走线型:本机 echo 服务验证 TCP/UDP 收发报文输出
 - 会话型:假 OPC-UA 客户端/假 MX COM 控件验证操作级输出
 """
+
 from __future__ import annotations
 
 import logging
@@ -31,6 +32,7 @@ def _restore_debug_state() -> Iterator[None]:
 # ----------------------------------------------------------------------
 # 开关与日志助手
 # ----------------------------------------------------------------------
+
 
 def test_set_debug_toggle() -> None:
     """set_debug 开/关:全局标志与记录器级别同步切换。"""
@@ -94,7 +96,10 @@ def test_attach_default_handler_only_when_unconfigured() -> None:
 # 走线型:TCP / UDP(本机 echo)
 # ----------------------------------------------------------------------
 
-def test_tcp_frames_logged(tcp_echo_port: int, caplog: pytest.LogCaptureFixture) -> None:
+
+def test_tcp_frames_logged(
+    tcp_echo_port: int, caplog: pytest.LogCaptureFixture
+) -> None:
     """TCP:连接事件 + 收发报文十六进制全部输出。"""
     debug.set_debug(True)
     transport = TcpTransport("127.0.0.1", tcp_echo_port)
@@ -110,7 +115,9 @@ def test_tcp_frames_logged(tcp_echo_port: int, caplog: pytest.LogCaptureFixture)
     assert "tcp://127.0.0.1:{} 已断开".format(tcp_echo_port) in text
 
 
-def test_udp_frames_logged(udp_echo_port: int, caplog: pytest.LogCaptureFixture) -> None:
+def test_udp_frames_logged(
+    udp_echo_port: int, caplog: pytest.LogCaptureFixture
+) -> None:
     """UDP:数据报收发输出。"""
     debug.set_debug(True)
     transport = UdpTransport("127.0.0.1", udp_echo_port)
@@ -127,6 +134,7 @@ def test_udp_frames_logged(udp_echo_port: int, caplog: pytest.LogCaptureFixture)
 # ----------------------------------------------------------------------
 # 会话型:OPC-UA / MX Component
 # ----------------------------------------------------------------------
+
 
 class _FakeUaNode:
     """假 asyncua 节点:读返回预置值。"""
@@ -156,7 +164,9 @@ class _FakeUaClient:
         return self.nodes[text]
 
 
-def test_opcua_ops_logged(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+def test_opcua_ops_logged(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     """OPC-UA:读写操作输出节点、类型与值(写以桩 asyncua.ua 解析类型)。"""
     ua_mod = types.ModuleType("asyncua.ua")
 
@@ -192,7 +202,9 @@ class _FakeCom:
         return 0
 
 
-def test_mx_ops_logged(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+def test_mx_ops_logged(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     """MX Component:连接事件 + Get/Set/块读写操作全部输出。"""
     com = _FakeCom()
     monkeypatch.setattr(mx_module, "_com_initialize", lambda: None)
@@ -241,6 +253,7 @@ def test_log_op_formats_args_when_enabled(caplog: pytest.LogCaptureFixture) -> N
 # ----------------------------------------------------------------------
 # 报文黑匣子(set_frame_recorder:环形缓冲只存不打印)
 # ----------------------------------------------------------------------
+
 
 def test_recorder_default_off() -> None:
     """默认关闭:不记录、快照为空。"""

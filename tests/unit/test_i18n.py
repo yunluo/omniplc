@@ -1,4 +1,5 @@
 """报错文案语言开关测试:set_lang 校验、取词口径、导出面与默认语言契约。"""
+
 from __future__ import annotations
 
 from typing import Iterator
@@ -20,6 +21,7 @@ def _restore_language_state() -> Iterator[None]:
 # ----------------------------------------------------------------------
 # 开关与取词
 # ----------------------------------------------------------------------
+
 
 def test_default_language_is_zh() -> None:
     """契约:默认语言恒为中文——已依赖中文文案的应用零影响。"""
@@ -50,7 +52,9 @@ def test_gettext_zh_returns_verbatim() -> None:
 def test_gettext_en_hit() -> None:
     """英文:字典命中返回英文,未命中兜底中文原文(永不 KeyError)。"""
     set_lang("en")
-    assert _("不支持的语言:{!r},支持:{}") == "Unsupported language: {0!r}, supported: {1}"
+    assert (
+        _("不支持的语言:{!r},支持:{}") == "Unsupported language: {0!r}, supported: {1}"
+    )
     assert _("字典未收录的模板 xyz") == "字典未收录的模板 xyz"
 
 
@@ -77,7 +81,10 @@ def test_translation_placeholder_reorder() -> None:
 def test_format_zh_autonumber_matches_en_explicit() -> None:
     """自动编号 {} 与显式编号 {0} 混用于同一调用点时 format 结果一致。"""
     template = i18n._TRANSLATIONS["不支持的语言:{!r},支持:{}"]
-    assert template.format("ja", "zh / en") == "Unsupported language: 'ja', supported: zh / en"
+    assert (
+        template.format("ja", "zh / en")
+        == "Unsupported language: 'ja', supported: zh / en"
+    )
 
 
 def test_no_mixed_auto_manual_numbering_in_any_translation() -> None:
@@ -200,9 +207,7 @@ def test_all_raise_templates_in_translations() -> None:
             return node.s
         return None
 
-    i18n_tree = ast.parse(
-        (src_root / "core" / "i18n.py").read_text(encoding="utf-8")
-    )
+    i18n_tree = ast.parse((src_root / "core" / "i18n.py").read_text(encoding="utf-8"))
     table = set()
     for node in ast.walk(i18n_tree):
         if isinstance(node, ast.Dict):
@@ -266,6 +271,7 @@ def test_en_mode_core_error_paths_output_english() -> None:
 # en 端到端:真实 codec 解析路径的报错语言切换
 # ----------------------------------------------------------------------
 
+
 def test_en_end_to_end_codec_errors() -> None:
     """en 下真实 codec 抛错:外层模板与码表值均为英文;zh 恢复中文。"""
     from omniplc.core.errors import DeviceError
@@ -284,7 +290,14 @@ def test_en_end_to_end_codec_errors() -> None:
     # FINS:构造读应答帧,结束码 0x2101(指定区域只读)
     def fins_error() -> str:
         req = fins._build_frame(
-            0, 1, 0, 0, 1, 0, 0x01, 0x0101,
+            0,
+            1,
+            0,
+            0,
+            1,
+            0,
+            0x01,
+            0x0101,
             b"\x00\x00\x00\x00\x01\x82\x00\x00\x00\x01",
         )
         head = bytes([fins.FINS_ICF_RESPONSE, fins.FINS_RSV, fins.FINS_GCT]) + req[3:12]
@@ -321,7 +334,10 @@ def test_en_end_to_end_codec_errors() -> None:
     )
 
     set_lang("zh")
-    assert mb_error() == "Modbus 异常码 0x02(ILLEGAL DATA ADDRESS(地址越界))(请求功能码 0x03)"
+    assert (
+        mb_error()
+        == "Modbus 异常码 0x02(ILLEGAL DATA ADDRESS(地址越界))(请求功能码 0x03)"
+    )
     assert fins_error() == "FINS 结束码 0x2101(指定区域只读)"
     assert mew_error() == "MEWTOCOL 错误码 21:NACK 错误(远程单元未正确识别或数据错误)"
 
@@ -329,6 +345,7 @@ def test_en_end_to_end_codec_errors() -> None:
 # ----------------------------------------------------------------------
 # 导出面
 # ----------------------------------------------------------------------
+
 
 def test_set_lang_exported_from_root() -> None:
     """根包导出面:omniplc.set_lang 可用(导出守卫测试会自动覆盖 __all__)。"""

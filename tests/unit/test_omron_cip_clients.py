@@ -5,6 +5,7 @@
 (20 02 24 01)。继承面(类型发现/位访问/惰性重连)由 AB 测试覆盖,
 此处聚焦 NJ/NX 差异点与异步镜像。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -72,7 +73,8 @@ def test_read_dint_direct_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     """DINT 读:直发帧逐字节等于 RRData + 裸 Tag Read(无 UC Send 包裹)。"""
     client = OmronCipClient("127.0.0.1", 44818)
     scripted = ScriptedTransport(
-        _session_chunks() + _direct_reply_chunks(_atomic_payload(0xC4, b"\x39\x05\x00\x00"))
+        _session_chunks()
+        + _direct_reply_chunks(_atomic_payload(0xC4, b"\x39\x05\x00\x00"))
     )
     _mount(monkeypatch, client, scripted)
     client.connect()
@@ -113,7 +115,9 @@ def test_write_bool_direct(monkeypatch: pytest.MonkeyPatch) -> None:
     write_request = codec_cip.build_tag_write(
         codec_cip.build_symbol_path(("RunFlag",), ((),)), 0xC1, b"\x01"
     )
-    assert bytes(scripted.sent).endswith(codec_cip.build_rr_data(_SESSION, write_request))
+    assert bytes(scripted.sent).endswith(
+        codec_cip.build_rr_data(_SESSION, write_request)
+    )
 
 
 def test_cip_status_error_keeps_connection(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -164,7 +168,9 @@ def test_string_write_carries_template_and_declared_size(
     write_request = codec_cip.build_string_write(
         codec_cip.build_symbol_path(("MyString",), ((),)), data, template_id=0x1234
     )
-    assert bytes(scripted.sent).endswith(codec_cip.build_rr_data(_SESSION, write_request))
+    assert bytes(scripted.sent).endswith(
+        codec_cip.build_rr_data(_SESSION, write_request)
+    )
 
 
 def test_string_write_rejects_overflow_of_declared_size(
@@ -196,8 +202,10 @@ def test_bool_array_element_direct_read(monkeypatch: pytest.MonkeyPatch) -> None
     dword = codec_cip.CIP_TYPE_DWORD
     scripted = ScriptedTransport(
         _session_chunks()
-        + _direct_reply_chunks(_atomic_payload(dword, b"\x00\x00\x00\x00"))  # 探 Bits[0]
-        + _direct_reply_chunks(_atomic_payload(0xC1, b"\x01"))               # Bits[5]→BOOL
+        + _direct_reply_chunks(
+            _atomic_payload(dword, b"\x00\x00\x00\x00")
+        )  # 探 Bits[0]
+        + _direct_reply_chunks(_atomic_payload(0xC1, b"\x01"))  # Bits[5]→BOOL
     )
     _mount(monkeypatch, client, scripted)
     client.connect()
@@ -220,18 +228,26 @@ def test_bool_array_element_direct_write(monkeypatch: pytest.MonkeyPatch) -> Non
     write_request = codec_cip.build_tag_write(
         codec_cip.build_symbol_path(("Bits",), ((5,),)), 0xC1, b"\x01"
     )
-    assert bytes(scripted.sent).endswith(codec_cip.build_rr_data(_SESSION, write_request))
+    assert bytes(scripted.sent).endswith(
+        codec_cip.build_rr_data(_SESSION, write_request)
+    )
 
 
-def test_bool_array_element_dword_reply_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bool_array_element_dword_reply_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """元素直读应答存储字类型(DWORD)时,按 Logix 下标//32 打包口径回退。"""
     client = OmronCipClient("127.0.0.1", 44818)
     dword = codec_cip.CIP_TYPE_DWORD
     scripted = ScriptedTransport(
         _session_chunks()
         + _direct_reply_chunks(_atomic_payload(dword, b"\x00\x00\x00\x00"))  # 探 →DWORD
-        + _direct_reply_chunks(_atomic_payload(dword, b"\x00\x00\x00\x00"))  # Bits[5]→DWORD
-        + _direct_reply_chunks(_atomic_payload(dword, b"\x20\x00\x00\x00"))  # Bits[0] bit5=1
+        + _direct_reply_chunks(
+            _atomic_payload(dword, b"\x00\x00\x00\x00")
+        )  # Bits[5]→DWORD
+        + _direct_reply_chunks(
+            _atomic_payload(dword, b"\x20\x00\x00\x00")
+        )  # Bits[0] bit5=1
     )
     _mount(monkeypatch, client, scripted)
     client.connect()
@@ -287,9 +303,7 @@ def _connected_client() -> OmronCipClient:
 
 def test_connected_forward_open_golden(monkeypatch: pytest.MonkeyPatch) -> None:
     """connected 读:Forward Open 连接路径无背板段,SendUnitData 往返。"""
-    monkeypatch.setattr(
-        "omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID
-    )
+    monkeypatch.setattr("omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID)
     client = _connected_client()
     scripted = ScriptedTransport(
         _session_chunks()
@@ -317,7 +331,7 @@ def test_connected_forward_open_golden(monkeypatch: pytest.MonkeyPatch) -> None:
         b"",
     )
     # 连接路径 = 字数 2 + 仅消息路由对象(无 01 00 背板段)
-    assert forward_open_request.endswith(bytes.fromhex("02" "20022401"))
+    assert forward_open_request.endswith(bytes.fromhex("0220022401"))
     forward_open = codec_cip.build_rr_data(_SESSION, forward_open_request)
     tag_read = codec_cip.build_tag_read(
         codec_cip.build_symbol_path(("TestVar",), ((),)), 1
@@ -328,9 +342,7 @@ def test_connected_forward_open_golden(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_connected_fallback_to_normal(monkeypatch: pytest.MonkeyPatch) -> None:
     """Large 被拒(状态 0x01)回落普通 Forward Open,回落路径同样无背板段。"""
-    monkeypatch.setattr(
-        "omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID
-    )
+    monkeypatch.setattr("omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID)
     client = _connected_client()
     scripted = ScriptedTransport(
         _session_chunks()
@@ -351,11 +363,11 @@ def test_connected_fallback_to_normal(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bytes.fromhex("010020022401") not in sent
 
 
-def test_connected_disconnect_sends_forward_close(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_connected_disconnect_sends_forward_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """connected 断开:Forward Close(空路由)+ UnregisterSession。"""
-    monkeypatch.setattr(
-        "omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID
-    )
+    monkeypatch.setattr("omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID)
     client = _connected_client()
     scripted = ScriptedTransport(
         _session_chunks()
@@ -404,6 +416,7 @@ def test_async_mirror_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
 # 通用 CIP 服务入口:NJ/NX 通过继承复用
 # ----------------------------------------------------------------------
 
+
 def test_get_plc_info_works_on_nj_direct_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -412,14 +425,18 @@ def test_get_plc_info_works_on_nj_direct_path(
     验证 :class:`OmronCipClient` 继承自 :class:`AllenBradleyEthIpClient` 的
     通用 CIP 服务入口,无需 override 即可在 NJ 直发路径上工作。
     """
-    identity = struct.pack(
-        "<HHHBBH",
-        0x0001, 0x000E, 0x1234, 30, 11, 0x0001
-    ) + struct.pack("<I", 0x00C0FFEE) + bytes((5,)) + b"NJ-NX"
+    identity = (
+        struct.pack("<HHHBBH", 0x0001, 0x000E, 0x1234, 30, 11, 0x0001)
+        + struct.pack("<I", 0x00C0FFEE)
+        + bytes((5,))
+        + b"NJ-NX"
+    )
     client = OmronCipClient("127.0.0.1", 44818)
     scripted = ScriptedTransport(
         _session_chunks()
-        + _direct_reply_chunks(identity, service=codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL)
+        + _direct_reply_chunks(
+            identity, service=codec_cip.CIP_SERVICE_GET_ATTRIBUTES_ALL
+        )
     )
     _mount(monkeypatch, client, scripted)
     ok, info = client.get_plc_info()

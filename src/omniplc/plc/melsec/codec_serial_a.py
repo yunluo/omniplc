@@ -28,6 +28,7 @@ FB=2C/1C 不需要):
 编号必须是 16 的倍数(16 点/字)。点数上限:BR 256 点、BW 160 点、
 WR/WW 64 字(位软元件按字:WR 32 字、WW 10 字)。
 """
+
 from __future__ import annotations
 
 from typing import Dict, List, NamedTuple, Optional, Tuple
@@ -111,7 +112,9 @@ def check_message_wait(value: int) -> int:
     """校验消息等待时间(0~15,10ms 单位),非法抛 :class:`ValueError`。"""
     if not 0 <= int(value) <= MC_1C_MAX_MESSAGE_WAIT:
         raise ValueError(
-            _("消息等待时间必须在 0~{}(×10ms)之间,收到:{}").format(MC_1C_MAX_MESSAGE_WAIT, value)
+            _("消息等待时间必须在 0~{}(×10ms)之间,收到:{}").format(
+                MC_1C_MAX_MESSAGE_WAIT, value
+            )
         )
     return int(value)
 
@@ -144,7 +147,9 @@ def build_1c_request(
     command = _command_of(is_bit, is_write)
     if is_bit and not spec.is_bit_device:
         raise ValueError(
-            _("字软元件 {} 不支持位单位成批访问,请按字访问后提取位").format(address.device)
+            _("字软元件 {} 不支持位单位成批访问,请按字访问后提取位").format(
+                address.device
+            )
         )
     if is_bit and spec.is_bit_device:
         codec_qna.reject_bit_suffix_on_bit_device(address)
@@ -154,14 +159,20 @@ def build_1c_request(
         code_text = spec.code
     limit = _point_limit(spec, is_bit, is_write)
     if not 1 <= points <= limit:
-        raise ValueError(_("1C 帧 {} 点数超出范围 1~{}:{}").format(command, limit, points))
+        raise ValueError(
+            _("1C 帧 {} 点数超出范围 1~{}:{}").format(command, limit, points)
+        )
     if not is_bit and spec.is_bit_device and not spec.is_timer_counter:
         if number % 16 != 0:
             raise ValueError(
-                _("位软元件 {} 按字单位访问时起始编号必须是 16 的倍数:{}").format(address.device, number)
+                _("位软元件 {} 按字单位访问时起始编号必须是 16 的倍数:{}").format(
+                    address.device, number
+                )
             )
     head = code_text + _number_text(spec, number)
-    points_text = "00" if points == MC_1C_MAX_BIT_READ_POINTS else "{:02X}".format(points)
+    points_text = (
+        "00" if points == MC_1C_MAX_BIT_READ_POINTS else "{:02X}".format(points)
+    )
     body_text = (
         _route_text(station_number, pc_number)
         + command
@@ -210,7 +221,9 @@ def parse_1c_response(
         _check_route(response[1:5], route, response)
         codec_serial._check_crlf(response[7:9], "1C 异常响应", response)
         status = codec_serial._hex_int(response[5:7], response)
-        raise DeviceError(_("MC 错误代码 0x{:02X},详见 MELSEC 手册").format(status), status)
+        raise DeviceError(
+            _("MC 错误代码 0x{:02X},详见 MELSEC 手册").format(status), status
+        )
     if head == codec_serial.ACK:
         if len(response) != 7:
             raise ProtocolFrameError(
@@ -240,22 +253,24 @@ def parse_1c_response(
         raise ProtocolFrameError(
             _("1C 响应数据后必须是 ETX(收到的原始帧:{})").format(format_hex(response))
         )
-    codec_serial._check_crlf(response[8 + expected:10 + expected], "1C 读响应", response)
+    codec_serial._check_crlf(
+        response[8 + expected : 10 + expected], "1C 读响应", response
+    )
     # 和校验范围 = 站号/PC 号回显 + 数据 + ETX(含 ETX,与 3C 格式 4 同规则)
-    wanted = "{:02X}".format(
-        codec_serial.checksum(response[1:6 + expected])
-    ).encode("ascii")
-    if response[6 + expected:8 + expected] != wanted:
+    wanted = "{:02X}".format(codec_serial.checksum(response[1 : 6 + expected])).encode(
+        "ascii"
+    )
+    if response[6 + expected : 8 + expected] != wanted:
         raise ProtocolFrameError(
             _("1C 和校验码不符:期望 {},收到 {!r}(收到的原始帧:{})").format(
                 wanted.decode("ascii"),
-                response[6 + expected:8 + expected].decode("ascii", "replace"),
+                response[6 + expected : 8 + expected].decode("ascii", "replace"),
                 format_hex(response),
             )
         )
     if not is_read:
         return []
-    data_text = response[5:5 + expected].decode("ascii")
+    data_text = response[5 : 5 + expected].decode("ascii")
     if is_bit:
         if not set(data_text) <= {"0", "1"}:
             raise ProtocolFrameError(
@@ -264,7 +279,10 @@ def parse_1c_response(
                 )
             )
         return [1 if char == "1" else 0 for char in data_text]
-    return [codec_serial._hex_int(data_text[i:i + 4].encode("ascii")) for i in range(0, expected, 4)]
+    return [
+        codec_serial._hex_int(data_text[i : i + 4].encode("ascii"))
+        for i in range(0, expected, 4)
+    ]
 
 
 def _command_of(is_bit: bool, is_write: bool) -> str:
@@ -279,7 +297,7 @@ def _spec_of(device: str) -> _Spec:
     spec = _DEVICES.get(device)
     if spec is None:
         raise ValueError(
-            _("1C 帧不支持的软元件:{!r},支持:{}").format(device, '/'.join(_DEVICES))
+            _("1C 帧不支持的软元件:{!r},支持:{}").format(device, "/".join(_DEVICES))
         )
     return spec
 
@@ -304,10 +322,14 @@ def _number_text(spec: _Spec, number: int) -> str:
         limit = _MAX_TC_NUMBER
     if number > limit:
         raise ValueError(
-            _("软元件 {} 编号超出 {} 位表示范围:{}").format(spec.code, spec.width, number)
+            _("软元件 {} 编号超出 {} 位表示范围:{}").format(
+                spec.code, spec.width, number
+            )
         )
-    return "{:0{}X}".format(number, spec.width) if spec.base == 16 else "{:0{}d}".format(
-        number, spec.width
+    return (
+        "{:0{}X}".format(number, spec.width)
+        if spec.base == 16
+        else "{:0{}d}".format(number, spec.width)
     )
 
 
@@ -353,6 +375,8 @@ def _check_route(raw: bytes, wanted: bytes, whole: bytes) -> None:
     if raw != wanted:
         raise ProtocolFrameError(
             _("1C 响应站号/PC 号回显不符:期望 {!r},收到 {!r}(收到的原始帧:{})").format(
-                wanted.decode("ascii"), raw.decode("ascii", "replace"), format_hex(whole)
+                wanted.decode("ascii"),
+                raw.decode("ascii", "replace"),
+                format_hex(whole),
             )
         )

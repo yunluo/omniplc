@@ -29,6 +29,7 @@
 串口命令协议(「通信命令控制」选 Serial,``<Exec,TriSoft>`` 等命令帧走
 串口)本类不做——文本触发已覆盖,命令帧与文本混流需按现场角色二选一。
 """
+
 from __future__ import annotations
 
 import socket
@@ -104,8 +105,10 @@ class HikrobotIdSerialClient(BaseClient):
         self._stop_text = self._check_text("stop_text", stop_text)
         if len(self._trigger_text) == len(self._stop_text):
             raise ValueError(
-                _("触发文本与停止文本长度不可相等(通信指令手册印刷页 9),收到:"
-                  "{!r}/{!r}").format(trigger_text, stop_text)
+                _(
+                    "触发文本与停止文本长度不可相等(通信指令手册印刷页 9),收到:"
+                    "{!r}/{!r}"
+                ).format(trigger_text, stop_text)
             )
         try:
             "".encode(encoding)

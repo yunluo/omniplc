@@ -8,6 +8,7 @@
   ``omniplc.aio`` 镜像,原生命名是 ``Async<名字>``,混进根导出会破坏该守卫
 - 原生侧的方法必须是协程(防手误漏 ``async``),签名与同步孪生一致
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -92,9 +93,7 @@ def test_fins_clients_surface_mirrored_or_pending() -> None:
         (pkg.OmronFinsUdpClient, native.AsyncOmronFinsUdpClient),
     ):
         gap = _public(sync_cls) - _public(async_cls)
-        assert gap == _FINS_PENDING, "{},实际 {}".format(
-            sync_cls.__name__, sorted(gap)
-        )
+        assert gap == _FINS_PENDING, "{},实际 {}".format(sync_cls.__name__, sorted(gap))
 
 
 def test_s7_client_surface_mirrored_or_pending() -> None:
@@ -106,7 +105,9 @@ def test_s7_client_surface_mirrored_or_pending() -> None:
 def test_melsec_native_supports_ethernet_frames_only() -> None:
     """原生 MC 覆盖以太网三种帧(1E/3E/4E);串口帧构造期显式拒绝(不留半成品)。"""
     for frame in ("1E", "3E", "4E"):
-        assert native.AsyncMelsecMcTcpClient("127.0.0.1", 2000, frame).frame.value == frame
+        assert (
+            native.AsyncMelsecMcTcpClient("127.0.0.1", 2000, frame).frame.value == frame
+        )
     for frame in ("3C", "4C", "1C"):
         with pytest.raises(ValueError):
             native.AsyncMelsecMcTcpClient("127.0.0.1", 2000, frame)

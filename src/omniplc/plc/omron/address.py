@@ -18,6 +18,7 @@
 
 FINS 存储区码(memory code)查表在编码阶段使用,见 :mod:`.codec`。
 """
+
 from __future__ import annotations
 
 import re
@@ -67,10 +68,16 @@ def parse_fins_address(address: str) -> FinsAddress:
     if match is not None:
         bank = int(match.group(1))
         if not 0 <= bank <= FINS_EM_BANK_MAX:
-            raise ValueError(_("EM 区 bank 号必须在 0~{} 之间,收到:{}").format(FINS_EM_BANK_MAX, bank))
+            raise ValueError(
+                _("EM 区 bank 号必须在 0~{} 之间,收到:{}").format(
+                    FINS_EM_BANK_MAX, bank
+                )
+            )
         offset = int(match.group(2))
         _check_area_max("E", offset)
-        return FinsAddress(area="E", offset=offset, bit=_parse_bit(match.group(3)), bank=bank)
+        return FinsAddress(
+            area="E", offset=offset, bit=_parse_bit(match.group(3)), bank=bank
+        )
     match = _FINS_ADDRESS_RE.match(text)
     if match is None:
         raise ValueError(
@@ -89,7 +96,9 @@ def _check_area_max(area: str, offset: int) -> None:
     area_max = FINS_MEMORY_AREA_MAX.get(area)
     if area_max is not None and offset > area_max:
         raise ValueError(
-            _("FINS 地址越界:{}{} 超出该区上界 {}(W342 §5-2-2)").format(area, offset, area_max)
+            _("FINS 地址越界:{}{} 超出该区上界 {}(W342 §5-2-2)").format(
+                area, offset, area_max
+            )
         )
 
 
@@ -99,5 +108,7 @@ def _parse_bit(text: Optional[str]) -> Optional[int]:
         return None
     bit = int(text)
     if not 0 <= bit <= MODBUS_REGISTER_BIT_MAX:
-        raise ValueError(_("位号必须在 0~{} 之间,收到:{}").format(MODBUS_REGISTER_BIT_MAX, bit))
+        raise ValueError(
+            _("位号必须在 0~{} 之间,收到:{}").format(MODBUS_REGISTER_BIT_MAX, bit)
+        )
     return bit

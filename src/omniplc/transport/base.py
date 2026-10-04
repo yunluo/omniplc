@@ -1,4 +1,5 @@
 """传输层基类:协议层零感知走线的抽象契约。"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

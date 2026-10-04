@@ -8,6 +8,7 @@ read_batch 等(2026-09-22 全量内省审计补齐)。本测试把审计固化�
 约定:对比每对同步/异步客户端"类自身公开面 - 基类公开面",
 基类面(connect/读写/重试等)由 ABaseClient 统一镜像,单独校验。
 """
+
 from __future__ import annotations
 
 import inspect

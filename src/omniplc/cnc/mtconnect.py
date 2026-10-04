@@ -33,6 +33,7 @@ v1 范围:**只读监控**——类型化 ``read_*``、``snapshot()`` 全量快�
 设备信息、``read_sample()`` 历史流、``read_assets()`` 资产。写入、
 `/sample?interval` 流式持续推送、订阅留后续版本。
 """
+
 from __future__ import annotations
 
 import http.client
@@ -139,7 +140,9 @@ def _parse_document(body: bytes) -> ElementTree.Element:
     try:
         root = _fromstring_rejecting_doctype(body)
     except ElementTree.ParseError as exc:
-        raise ProtocolFrameError(_("MTConnect 响应不是合法 XML:{}").format(exc)) from exc
+        raise ProtocolFrameError(
+            _("MTConnect 响应不是合法 XML:{}").format(exc)
+        ) from exc
     name = _local_name(root.tag)
     if name not in (
         "MTConnectStreams",
@@ -168,7 +171,9 @@ def _new_connection(
     return http.client.HTTPConnection(ip_address, port, timeout=timeout)
 
 
-def _query(path: Optional[str], params: Optional[Sequence[Tuple[str, str]]] = None) -> str:
+def _query(
+    path: Optional[str], params: Optional[Sequence[Tuple[str, str]]] = None
+) -> str:
     """组装 HTTP 查询串(内部函数)。
 
     :param path: 可选 XPath(``path=<XPath>``,URL 编码)
@@ -279,7 +284,9 @@ class _MtConnectSession(BaseTransport):
             root = _fromstring_rejecting_doctype(body)
         except ElementTree.ParseError:
             raise OSError(
-                _("MTConnect HTTP 状态 {}:{}").format(status, body[:120].decode('utf-8', 'replace'))
+                _("MTConnect HTTP 状态 {}:{}").format(
+                    status, body[:120].decode("utf-8", "replace")
+                )
             )
         info = _error_of_document(root)
         if info is None:
@@ -536,7 +543,9 @@ class MTConnectClient(BaseClient):
         多 id 分隔符 ``;`` 在拼好路径**之后**保留,不参与编码。
         """
         if asset_ids:
-            encoded = ";".join(quote(_require_asset_id(item), safe="") for item in asset_ids)
+            encoded = ";".join(
+                quote(_require_asset_id(item), safe="") for item in asset_ids
+            )
             path = _ASSET_PATH + "/" + encoded
         else:
             path = _ASSETS_PATH
@@ -586,7 +595,10 @@ class MTConnectClient(BaseClient):
         value = items[text]
         if value == "" or value.lower() in _UNAVAILABLE_VALUES:
             raise DeviceError(
-                _("MTConnect 数据项当前不可用:{}={}").format(text, value or 'UNAVAILABLE'), 0
+                _("MTConnect 数据项当前不可用:{}={}").format(
+                    text, value or "UNAVAILABLE"
+                ),
+                0,
             )
         return _coerce(value, data_type, address)
 
@@ -672,7 +684,9 @@ class MTConnectClient(BaseClient):
         if from_sequence is not None and (
             isinstance(from_sequence, bool) or not isinstance(from_sequence, int)
         ):
-            raise ValueError(_("from_sequence 必须为整数,收到:{!r}").format(from_sequence))
+            raise ValueError(
+                _("from_sequence 必须为整数,收到:{!r}").format(from_sequence)
+            )
         if from_sequence is not None and from_sequence < 0:
             raise ValueError(_("from_sequence 不能为负,收到:{}").format(from_sequence))
         if at is not None and (isinstance(at, bool) or not isinstance(at, int)):
@@ -732,7 +746,8 @@ def _coerce(value: str, data_type: DataType, address: str) -> PrimitiveValue:
     if len(value) > MTCONNECT_MAX_NUMERIC_TEXT:
         # 3.11 之前的 int/float 对超长数字串是超线性开销,先按长度快拒
         raise DeviceError(
-            _("MTConnect 数据项数值文本过长:{} ← {} 字符").format(address, len(value)), 0
+            _("MTConnect 数据项数值文本过长:{} ← {} 字符").format(address, len(value)),
+            0,
         )
     if data_type in (DataType.FLOAT, DataType.DOUBLE):
         try:

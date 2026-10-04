@@ -17,6 +17,7 @@
 多字值(32/64 位)为**字内大端、低字在前**(低字存低地址;与 MC 的小端
 不同——MC 是字内小端;2026-09-30 修正,原误作"整体大端字序")。
 """
+
 from __future__ import annotations
 
 import datetime
@@ -76,7 +77,9 @@ def memory_codes(area: str, bank: int = 0) -> Tuple[int, int]:
         return FINS_MEMORY_CODES[area]
     except KeyError:
         raise ValueError(
-            _("不支持的 FINS 存储区:{!r},支持:{}").format(area, "/".join(sorted(FINS_MEMORY_CODES)))
+            _("不支持的 FINS 存储区:{!r},支持:{}").format(
+                area, "/".join(sorted(FINS_MEMORY_CODES))
+            )
         )
 
 
@@ -227,21 +230,23 @@ def parse_multiple_area_read(
     end_code = int.from_bytes(frame[12:14], "big")
     if not _is_normal_end_code(end_code):
         text = _(_end_code_text(end_code))
-        raise DeviceError(_("FINS 结束码 0x{:04X}({})").format(end_code, text), end_code)
+        raise DeviceError(
+            _("FINS 结束码 0x{:04X}({})").format(end_code, text), end_code
+        )
     expected = len(codes) * 3
     total = prefix + FINS_END_CODE_SIZE + expected
     if len(frame) != total:
         raise ProtocolFrameError(
-            _("FINS 多存储区读响应长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})").format(
-                total, len(frame), format_hex(frame)
-            )
+            _(
+                "FINS 多存储区读响应长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})"
+            ).format(total, len(frame), format_hex(frame))
         )
-    data = frame[14:14 + expected]
+    data = frame[14 : 14 + expected]
     if len(data) != expected:
         raise ProtocolFrameError(
-            _("FINS 多存储区读响应数据不足:期望 {} 字节,实际 {}(收到的原始帧:{})").format(
-                expected, len(data), format_hex(frame)
-            )
+            _(
+                "FINS 多存储区读响应数据不足:期望 {} 字节,实际 {}(收到的原始帧:{})"
+            ).format(expected, len(data), format_hex(frame))
         )
     words: List[int] = []
     for index, code in enumerate(codes):
@@ -249,11 +254,11 @@ def parse_multiple_area_read(
         echo = data[base]
         if echo != code:
             raise ProtocolFrameError(
-                _("FINS 多存储区读区码回显不符:期望 0x{:02X},收到 0x{:02X}(收到的原始帧:{})").format(
-                    code, echo, format_hex(frame)
-                )
+                _(
+                    "FINS 多存储区读区码回显不符:期望 0x{:02X},收到 0x{:02X}(收到的原始帧:{})"
+                ).format(code, echo, format_hex(frame))
             )
-        words.append(int.from_bytes(data[base + 1:base + 3], "big"))
+        words.append(int.from_bytes(data[base + 1 : base + 3], "big"))
     return words
 
 
@@ -288,7 +293,9 @@ def parse_response(
     end_code = int.from_bytes(frame[12:14], "big")
     if not _is_normal_end_code(end_code):
         text = _(_end_code_text(end_code))
-        raise DeviceError(_("FINS 结束码 0x{:04X}({})").format(end_code, text), end_code)
+        raise DeviceError(
+            _("FINS 结束码 0x{:04X}({})").format(end_code, text), end_code
+        )
     if not is_read:
         total = prefix + FINS_END_CODE_SIZE
         if len(frame) != total:
@@ -306,7 +313,7 @@ def parse_response(
                 total, len(frame), format_hex(frame)
             )
         )
-    data = frame[14:14 + expected]
+    data = frame[14 : 14 + expected]
     if len(data) != expected:
         raise ProtocolFrameError(
             _("FINS 响应数据不足:期望 {} 字节,实际 {}(收到的原始帧:{})").format(
@@ -315,12 +322,13 @@ def parse_response(
         )
     if is_bit:
         return [int(byte) for byte in data]
-    return [int.from_bytes(data[i:i + 2], "big") for i in range(0, expected, 2)]
+    return [int.from_bytes(data[i : i + 2], "big") for i in range(0, expected, 2)]
 
 
 # ----------------------------------------------------------------------
 # CPU Unit Status Read(0601,探活/状态读)
 # ----------------------------------------------------------------------
+
 
 def build_cpu_unit_status_read(
     destination_network: int,
@@ -375,7 +383,9 @@ def parse_cpu_unit_status_read(frame: bytes, request_frame: bytes) -> Dict[str, 
     end_code = int.from_bytes(frame[12:14], "big")
     if not _is_normal_end_code(end_code):
         text = _(_end_code_text(end_code))
-        raise DeviceError(_("FINS 结束码 0x{:04X}({})").format(end_code, text), end_code)
+        raise DeviceError(
+            _("FINS 结束码 0x{:04X}({})").format(end_code, text), end_code
+        )
     data_total = 1 + 1 + 2 + 2 + 2 + 2 + 16
     total = prefix + FINS_END_CODE_SIZE + data_total
     if len(frame) != total:
@@ -384,7 +394,7 @@ def parse_cpu_unit_status_read(frame: bytes, request_frame: bytes) -> Dict[str, 
                 total, len(frame), format_hex(frame)
             )
         )
-    data = frame[prefix + FINS_END_CODE_SIZE:]
+    data = frame[prefix + FINS_END_CODE_SIZE :]
     return {
         "status": int(data[0]),
         "run": bool(data[0] & 0x01),
@@ -400,6 +410,7 @@ def parse_cpu_unit_status_read(frame: bytes, request_frame: bytes) -> Dict[str, 
 # ----------------------------------------------------------------------
 # 时钟读/写(0701 / 0702)
 # ----------------------------------------------------------------------
+
 
 class FinsClock(NamedTuple):
     """FINS PLC 时钟值(0701 读 / 0702 写,共 7 字段)。
@@ -546,7 +557,9 @@ def parse_clock_read(frame: bytes, request_frame: bytes) -> FinsClock:
     end_code = int.from_bytes(frame[12:14], "big")
     if not _is_normal_end_code(end_code):
         text = _(_end_code_text(end_code))
-        raise DeviceError(_("FINS 结束码 0x{:04X}({})").format(end_code, text), end_code)
+        raise DeviceError(
+            _("FINS 结束码 0x{:04X}({})").format(end_code, text), end_code
+        )
     data_total = 7
     total = prefix + FINS_END_CODE_SIZE + data_total
     if len(frame) != total:
@@ -555,7 +568,7 @@ def parse_clock_read(frame: bytes, request_frame: bytes) -> FinsClock:
                 total, len(frame), format_hex(frame)
             )
         )
-    data = frame[prefix + FINS_END_CODE_SIZE:]
+    data = frame[prefix + FINS_END_CODE_SIZE :]
     return FinsClock(
         year=_bcd_decode(data[0], frame),
         month=_bcd_decode(data[1], frame),
@@ -623,6 +636,7 @@ def parse_clock_write(frame: bytes, request_frame: bytes) -> None:
 # FINS/TCP 封装
 # ----------------------------------------------------------------------
 
+
 def build_handshake(local_node: int) -> bytes:
     """构造 20 字节节点分配握手请求(本地节点号取帧内末字节)。
 
@@ -659,9 +673,9 @@ def parse_tcp_head(head: bytes) -> int:
     min_fins_frame = FINS_HEADER_SIZE + 2 + FINS_END_CODE_SIZE
     if length < min_fins_frame:
         raise ProtocolFrameError(
-            _("FINS/TCP 长度域过短:{} < 最小 FINS 帧 {} 字节(收到的原始帧头:{})").format(
-                length, min_fins_frame, format_hex(head)
-            )
+            _(
+                "FINS/TCP 长度域过短:{} < 最小 FINS 帧 {} 字节(收到的原始帧头:{})"
+            ).format(length, min_fins_frame, format_hex(head))
         )
     if length > FINS_MAX_TCP_FRAME:
         raise ProtocolFrameError(
@@ -697,9 +711,7 @@ def parse_handshake_response(frame: bytes) -> Tuple[int, int]:
 def build_tcp_frame(fins_frame: bytes) -> bytes:
     """把 FINS 帧封装为 FINS/TCP 数据帧(命令 2,长度 = 后续字节数)。"""
     body = (
-        FINS_TCP_COMMAND_DATA.to_bytes(4, "big")
-        + (0).to_bytes(4, "big")
-        + fins_frame
+        FINS_TCP_COMMAND_DATA.to_bytes(4, "big") + (0).to_bytes(4, "big") + fins_frame
     )
     return FINS_TCP_MAGIC + len(body).to_bytes(4, "big") + body
 
@@ -741,6 +753,7 @@ def extract_tcp_payload(content: bytes) -> bytes:
 # ----------------------------------------------------------------------
 # 内部函数
 # ----------------------------------------------------------------------
+
 
 def _is_normal_end_code(end_code: int) -> bool:
     """结束码是否正常完成(内部函数)。
@@ -850,9 +863,9 @@ def _check_identity(frame: bytes, request_frame: bytes) -> None:
     # 先做长度快速判断再回显比对,避免 IndexError 掩盖真正问题
     if len(frame) < FINS_HEADER_SIZE + 2:
         raise ProtocolFrameError(
-            _("FINS 响应不完整(无法核对 ICF/SID/命令码):至少 {} 字节,实际 {}(收到的原始帧:{})").format(
-                FINS_HEADER_SIZE + 2, len(frame), format_hex(frame)
-            )
+            _(
+                "FINS 响应不完整(无法核对 ICF/SID/命令码):至少 {} 字节,实际 {}(收到的原始帧:{})"
+            ).format(FINS_HEADER_SIZE + 2, len(frame), format_hex(frame))
         )
     if frame[0] != FINS_ICF_RESPONSE:
         raise ProtocolFrameError(
@@ -862,14 +875,14 @@ def _check_identity(frame: bytes, request_frame: bytes) -> None:
         )
     if frame[9] != expected_sid:
         raise ProtocolFrameError(
-            _("FINS 响应 SID 回显不符:期望 0x{:02X},收到 0x{:02X}(收到的原始帧:{})").format(
-                expected_sid, frame[9], format_hex(frame)
-            )
+            _(
+                "FINS 响应 SID 回显不符:期望 0x{:02X},收到 0x{:02X}(收到的原始帧:{})"
+            ).format(expected_sid, frame[9], format_hex(frame))
         )
     if frame[10:12] != expected_command.to_bytes(2, "big"):
         actual_command = int.from_bytes(frame[10:12], "big")
         raise ProtocolFrameError(
-            _("FINS 响应命令码回显不符:期望 0x{:04X},收到 0x{:04X}(收到的原始帧:{})").format(
-                expected_command, actual_command, format_hex(frame)
-            )
+            _(
+                "FINS 响应命令码回显不符:期望 0x{:04X},收到 0x{:04X}(收到的原始帧:{})"
+            ).format(expected_command, actual_command, format_hex(frame))
         )

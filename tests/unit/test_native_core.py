@@ -11,6 +11,7 @@
 - ``socket.timeout``(TCP 口径)→ 拆连
 - 连接期取消 → 干净清场(不计失败);``close()`` 等锁不锯断在途事务
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -30,7 +31,9 @@ from omniplc.core.types import DataType
 # FC03 读 1 寄存器 = 20 的完整 MBAP 响应(tid=1)
 _RESP_TID1 = bytes([0x00, 0x01, 0x00, 0x00, 0x00, 0x05, 0x01, 0x03, 0x02, 0x00, 0x14])
 _RESP_TID2 = bytes([0x00, 0x02, 0x00, 0x00, 0x00, 0x05, 0x01, 0x03, 0x02, 0x00, 0x14])
-_ECHO_TID2 = bytes([0x00, 0x02, 0x00, 0x00, 0x00, 0x06, 0x01, 0x06, 0x00, 0x00, 0x00, 0x14])
+_ECHO_TID2 = bytes(
+    [0x00, 0x02, 0x00, 0x00, 0x00, 0x06, 0x01, 0x06, 0x00, 0x00, 0x00, 0x14]
+)
 
 
 def _chunks(frame: bytes) -> List[bytes]:
@@ -357,7 +360,9 @@ def test_typed_calls_share_one_transaction_template() -> None:
 
     assert len(typed_transport.sent) == 1
     assert len(generic_transport.sent) == 1
-    assert typed_transport.sent[0] == generic_transport.sent[0], "类型化与泛化请求帧必须同模板"
+    assert typed_transport.sent[0] == generic_transport.sent[0], (
+        "类型化与泛化请求帧必须同模板"
+    )
 
     asyncio.run(typed_client.close())
     asyncio.run(generic_client.close())

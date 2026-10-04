@@ -20,6 +20,7 @@
 编号按软元件码表的进制在编码层换算(:func:`.codec_qna.device_number`),
 本模块只做语法拆分,保留数字原文。
 """
+
 from __future__ import annotations
 
 import re

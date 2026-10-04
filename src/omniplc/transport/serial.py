@@ -4,6 +4,7 @@ pyserial 为可选依赖:仅在使用 :class:`SerialTransport` 时才需要安�
 (``pip install omniplc[serial]`` 或 ``uv add 'omniplc[serial]'``)。
 导入本模块**不会**导入 pyserial,实例化并连接时才检查。
 """
+
 from __future__ import annotations
 
 import time
@@ -75,7 +76,11 @@ class SerialTransport(BaseTransport):
         SerialParity.ODD: "PARITY_ODD",
     }
     _DATA_BITS_MAP = {5: "FIVEBITS", 6: "SIXBITS", 7: "SEVENBITS", 8: "EIGHTBITS"}
-    _STOP_BITS_MAP = {1: "STOPBITS_ONE", 1.5: "STOPBITS_ONE_POINT_FIVE", 2: "STOPBITS_TWO"}
+    _STOP_BITS_MAP = {
+        1: "STOPBITS_ONE",
+        1.5: "STOPBITS_ONE_POINT_FIVE",
+        2: "STOPBITS_TWO",
+    }
 
     def __init__(self, config: SerialConfig) -> None:
         """初始化串口传输。
@@ -125,7 +130,9 @@ class SerialTransport(BaseTransport):
         port.baudrate = self._config.baud_rate
         port.bytesize = getattr(serial, self._DATA_BITS_MAP[self._config.data_bits])
         port.stopbits = getattr(serial, self._STOP_BITS_MAP[self._config.stop_bits])
-        port.parity = getattr(serial, self._PARITY_MAP[_coerce_parity(self._config.parity)])
+        port.parity = getattr(
+            serial, self._PARITY_MAP[_coerce_parity(self._config.parity)]
+        )
         port.timeout = self._receive_timeout
         port.write_timeout = self._receive_timeout
         port.open()
@@ -195,7 +202,9 @@ class SerialTransport(BaseTransport):
             )
         self.close()
         raise TransportClosedError(
-            _("串口读取超时且已收 {}/{} 字节(帧截断,残渣必致后续帧错位),已关闭串口,下次事务将重新打开以重新同步").format(received, size)
+            _(
+                "串口读取超时且已收 {}/{} 字节(帧截断,残渣必致后续帧错位),已关闭串口,下次事务将重新打开以重新同步"
+            ).format(received, size)
         )
 
     def _require_serial(self) -> Any:

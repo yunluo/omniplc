@@ -19,6 +19,7 @@
     async with AsyncModbusTcpClient("192.168.0.10", 502, 1) as client:
         ok, value = await client.read_float("hr0")
 """
+
 from __future__ import annotations
 
 from typing import Dict, List, Optional, Sequence, Tuple, Union, cast
@@ -199,7 +200,9 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         """从寄存器区读字符串:连续寄存器 → 按大端拼字节 → 解码。"""
         parsed = parse_address(address)
         if parsed.area not in (ModbusArea.HOLDING_REGISTER, ModbusArea.INPUT_REGISTER):
-            raise ValueError(_("字符串只能从寄存器区域(hr/ir)读取,收到:{!r}").format(address))
+            raise ValueError(
+                _("字符串只能从寄存器区域(hr/ir)读取,收到:{!r}").format(address)
+            )
         if parsed.bit is not None:
             raise ValueError(_("字符串地址不支持位号后缀:{!r}").format(address))
         registers = await self._read_registers(parsed, (length + 1) // 2)
@@ -212,13 +215,17 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         """向寄存器区写字符串:编码 → 补齐偶数字节 → 按大端拆寄存器。"""
         parsed = parse_address(address)
         if parsed.area != ModbusArea.HOLDING_REGISTER:
-            raise ValueError(_("字符串只能写入保持寄存器区域(hr),收到:{!r}").format(address))
+            raise ValueError(
+                _("字符串只能写入保持寄存器区域(hr),收到:{!r}").format(address)
+            )
         if parsed.bit is not None:
             raise ValueError(_("字符串地址不支持位号后缀:{!r}").format(address))
         raw = convert.encode_string(
             value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
         )
-        registers = [int.from_bytes(raw[i:i + 2], "big") for i in range(0, len(raw), 2)]
+        registers = [
+            int.from_bytes(raw[i : i + 2], "big") for i in range(0, len(raw), 2)
+        ]
         await self._write_registers_impl(parsed, registers)
         return value
 
@@ -239,9 +246,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         self._reject_broadcast_read()
         pdu = codec.build_read_pdu(parsed.read_function_code, parsed.offset, count)
         response = await self._transact(pdu)
-        raw_bits = codec.parse_read_response(
-            response, parsed.read_function_code, count
-        )
+        raw_bits = codec.parse_read_response(response, parsed.read_function_code, count)
         return [bool(raw) for raw in raw_bits]
 
     async def _read_registers(self, parsed: ModbusAddress, count: int) -> List[int]:
@@ -303,7 +308,9 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         :param values: 连续 ``count`` 个线圈的真值表(LSB first)
         """
         if parsed.area != ModbusArea.COIL:
-            raise ValueError(_("FC 15 仅支持线圈区域,收到:{!r}").format(parsed.area.value))
+            raise ValueError(
+                _("FC 15 仅支持线圈区域,收到:{!r}").format(parsed.area.value)
+            )
         int_values: List[int] = [1 if flag else 0 for flag in values]
         await self._write_pdu(
             codec.build_write_multi_pdu(
@@ -337,8 +344,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         """
         data_type_enum = DataType.coerce(data_type)
         parsed = [
-            (_check_address(addr, data_type_enum), data_type_enum)
-            for addr in addresses
+            (_check_address(addr, data_type_enum), data_type_enum) for addr in addresses
         ]
         ok, values = await self._execute(lambda: self._coalesce_and_read(parsed))
         if not ok or values is None:
@@ -396,12 +402,16 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         if data_type_enum is DataType.BOOL:
             if parsed.bit is not None:
                 raise ValueError(
-                    _("read_range 位区读不支持位号后缀:{!r}(位区直接用 c/di)").format(address)
+                    _("read_range 位区读不支持位号后缀:{!r}(位区直接用 c/di)").format(
+                        address
+                    )
                 )
             if parsed.area in (ModbusArea.HOLDING_REGISTER, ModbusArea.INPUT_REGISTER):
                 raise ValueError(
-                    _("read_range 的 BOOL 仅支持线圈(c)/离散输入(di)区,寄存器区请逐点"
-                    "(hr0.3)或按字读后自取位:{!r}").format(address)
+                    _(
+                        "read_range 的 BOOL 仅支持线圈(c)/离散输入(di)区,寄存器区请逐点"
+                        "(hr0.3)或按字读后自取位:{!r}"
+                    ).format(address)
                 )
             if parsed.offset + count > MODBUS_ADDRESS_MAX + 1:
                 raise ValueError(
@@ -454,7 +464,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         """把连续寄存器按元素宽度切片解码(内部方法)。"""
         values: List[PrimitiveValue] = []
         for index in range(count):
-            chunk = registers[index * width:(index + 1) * width]
+            chunk = registers[index * width : (index + 1) * width]
             if data_type is DataType.SHORT:
                 values.append(convert.to_signed(chunk[0], 16))
             elif data_type is DataType.USHORT:
@@ -686,9 +696,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         for (area, kind, _width, _dtype), group in groups.items():
             group.sort(key=lambda t: t[1].parsed.offset)
             max_unit = (
-                MODBUS_MAX_WRITE_BITS
-                if kind == "bit"
-                else MODBUS_MAX_WRITE_REGISTERS
+                MODBUS_MAX_WRITE_BITS if kind == "bit" else MODBUS_MAX_WRITE_REGISTERS
             )
             for chunk_entries in _coalesce_group([t[1] for t in group], kind, max_unit):
                 chunk_items = [item for item in group if item[1] in chunk_entries]
@@ -766,10 +774,14 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         """
         parsed = parse_address(address)
         if parsed.area != ModbusArea.HOLDING_REGISTER:
-            raise ValueError(_("掩码写只支持保持寄存器区域(hr),收到:{!r}").format(address))
+            raise ValueError(
+                _("掩码写只支持保持寄存器区域(hr),收到:{!r}").format(address)
+            )
         if parsed.bit is not None:
             raise ValueError(_("掩码写地址不支持位号后缀:{!r}").format(address))
-        order = byte_order.value if isinstance(byte_order, ByteOrder) else str(byte_order)
+        order = (
+            byte_order.value if isinstance(byte_order, ByteOrder) else str(byte_order)
+        )
         pdu = codec.build_mask_write_pdu(
             parsed.offset, require_int(and_mask), require_int(or_mask), order
         )
@@ -817,8 +829,10 @@ class AsyncModbusTcpClient(AsyncBaseClient):
                     # 与同步侧同口径(V1.1b3 §6.17):异常码 02 优先含义是
                     # "地址越界",跨段网关只是次要可能(第九轮 R9-4)
                     raise DeviceError(
-                        _("{};若读/写地址均在设备合法范围内,可能是部分网关"
-                        "不支持跨段 FC23,可改用 write_many + read_many").format(exc),
+                        _(
+                            "{};若读/写地址均在设备合法范围内,可能是部分网关"
+                            "不支持跨段 FC23,可改用 write_many + read_many"
+                        ).format(exc),
                         exc.code,
                     ) from exc
                 raise
@@ -981,7 +995,11 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         :raises ValueError: 入参非法
         """
         trimmed = [
-            (require_int(file), require_int(record), [require_int(value) for value in values])
+            (
+                require_int(file),
+                require_int(record),
+                [require_int(value) for value in values],
+            )
             for file, record, values in records
         ]
         pdu = codec.build_write_file_record_pdu(trimmed)
@@ -1025,8 +1043,10 @@ class AsyncModbusTcpClient(AsyncBaseClient):
                 # 设备侧坏指针按 DeviceError 分类(与同步层同口径),
                 # 不以 ValueError 逃出 read_device_id
                 raise DeviceError(
-                    _("设备标识翻页指针非法:设备下发 next_object_id=0x{:02X}"
-                    "(越界或落在规范保留区间)").format(object_id),
+                    _(
+                        "设备标识翻页指针非法:设备下发 next_object_id=0x{:02X}"
+                        "(越界或落在规范保留区间)"
+                    ).format(object_id),
                     0,
                 )
             pdu = codec.build_device_id_pdu(code, object_id)

@@ -17,13 +17,18 @@
 ``L`` 兼作链接继电器(位)与链接寄存器 LT(字):位访问语境按接点、
 字访问语境按 LT 解析,由 ``is_bit`` 参数决定。
 """
+
 from __future__ import annotations
 
 import re
 from functools import lru_cache
 from typing import NamedTuple, Optional
 
-from ...core.constants import ADDRESS_CACHE_MAXSIZE, MEWTOCOL_CONTACT_AREAS, MODBUS_REGISTER_BIT_MAX
+from ...core.constants import (
+    ADDRESS_CACHE_MAXSIZE,
+    MEWTOCOL_CONTACT_AREAS,
+    MODBUS_REGISTER_BIT_MAX,
+)
 from ...core.i18n import _
 
 # 接点:区代码 + 数字串(末位可为十六进制位号,可选 .十进制位号点号形式)
@@ -73,10 +78,10 @@ def parse_mewtocol_address(address: str, is_bit: bool) -> MewtocolAddress:
         return _build_data(matched_data, address, is_bit)
     if not is_bit and contact is not None:
         raise ValueError(
-            _("MEWTOCOL 接点区软元件 {} 不支持字访问:{!r}"
-            "(定时器/计数器当前值请用 S 区=设定值、K 区=经过值)").format(
-                contact.group(1), address
-            )
+            _(
+                "MEWTOCOL 接点区软元件 {} 不支持字访问:{!r}"
+                "(定时器/计数器当前值请用 S 区=设定值、K 区=经过值)"
+            ).format(contact.group(1), address)
         )
     raise ValueError(
         _("无法解析 MEWTOCOL 地址:{!r}(示例:R000F / R1.15 / D100)").format(address)
@@ -94,13 +99,19 @@ def _build_contact(match: "re.Match[str]", address: str) -> MewtocolAddress:
     if match.group(3) is not None:
         bit = int(match.group(3))
         if not 0 <= bit <= MODBUS_REGISTER_BIT_MAX:
-            raise ValueError(_("MEWTOCOL 接点位号必须在 0~{} 之间,收到:{}").format(MODBUS_REGISTER_BIT_MAX, bit))
+            raise ValueError(
+                _("MEWTOCOL 接点位号必须在 0~{} 之间,收到:{}").format(
+                    MODBUS_REGISTER_BIT_MAX, bit
+                )
+            )
         word = int(digits, 10) if digits else 0
         return MewtocolAddress(area=area, word=word, bit=bit)
     if not digits or len(digits) < 2:
         raise ValueError(
-            _("MEWTOCOL 接点地址缺少位号:{!r}"
-            "(字号+位号形式如 R000F、R1F,点号形式如 R1.15)").format(address)
+            _(
+                "MEWTOCOL 接点地址缺少位号:{!r}"
+                "(字号+位号形式如 R000F、R1F,点号形式如 R1.15)"
+            ).format(address)
         )
     bit = int(digits[-1], 16)
     word = int(digits[:-1], 10)
@@ -114,9 +125,15 @@ def _build_data(match: "re.Match[str]", address: str, is_bit: bool) -> MewtocolA
     bit = int(match.group(3)) if match.group(3) is not None else None
     if is_bit and bit is None:
         raise ValueError(
-            _("MEWTOCOL 字软元件 {} 位访问需要 .位号 后缀:{!r}(如 D100.3);"
-            "接点区软元件为 {}").format(area, address, "/".join(MEWTOCOL_CONTACT_AREAS))
+            _(
+                "MEWTOCOL 字软元件 {} 位访问需要 .位号 后缀:{!r}(如 D100.3);"
+                "接点区软元件为 {}"
+            ).format(area, address, "/".join(MEWTOCOL_CONTACT_AREAS))
         )
     if bit is not None and not 0 <= bit <= MODBUS_REGISTER_BIT_MAX:
-        raise ValueError(_("MEWTOCOL 字软元件位号必须在 0~{} 之间,收到:{}").format(MODBUS_REGISTER_BIT_MAX, bit))
+        raise ValueError(
+            _("MEWTOCOL 字软元件位号必须在 0~{} 之间,收到:{}").format(
+                MODBUS_REGISTER_BIT_MAX, bit
+            )
+        )
     return MewtocolAddress(area=area, word=number, bit=bit)

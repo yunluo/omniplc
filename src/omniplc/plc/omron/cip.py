@@ -26,6 +26,7 @@ NJ/NX(Sysmac)系列没有 FINS/TCP-UDP,变量经标准 CIP 显式报文访问;
 发起方厂商号沿用 0x1337(仅标识发起端,目标设备不校验)。
 地址语法与 AB 相同:变量名/数组下标/结构成员(如 ``Motor[2].Speed``)。
 """
+
 from __future__ import annotations
 
 import struct
@@ -108,7 +109,8 @@ class OmronCipClient(AllenBradleyEthIpClient):
             index = _single_array_index(parsed)
             _unused, data = self._read_tag_values(_word_index_path(parsed, index), 1)
             return bool(
-                (codec_cip.decode_word(data, codec_cip.CIP_TYPE_DWORD) >> (index % 32)) & 1
+                (codec_cip.decode_word(data, codec_cip.CIP_TYPE_DWORD) >> (index % 32))
+                & 1
             )
         raise ValueError(
             _("标签 {!r} 实际类型 {} 不是 BOOL").format(
@@ -126,9 +128,7 @@ class OmronCipClient(AllenBradleyEthIpClient):
         if parsed.bit is not None:
             cip_type = self._ensure_type(parsed)
             if cip_type == codec_cip.CIP_TYPE_BOOL:
-                raise ValueError(
-                    _("BOOL 标签不支持位号后缀:{!r}").format(parsed.name)
-                )
+                raise ValueError(_("BOOL 标签不支持位号后缀:{!r}").format(parsed.name))
             bit = parsed.bit or 0
             _check_bit_range(parsed, cip_type, bit)
             self._modify_word(_strip_bit(parsed), cip_type, bit, flag)
@@ -175,9 +175,7 @@ class OmronCipClient(AllenBradleyEthIpClient):
     # 取实际模板号与声明尺寸
     # ------------------------------------------------------------------
 
-    def _write_string(
-        self, address: str, value: str, encoding: str
-    ) -> PrimitiveValue:
+    def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
         """写 NJ/NX STRING(先读模板号与声明尺寸,值超尺寸拒绝)。
 
         声明尺寸与模板号取自设备**回读满缓冲**的应答——NJ 固件对
@@ -209,11 +207,11 @@ class OmronCipClient(AllenBradleyEthIpClient):
         usable = len(payload) - 4 - 4  # 结构体尺寸 - 模板头 - 长度域
         if usable <= 0:
             raise ValueError(
-                _("标签 {!r} 的 STRING 声明尺寸非法:{}(回读载荷 {} 字节,"
-                "不足模板头 4 + 长度域 4;若该 STRING 变量当前为空,"
-                "说明固件未按声明尺寸 NUL 填充回读,请真机核证)").format(
-                    address, len(payload) - 4, len(payload)
-                )
+                _(
+                    "标签 {!r} 的 STRING 声明尺寸非法:{}(回读载荷 {} 字节,"
+                    "不足模板头 4 + 长度域 4;若该 STRING 变量当前为空,"
+                    "说明固件未按声明尺寸 NUL 填充回读,请真机核证)"
+                ).format(address, len(payload) - 4, len(payload))
             )
         raw = value.encode(encoding)
         if len(raw) > usable:

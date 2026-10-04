@@ -206,7 +206,7 @@ uvx ty check src/omniplc            # ty 类型检查
 3. **AI 与 IDE 一样,都是工具**——工具提升效率,不改变责任归属。
 
 AI 协作者(含 AI 代理)请先读 [AGENTS.md](AGENTS.md)(协议依据铁律、
-全中文约定、提交纪律、门禁四件套)与 [CONTRIBUTING.md](CONTRIBUTING.md)。
+全中文约定、提交纪律、门禁五件套)与 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 #### License
 

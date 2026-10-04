@@ -21,6 +21,7 @@ BCC 测试向量 ``%01#RCSX0000`` → ``1D`` 按手册 BCC 算法验算交叉确
 RD/WD 数据区读/写(起止编号各 5 位十进制,每字 4 位十六进制、高字节在前,
 多字数据低字在前,**待核**见上②)。
 """
+
 from __future__ import annotations
 
 from typing import List
@@ -125,10 +126,14 @@ def build_read_contact(station: str, area: str, word: int, bit: int) -> bytes:
     return _assemble(station, f"RCS{area}{word:03d}{bit:X}")
 
 
-def build_write_contact(station: str, area: str, word: int, bit: int, value: bool) -> bytes:
+def build_write_contact(
+    station: str, area: str, word: int, bit: int, value: bool
+) -> bytes:
     """构造 WCS 写单接点请求。"""
     _check_contact_field(word, bit)
-    return _assemble(station, "WCS{}{:03d}{:X}{}".format(area, word, bit, 1 if value else 0))
+    return _assemble(
+        station, "WCS{}{:03d}{:X}{}".format(area, word, bit, 1 if value else 0)
+    )
 
 
 def build_read_words(station: str, area: str, start: int, word_count: int) -> bytes:
