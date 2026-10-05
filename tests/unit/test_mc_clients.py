@@ -263,6 +263,26 @@ def test_udp_3e_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     _mount(monkeypatch, client, scripted)
     client.connect()
     assert client.read_ushort("D100") == (True, 20)
+
+
+def test_udp_drains_stale_datagram_before_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """UDP 陈旧帧防护:发送前排空上一事务迟到的响应,本轮应答不受干扰。
+
+    MC 帧无事务号,同帧型迟到响应可绕过解析校验造成静默错值(读到上一轮
+    的旧值);发送前排空后本轮应答照常解析,旧值不再有被消费的机会。
+    """
+    client = MelsecMcUdpClient("127.0.0.1", 2000)
+    stale = _qna_read_response([1111])
+    scripted = ScriptedTransport(
+        [_qna_read_response([7777])], datagram=True, stale=[stale]
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_ushort("D100") == (True, 7777)
+    assert scripted.events == ["drain", "send"]
+    assert scripted.drained == [stale]
     assert bytes(scripted.sent) == codec_qna.build_request(
         "3E",
         1,

@@ -65,6 +65,11 @@ from ..core.i18n import _
 # 报错);正码会与 16 位 PLC 结束码空间撞码并污染统计。
 _WSAEMSGSIZE_ERRNO = 10040
 
+# 排空循环的数据报个数上限(与 transport/udp.py 同口径):陈旧帧防护的
+# 保险丝。正常现场缓冲里只有上一轮迟到的个别响应;对端若以线速持续灌包
+# (异常形态),无上限循环会长时间占用事件循环,到量即停并记 WARNING。
+_UDP_DRAIN_MAX_DATAGRAMS = 64
+
 # 摘 selector 注册时"句柄已不可用"的 errno:摘不到不影响关句柄,但会掩盖
 # fd 提前失效(用尽 / 被并发关闭),记一条 WARNING 而不是无声吞掉。
 _STALE_SELECTOR_ERRNOS = frozenset({errno.EBADF, errno.EINVAL})
@@ -208,6 +213,18 @@ class AsyncBaseTransport(ABC):
         :return: 收到的字节(非空)
         """
         return await self.recv(max_bytes)
+
+    async def drain(self) -> int:
+        """排空接收缓冲中的陈旧数据报,返回排掉个数(默认不动)。
+
+        UDP 数据报走线的**陈旧帧防护**,与同步层
+        :meth:`~omniplc.transport.BaseTransport.drain` 同口径:上一事务
+        超时后迟到的响应留在缓冲,下一事务 ``recv`` 会误当本轮应答。
+        流式走线(TCP)超时即拆连重同步,**有意保持默认 no-op**。
+
+        :return: 排掉的数据报个数(仅数据报实现非零)
+        """
+        return 0
 
     async def __aenter__(self) -> "AsyncBaseTransport":
         await self.connect()
@@ -539,6 +556,46 @@ class AsyncUdpTransport(AsyncBaseTransport):
         frame = bytes(buffer[:received])
         log_frame(self._debug_label, RECV_MARK, frame)
         return frame
+
+    async def drain(self) -> int:
+        """排空接收缓冲中的陈旧数据报,返回排掉个数(陈旧帧防护)。
+
+        套接字恒为非阻塞(:meth:`connect` 里 ``setblocking(False)``),
+        直接同步 ``recv`` 即"立即返回或缓冲见底",不引入事件循环等待;
+        排掉的帧照常走 ``log_frame``(RECV_MARK,黑匣子可见)。Windows
+        Selector 循环的超长陈旧报文(WSAEMSGSIZE)在排空语境下**照排
+        不报**——丢弃正是本方法的目的。
+
+        :raises TransportClosedError: 未初始化
+        :raises OSError: 非"缓冲见底/报文超长"的 OS 层错误
+        """
+        sock = self._require_socket()
+        drained = 0
+        while drained < _UDP_DRAIN_MAX_DATAGRAMS:
+            try:
+                stale = sock.recv(65535)
+            except (BlockingIOError, socket.timeout):
+                break
+            except OSError as exc:
+                if getattr(exc, "errno", None) == _WSAEMSGSIZE_ERRNO:
+                    drained += 1
+                    log_warning(
+                        self._debug_label,
+                        "排空时丢弃超长陈旧数据报(缓冲 65535B,WinError 10040)",
+                    )
+                    continue
+                raise
+            drained += 1
+            log_frame(self._debug_label, RECV_MARK, stale)
+        if drained >= _UDP_DRAIN_MAX_DATAGRAMS:
+            log_warning(
+                self._debug_label,
+                "接收缓冲排空达上限(%d 个数据报仍在灌入),截断本次排空",
+                _UDP_DRAIN_MAX_DATAGRAMS,
+            )
+        if drained:
+            log_op(self._debug_label, "已排空 %d 个陈旧数据报", drained)
+        return drained
 
     def _clear_stale_selector(self, sock: socket.socket) -> None:
         """摘掉取消/超时后残留的 selector 注册(内部方法)。

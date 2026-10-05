@@ -842,6 +842,11 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         整包(长度校验交给解析层)。
         """
         transport = self._require_transport()
+        if transport.datagram:
+            # 数据报走线发送前排空陈旧帧:上一事务超时后迟到的响应会被
+            # 本轮 recv 误当应答;MC 帧无事务号,排空是唯一防线(与同步
+            # MelsecMcBase._transact 同口径)
+            await transport.drain()
         await transport.send(request)
         if transport.datagram:
             return await transport.recv(MC_MAX_DATAGRAM)

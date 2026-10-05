@@ -99,6 +99,11 @@ class _ToyopucBase(BaseClient):
         :raises DeviceError: PLC 返回出错代码
         """
         transport = self._require_transport()
+        if transport.datagram:
+            # 数据报走线发送前排空陈旧帧:上一事务超时后迟到的响应会被
+            # 本轮 recv 误当应答;TOYOPUC 无事务号,同命令迟到帧可绕过
+            # 命令回显校验造成静默错值,排空是唯一防线(陈旧帧防护)
+            transport.drain()
         transport.send(frame)
         if transport.datagram:
             raw = transport.recv(TOYOPUC_MAX_DATAGRAM)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import socket
-from typing import List
+from typing import List, Optional
 
 import pytest
 
@@ -68,6 +68,11 @@ class TestTcpTransport:
             transport.send(b"ping")
             assert transport.recv(4) == b"ping"
         assert transport._socket is None  # 退出后已关闭
+
+    def test_drain_is_noop_for_stream(self, tcp_echo_port: int) -> None:
+        """流式走线排空是 no-op:TCP 无数据报边界,超时即拆连重同步。"""
+        with TcpTransport("127.0.0.1", tcp_echo_port) as transport:
+            assert transport.drain() == 0
 
 
 class TestUdpTransport:
@@ -234,6 +239,110 @@ class TestUdpTransport:
         # code 为诊断性负码(-10040):避开真实协议错误码空间,
         # 基类不把该失败计入 device_error_count(本地缓冲问题非 PLC 报错)
         assert excinfo.value.code == -10040
+
+    def test_drain_stale_datagrams(self) -> None:
+        """排空陈旧帧:预置帧逐个吐出,缓冲见底即停(BlockingIOError 语义)。"""
+
+        class StaleSocket:
+            """预置陈旧帧的非阻塞 socket:吐尽即抛 BlockingIOError。"""
+
+            def __init__(self) -> None:
+                self.pool = [b"\x01\x02", b"\x03"]
+                self.blocking: Optional[bool] = None
+                self.timeouts: List[Optional[float]] = []
+
+            def setblocking(self, value: bool) -> None:
+                self.blocking = value
+
+            def settimeout(self, value: Optional[float]) -> None:
+                self.timeouts.append(value)
+
+            def recv(self, _size: int) -> bytes:
+                if not self.pool:
+                    raise BlockingIOError()
+                return self.pool.pop(0)
+
+            def close(self) -> None:
+                pass
+
+        fake = StaleSocket()
+        transport = UdpTransport("127.0.0.1", 9600)
+        transport.receive_timeout = 2.5
+        transport._socket = fake  # type: ignore[assignment]
+        try:
+            assert transport.drain() == 2
+            # 第二次排空:缓冲已见底,返回 0(陈旧帧防护的常规空转)
+            assert transport.drain() == 0
+        finally:
+            transport.close()
+        assert fake.pool == []
+        # 排空期间临时切非阻塞,结束后恢复 receive_timeout
+        assert fake.blocking is False
+        assert fake.timeouts == [2.5, 2.5]
+
+    def test_drain_drops_oversize_stale(self) -> None:
+        """陈旧帧的超长属性(WSAEMSGSIZE)在排空语境下照排不报。"""
+
+        class MixedSocket:
+            """先抛一次 10040(超长陈旧帧),再缓冲见底。"""
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def setblocking(self, _value: bool) -> None:
+                pass
+
+            def settimeout(self, _value: Optional[float]) -> None:
+                pass
+
+            def recv(self, _size: int) -> bytes:
+                self.calls += 1
+                if self.calls == 1:
+                    raise OSError(10040, "WSAEMSGSIZE: message too long")
+                raise BlockingIOError()
+
+            def close(self) -> None:
+                pass
+
+        transport = UdpTransport("127.0.0.1", 9600)
+        transport._socket = MixedSocket()  # type: ignore[assignment]
+        try:
+            assert transport.drain() == 1
+        finally:
+            transport.close()
+
+    def test_drain_cap_limits_runaway(self, caplog: pytest.LogCaptureFixture) -> None:
+        """排空达上限(64)即停:对端线速灌包的异常形态不长时间占锁。"""
+
+        class FloodingSocket:
+            """恒有数据:模拟对端持续灌包(排空永远见不了底)。"""
+
+            def setblocking(self, _value: bool) -> None:
+                pass
+
+            def settimeout(self, _value: Optional[float]) -> None:
+                pass
+
+            def recv(self, _size: int) -> bytes:
+                return b"\xaa"
+
+            def close(self) -> None:
+                pass
+
+        transport = UdpTransport("127.0.0.1", 9600)
+        transport._socket = FloodingSocket()  # type: ignore[assignment]
+        try:
+            with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
+                assert transport.drain() == 64
+        finally:
+            transport.close()
+        assert any("排空达上限" in record.getMessage() for record in caplog.records)
+
+    def test_drain_without_connect(self) -> None:
+        """未初始化即排空:TransportClosedError(与 send/recv 同契约)。"""
+        transport = UdpTransport("127.0.0.1", 9600)
+        with pytest.raises(TransportClosedError):
+            transport.drain()
 
 
 class _FakeSerialPort:

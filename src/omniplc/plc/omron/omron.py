@@ -838,6 +838,10 @@ class OmronFinsUdpClient(_OmronFinsBase):
     def _transact(self, fins_frame: bytes) -> bytes:
         """FINS/UDP 事务:一帧一数据报,整包接收。"""
         transport = self._require_transport()
+        # 发送前排空陈旧数据报:上一事务超时后迟到的响应若留在缓冲,
+        # 本轮 recv 会误当应答消费——SID/ICF 回显校验会把它当坏帧报错,
+        # 触发不必要的拆连重连(陈旧帧防护,UDP 走线共用口径)
+        transport.drain()
         transport.send(fins_frame)
         return transport.recv(FINS_MAX_DATAGRAM)
 

@@ -57,16 +57,26 @@ class ScriptedAsyncTransport(AsyncBaseTransport):
 
     :param chunks: 预置响应分片(TCP 按 recv 尺寸切片;UDP 单分片即整包)
     :param hang: True 时 recv 永不给数据(用于取消/超时用例)
+    :param stale: 预置**陈旧帧**队列(:meth:`drain` 排掉的就是它们,
+        与 ``chunks`` 分离——排空不得误伤本轮应答)
     """
 
     def __init__(
-        self, chunks: List[bytes], datagram: bool = False, hang: bool = False
+        self,
+        chunks: List[bytes],
+        datagram: bool = False,
+        hang: bool = False,
+        stale: Optional[List[bytes]] = None,
     ) -> None:
         super().__init__()
         self.datagram = datagram
         self._chunks = list(chunks)
+        self._stale = list(stale or [])
         self._hang = hang
         self.sent = bytearray()
+        self.drained: List[bytes] = []
+        self.drain_count = 0
+        self.events: List[str] = []
 
     async def connect(self) -> None:
         pass
@@ -75,6 +85,7 @@ class ScriptedAsyncTransport(AsyncBaseTransport):
         pass
 
     async def send(self, data: bytes) -> None:
+        self.events.append("send")
         self.sent.extend(data)
         # 与真传输同语义:发出请求即进入"未配对"状态(取消判据)
         self._pending = True
@@ -90,6 +101,15 @@ class ScriptedAsyncTransport(AsyncBaseTransport):
         if not self._chunks:
             raise ConnectionError("脚本分片已耗尽")
         return self._chunks.pop(0)
+
+    async def drain(self) -> int:
+        """排空预置陈旧帧队列(流式走线默认 no-op,与真传输同口径)。"""
+        if not self.datagram:
+            return 0
+        self.events.append("drain")
+        self.drain_count += 1
+        self.drained.extend(self._stale)
+        return len(self._stale)
 
 
 class RawTcpServer:

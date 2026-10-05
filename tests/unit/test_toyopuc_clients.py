@@ -503,6 +503,26 @@ def test_udp_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bytes(scripted.sent) == b"\x00\x00\x05\x00\x1c\x00\x11\x01\x00"
 
 
+def test_udp_drains_stale_datagram_before_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """UDP 陈旧帧防护:发送前排空上一事务迟到的响应,本轮应答不受干扰。
+
+    TOYOPUC 无事务号,同命令迟到帧可绕过命令回显校验造成静默错值;
+    陈旧帧取旧值(17),若被误当本轮应答会静默读到旧数据。
+    """
+    client = ToyopucUdpClient("127.0.0.1", 1025)
+    stale = _response(0x1C, b"\x11\x00")
+    scripted = ScriptedTransport(
+        [_response(0x1C, b"\x14\x00")], datagram=True, stale=[stale]
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("D0100") == (True, 20)
+    assert scripted.events == ["drain", "send"]
+    assert scripted.drained == [stale]
+
+
 def test_udp_bit_write(monkeypatch: pytest.MonkeyPatch) -> None:
     """UDP:位写一问一答。"""
     client = ToyopucUdpClient("127.0.0.1", 1025)

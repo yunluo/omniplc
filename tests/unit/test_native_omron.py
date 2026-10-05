@@ -595,6 +595,29 @@ def test_udp_auto_nodes_derived_from_ip(
     loop.run_until_complete(scenario())
 
 
+def test_udp_drains_stale_datagram_before_send(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """UDP 陈旧帧防护(native 镜像):发送前排空上一事务迟到的响应。
+
+    与同步层同口径:迟到帧的 SID/ICF 回显不符会被回显校验当坏帧报错拆连;
+    发送前排空后本轮应答照常解析,重试/抖动不再引发拆连重连。
+    """
+    stale = _fins_response(9, 0x0101, data=_words_be([1111]))  # 旧 SID + 旧值
+
+    async def scenario() -> None:
+        client = AsyncOmronFinsUdpClient("192.168.250.1")
+        scripted = ScriptedAsyncTransport([_READ_RESP], datagram=True, stale=[stale])
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        assert await client.read_ushort("D100") == (True, 20)
+        assert scripted.events == ["drain", "send"]
+        assert scripted.drained == [stale]
+        await client.close()
+
+    loop.run_until_complete(scenario())
+
+
 def test_udp_auto_nodes_from_hostname_without_blocking_dns(
     monkeypatch: pytest.MonkeyPatch, loop: Any
 ) -> None:

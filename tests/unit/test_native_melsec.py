@@ -756,6 +756,31 @@ def test_udp_cancel_then_close_keeps_loop_alive() -> None:
 _F32_1_5 = _encode_32(1.5, DataType.FLOAT)  # [低字, 高字](MC 小端字序)
 
 
+def test_udp_drains_stale_datagram_before_send(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """UDP 陈旧帧防护(native 镜像):发送前排空上一事务迟到的响应。
+
+    MC 帧无事务号,同帧型迟到响应可绕过解析校验造成静默错值;
+    与同步 MelsecMcBase._transact 同口径,发送前排空后本轮应答照常解析。
+    """
+    stale = _qna_read_response([1111])
+
+    async def scenario() -> None:
+        client = AsyncMelsecMcUdpClient("127.0.0.1", 2000)
+        scripted = ScriptedAsyncTransport(
+            [_qna_read_response([7777])], datagram=True, stale=[stale]
+        )
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        assert await client.read_ushort("D100") == (True, 7777)
+        assert scripted.events == ["drain", "send"]
+        assert scripted.drained == [stale]
+        await client.close()
+
+    loop.run_until_complete(scenario())
+
+
 def _qna_requests(data: bytes, frame: str) -> list:
     """把脚本记录到的连续请求帧拆开,返回 ``[(命令域 2 字节, 帧字节), ...]``。
 

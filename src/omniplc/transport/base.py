@@ -106,6 +106,23 @@ class BaseTransport(ABC):
         """
         return self.recv(max_bytes)
 
+    def drain(self) -> int:
+        """排空接收缓冲中的残留数据,返回排掉的数据报个数(默认不动)。
+
+        UDP 数据报走线的**陈旧帧防护**:上一事务超时后迟到的响应会留
+        在 socket 缓冲,下一事务 ``recv`` 会把它误当本轮应答消费——有
+        身份回显校验的协议(FINS SID)按坏帧报错拆连,无事务号的协议
+        (TOYOPUC/KV MC/MEWTOCOL)则**静默读到旧值**。一问一答模型下
+        发起新事务时缓冲里只可能有陈旧帧,发送前排空即消除串扰。
+
+        流式走线(TCP/串口)**有意保持默认 no-op**:流没有数据报边界,
+        超时即拆连重同步(基类口径),不存在"排空陈旧帧"的概念,调用方
+        也不应对流式传输调用本方法。
+
+        :return: 排掉的数据报个数(仅数据报实现非零)
+        """
+        return 0
+
     def __enter__(self: _T) -> _T:
         self.connect()
         return self

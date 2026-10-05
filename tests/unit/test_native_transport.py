@@ -212,6 +212,43 @@ def test_udp_cancel_then_close_keeps_loop_alive() -> None:
         responder.stop()
 
 
+def test_udp_drain_stale_datagrams() -> None:
+    """排空陈旧数据报:非阻塞 recv 循环,缓冲见底即停(与同步层同口径)。
+
+    套接字恒为非阻塞(connect 里 setblocking(False)),drain 直接同步
+    recv 不经过事件循环等待;预置帧吐尽后 BlockingIOError 收停。
+    """
+    loop = make_loop("SelectorEventLoop")
+
+    class _StaleSocket:
+        """预置陈旧帧的非阻塞 socket:吐尽即抛 BlockingIOError。"""
+
+        def __init__(self) -> None:
+            self.pool = [b"\x01\x02", b"\x03"]
+
+        def recv(self, _size: int) -> bytes:
+            if not self.pool:
+                raise BlockingIOError()
+            return self.pool.pop(0)
+
+        def close(self) -> None:
+            pass
+
+    async def scenario() -> None:
+        transport = AsyncUdpTransport("127.0.0.1", 1)
+        fake = _StaleSocket()
+        transport._socket = fake  # type: ignore[assignment]
+        assert await transport.drain() == 2
+        assert await transport.drain() == 0  # 缓冲已见底
+        assert fake.pool == []
+        transport.close()
+
+    try:
+        loop.run_until_complete(scenario())
+    finally:
+        loop.close()
+
+
 def test_udp_oversize_datagram_maps_to_device_error() -> None:
     """超长数据报(WSAEMSGSIZE 10040)→ ``DeviceError(code=-10040)``,与同步层同口径。
 

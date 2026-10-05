@@ -113,6 +113,33 @@ def test_udp_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     assert client.read_ushort("D100") == (True, 20)
+
+
+def test_udp_drains_stale_datagram_before_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """UDP 陈旧帧防护:发送前排空上一事务迟到的响应,本轮应答不受干扰。
+
+    超时重试/网络抖动场景:上一轮响应迟到留在接收缓冲,若无排空,SID/ICF
+    回显校验会把陈旧帧当坏帧报错并触发拆连重连;排空后本轮应答照常解析。
+    陈旧帧取旧 SID(9)与旧值,若被误当本轮应答会解析出错值。
+    """
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    stale = (
+        _FINS_ECHO_HEAD
+        + b"\x09"
+        + b"\x01\x01"
+        + b"\x00\x00"
+        + (1111).to_bytes(2, "big")
+    )
+    scripted = ScriptedTransport(
+        [_fins_read_response([7777])], datagram=True, stale=[stale]
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("D100") == (True, 7777)
+    assert scripted.events == ["drain", "send"]
+    assert scripted.drained == [stale]
     expected = codec.build_area_read(
         0, 5, 0, 0, 10, 0, 1, parse_fins_address("D100"), 1, False
     )

@@ -281,6 +281,23 @@ def test_udp_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bytes(scripted.sent) == b"RD DM100.U\r"
 
 
+def test_udp_drains_stale_datagram_before_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """UDP 陈旧帧防护:发送前排空上一事务迟到的响应,本轮应答不受干扰。
+
+    Host Link 无事务号,同命令迟到帧可绕过校验造成静默错值;陈旧帧取
+    旧值(99),若被误当本轮应答会静默读到旧数据。
+    """
+    client = KeyenceHostLinkUdpClient("127.0.0.1", 8000)
+    scripted = ScriptedTransport([b"20\r\n"], datagram=True, stale=[b"99\r\n"])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("DM100") == (True, 20)
+    assert scripted.events == ["drain", "send"]
+    assert scripted.drained == [b"99\r\n"]
+
+
 def test_response_hex_dump_truncated() -> None:
     """超长原始数据的十六进制转储被截断(不整段刷日志)。"""
     from omniplc.plc.keyence.hostlink import _truncate_hex

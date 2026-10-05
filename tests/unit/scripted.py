@@ -14,12 +14,26 @@ class ScriptedTransport(BaseTransport):
 
     TCP 用法:把完整应答帧按 recv 尺寸切片(如 ``frame[:9]``);
     UDP 用法:单个分片即整个数据报。
+
+    :param chunks: 预置响应分片(本轮事务的应答)
+    :param datagram: True = 数据报走线语义
+    :param stale: 预置**陈旧帧**队列(:meth:`drain` 排掉的就是它们,
+        与 ``chunks`` 分离——排空不得误伤本轮应答)
     """
 
-    def __init__(self, chunks: List[bytes], datagram: bool = False) -> None:
+    def __init__(
+        self,
+        chunks: List[bytes],
+        datagram: bool = False,
+        stale: Optional[List[bytes]] = None,
+    ) -> None:
         self.datagram = datagram
         self._chunks = list(chunks)
+        self._stale = list(stale or [])
         self.sent = bytearray()
+        self.drained: List[bytes] = []
+        self.drain_count = 0
+        self.events: List[str] = []
 
     def connect(self) -> None:
         pass
@@ -28,12 +42,22 @@ class ScriptedTransport(BaseTransport):
         pass
 
     def send(self, data: bytes) -> None:
+        self.events.append("send")
         self.sent.extend(data)
 
     def recv(self, size: int) -> bytes:
         if not self._chunks:
             raise ConnectionError("脚本分片已耗尽")
         return self._chunks.pop(0)
+
+    def drain(self) -> int:
+        """排空预置陈旧帧队列(流式走线默认 no-op,与真传输同口径)。"""
+        if not self.datagram:
+            return 0
+        self.events.append("drain")
+        self.drain_count += 1
+        self.drained.extend(self._stale)
+        return len(self._stale)
 
 
 class ChunkSocket:

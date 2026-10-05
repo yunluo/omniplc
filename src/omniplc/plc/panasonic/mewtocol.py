@@ -295,6 +295,11 @@ class _MewtocolBase(BaseClient):
         ``data_chars`` 预算拦截(响亮拒绝,不发不该发的请求)。
         """
         transport = self._require_transport()
+        if transport.datagram:
+            # 数据报走线发送前排空陈旧帧:上一事务超时后迟到的响应会被
+            # 本轮 recv 误当应答;MEWTOCOL 无事务号,同命令迟到帧可绕过
+            # 命令回显校验造成静默错值,排空是唯一防线(陈旧帧防护)
+            transport.drain()
         if transport.datagram and data_chars:
             expected = codec_mewtocol.parse_expected_size(data_chars)
             if expected > MEWTOCOL_MAX_DATAGRAM:

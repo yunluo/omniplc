@@ -945,6 +945,11 @@ class _MelsecMcBase(BaseClient):
         **尾部多余字节**(数据报边界异常,防止把串包/多余载荷当正常帧)。
         """
         transport = self._require_transport()
+        if transport.datagram:
+            # 数据报走线发送前排空陈旧帧:上一事务超时后迟到的响应会被
+            # 本轮 recv 误当应答;MC 帧无事务号,同帧型迟到响应可绕过
+            # 解析校验造成静默错值,排空是唯一防线(陈旧帧防护)
+            transport.drain()
         transport.send(request)
         if transport.datagram:
             return transport.recv(MC_MAX_DATAGRAM)

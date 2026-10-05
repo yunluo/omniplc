@@ -383,6 +383,26 @@ def test_udp_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.station == 2
 
 
+def test_udp_drains_stale_datagram_before_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """UDP 陈旧帧防护:发送前排空上一事务迟到的响应,本轮应答不受干扰。
+
+    MEWTOCOL 无事务号,同命令迟到帧可绕过站号/命令校验造成静默错值;
+    陈旧帧取旧值(25),若被误当本轮应答会静默读到旧数据。
+    """
+    client = PanasonicMewtocolUdpClient("127.0.0.1", 1024, station=2)
+    stale = _resp("RD", "0019", station="02")
+    scripted = ScriptedTransport(
+        [_resp("RD", "0064", station="02")], datagram=True, stale=[stale]
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_ushort("D0") == (True, 100)
+    assert scripted.events == ["drain", "send"]
+    assert scripted.drained == [stale]
+
+
 def test_defaults() -> None:
     """默认 IP/端口 1024/站号 1。"""
     client = PanasonicMewtocolTcpClient()

@@ -22,6 +22,11 @@ _WSAEMSGSIZE_ERRNO = 10040
 # WSAEOPNOTSUPP, WinError 10045)。
 _SUPPORTS_MSG_TRUNC = sys.platform != "win32" and hasattr(socket, "MSG_TRUNC")
 
+# 排空循环的数据报个数上限:陈旧帧防护的保险丝。正常现场缓冲里只有
+# 上一轮迟到的个别响应;对端若以线速持续灌包(异常形态),无上限循环
+# 会长时间占用事务锁,到量即停并记 WARNING。
+_UDP_DRAIN_MAX_DATAGRAMS = 64
+
 
 class UdpTransport(BaseTransport):
     """UDP 传输:面向 Modbus UDP、MC over UDP、FINS/UDP。
@@ -169,6 +174,54 @@ class UdpTransport(BaseTransport):
             raise
         log_frame(self._debug_label, RECV_MARK, frame)
         return frame
+
+    def drain(self) -> int:
+        """排空接收缓冲中的陈旧数据报,返回排掉个数(陈旧帧防护)。
+
+        非阻塞循环 ``recv`` 到缓冲见底(:class:`BlockingIOError`/超时即
+        停);排掉的帧照常走 ``log_frame``(RECV_MARK)——黑匣子与调试
+        日志里能看到"排掉了什么",现场排障时迟到帧不再是隐形因素。
+        超长陈旧报文(POSIX ``MSG_TRUNC`` 探测 / Windows WSAEMSGSIZE)
+        在排空语境下**照排不报**——丢弃正是本方法的目的,不能让陈旧帧
+        的超长属性炸掉本轮事务。
+
+        :raises TransportClosedError: 未初始化
+        :raises OSError: 非"缓冲见底/报文超长"的 OS 层错误
+        """
+        sock = self._require_socket()
+        drained = 0
+        # 临时切非阻塞:recv 立即返回或抛 BlockingIOError,不引入等待;
+        # 结束后恢复超时模式(与 __init__/connect 的 settimeout 口径一致)
+        sock.setblocking(False)
+        try:
+            while drained < _UDP_DRAIN_MAX_DATAGRAMS:
+                try:
+                    stale = sock.recv(65535)
+                except (BlockingIOError, socket.timeout):
+                    break
+                except OSError as exc:
+                    if getattr(exc, "errno", None) == _WSAEMSGSIZE_ERRNO:
+                        # Windows:超长陈旧报文,丢弃即目的,计入继续
+                        drained += 1
+                        log_warning(
+                            self._debug_label,
+                            "排空时丢弃超长陈旧数据报(缓冲 65535B,WinError 10040)",
+                        )
+                        continue
+                    raise
+                drained += 1
+                log_frame(self._debug_label, RECV_MARK, stale)
+        finally:
+            sock.settimeout(self._receive_timeout)
+        if drained >= _UDP_DRAIN_MAX_DATAGRAMS:
+            log_warning(
+                self._debug_label,
+                "接收缓冲排空达上限(%d 个数据报仍在灌入),截断本次排空",
+                _UDP_DRAIN_MAX_DATAGRAMS,
+            )
+        if drained:
+            log_op(self._debug_label, "已排空 %d 个陈旧数据报", drained)
+        return drained
 
     def _require_socket(self) -> socket.socket:
         """取当前 socket,未初始化则抛出。"""
