@@ -1381,6 +1381,47 @@ def test_list_tags_paging(monkeypatch: pytest.MonkeyPatch) -> None:
     assert codec_cip.build_uc_send(codec_cip.build_tag_list_request(8), 0) in sent
 
 
+def test_list_tags_connected_paging(monkeypatch: pytest.MonkeyPatch) -> None:
+    """connected 模式 0x55 分页:0x70 应答走 SendUnitData 解析器,分页收完。
+
+    review-1018 P1-2:connected 分支曾误走 SendRRData 解析器(只放行
+    0x6F/0x66),PLC 回 0x70 必 ProtocolFrameError 拆连——connected
+    list_tags 一次都跑不通。本用例锁:Forward Open → 两页 0x70 应答
+    (0x06 续传/0x00 收完)正常返回,且请求帧为 SendUnitData 封装。
+    """
+    monkeypatch.setattr("omniplc.plc.ab.ab.random.randrange", lambda low, high: _TO_ID)
+    client = _connected_client()
+    page1 = _tag_entry_bytes(5, "TagA", 0xC4) + _tag_entry_bytes(7, "TagB", 0xC1)
+    page2 = _tag_entry_bytes(9, "TagC", 0xC3, dims=(2, 0, 0))
+    scripted = ScriptedTransport(
+        _session_chunks()
+        + _forward_open_chunks(codec_cip.CIP_SERVICE_LARGE_FORWARD_OPEN)
+        + _connected_reply_chunks(
+            page1,
+            codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST,
+            1,
+            cip_status=0x06,
+        )
+        + _connected_reply_chunks(
+            page2, codec_cip.CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST, 2
+        )
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, tags = client.list_tags()
+    assert ok is True
+    assert [t.name for t in tags] == ["TagA", "TagB", "TagC"]
+    assert tags[2].dims == (2, 0, 0)
+    sent = bytes(scripted.sent)
+    # 两页请求均为 SendUnitData 封装(非 UC-Send 包裹的 RRData)
+    assert codec_cip.build_send_unit_data(
+        _SESSION, _OT_ID, 1, codec_cip.build_tag_list_request(0)
+    ) in sent
+    assert codec_cip.build_send_unit_data(
+        _SESSION, _OT_ID, 2, codec_cip.build_tag_list_request(8)
+    ) in sent
+
+
 def test_list_tags_bad_frame_truncated(monkeypatch: pytest.MonkeyPatch) -> None:
     """应答数据域截断(名字越界):按坏帧拆连,last_error 带原始数据。"""
     client = AllenBradleyEthIpClient("127.0.0.1", 44818)

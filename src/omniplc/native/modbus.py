@@ -932,7 +932,9 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         """取通信事件计数器(FC11,规范 §6.9)。
 
         状态字非 0(``0xFFFF`` = 设备忙)抛 :class:`DeviceError`(设备侧条件,
-        不断线)。
+        不断线);code 恒 0 = 无具体错误码口径(review-1018 P1-3:曾透传
+        0xFFFF 计入 device_error_count,与同步侧 R9-2 口径不一致——忙态是
+        设备侧条件而非 PLC 返回的协议错误码)。
         """
         self._reject_broadcast_read()
         pdu = codec.build_get_comm_event_counter_pdu()
@@ -942,9 +944,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
                 await self._transact(pdu)
             )
             if status != 0:
-                raise DeviceError(
-                    _("FC11 状态字非就绪:0x{:04X}").format(status), int(status)
-                )
+                raise DeviceError(_("FC11 状态字非就绪:0x{:04X}").format(status), 0)
             return count
 
         return await self._execute(operation)

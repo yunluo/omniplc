@@ -434,8 +434,12 @@ class AllenBradleyEthIpClient(BaseClient):
         )
         transport.send(frame)
         try:
-            return codec_cip.parse_service_reply_with_status(
-                self._recv_frame(), request_service
+            # connected 应答命令是 SendUnitData(0x70),必须用 0x70 解析器
+            # 校验 T->O ID/序列号回显(review-1018 P1-2:曾误走 SendRRData
+            # 解析器,0x70 应答必拒 → connected list_tags 必拆连);应答走
+            # T->O 连接,回显校验用 _to_connection_id(与 _transact 同款)
+            return codec_cip.parse_send_unit_data_reply_with_status(
+                self._recv_frame(), request_service, self._to_connection_id, sequence
             )
         except DeviceError as exc:
             if codec_cip.is_connection_reset_status(exc.code):

@@ -934,6 +934,38 @@ def test_read_many_fails_whole_batch(
     assert holder["code"] == 2
 
 
+def test_fc11_busy_code_zero_mirror(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """native FC11 忙态(0xFFFF)→ code=0 无码口径(与同步侧 R9-2 镜像)。
+
+    review-1018 P1-3:native 曾透传 0xFFFF 作错误码计入 device_error_count;
+    忙态是设备侧条件而非 PLC 返回的协议错误码,两侧统一 code=0。
+    """
+    holder: Dict[str, Any] = {}
+
+    async def scenario() -> None:
+        client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+        scripted = ScriptedAsyncTransport(
+            _chunks([(1, bytes([0x0B, 0xFF, 0xFF, 0x00, 0x00]))])
+        )
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        await client.connect()
+        holder["result"] = await client.get_comm_event_counter()
+        holder["connected"] = client.connected
+        holder["code"] = client.last_error_code
+        holder["text"] = client.last_error
+        holder["device_errors"] = client.stats["device_error_count"]
+        await client.close()
+
+    loop.run_until_complete(scenario())
+    assert holder["result"] == (False, None)
+    assert holder["connected"] is True
+    assert holder["code"] is None  # code=0 无码口径(与同步侧一致)
+    assert "0xFFFF" in (holder["text"] or "")
+    assert holder["device_errors"] == 0
+
+
 def test_read_range_single_fc(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
     """native read_range:hr0 起 3 个 SHORT = 单笔 FC 03 读 3 字(与同步帧一致)。"""
     holder: Dict[str, Any] = {}

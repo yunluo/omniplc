@@ -951,17 +951,16 @@ def build_send_unit_data(
     return header + prefix + cip_request
 
 
-def parse_send_unit_data_reply(
-    reply: bytes, request_service: int, to_connection_id: int, sequence: int
+def _parse_send_unit_data_cip(
+    reply: bytes, to_connection_id: int, sequence: int
 ) -> bytes:
-    """解析 SendUnitData 应答,返回标签服务数据域。
+    """校验 SendUnitData 封装与 CPF,返回 CIP 数据(内部函数)。
 
     校验连接地址项回显 T->O 连接 ID(发起方在 Forward Open 中指定)、
-    序列号回显、服务回显与通用状态。
+    序列号回显;封装/CPF 校验与 :func:`parse_send_unit_data_reply` 共用。
 
-    :raises ProtocolFrameError: 封装/CPF/连接 ID/序列号/服务回显不符
+    :raises ProtocolFrameError: 封装/CPF/连接 ID/序列号不符
         (消息带**收到的原始帧**十六进制转储,便于现场与抓包比对)
-    :raises DeviceError: CIP 通用状态非 0(不断线)
     """
     _check_enip_reply(reply, EIP_COMMAND_SEND_UNIT_DATA)
     prefix = reply[EIP_HEADER_SIZE:]
@@ -1007,7 +1006,41 @@ def parse_send_unit_data_reply(
                 sequence, reply_sequence, format_hex(reply)
             )
         )
+    return cip
+
+
+def parse_send_unit_data_reply(
+    reply: bytes, request_service: int, to_connection_id: int, sequence: int
+) -> bytes:
+    """解析 SendUnitData 应答,返回标签服务数据域。
+
+    校验连接地址项回显 T->O 连接 ID(发起方在 Forward Open 中指定)、
+    序列号回显、服务回显与通用状态。
+
+    :raises ProtocolFrameError: 封装/CPF/连接 ID/序列号/服务回显不符
+        (消息带**收到的原始帧**十六进制转储,便于现场与抓包比对)
+    :raises DeviceError: CIP 通用状态非 0(不断线)
+    """
+    cip = _parse_send_unit_data_cip(reply, to_connection_id, sequence)
     return _parse_service_payload(cip, request_service)
+
+
+def parse_send_unit_data_reply_with_status(
+    reply: bytes, request_service: int, to_connection_id: int, sequence: int
+) -> Tuple[int, bytes]:
+    """解析 SendUnitData 应答并**保留 CIP 通用状态**(connected 0x55 分页通道专用)。
+
+    与 :func:`parse_send_unit_data_reply` 的差异:CIP 状态 0x00(完成)与
+    0x06(还有数据未传完)都**正常返回** ``(状态, 数据域)``——0x06 是
+    点位枚举的分页续传信号而非错误;其余非 0 状态照常抛 :class:`DeviceError`。
+    review-1018 P1-2:connected 模式的 0x55 分页此前误走 SendRRData 解析器
+    (``_parse_rr_data_cip`` 只放行 0x6F/0x66),PLC 回 0x70 必拒拆连。
+
+    :raises ProtocolFrameError: 封装/CPF/连接 ID/序列号/服务回显不符
+    :raises DeviceError: CIP 通用状态非 0 且非 0x06(不断线)
+    """
+    cip = _parse_send_unit_data_cip(reply, to_connection_id, sequence)
+    return _parse_service_payload_with_status(cip, request_service)
 
 
 # ----------------------------------------------------------------------
