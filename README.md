@@ -192,7 +192,7 @@ EZSocket 读系统数、海康读码器状态查询等——
 
 | 文档 | 内容 |
 |---|---|
-| [docs/examples.md](docs/examples.md) | 各协议用法示例(29 客户端 / 扩展功能码 / 批量读取) |
+| [docs/examples.md](docs/examples.md) | 各协议用法示例(32 客户端 / 扩展功能码 / 批量读取) |
 | [docs/async.md](docs/async.md) | 异步两套的选型、示例与边界 |
 | [docs/architecture.md](docs/architecture.md) | 架构设计、类继承图、版本履历 |
 | [docs/real-machine-checklist.md](docs/real-machine-checklist.md) | 真机联测记录与待核证项 |
