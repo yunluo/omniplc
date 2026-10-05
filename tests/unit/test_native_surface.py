@@ -32,8 +32,23 @@ _MELSEC_PENDING: set = {"create_monitor"}
 _FINS_PENDING: set = {"create_monitor"}
 """同步 FINS 客户端里尚未进入原生层的公开面(监视器经基类继承,原生版后置)。"""
 
+_INOVANCE_PENDING: set = {"create_monitor"}
+"""同步汇川客户端里尚未进入原生层的公开面(监视器经基类继承,原生版后置)。"""
+
 _S7_PENDING: set = {"create_monitor"}
 """同步 S7 客户端里尚未进入原生层的公开面(监视器经基类继承,原生版后置)。"""
+
+_TWIN_PAIRS = [
+    ("ModbusTcpClient", "AsyncModbusTcpClient"),
+    ("MelsecMcTcpClient", "AsyncMelsecMcTcpClient"),
+    ("MelsecMcUdpClient", "AsyncMelsecMcUdpClient"),
+    ("OmronFinsTcpClient", "AsyncOmronFinsTcpClient"),
+    ("OmronFinsUdpClient", "AsyncOmronFinsUdpClient"),
+    ("InovanceTcpClient", "AsyncInovanceTcpClient"),
+    ("InovanceMcTcpClient", "AsyncInovanceMcTcpClient"),
+    ("SiemensS7Client", "AsyncSiemensS7Client"),
+]
+"""八对同步/原生孪生客户端(汇川两对与全网签名守卫共用)。"""
 
 
 def _public(cls: type) -> set:
@@ -102,6 +117,22 @@ def test_s7_client_surface_mirrored_or_pending() -> None:
     assert gap == _S7_PENDING, "S7,实际 {}".format(sorted(gap))
 
 
+def test_inovance_clients_surface_mirrored_or_pending() -> None:
+    """汇川客户端(Modbus TCP + MC 兼容)公开面 = 原生已镜像面 ∪ 未到批次表。
+
+    汇川两对历史上不在守卫清单里(2026-10-05 异步对齐核查补上)——同步端
+    后续加方法时原生侧不再静默漂移。
+    """
+    for sync_cls, async_cls in (
+        (pkg.InovanceTcpClient, native.AsyncInovanceTcpClient),
+        (pkg.InovanceMcTcpClient, native.AsyncInovanceMcTcpClient),
+    ):
+        gap = _public(sync_cls) - _public(async_cls)
+        assert gap == _INOVANCE_PENDING, "{},实际 {}".format(
+            sync_cls.__name__, sorted(gap)
+        )
+
+
 def test_melsec_native_supports_ethernet_frames_only() -> None:
     """原生 MC 覆盖以太网三种帧(1E/3E/4E);串口帧构造期显式拒绝(不留半成品)。"""
     for frame in ("1E", "3E", "4E"):
@@ -144,26 +175,57 @@ def test_after_connect_failure_hook_mirrored() -> None:
 
 
 def test_constructors_match_sync_twin() -> None:
-    """5 对孪生客户端的构造签名(参数名 + 默认值)与同步侧逐一对齐。
+    """8 对孪生客户端的构造签名(参数名 + 默认值)与同步侧逐一对齐。
 
     建成同型构造是"切换两层只改类名"的前提;``__init__`` 不在
     :func:`test_sync_base_surface_mirrored_or_pending` 的公开面扫描里
     (那是方法/属性集),故单独锁一道。
     """
-    pairs = [
-        ("MelsecMcTcpClient", "AsyncMelsecMcTcpClient"),
-        ("MelsecMcUdpClient", "AsyncMelsecMcUdpClient"),
-        ("ModbusTcpClient", "AsyncModbusTcpClient"),
-        ("OmronFinsTcpClient", "AsyncOmronFinsTcpClient"),
-        ("OmronFinsUdpClient", "AsyncOmronFinsUdpClient"),
-    ]
-    for sync_name, async_name in pairs:
+    for sync_name, async_name in _TWIN_PAIRS:
         sync_sig = inspect.signature(getattr(pkg, sync_name).__init__)
         async_sig = inspect.signature(getattr(native, async_name).__init__)
         assert list(sync_sig.parameters) == list(async_sig.parameters), sync_name
         assert [p.default for p in sync_sig.parameters.values()] == [
             p.default for p in async_sig.parameters.values()
         ], sync_name
+
+
+def test_method_signatures_match_sync_twin() -> None:
+    """八对孪生客户端公开交集内**全部**同名方法的签名(参数名+默认值)逐一对齐。
+
+    方法名集合守卫(``test_*_surface_mirrored_or_pending``)只锁"有这个名字",
+    不锁形状——同步端给已有方法加参/改默认值而原生薄层没跟上时,切层即
+    行为分裂(2026-10-05 异步对齐核查固化;此前只锁基类 15 个类型化方法,
+    见 :func:`test_typed_signatures_match_sync_twin`)。property/静态方法
+    不涉签名比对;基类同名方法(超类解析后的公共面)同样在本守卫射程内。
+    """
+    problems: list = []
+    base_public = _public(pkg.BaseClient) & _public(native.AsyncBaseClient)
+    for sync_name, async_name in _TWIN_PAIRS:
+        s_cls = getattr(pkg, sync_name)
+        a_cls = getattr(native, async_name)
+        for name in sorted((_public(s_cls) & _public(a_cls)) - base_public):
+            s_m = inspect.getattr_static(s_cls, name)
+            a_m = inspect.getattr_static(a_cls, name)
+            if isinstance(s_m, (staticmethod, classmethod, property)) or isinstance(
+                a_m, (staticmethod, classmethod, property)
+            ):
+                continue
+            if not (inspect.isfunction(s_m) and inspect.isfunction(a_m)):
+                continue
+            s_sig = inspect.signature(s_m)
+            a_sig = inspect.signature(a_m)
+            if list(s_sig.parameters) != list(a_sig.parameters):
+                problems.append(
+                    "{}.{} 参数名不符:同步 {} vs 原生 {}".format(
+                        sync_name, name, list(s_sig.parameters), list(a_sig.parameters)
+                    )
+                )
+            elif [p.default for p in s_sig.parameters.values()] != [
+                p.default for p in a_sig.parameters.values()
+            ]:
+                problems.append("{}.{} 默认值不符".format(sync_name, name))
+    assert not problems, "原生方法签名漂移:{}".format("; ".join(problems))
 
 
 def test_cancelled_error_covers_asyncio_class() -> None:

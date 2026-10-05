@@ -104,6 +104,48 @@ def test_constructors_match_sync_twin() -> None:
     assert not problems, "异步构造签名缺口:{}".format("; ".join(problems))
 
 
+def test_method_signatures_match_sync_twin() -> None:
+    """全部 A* 客户端公开交集内**同名方法**的签名(参数名+默认值)逐一对齐。
+
+    方法/属性名集合守卫(test_concrete_clients_mirror_sync_extensions)只锁
+    "有这个名字",不锁形状——同步端给已有方法加参/改默认值而 aio 手写转发
+    没跟上时,该参数在异步面**静默丢失**(调用即旧默认值)。本守卫与 native
+    面 test_native_surface::test_method_signatures_match_sync_twin 同口径
+    (2026-10-05 异步对齐核查固化)。property/静态方法不涉签名比对;
+    ``close`` 两侧语义超集(同步 SDK 子类为 disconnect 别名、aio 基类为
+    断连+释放线程)参数一致,天然通过。
+    """
+    problems: list = []
+    base_public = _public(pkg.BaseClient) & _public(aio.ABaseClient)
+    for name in pkg.__all__:
+        if not name.endswith("Client") or name == "BaseClient":
+            continue
+        s_cls = getattr(pkg, name)
+        a_cls = getattr(aio, "A" + name)
+        for attr in sorted((_public(s_cls) & _public(a_cls)) - base_public):
+            s_m = inspect.getattr_static(s_cls, attr)
+            a_m = inspect.getattr_static(a_cls, attr)
+            if isinstance(s_m, (staticmethod, classmethod, property)) or isinstance(
+                a_m, (staticmethod, classmethod, property)
+            ):
+                continue
+            if not (inspect.isfunction(s_m) and inspect.isfunction(a_m)):
+                continue
+            s_sig = inspect.signature(s_m)
+            a_sig = inspect.signature(a_m)
+            if list(s_sig.parameters) != list(a_sig.parameters):
+                problems.append(
+                    "{}.{} 参数名不符:同步 {} vs 异步 {}".format(
+                        name, attr, list(s_sig.parameters), list(a_sig.parameters)
+                    )
+                )
+            elif [p.default for p in s_sig.parameters.values()] != [
+                p.default for p in a_sig.parameters.values()
+            ]:
+                problems.append("{}.{} 默认值不符".format(name, attr))
+    assert not problems, "异步方法签名漂移:{}".format("; ".join(problems))
+
+
 def test_aenter_failure_closes_executor() -> None:
     """``__aenter__`` 失败先 close 再抛(第八轮 P2-9):executor 线程必须释放。
 
