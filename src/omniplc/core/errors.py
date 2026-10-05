@@ -80,6 +80,10 @@ class TransportTimeoutError(DeviceError):
     关闭串口抛 TransportClosedError,借重连重新同步;TCP 超时保持
     OSError 语义拆连——迟到响应残留在 socket 缓冲,拆连正是防串帧的机制。
 
+    UDP 不断线的"迟到响应落入缓冲被下一事务消费"竞态由传输层
+    ``drain()`` 防护:各 UDP 客户端在事务发送前排空接收缓冲(陈旧帧
+    防护),超时重试不再受旧响应串扰。
+
     计数与重试口径(``BaseClient._execute``):**不计入**
     ``device_error_count``("设备返回错误码的次数"不含传输超时),但与其他
     传输失败一样按 ``retries``/``write_retries`` 重试。

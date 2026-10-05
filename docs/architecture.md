@@ -397,6 +397,18 @@ stateDiagram-v2
   `TransportClosedError` 拆连重同步),**不拆连**、不计 `device_error_count`
   (它不是设备返回的错误码),但与其他传输失败一样按
   `retries`/`write_retries` 重试——两种走线的重试语义一致。
+
+  **UDP 陈旧数据报防串扰(2026-10-05 现场稳定性批)**:UDP 不拆连的代价是上一
+  事务超时后迟到的响应留在接收缓冲,下一事务会把它误当本轮应答——有身份
+  回显校验的协议(FINS SID/ICF)按坏帧报错触发不必要的拆连,无事务号的
+  协议(TOYOPUC/KV Host Link/MC 族 UDP/MEWTOCOL)则静默读到旧值。因此
+  UDP 事务**发送前自动排空接收缓冲**(`BaseTransport.drain()` 默认 no-op,
+  流式走线有意不实现——TCP/串口超时即拆连重同步,无陈旧帧概念;
+  `UdpTransport`/`AsyncUdpTransport` 覆写为非阻塞循环排空,被排帧照常进
+  黑匣子,上限 64 个防对端灌包长时间占用事务锁)。接线面:FINS/UDP、
+  TOYOPUC、MC 族 UDP(三菱/KV MC 共用 `MelsecMcBase`)、MEWTOCOL、
+  KV Host Link + native 层 FINS/MC 镜像。排空与响应到达之间的极窄窗口
+  仍可能漏进迟到帧(协议无事务号的最终防线只有应用层序号/时间戳)。
 - **参数校验错误**(非法地址、未知类型、范围越界、未绑定点位名)直接抛
   `ValueError`——这是调用方编码错误,静默吞掉反而有害。
 - **报错文案语言(v0.47.0)**:`last_error` 文本与异常消息默认中文,

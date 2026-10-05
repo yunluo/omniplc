@@ -1174,8 +1174,9 @@ class BaseClient(ABC):
                 except TransportTimeoutError as exc:
                     # 超时但 0 字节已读:链路无残渣,不拆连也不计设备错误码;
                     # 与其他传输失败一致进入重试(串口/UDP 与 TCP 口径统一)。
-                    # 注意:重试与重试之间存在"迟到响应落入接收缓冲"的竞态
-                    # 窗口(旧响应被当重试应答消费),写重试另有双写风险——
+                    # UDP 重试的"迟到响应落入接收缓冲"竞态已由各 UDP 客户端
+                    # 发送前排空防护(transport.drain);串口整包超时无残渣、
+                    # TCP 超时直接拆连,均无此窗口。写重试仍有双写风险——
                     # 见 TransportTimeoutError docstring 与 write_retries。
                     self._set_error(
                         _describe(exc), _categorize(exc), _extract_code(exc)

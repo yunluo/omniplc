@@ -35,6 +35,7 @@
 | 11 | FINS 时钟读/写(0701/0702) | P2 | W342 §5-3-19/20(印刷页 197-198)有明确依据;sync/native/aio 三层 + 10 例测试已落地 | 已完成 |
 | 12 | README PLC 安全警示 | P3 | libplctag 先例(开篇免责:写操作失误可致生产/财产损失);已落地(a31c236,顺带修简介残留) | 已完成 |
 | 13 | examples「采集→MQTT」上行示例 | P3 | neuron/thingsboard 核心场景;paho-mqtt 可选示例已落地(93db9ed) | 已完成 |
+| 14 | UDP 陈旧数据报防串扰(事务发送前排空) | P1 | 2026-10-05 现场稳定性盘点:UDP 一问一答走线中,上一事务超时后迟到的响应留在接收缓冲,下一事务误当本轮应答——FINS(SID/ICF 回显)按坏帧报错触发不必要的拆连重连,无事务号协议(TOYOPUC/KV Host Link/MC 族 UDP/MEWTOCOL)**静默读到旧值**;已落地——`BaseTransport.drain()` 默认 no-op(流式走线有意不动:超时即拆连重同步)+ `UdpTransport`/`AsyncUdpTransport` 非阻塞排空(被排帧进黑匣子,上限 64 防灌包占锁,WSAEMSGSIZE 照排不报)+ 七族 UDP 走线接线 + native FINS/MC 镜像;+15 例测试(门禁 1811 passed,bebff02);机制口径见 architecture §5 | 已完成 |
 
 ### S7comm 自研计划骨架(2026-10-03 拍板:直接替换 snap7 封装)
 
