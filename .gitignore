@@ -5,9 +5,7 @@ __pycache__/
 .idea
 # C extensions
 *.so
-# ZCode 会话目录不入库;skills 随仓库分发(白名单)
-.zcode/*
-!.zcode/skills/
+.zcode
 .zcodeignore
 
 # Distribution / packaging
