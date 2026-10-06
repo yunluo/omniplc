@@ -111,11 +111,11 @@ with ModbusTcpClient(ip_address="192.168.0.10", port=502, station=1) as client:
 
 #### 异步(两套)
 
-| | `omniplc.aio`(类名前加 `A`) | `omniplc.native`(类名前加 `Async`) |
-|---|---|---|
-| 实现 | 同步 I/O + 单线程池包装 | 原生 asyncio 协议栈(零依赖) |
-| 覆盖面 | 全部协议 | Modbus TCP / 三菱 MC(1E·3E·4E)/ 汇川(H3U/H5U Modbus TCP + MC 兼容 3E)/ FINS / 西门子 S7(自研栈,会话型) |
-| 取消 | 超时只放弃等待,已提交事务照跑完 | 真中断(按是否已发出决定拆连) |
+|        | `omniplc.aio`(类名前加 `A`)     | `omniplc.native`(类名前加 `Async`)                                                                     |
+| ------ | ------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| 实现   | 同步 I/O + 单线程池包装         | 原生 asyncio 协议栈(零依赖)                                                                            |
+| 覆盖面 | 全部协议                        | Modbus TCP / 三菱 MC(1E·3E·4E)/ 汇川(H3U/H5U Modbus TCP + MC 兼容 3E)/ FINS / 西门子 S7(自研栈,会话型) |
+| 取消   | 超时只放弃等待,已提交事务照跑完 | 真中断(按是否已发出决定拆连)                                                                           |
 
 ```python
 import asyncio
@@ -190,16 +190,16 @@ EZSocket 读系统数、海康读码器状态查询等——
 
 #### 文档
 
-| 文档 | 内容 |
-|---|---|
-| [docs/examples.md](docs/examples.md) | 各协议用法示例(32 客户端 / 扩展功能码 / 批量读取) |
-| [docs/async.md](docs/async.md) | 异步两套的选型、示例与边界 |
-| [docs/architecture.md](docs/architecture.md) | 架构设计、类继承图、版本履历 |
-| [docs/real-machine-checklist.md](docs/real-machine-checklist.md) | 真机联测记录与待核证项 |
-| [docs/protocol-features.md](docs/protocol-features.md) | 协议功能实现矩阵(已实现/未实现逐协议对照) |
-| [docs/protocol/README.md](docs/protocol/README.md) | 协议官方手册索引 |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | 开发约定、门禁、双版本测试 |
-| [CHANGELOG.md](CHANGELOG.md) | 完整变更历史 |
+| 文档                                                             | 内容                                              |
+| ---------------------------------------------------------------- | ------------------------------------------------- |
+| [docs/examples.md](docs/examples.md)                             | 各协议用法示例(32 客户端 / 扩展功能码 / 批量读取) |
+| [docs/async.md](docs/async.md)                                   | 异步两套的选型、示例与边界                        |
+| [docs/architecture.md](docs/architecture.md)                     | 架构设计、类继承图、版本履历                      |
+| [docs/real-machine-checklist.md](docs/real-machine-checklist.md) | 真机联测记录与待核证项                            |
+| [docs/protocol-features.md](docs/protocol-features.md)           | 协议功能实现矩阵(已实现/未实现逐协议对照)         |
+| [docs/protocol/README.md](docs/protocol/README.md)               | 协议官方手册索引                                  |
+| [CONTRIBUTING.md](CONTRIBUTING.md)                               | 开发约定、门禁、双版本测试                        |
+| [CHANGELOG.md](CHANGELOG.md)                                     | 完整变更历史                                      |
 
 #### 开发
 

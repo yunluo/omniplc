@@ -561,27 +561,27 @@ ok = smart.write_bool("V10.3", True)     # V 位,= DB1.DBX10.3
 是协议级批量入口,支持的驱动覆写为**单事务整批语义**(任一地址非法或设备拒绝则
 整批失败,原因在 `last_error`;要逐点容错请逐点 `read`):
 
-| 驱动 | 单事务形态 |
-|---|---|
-| 三菱 MC 3E/4E(KV/汇川/松下 MC 兼容子类同享) | 0406 多块批量读(混软元件,总块数 ≤120) |
-| 欧姆龙 FINS | 0104 多存储区读(以太网上限 167 条) |
-| AB / NJ·NX CIP | 0x0A 多服务包(≤32 条且 ≤480B,超限自动拆多笔按序执行) |
-| OPC-UA | UA Read 原生多节点(asyncua 单请求) |
-| MX Component | 16 位类型合并 ReadDeviceRandom;32/64 位类型各走一笔块读 |
-| Modbus | 按 (区域,类型) 分组、组内连续地址合并为单条 FC(K 笔,典型 1 笔) |
-| 西门子 S7 | Read Var 多 Item 单 PDU(混区域,≤20 条,MAX_VARS) |
+| 驱动                                        | 单事务形态                                                     |
+| ------------------------------------------- | -------------------------------------------------------------- |
+| 三菱 MC 3E/4E(KV/汇川/松下 MC 兼容子类同享) | 0406 多块批量读(混软元件,总块数 ≤120)                          |
+| 欧姆龙 FINS                                 | 0104 多存储区读(以太网上限 167 条)                             |
+| AB / NJ·NX CIP                              | 0x0A 多服务包(≤32 条且 ≤480B,超限自动拆多笔按序执行)           |
+| OPC-UA                                      | UA Read 原生多节点(asyncua 单请求)                             |
+| MX Component                                | 16 位类型合并 ReadDeviceRandom;32/64 位类型各走一笔块读        |
+| Modbus                                      | 按 (区域,类型) 分组、组内连续地址合并为单条 FC(K 笔,典型 1 笔) |
+| 西门子 S7                                   | Read Var 多 Item 单 PDU(混区域,≤20 条,MAX_VARS)                |
 
 ## 批量写(默认逐点 / 协议原生合并)
 
 `write_many(地址列表, 值列表)` 逐点写(基类契约;Modbus 覆写保留
 `List[bool]` 返回);`write_batch([(地址, 类型, 值), …])` 是协议级合并写:
 
-| 驱动 | 合并形态 |
-|---|---|
+| 驱动                     | 合并形态                                                                                                                                            |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Modbus(TCP/RTU 及其子类) | 按 (区域,类型) 分组、组内连续合并:位走 FC15 多线圈、寄存器走 FC16 多寄存器(上限 1968 位 / 123 字);寄存器位写(读-改-写)不参与合并,排在 FC16 之前保序 |
-| 三菱 MX Component | `write_batch` 16 位同型合并块写;其余逐点 |
-| 西门子 S7 | Read Var 多 Item 单 PDU(`read_batch`/`read_many`,DB/I/Q/M 混读,≤20 条);写无合并面逐点 |
-| 其余驱动 | 逐点(协议无合并写面) |
+| 三菱 MX Component        | `write_batch` 16 位同型合并块写;其余逐点                                                                                                            |
+| 西门子 S7                | Read Var 多 Item 单 PDU(`read_batch`/`read_many`,DB/I/Q/M 混读,≤20 条);写无合并面逐点                                                               |
+| 其余驱动                 | 逐点(协议无合并写面)                                                                                                                                |
 
 **写重试双写警示**:写失败重试有双写风险(超时只证明响应未到达,写可能
 已被执行),`write_retries` 默认 0——非幂等写(计数/脉冲/步进)保持默认,
@@ -589,30 +589,30 @@ ok = smart.write_bool("V10.3", True)     # V 位,= DB1.DBX10.3
 
 ## 各走线默认端口对照
 
-| 客户端 | 协议 | 默认端口 |
-|---|---|---|
-| `ModbusTcpClient` | Modbus TCP | 502 |
-| `ModbusRtuClient` | Modbus RTU | 串口(`configure_serial`) |
-| `MelsecMcTcpClient` / `UdpClient` | 三菱 MC 3E/4E | 2000 |
-| `MelsecMcSerialClient` | 三菱 MC 串口(1C/3C/4C) | 串口(C24 传送设定) |
-| `MelsecMxClient` | MX Component | 逻辑站号(通信设置实用程序) |
-| `OmronFinsTcpClient` / `UdpClient` | 欧姆龙 FINS | 9600 |
-| `OmronCipClient` / `AllenBradleyEthIpClient` | EtherNet/IP | 44818 |
-| `KeyenceHostLinkTcpClient` / `UdpClient` | KV Host Link | 8000 |
-| `KeyenceMcTcpClient` / `UdpClient` | KV MC 兼容(SLMP 3E) | 5000 |
-| `KeyenceSrClient` | SR 扫码枪 | 9004 |
-| `InovanceTcpClient` | 汇川 Modbus 映射 | 502 |
-| `InovanceRtuClient` | 汇川 Modbus RTU | 串口(默认 8N2/9600) |
-| `InovanceMcTcpClient` | 汇川 MC 兼容(3E) | 无出厂默认,须与 AutoShop「MC配置」一致 |
-| `PanasonicMcTcpClient` | 松下 MC 兼容(3E) | 2000 |
-| `PanasonicMewtocolTcpClient` / `UdpClient` | MEWTOCOL | 1024 |
-| `ToyopucTcpClient` / `UdpClient` | TOYOPUC | 1025 |
-| `SiemensS7Client` | S7comm(ISO-on-TCP) | 102 |
-| `OpcUaClient` | OPC-UA | 4840 |
-| `MTConnectClient` | MTConnect Agent | 5000 |
-| `FanucFocasClient` | FANUC FOCAS(数采只读) | 8193(Windows,需 fwlib32.dll) |
-| `MitsubishiEzSocketClient` | 三菱 CNC EZSocket(数采只读) | 683(GIOP 直连,零依赖) |
-| 海康读码器四客户端 | Modbus / TCP 命令 / SDK / 串口 | 读码器侧配置(无出厂统一口) |
+| 客户端                                       | 协议                           | 默认端口                               |
+| -------------------------------------------- | ------------------------------ | -------------------------------------- |
+| `ModbusTcpClient`                            | Modbus TCP                     | 502                                    |
+| `ModbusRtuClient`                            | Modbus RTU                     | 串口(`configure_serial`)               |
+| `MelsecMcTcpClient` / `UdpClient`            | 三菱 MC 3E/4E                  | 2000                                   |
+| `MelsecMcSerialClient`                       | 三菱 MC 串口(1C/3C/4C)         | 串口(C24 传送设定)                     |
+| `MelsecMxClient`                             | MX Component                   | 逻辑站号(通信设置实用程序)             |
+| `OmronFinsTcpClient` / `UdpClient`           | 欧姆龙 FINS                    | 9600                                   |
+| `OmronCipClient` / `AllenBradleyEthIpClient` | EtherNet/IP                    | 44818                                  |
+| `KeyenceHostLinkTcpClient` / `UdpClient`     | KV Host Link                   | 8000                                   |
+| `KeyenceMcTcpClient` / `UdpClient`           | KV MC 兼容(SLMP 3E)            | 5000                                   |
+| `KeyenceSrClient`                            | SR 扫码枪                      | 9004                                   |
+| `InovanceTcpClient`                          | 汇川 Modbus 映射               | 502                                    |
+| `InovanceRtuClient`                          | 汇川 Modbus RTU                | 串口(默认 8N2/9600)                    |
+| `InovanceMcTcpClient`                        | 汇川 MC 兼容(3E)               | 无出厂默认,须与 AutoShop「MC配置」一致 |
+| `PanasonicMcTcpClient`                       | 松下 MC 兼容(3E)               | 2000                                   |
+| `PanasonicMewtocolTcpClient` / `UdpClient`   | MEWTOCOL                       | 1024                                   |
+| `ToyopucTcpClient` / `UdpClient`             | TOYOPUC                        | 1025                                   |
+| `SiemensS7Client`                            | S7comm(ISO-on-TCP)             | 102                                    |
+| `OpcUaClient`                                | OPC-UA                         | 4840                                   |
+| `MTConnectClient`                            | MTConnect Agent                | 5000                                   |
+| `FanucFocasClient`                           | FANUC FOCAS(数采只读)          | 8193(Windows,需 fwlib32.dll)           |
+| `MitsubishiEzSocketClient`                   | 三菱 CNC EZSocket(数采只读)    | 683(GIOP 直连,零依赖)                  |
+| 海康读码器四客户端                           | Modbus / TCP 命令 / SDK / 串口 | 读码器侧配置(无出厂统一口)             |
 
 > **`S` 跨协议语义提示**:MEWTOCOL 的 `S10` 是**定时器设定值区**(SV,
 > 字),而三菱系 MC(含 MC 兼容子类)的 `S10` 是**步进继电器**(位)——
