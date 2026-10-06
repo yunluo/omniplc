@@ -650,6 +650,7 @@ _TRANSLATIONS: Dict[str, str] = {
     "OPC-UA 会话创建失败:{}(请确认已 pip install omniplc[opcua])": "Failed to create the OPC-UA session: {0} (make sure to pip install omniplc[opcua])",
     "OPC-UA 连接失败:{}({})": "OPC-UA connection failed: {0} ({1})",
     "OPC-UA 节点读失败({}):{}": "OPC-UA node read failed ({0}): {1}",
+    "OPC-UA 批量读应答数量不符:请求 {},应答 {}": "OPC-UA batch-read response count mismatch: requested {0}, received {1}",
     "OPC-UA VariantType 解析失败:{}": "OPC-UA VariantType parsing failed: {}",
     "reference_type_id 须为命名空间 0 的数字标识符(如 i=33):{!r}": "reference_type_id must be a numeric identifier in namespace 0 (e.g. i=33): {!r}",
     "OPC-UA DataChange 回调异常:{}:{}": "Exception in the OPC-UA DataChange callback: {0}: {1}",

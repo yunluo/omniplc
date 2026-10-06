@@ -188,8 +188,7 @@ class _MelsecMcBase(BaseClient):
         if is_bit_device and not self._bit_device_word_access_allowed:
             raise ValueError(
                 _(
-                    "MC 位软元件 {}{} 只支持 BOOL,字单位请改用字软元件"
-                    "(如 D)或逐点位读"
+                    "MC 位软元件 {}{} 只支持 BOOL,字单位请改用字软元件(如 D)或逐点位读"
                 ).format(parsed.device, parsed.number)
             )
 

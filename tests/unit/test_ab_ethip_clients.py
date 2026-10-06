@@ -1414,12 +1414,18 @@ def test_list_tags_connected_paging(monkeypatch: pytest.MonkeyPatch) -> None:
     assert tags[2].dims == (2, 0, 0)
     sent = bytes(scripted.sent)
     # 两页请求均为 SendUnitData 封装(非 UC-Send 包裹的 RRData)
-    assert codec_cip.build_send_unit_data(
-        _SESSION, _OT_ID, 1, codec_cip.build_tag_list_request(0)
-    ) in sent
-    assert codec_cip.build_send_unit_data(
-        _SESSION, _OT_ID, 2, codec_cip.build_tag_list_request(8)
-    ) in sent
+    assert (
+        codec_cip.build_send_unit_data(
+            _SESSION, _OT_ID, 1, codec_cip.build_tag_list_request(0)
+        )
+        in sent
+    )
+    assert (
+        codec_cip.build_send_unit_data(
+            _SESSION, _OT_ID, 2, codec_cip.build_tag_list_request(8)
+        )
+        in sent
+    )
 
 
 def test_list_tags_bad_frame_truncated(monkeypatch: pytest.MonkeyPatch) -> None:

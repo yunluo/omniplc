@@ -934,9 +934,7 @@ def test_read_many_fails_whole_batch(
     assert holder["code"] == 2
 
 
-def test_fc11_busy_code_zero_mirror(
-    monkeypatch: pytest.MonkeyPatch, loop: Any
-) -> None:
+def test_fc11_busy_code_zero_mirror(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
     """native FC11 忙态(0xFFFF)→ code=0 无码口径(与同步侧 R9-2 镜像)。
 
     review-1018 P1-3:native 曾透传 0xFFFF 作错误码计入 device_error_count;
