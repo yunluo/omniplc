@@ -278,26 +278,50 @@ def test_typed_signatures_match_sync_twin() -> None:
         ], name
 
 
-def test_write_bool_value_guard_matches_sync() -> None:
+def test_write_bool_value_guard_matches_sync(monkeypatch: pytest.MonkeyPatch) -> None:
     """``write_bool`` 的值守卫两侧同口径(手抄的守卫最容易单边漂移)。
 
     原生层的守卫是从同步基类抄过来的,review §7.7 的 P3-1 正是"只拒 str、
     放过了 5"这类单边收口不彻底 —— 这里把"同一批入参在两层得到同一结论"
     固化成守门用例。
+
+    打桩在基类 ``write`` 入口、地址用 ``c0``(不带位号的 BOOL 写仅线圈区,
+    b0cf2ab 依 V1.1b3 写区域收口):本用例只验值守卫——原实现放行后走真实
+    链路,本机 502 有从站监听时未连接的惰性重连会真连真写,首次调用即绑定
+    事件循环、第二次 ``asyncio.run`` 触发跨循环守卫(该用例因此环境敏感
+    恒红,review-1019 实施批复核发现,随批改为纯守卫口径)。
     """
     allowed = [True, False, 1, 0]
     rejected = ["0", "false", 1.0, None, 2, -1, 5, 255]
     sync_client = pkg.ModbusTcpClient("127.0.0.1", 502, 1)
     async_client = native.AsyncModbusTcpClient("127.0.0.1", 502, 1)
 
+    sync_calls: list = []
+    async_calls: list = []
+
+    def _sync_capture(address: str, data_type: object, value: object) -> bool:
+        sync_calls.append((address, value))
+        return True
+
+    async def _async_capture(address: str, data_type: object, value: object) -> bool:
+        async_calls.append((address, value))
+        return True
+
+    monkeypatch.setattr(sync_client, "write", _sync_capture)
+    monkeypatch.setattr(async_client, "write", _async_capture)
+
     for value in allowed:
-        # 只验"未被守卫拒绝"(不真发报文:未连接时 write 返回 False)
-        assert sync_client.write_bool("hr0", value) is False
-        assert asyncio.run(async_client.write_bool("hr0", value)) is False
+        # 值守卫放行 = 基类 write 恰被调用一次(链路已打桩,零网络)
+        assert sync_client.write_bool("c0", value) is True
+        assert asyncio.run(async_client.write_bool("c0", value)) is True
+    assert sync_calls == [("c0", bool(value)) for value in allowed]
+    assert async_calls == sync_calls  # bool(value) 归一两侧同型
     for value in rejected:
         with pytest.raises(ValueError):
-            sync_client.write_bool("hr0", value)  # type: ignore[arg-type]
+            sync_client.write_bool("c0", value)  # type: ignore[arg-type]
         with pytest.raises(ValueError):
-            asyncio.run(async_client.write_bool("hr0", value))  # type: ignore[arg-type]
+            asyncio.run(async_client.write_bool("c0", value))  # type: ignore[arg-type]
+    # 拒绝路径不落 write:调用次数不增
+    assert len(sync_calls) == len(allowed) and len(async_calls) == len(allowed)
 
     asyncio.run(async_client.close())
