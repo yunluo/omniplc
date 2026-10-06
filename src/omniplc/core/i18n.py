@@ -1271,6 +1271,7 @@ _TRANSLATIONS: Dict[str, str] = {
     # ---- read_range 连续批量读(审查 1002:新文案入表)+ 心跳/R9 随批 ----
     "当前驱动 {} 不支持连续批量读 read_range(起始地址+数量),请改用 read_many/read_batch 逐点列出地址": "Driver {0} does not support read_range (start address + count); use read_many/read_batch listing addresses one by one",
     "count 必须是 ≥1 的整数,收到:{!r}": "count must be an integer >= 1, got: {0!r}",
+    "{} 必须是 ≥1 的整数,收到:{!r}": "{0} must be an integer >= 1, got: {1!r}",
     "read_range 不支持 STRING,请用 read_string": "read_range does not support STRING; use read_string",
     "TCP/UDP Unit ID 必须在 {}~255 之间,收到:{}": "TCP/UDP Unit ID must be within {0}-255, got: {1}",
     "TCP Unit ID 必须在 {}~255 之间,收到:{}": "TCP Unit ID must be within {0}-255, got: {1}",

@@ -49,6 +49,7 @@ from ..core.validation import (
     check_int16,
     check_uint16,
     require_bool,
+    require_count,
     require_float,
     require_int,
 )
@@ -206,7 +207,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         if parsed.bit is not None:
             raise ValueError(_("字符串地址不支持位号后缀:{!r}").format(address))
         registers = await self._read_registers(parsed, (length + 1) // 2)
-        data = b"".join(reg.to_bytes(2, "big") for reg in registers)[:length]
+        data = convert.words_to_bytes(registers, ByteOrder.BIG)[:length]
         return convert.decode_string(data, encoding)
 
     async def _write_string(
@@ -223,9 +224,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         raw = convert.encode_string(
             value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
         )
-        registers = [
-            int.from_bytes(raw[i : i + 2], "big") for i in range(0, len(raw), 2)
-        ]
+        registers = convert.bytes_to_words(raw, ByteOrder.BIG)
         await self._write_registers_impl(parsed, registers)
         return value
 
@@ -347,9 +346,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
             (_check_address(addr, data_type_enum), data_type_enum) for addr in addresses
         ]
         ok, values = await self._execute(lambda: self._coalesce_and_read(parsed))
-        if not ok or values is None:
-            return [(False, None) for _ in addresses]
-        return [(True, value) for value in values]
+        return self._pack_read_results(addresses, values)
 
     async def read_batch(
         self,
@@ -393,8 +390,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         :raises ValueError: ``count`` 非正整数 / 位号后缀 / 区域×类型不匹配 /
             跨度越界 / 超单笔 FC 上限
         """
-        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
-            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        require_count(count)
         data_type_enum = DataType.coerce(data_type)
         if data_type_enum is DataType.STRING:
             raise ValueError(_("read_range 不支持 STRING,请用 read_string"))

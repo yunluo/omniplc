@@ -686,12 +686,10 @@ class AllenBradleyEthIpClient(BaseClient):
         (原因见 :attr:`last_error`);需要逐点容错请逐点调用 :meth:`read`。
         """
         data_type_enum = DataType.coerce(data_type)
-        ok, values = self.read_batch(
+        _, values = self.read_batch(
             [(address, data_type_enum) for address in addresses]
         )
-        if not ok or values is None:
-            return [(False, None) for _ in addresses]
-        return [(True, value) for value in values]
+        return self._pack_read_results(addresses, values)
 
     def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]

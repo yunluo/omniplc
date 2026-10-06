@@ -61,6 +61,7 @@ from ..core.base_client import (
     _narrow_int,
 )
 from ..core.debug import log_warning
+from ..core.validation import require_count
 from ..core.constants import (
     DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_RECEIVE_TIMEOUT,
@@ -678,8 +679,7 @@ class AsyncBaseClient(ABC):
         :return: ``(是否成功, 与地址升序对应的值列表)``
         :raises ValueError: ``count`` 非正整数 / 类型非法 / 驱动未实现
         """
-        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
-            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        require_count(count)
         DataType.coerce(data_type)
         raise ValueError(
             _(
@@ -704,6 +704,20 @@ class AsyncBaseClient(ABC):
             await self.write(address, data_type, value)
             for address, data_type, value in items
         ]
+
+    @staticmethod
+    def _pack_read_results(
+        addresses: Sequence[str], values: Optional[List[PrimitiveValue]]
+    ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
+        """把批量读结果打包为 ``[(是否成功, 值)]`` 列表(内部助手)。
+
+        与同步基类 :meth:`~omniplc.core.base_client.BaseClient._pack_read_results`
+        同口径:整批成功 → 逐值 ``(True, value)``;整批失败/值为空 → 逐地址
+        ``(False, None)``。各驱动 ``read_many``/``read_batch`` 入口共用。
+        """
+        if values is None:
+            return [(False, None) for _ in addresses]
+        return [(True, value) for value in values]
 
     # ------------------------------------------------------------------
     # 类型化读写(一次实现,全协议共享;口径与同步基类逐条对齐)

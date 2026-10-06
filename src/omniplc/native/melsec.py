@@ -49,6 +49,7 @@ from ..core.validation import (
     check_int16,
     check_uint16,
     require_bool,
+    require_count,
     require_int,
 )
 from ..plc.melsec import codec_a, codec_qna
@@ -234,7 +235,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         if parsed.bit is not None:
             raise ValueError(_("字符串地址不支持位号后缀:{!r}").format(address))
         words = await self._read_words(parsed, (length + 1) // 2)
-        data = b"".join(word.to_bytes(2, "little") for word in words)[:length]
+        data = convert.words_to_bytes(words)[:length]
         return convert.decode_string(data, encoding)
 
     async def _write_string(
@@ -247,9 +248,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         raw = convert.encode_string(
             value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
         )
-        words = [
-            int.from_bytes(raw[i : i + 2], "little") for i in range(0, len(raw), 2)
-        ]
+        words = convert.bytes_to_words(raw)
         await self._write_words(parsed, words)
         return value
 
@@ -276,8 +275,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         :return: ``(是否成功, 与地址升序对应的值列表)``
         :raises ValueError: ``count`` 非正整数 / 类型非法 / 点数超限 / 门控
         """
-        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
-            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        require_count(count)
         data_type_enum = DataType.coerce(data_type)
         if data_type_enum is DataType.STRING:
             raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
@@ -326,11 +324,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
                     "MC 位软元件 {}{} 只支持 BOOL,字单位请改用字软元件(如 D)或逐点位读"
                 ).format(parsed.device, parsed.number)
             )
-        width = 1
-        if data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
-            width = 2
-        elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
-            width = 4
+        width = data_type_enum.register_size
         if count * width > word_limit:
             raise ValueError(
                 _("MC read_range 字数超上限 {}(帧型 {}):{}×{}={}").format(
@@ -385,9 +379,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         ok, values = await self.read_batch(
             [(address, data_type_enum) for address in addresses]
         )
-        if not ok or values is None:
-            return [(False, None) for _ in addresses]
-        return [(True, value) for value in values]
+        return self._pack_read_results(addresses, values)
 
     async def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]

@@ -44,7 +44,13 @@ from ...core.constants import (
     FINS_UNSUPPORTED_AREA_CODE,
 )
 from ...core.errors import DeviceError
-from ...core.validation import check_int16, check_range, check_uint16, require_bool
+from ...core.validation import (
+    check_int16,
+    check_range,
+    check_uint16,
+    require_bool,
+    require_count,
+)
 from ...transport import BaseTransport, TcpTransport, UdpTransport
 from ...core.types import ByteOrder, DataType, PrimitiveValue
 from ...core.i18n import _
@@ -349,7 +355,7 @@ class _OmronFinsBase(BaseClient):
         if parsed.bit is not None:
             raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         words = self._read_words(parsed, (length + 1) // 2)
-        data = b"".join(word.to_bytes(2, "big") for word in words)[:length]
+        data = convert.words_to_bytes(words, ByteOrder.BIG)[:length]
         return convert.decode_string(data, encoding)
 
     def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
@@ -360,7 +366,7 @@ class _OmronFinsBase(BaseClient):
         raw = convert.encode_string(
             value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
         )
-        words = [int.from_bytes(raw[i : i + 2], "big") for i in range(0, len(raw), 2)]
+        words = convert.bytes_to_words(raw, ByteOrder.BIG)
         self._write_words(parsed, words)
         return value
 
@@ -390,8 +396,7 @@ class _OmronFinsBase(BaseClient):
         :raises ValueError: ``count`` 非正整数 / 类型非法 / 字数或位读超限 /
             T/C 完成标志
         """
-        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
-            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        require_count(count)
         data_type_enum = DataType.coerce(data_type)
         if data_type_enum is DataType.STRING:
             raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
@@ -471,12 +476,10 @@ class _OmronFinsBase(BaseClient):
         (原因见 :attr:`last_error`);需要逐点容错请逐点调用 :meth:`read`。
         """
         data_type_enum = DataType.coerce(data_type)
-        ok, values = self.read_batch(
+        _, values = self.read_batch(
             [(address, data_type_enum) for address in addresses]
         )
-        if not ok or values is None:
-            return [(False, None) for _ in addresses]
-        return [(True, value) for value in values]
+        return self._pack_read_results(addresses, values)
 
     def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]

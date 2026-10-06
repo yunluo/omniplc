@@ -40,12 +40,6 @@ _TOKEN_RULES = {
     ".D": (r"\d+", 0, 0xFFFFFFFF),
     ".L": (r"[+-]?\d+", -0x80000000, 0x7FFFFFFF),
 }
-_VALUE_RULES = {
-    ".U": (0, 0xFFFF),
-    ".S": (-0x8000, 0x7FFF),
-    ".D": (0, 0xFFFFFFFF),
-    ".L": (-0x80000000, 0x7FFFFFFF),
-}
 
 
 def build_frame(body: str) -> bytes:

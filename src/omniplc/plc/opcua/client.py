@@ -1283,12 +1283,15 @@ def _validate_endpoint_url(endpoint: str) -> None:
         )
 
 
-_OPCUA_INT_RANGES: Dict[DataType, Tuple[int, int, str]] = {
+_INT_RANGES: Dict[DataType, Tuple[int, int, str]] = {
+    DataType.SHORT: (INT16_MIN, INT16_MAX, "short"),
+    DataType.USHORT: (0, UINT16_MAX, "ushort"),
     DataType.INT: (INT32_MIN, INT32_MAX, "int"),
     DataType.UINT: (0, UINT32_MAX, "uint"),
     DataType.LONG: (INT64_MIN, INT64_MAX, "long"),
     DataType.ULONG: (0, UINT64_MAX, "ulong"),
 }
+"""数据类型 → (下限, 上限, 名称):读收窄与写校验共用一张表。"""
 
 
 def _narrow_int(value: int, data_type: DataType) -> int:
@@ -1303,7 +1306,7 @@ def _narrow_int(value: int, data_type: DataType) -> int:
             return check_range(value, INT16_MIN, INT16_MAX, "short")
         if data_type is DataType.USHORT:
             return check_uint16(value)
-        low, high, name = _OPCUA_INT_RANGES[data_type]
+        low, high, name = _INT_RANGES[data_type]
         return check_range(value, low, high, name)
     except ValueError as exc:
         raise DeviceError(
@@ -1384,20 +1387,9 @@ def _coerce_write(value: PrimitiveValue, data_type: DataType) -> Tuple[Any, str]
     return value, variant_name
 
 
-_INT_RANGES = {
-    DataType.SHORT: (INT16_MIN, INT16_MAX),
-    DataType.USHORT: (0, UINT16_MAX),
-    DataType.INT: (INT32_MIN, INT32_MAX),
-    DataType.UINT: (0, UINT32_MAX),
-    DataType.LONG: (INT64_MIN, INT64_MAX),
-    DataType.ULONG: (0, UINT64_MAX),
-}
-"""整数DataType → (下限, 上限)。"""
-
-
 def _require_int_range(number: int, data_type: DataType) -> None:
     """整数范围校验(内部函数)。"""
-    low, high = _INT_RANGES[data_type]
+    low, high, _name = _INT_RANGES[data_type]
     if not low <= number <= high:
         raise ValueError(
             _("{} 超出范围 {}~{}:{}").format(data_type.name, low, high, number)

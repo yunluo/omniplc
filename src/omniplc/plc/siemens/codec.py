@@ -341,7 +341,7 @@ def parse_s7_response(
         raise S7ProtocolError(
             _("S7 应答类型非法:0x{:02X}(应为 ACK/ACK_DATA/USERDATA)").format(pdu_type)
         )
-    if pdu[:1] != bytes((PROTOCOL_ID,)):
+    if pdu[0] != PROTOCOL_ID:
         raise S7ProtocolError(_("S7 协议 ID 非法:0x{:02X}(应为 0x32)").format(pdu[0]))
     if sequence != (expected_sequence & 0xFFFF):
         raise S7ProtocolError(

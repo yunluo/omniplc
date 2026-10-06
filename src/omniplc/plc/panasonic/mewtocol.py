@@ -37,7 +37,7 @@ from ...core.constants import (
     MEWTOCOL_WORD_FIELD_MAX,
 )
 from ...core.errors import ProtocolFrameError
-from ...core.validation import check_int16, check_uint16, require_bool
+from ...core.validation import check_int16, check_uint16, require_bool, require_count
 from ...transport import BaseTransport, TcpTransport, UdpTransport
 from ...core.types import ByteOrder, DataType, PrimitiveValue
 from ...core.i18n import _
@@ -89,10 +89,10 @@ class _MewtocolBase(BaseClient):
             )
         if data_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
             data = self._read_words(parsed, 2)
-            return _decode_32(data, data_type)
+            return _decode(data, data_type)
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
             data = self._read_words(parsed, 4)
-            return _decode_64(data, data_type)
+            return _decode(data, data_type)
         raise ValueError(_("MEWTOCOL 不支持的数据类型:{}").format(data_type))
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
@@ -127,10 +127,10 @@ class _MewtocolBase(BaseClient):
             self._write_words(parsed, [check_uint16(value)])
             return
         if data_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
-            self._write_words(parsed, _encode_32(value, data_type))
+            self._write_words(parsed, _encode(value, data_type))
             return
         if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
-            self._write_words(parsed, _encode_64(value, data_type))
+            self._write_words(parsed, _encode(value, data_type))
             return
         raise ValueError(_("MEWTOCOL 不支持的数据类型:{}").format(data_type))
 
@@ -140,7 +140,7 @@ class _MewtocolBase(BaseClient):
         if parsed.bit is not None:
             raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         words = self._read_words(parsed, (length + 1) // 2)
-        data = b"".join(word.to_bytes(2, "big") for word in words)[:length]
+        data = convert.words_to_bytes(words, ByteOrder.BIG)[:length]
         return convert.decode_string(data, encoding)
 
     def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
@@ -151,7 +151,7 @@ class _MewtocolBase(BaseClient):
         raw = convert.encode_string(
             value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
         )
-        words = [int.from_bytes(raw[i : i + 2], "big") for i in range(0, len(raw), 2)]
+        words = convert.bytes_to_words(raw, ByteOrder.BIG)
         self._write_words(parsed, words)
         return value
 
@@ -220,8 +220,7 @@ class _MewtocolBase(BaseClient):
         :raises ValueError: ``count`` 非正整数 / 类型非法 / 接点区或
             位号地址 / 字数越界
         """
-        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
-            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        require_count(count)
         data_type_enum = DataType.coerce(data_type)
         if data_type_enum is DataType.STRING:
             raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
@@ -279,9 +278,9 @@ class _MewtocolBase(BaseClient):
                         else convert.to_signed(chunk[0], 16)
                     )
                 elif data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
-                    values.append(_decode_32(chunk, data_type_enum))
+                    values.append(_decode(chunk, data_type_enum))
                 else:
-                    values.append(_decode_64(chunk, data_type_enum))
+                    values.append(_decode(chunk, data_type_enum))
             return values
 
         ok, values = self._execute(operation)
@@ -394,21 +393,11 @@ class PanasonicMewtocolUdpClient(_MewtocolBase):
 # ----------------------------------------------------------------------
 
 
-def _decode_32(data: Sequence[int], data_type: DataType) -> PrimitiveValue:
-    """两字数据按类型解码:低字在前、字内高字节在前(内部函数)。"""
+def _decode(data: Sequence[int], data_type: DataType) -> PrimitiveValue:
+    """原始字按类型解码:低字在前、字内高字节在前(内部函数)。"""
     return convert.words_to_value(data, data_type, ByteOrder.BIG, reverse_words=True)
 
 
-def _decode_64(data: Sequence[int], data_type: DataType) -> PrimitiveValue:
-    """四字数据按类型解码:低字在前、字内高字节在前(内部函数)。"""
-    return convert.words_to_value(data, data_type, ByteOrder.BIG, reverse_words=True)
-
-
-def _encode_32(value: PrimitiveValue, data_type: DataType) -> List[int]:
-    """按类型把 32 位值编码为 2 个字:低字在前、字内高字节在前(内部函数)。"""
-    return convert.value_to_words(value, data_type, ByteOrder.BIG, reverse_words=True)
-
-
-def _encode_64(value: PrimitiveValue, data_type: DataType) -> List[int]:
-    """按类型把 64 位值编码为 4 个字:低字在前、字内高字节在前(内部函数)。"""
+def _encode(value: PrimitiveValue, data_type: DataType) -> List[int]:
+    """按类型把值编码为原始字:低字在前、字内高字节在前(内部函数)。"""
     return convert.value_to_words(value, data_type, ByteOrder.BIG, reverse_words=True)

@@ -71,3 +71,14 @@ def check_byte_field(name: str, value: int, maximum: int = UINT8_MAX) -> int:
     if not 0 <= number <= maximum:
         raise ValueError(_("{} 必须在 0~{} 之间,收到:{}").format(name, maximum, value))
     return number
+
+
+def require_count(value: PrimitiveValue, name: str = "count") -> int:
+    """校验数量参数(排除 bool 的 ≥1 整数),合法原值返回。
+
+    各驱动 ``read_range``/``read_many`` 等批量入口共用,报错文案带
+    参数名便于定位(如 ``count``/``length``)。
+    """
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(_("{} 必须是 ≥1 的整数,收到:{!r}").format(name, value))
+    return value

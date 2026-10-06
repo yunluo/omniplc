@@ -52,7 +52,7 @@ from ...core.constants import (
 )
 from ...core.debug import log_op
 from ...core.errors import DeviceError, TransportClosedError
-from ...core.validation import require_bool, require_float, require_int
+from ...core.validation import require_bool, require_count, require_float, require_int
 from ...core.types import DataType, PrimitiveValue, S7Model
 from ...transport.base import BaseTransport
 from ...transport.tcp import TcpTransport
@@ -889,8 +889,7 @@ class SiemensS7Client(BaseClient):
         :return: ``(是否成功, 与地址升序对应的值列表)``
         :raises ValueError: ``count`` 非正整数 / 类型非法 / 位地址
         """
-        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
-            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        require_count(count)
         data_type_enum = DataType.coerce(data_type)
         if data_type_enum is DataType.STRING:
             raise ValueError(_("read_range 不支持 STRING,请用 read_string"))

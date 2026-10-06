@@ -51,7 +51,7 @@ from ...core.constants import (
 )
 from ...core.debug import log_op
 from ...core.errors import DeviceError, OmniPLCInternalError, TransportClosedError
-from ...core.validation import check_int16, check_uint16, require_bool
+from ...core.validation import check_int16, check_uint16, require_bool, require_count
 from ...transport import BaseTransport
 from ...core.types import DataType, PrimitiveValue
 from .address import McAddress, parse_mc_address
@@ -765,7 +765,7 @@ class MelsecMxClient(BaseClient):
         """读字符串:批量读字 → 小端拼字节 → 解码。"""
         parsed = _require_word_device(address)
         words = self._read_words(_device_text(parsed), (length + 1) // 2)
-        data = b"".join(word.to_bytes(2, "little") for word in words)[:length]
+        data = convert.words_to_bytes(words)[:length]
         return convert.decode_string(data, encoding)
 
     def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
@@ -774,9 +774,7 @@ class MelsecMxClient(BaseClient):
         raw = convert.encode_string(
             value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
         )
-        words = [
-            int.from_bytes(raw[i : i + 2], "little") for i in range(0, len(raw), 2)
-        ]
+        words = convert.bytes_to_words(raw)
         self._write_words(_device_text(parsed), words)
         return value
 
@@ -804,8 +802,7 @@ class MelsecMxClient(BaseClient):
         :raises ValueError: ``count`` 非正整数 / 类型非法 / 字数超限 /
             位软元件(MX 位块读 16 点/字语义与单点读不一致,统一拒绝)
         """
-        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
-            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        require_count(count)
         data_type_enum = DataType.coerce(data_type)
         if data_type_enum is DataType.STRING:
             raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
@@ -819,11 +816,7 @@ class MelsecMxClient(BaseClient):
                     "MX read_range 不支持 BOOL 连续读(位块读语义不一致),请逐点读:{!r}"
                 ).format(address)
             )
-        width = 1
-        if data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
-            width = 2
-        elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
-            width = 4
+        width = data_type_enum.register_size
         if count * width > MX_MAX_BLOCK_WORDS:
             raise ValueError(
                 _("MX read_range 字数超上限 {}:{}×{}={}").format(
@@ -867,9 +860,7 @@ class MelsecMxClient(BaseClient):
         ok, values = self.read_batch(
             [(address, data_type_enum) for address in addresses]
         )
-        if not ok or values is None:
-            return [(False, None) for _ in addresses]
-        return [(True, value) for value in values]
+        return self._pack_read_results(addresses, values)
 
     def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
@@ -917,14 +908,11 @@ class MelsecMxClient(BaseClient):
                 random_texts.append(_device_text(parsed))
                 plan.append(("random", address, 0, data_type_enum, 0))
                 continue
-            if data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
-                words = 2
-            elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
-                words = 4
-            else:
+            if data_type_enum is DataType.STRING:
                 raise ValueError(
                     _("MX 批量读取不支持的数据类型:{}").format(data_type_enum)
                 )
+            words = data_type_enum.register_size
             plan.append(("block", address, 0, data_type_enum, words))
 
         def operation() -> List[PrimitiveValue]:

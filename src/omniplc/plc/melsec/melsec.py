@@ -62,6 +62,7 @@ from ...core.validation import (
     check_int16,
     check_uint16,
     require_bool,
+    require_count,
     require_int,
 )
 from ...transport import (
@@ -263,7 +264,7 @@ class _MelsecMcBase(BaseClient):
         if parsed.bit is not None:
             raise ValueError(_("字符串地址不支持位号后缀:{!r}").format(address))
         words = self._read_words(parsed, (length + 1) // 2)
-        data = b"".join(word.to_bytes(2, "little") for word in words)[:length]
+        data = convert.words_to_bytes(words)[:length]
         return convert.decode_string(data, encoding)
 
     def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
@@ -274,9 +275,7 @@ class _MelsecMcBase(BaseClient):
         raw = convert.encode_string(
             value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
         )
-        words = [
-            int.from_bytes(raw[i : i + 2], "little") for i in range(0, len(raw), 2)
-        ]
+        words = convert.bytes_to_words(raw)
         self._write_words(parsed, words)
         return value
 
@@ -309,8 +308,7 @@ class _MelsecMcBase(BaseClient):
         :raises ValueError: ``count`` 非正整数 / 类型非法 / 点数超限 /
             位软元件按字单位访问被门控
         """
-        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
-            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        require_count(count)
         data_type_enum = DataType.coerce(data_type)
         if data_type_enum is DataType.STRING:
             raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
@@ -371,11 +369,7 @@ class _MelsecMcBase(BaseClient):
                         "(如 D)或逐点位读"
                     ).format(parsed.device, parsed.number)
                 )
-            width = 1
-            if data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
-                width = 2
-            elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
-                width = 4
+            width = data_type_enum.register_size
             if count * width > word_limit:
                 raise ValueError(
                     _("MC read_range 字数超上限 {}(帧型 {}):{}×{}={}").format(
@@ -428,9 +422,7 @@ class _MelsecMcBase(BaseClient):
         ok, values = self.read_batch(
             [(address, data_type_enum) for address in addresses]
         )
-        if not ok or values is None:
-            return [(False, None) for _ in addresses]
-        return [(True, value) for value in values]
+        return self._pack_read_results(addresses, values)
 
     def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]

@@ -61,7 +61,7 @@ from .errors import (
 )
 from .tag import Tag, TagTable
 from .monitor import Monitor, MonitorEvent
-from .validation import require_int
+from .validation import require_count, require_int
 from ..transport import BaseTransport
 from .types import DataType, PrimitiveValue
 from .i18n import _
@@ -778,8 +778,7 @@ class BaseClient(ABC):
         :raises ValueError: ``count`` 非正整数 / 类型非法 / 当前驱动未实现
             连续批量读
         """
-        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
-            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        require_count(count)
         DataType.coerce(data_type)
         raise ValueError(
             _(
@@ -791,14 +790,28 @@ class BaseClient(ABC):
     def write_many(
         self, items: Sequence[Tuple[str, Union[DataType, str], PrimitiveValue]]
     ) -> List[bool]:
-        """批量写入,逐点独立容错。
+        """批量写入,逐点独立容错
 
-        :param items: ``(地址, 数据类型, 值)`` 三元组序列
+        :param items: ``(地址, 数据类型, 值)`` 三元组列表
         :return: 与 items 顺序对应的布尔结果列表
         """
         return [
             self.write(address, data_type, value) for address, data_type, value in items
         ]
+
+    @staticmethod
+    def _pack_read_results(
+        addresses: Sequence[str], values: Optional[List[PrimitiveValue]]
+    ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
+        """把批量读结果打包为 ``[(是否成功, 值)]`` 列表(内部助手)。
+
+        整批成功 → 逐值 ``(True, value)``;整批失败/值为空 → 逐地址
+        ``(False, None)``。各驱动 ``read_many``/``read_batch`` 入口共用,
+        避免重复的打包样板。
+        """
+        if values is None:
+            return [(False, None) for _ in addresses]
+        return [(True, value) for value in values]
 
     # ------------------------------------------------------------------
     # 类型化读写(一次实现,全协议共享)

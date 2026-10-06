@@ -66,11 +66,12 @@ from ...core.validation import (
     check_range,
     check_uint16,
     require_bool,
+    require_count,
     require_float,
     require_int,
 )
 from ...transport import BaseTransport, TcpTransport, UdpTransport
-from ...core.types import DataType, PrimitiveValue
+from ...core.types import ByteOrder, DataType, PrimitiveValue
 from . import codec
 from .address import (
     ToyopucAddress,
@@ -145,25 +146,21 @@ class _ToyopucBase(BaseClient):
             )
         if data_type in (DataType.SHORT, DataType.USHORT):
             words = self._read_words(parsed, 1)
-            return (
-                words[0]
-                if data_type is DataType.USHORT
-                else convert.to_signed(words[0], 16)
-            )
+            return convert.words_to_value(words, data_type, ByteOrder.LITTLE)
         if data_type in (DataType.INT, DataType.UINT):
             raw = self._read_raw(parsed, 4)
             return convert.to_signed(raw, 32) if data_type is DataType.INT else raw
         if data_type is DataType.FLOAT:
-            return struct.unpack(
-                "<f", convert.words_to_bytes(self._read_words(parsed, 2))
-            )[0]
+            return convert.words_to_value(
+                self._read_words(parsed, 2), data_type, ByteOrder.LITTLE
+            )
         if data_type in (DataType.LONG, DataType.ULONG):
             raw = self._read_raw(parsed, 8)
             return convert.to_signed(raw, 64) if data_type is DataType.LONG else raw
         if data_type is DataType.DOUBLE:
-            return struct.unpack(
-                "<d", convert.words_to_bytes(self._read_words(parsed, 4))
-            )[0]
+            return convert.words_to_value(
+                self._read_words(parsed, 4), data_type, ByteOrder.LITTLE
+            )
         raise ValueError(_("TOYOPUC 不支持的数据类型:{}").format(data_type))
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
@@ -295,8 +292,7 @@ class _ToyopucBase(BaseClient):
         :raises ValueError: ``count`` 非正整数 / 类型非法 / 位软元件或
             字节访问地址 / 字数超限
         """
-        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
-            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        require_count(count)
         data_type_enum = DataType.coerce(data_type)
         if data_type_enum is DataType.STRING:
             raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
@@ -322,34 +318,14 @@ class _ToyopucBase(BaseClient):
 
         def operation() -> List[PrimitiveValue]:
             words = self._read_words(parsed, count * width)
-            values: List[PrimitiveValue] = []
-            for index in range(count):
-                chunk = words[index * width : (index + 1) * width]
-                if data_type_enum in (DataType.SHORT, DataType.USHORT):
-                    values.append(
-                        chunk[0]
-                        if data_type_enum is DataType.USHORT
-                        else convert.to_signed(chunk[0], 16)
-                    )
-                elif data_type_enum in (DataType.INT, DataType.UINT):
-                    raw = int.from_bytes(convert.words_to_bytes(chunk), "little")
-                    values.append(
-                        raw
-                        if data_type_enum is DataType.UINT
-                        else convert.to_signed(raw, 32)
-                    )
-                elif data_type_enum is DataType.FLOAT:
-                    values.append(struct.unpack("<f", convert.words_to_bytes(chunk))[0])
-                elif data_type_enum in (DataType.LONG, DataType.ULONG):
-                    raw = int.from_bytes(convert.words_to_bytes(chunk), "little")
-                    values.append(
-                        raw
-                        if data_type_enum is DataType.ULONG
-                        else convert.to_signed(raw, 64)
-                    )
-                else:
-                    values.append(struct.unpack("<d", convert.words_to_bytes(chunk))[0])
-            return values
+            return [
+                convert.words_to_value(
+                    words[index * width : (index + 1) * width],
+                    data_type_enum,
+                    ByteOrder.LITTLE,
+                )
+                for index in range(count)
+            ]
 
         ok, values = self._execute(operation)
         if not ok or values is None:

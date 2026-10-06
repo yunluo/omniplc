@@ -48,7 +48,13 @@ from ..core.constants import (
     FINS_UNSUPPORTED_AREA_CODE,
 )
 from ..core.errors import DeviceError
-from ..core.validation import check_int16, check_uint16, check_range, require_bool
+from ..core.validation import (
+    check_int16,
+    check_uint16,
+    check_range,
+    require_bool,
+    require_count,
+)
 from ..plc.omron import codec
 from ..plc.omron.address import FinsAddress, parse_fins_address
 from ..plc.omron.omron import (
@@ -58,7 +64,7 @@ from ..plc.omron.omron import (
     _value_to_words,
     _words_to_value,
 )
-from ..core.types import DataType, PrimitiveValue
+from ..core.types import ByteOrder, DataType, PrimitiveValue
 from ..core.i18n import _
 
 
@@ -329,7 +335,7 @@ class AsyncOmronFinsBase(AsyncBaseClient):
         if parsed.bit is not None:
             raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         words = await self._read_words(parsed, (length + 1) // 2)
-        data = b"".join(word.to_bytes(2, "big") for word in words)[:length]
+        data = convert.words_to_bytes(words, ByteOrder.BIG)[:length]
         return convert.decode_string(data, encoding)
 
     async def _write_string(
@@ -342,7 +348,7 @@ class AsyncOmronFinsBase(AsyncBaseClient):
         raw = convert.encode_string(
             value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
         )
-        words = [int.from_bytes(raw[i : i + 2], "big") for i in range(0, len(raw), 2)]
+        words = convert.bytes_to_words(raw, ByteOrder.BIG)
         await self._write_words(parsed, words)
         return value
 
@@ -368,8 +374,7 @@ class AsyncOmronFinsBase(AsyncBaseClient):
         :return: ``(是否成功, 与地址升序对应的值列表)``
         :raises ValueError: ``count`` 非正整数 / 类型非法 / 字数超限
         """
-        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
-            raise ValueError(_("count 必须是 ≥1 的整数,收到:{!r}").format(count))
+        require_count(count)
         data_type_enum = DataType.coerce(data_type)
         if data_type_enum is DataType.STRING:
             raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
@@ -450,12 +455,10 @@ class AsyncOmronFinsBase(AsyncBaseClient):
         :return: 与地址顺序对应的 ``[(是否成功, 值)]`` 列表
         """
         data_type_enum = DataType.coerce(data_type)
-        ok, values = await self.read_batch(
+        _, values = await self.read_batch(
             [(address, data_type_enum) for address in addresses]
         )
-        if not ok or values is None:
-            return [(False, None) for _ in addresses]
-        return [(True, value) for value in values]
+        return self._pack_read_results(addresses, values)
 
     async def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]

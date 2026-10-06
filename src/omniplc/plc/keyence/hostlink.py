@@ -57,6 +57,20 @@ from . import codec
 from .address import KvAddress, is_bit_device, parse_kv_address
 from ...core.i18n import _
 
+# 字软元件可承载的数值类型(位软元件只走 BOOL)
+_WORD_DATA_TYPES = frozenset(
+    {
+        DataType.SHORT,
+        DataType.USHORT,
+        DataType.INT,
+        DataType.UINT,
+        DataType.FLOAT,
+        DataType.LONG,
+        DataType.ULONG,
+        DataType.DOUBLE,
+    }
+)
+
 
 class _KeyenceHostLinkBase(BaseClient):
     """KV Host Link 客户端基类:类型分发与行式事务。"""
@@ -144,16 +158,7 @@ class _KeyenceHostLinkBase(BaseClient):
             return self._read_bool_impl(parsed)
         if parsed.bit is not None:
             raise ValueError(_("仅布尔类型支持字软元件位访问:{!r}").format(address))
-        if not is_bit_device(parsed.device) and data_type in (
-            DataType.SHORT,
-            DataType.USHORT,
-            DataType.INT,
-            DataType.UINT,
-            DataType.FLOAT,
-            DataType.LONG,
-            DataType.ULONG,
-            DataType.DOUBLE,
-        ):
+        if not is_bit_device(parsed.device) and data_type in _WORD_DATA_TYPES:
             return self._read_word(parsed, data_type)
         raise ValueError(
             _("KV Host Link 不支持的数据类型或软元件:{!r}({})").format(
@@ -169,16 +174,7 @@ class _KeyenceHostLinkBase(BaseClient):
             return
         if parsed.bit is not None:
             raise ValueError(_("仅布尔类型支持字软元件位访问:{!r}").format(address))
-        if not is_bit_device(parsed.device) and data_type in (
-            DataType.SHORT,
-            DataType.USHORT,
-            DataType.INT,
-            DataType.UINT,
-            DataType.FLOAT,
-            DataType.LONG,
-            DataType.ULONG,
-            DataType.DOUBLE,
-        ):
+        if not is_bit_device(parsed.device) and data_type in _WORD_DATA_TYPES:
             self._write_word(parsed, data_type, value)
             return
         raise ValueError(
@@ -191,7 +187,7 @@ class _KeyenceHostLinkBase(BaseClient):
         """读字符串:连续 .U 字 → 小端拼字节 → 解码。"""
         parsed = _require_word(address)
         words = self._read_consecutive(parsed, (length + 1) // 2)
-        data = b"".join(word.to_bytes(2, "little") for word in words)[:length]
+        data = convert.words_to_bytes(words)[:length]
         return convert.decode_string(data, encoding)
 
     def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
@@ -200,9 +196,7 @@ class _KeyenceHostLinkBase(BaseClient):
         raw = convert.encode_string(
             value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
         )
-        words = [
-            int.from_bytes(raw[i : i + 2], "little") for i in range(0, len(raw), 2)
-        ]
+        words = convert.bytes_to_words(raw)
         self._write_consecutive_words(parsed, words)
         return value
 
