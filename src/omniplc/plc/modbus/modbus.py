@@ -658,8 +658,14 @@ class ModbusBaseClient(BaseClient):
                 MODBUS_MAX_WRITE_BITS if kind == "bit" else MODBUS_MAX_WRITE_REGISTERS
             )
             chunks = _coalesce_group([t[1] for t in group], kind, max_unit)
+            # _coalesce_group 按 group 原序消费、每条目恰入一个 chunk,各 chunk
+            # 恒为 group 的连续切片——指针按序切替代逐 chunk 全量深比较
+            # (成员测试是 5 字段 NamedTuple 逐字段 __eq__,最坏 O(n²),
+            # review-1019 P1-1;不变量由 test_coalesce_group_chunks_slice_group 锁定)
+            position = 0
             for chunk_entries in chunks:
-                chunk_items = [item for item in group if item[1] in chunk_entries]
+                chunk_items = group[position : position + len(chunk_entries)]
+                position += len(chunk_entries)
                 if fail_fast:
                     _write_chunk(self, area, kind, chunk_items)
                     for item_index, _entry, _area in chunk_items:
@@ -737,11 +743,11 @@ class ModbusBaseClient(BaseClient):
             raise ValueError(
                 _("FC 15 仅支持线圈区域,收到:{!r}").format(parsed.area.value)
             )
-        # codec 内部按位打包,期望 List[int];此处 bool 是 int 的子类可直接传
-        int_values: List[int] = [1 if flag else 0 for flag in values]
+        # codec 内部按位打包(``if flag:`` 置位),期望 List[int];bool 是
+        # int 子类直接传,1/0 归一与真值判定逐位等价(review-1019 P3-1)
         self._write_pdu(
             codec.build_write_multi_pdu(
-                parsed.write_multi_function_code, parsed.offset, int_values
+                parsed.write_multi_function_code, parsed.offset, values
             )
         )
 

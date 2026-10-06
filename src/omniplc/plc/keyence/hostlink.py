@@ -110,39 +110,48 @@ class _KeyenceHostLinkBase(BaseClient):
                 )
             text = codec.parse_response(raw)
         else:
-            chunks: List[bytes] = []
-            received = 0
+            # 块读收行(review-1019 P1-2):recv_some 单次收尽已到达字节,
+            # 替代逐字节 recv(1)(每字节 = 超时下发 + deadline 计算 + 系统
+            # 调用,40 字符行 ≈80 次);recv_some 是流式成帧原语——阻塞上限
+            # 为当前超时,有数据即整批返回,超时内无任何数据抛 socket.timeout
+            # (与逐字节版同语义)。超时整体 deadline 保留:行未收完时循环
+            # 顶部按剩余时间下发。行终止符之后的同块剩余字节一并丢弃:Host
+            # Link 一命令一响应行,残留只可能来自协议异常——丢弃比留在
+            # 缓冲污染下一事务更稳(逐字节版会把它当下一行行首)。
+            line = bytearray()
             started = False
+            terminated = False
             previous_timeout = transport.receive_timeout
             deadline = time.monotonic() + previous_timeout
             try:
-                while True:
+                while not terminated:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         raise socket.timeout(
                             _("KV Host Link 收行超时({}s)").format(previous_timeout)
                         )
                     transport.receive_timeout = remaining
-                    byte = transport.recv(1)
-                    if byte == b"\r" or byte == b"\n":
-                        if not started:
-                            continue  # 丢弃行首多余分隔符
-                        break
-                    started = True
-                    chunks.append(byte)
-                    received += 1
-                    if received > KV_MAX_LINE:
-                        raise ProtocolFrameError(
-                            _(
-                                "KV Host Link 响应行超过 {} 字节上限(头部字节:{})"
-                            ).format(
-                                KV_MAX_LINE,
-                                _truncate_hex(b"".join(chunks)),
+                    chunk = transport.recv_some(KV_MAX_LINE + 2 - len(line))
+                    for byte in chunk:
+                        if byte == 13 or byte == 10:
+                            if not started:
+                                continue  # 丢弃行首多余分隔符
+                            terminated = True
+                            break
+                        started = True
+                        line.append(byte)
+                        if len(line) > KV_MAX_LINE:
+                            raise ProtocolFrameError(
+                                _(
+                                    "KV Host Link 响应行超过 {} 字节上限(头部字节:{})"
+                                ).format(
+                                    KV_MAX_LINE,
+                                    _truncate_hex(bytes(line)),
+                                )
                             )
-                        )
             finally:
                 transport.receive_timeout = previous_timeout
-            text = codec.parse_response(b"".join(chunks))
+            text = codec.parse_response(bytes(line))
         if check_errors:
             codec.check_error_code(text)
         return text
@@ -193,9 +202,11 @@ class _KeyenceHostLinkBase(BaseClient):
     def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
         """写字符串:编码 → 补齐偶数字节 → 小端拆字 → WRS 连续写。"""
         parsed = _require_word(address)
-        raw = convert.encode_string(
-            value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
-        )
+        # 编码一次后直接补 \\x00 到偶数字节(encode_string 目标长度 = 向上取偶,
+        # 长度校验恒不触发,review-1019 P3-2)
+        raw = value.encode(encoding)
+        if len(raw) % 2:
+            raw += b"\x00"
         words = convert.bytes_to_words(raw)
         self._write_consecutive_words(parsed, words)
         return value

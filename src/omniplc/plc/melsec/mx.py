@@ -35,7 +35,8 @@ comtypes 调用口径(真机联测核证,分两条路径):``GetDevice`` 的
 
 from __future__ import annotations
 import ctypes
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, Union
+from functools import lru_cache
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, Union, cast
 
 from ...core import convert
 from ...core.base_client import BaseClient
@@ -118,6 +119,33 @@ def _return_code(result: Any) -> int:
     raise OmniPLCInternalError(_("MX Component 返回码缺失:{!r}").format(result))
 
 
+# COM 类型数量有限(ActUtlType/ActProgType × 类型库版本),上限 32 足够
+@lru_cache(maxsize=32)
+def _locate_raw_com_attr(com_type: Any, method: str) -> str:
+    """定位原始 vtable 方法的**属性名**(内部函数,结果按类型记忆化)。
+
+    挂载名含接口类名(依类型库生成结果而定),按 ``__com_<方法名>``
+    后缀沿 MRO 扫描定位,大小写不敏感。同一 COM 类型扫描结果恒定,
+    :func:`functools.lru_cache` 记忆化免除每笔块操作的重复全扫描
+    (review-1019 P1-3:120 条 float 批曾 = 120 次扫描);类型作为缓存
+    键天然兼容不同类型库版本。``com_type`` 收 ``Any``:mypy 的
+    ``type[Any]`` 与 ``Hashable`` 存在已知不相容误报,运行时类对象恒可哈希。
+
+    :raises OmniPLCInternalError: COM 控件未按类型库绑定(动态派发降级,
+        无原始方法挂载;异常不入缓存,每次照常定位)
+    """
+    suffix = f"__com_{method}".lower()
+    for klass in com_type.__mro__:
+        for key in vars(klass):
+            if key.lower().endswith(suffix):
+                return key
+    raise OmniPLCInternalError(
+        _(
+            "MX Component 接口缺少原始方法 {}(COM 控件未按类型库绑定,块读写无法走原始 vtable 通道)"
+        ).format(method)
+    )
+
+
 def _raw_com_method(com: Any, method: str) -> Any:
     """取 comtypes 类型库包装挂载的**原始 vtable 方法**(内部函数)。
 
@@ -125,22 +153,15 @@ def _raw_com_method(com: Any, method: str) -> Any:
     (属性名形如 ``_<接口类名>__com_<方法名>``,纯 ctypes 语义,vtable
     参数原样全收)。高层包装对 [out]-only 数组参数(ActUtlType 块读写的
     ``Data``)不收缓冲区实参、省略时又只分配单元素缓冲,块操作必须经
-    此原始通道传入自备缓冲。挂载名含接口类名(依类型库生成结果而定),
-    故按 ``__com_<方法名>`` 后缀沿 MRO 扫描定位,大小写不敏感。
+    此原始通道传入自备缓冲。
 
-    :raises OmniPLCInternalError: COM 控件未按类型库绑定(动态派发降级,
-        无原始方法挂载)
+    只记忆化**属性名**、每次 :func:`getattr` 重新绑定实例:断线重连会
+    ``CreateObject`` 新 COM 对象,缓存绑定方法会拿到旧实例已释放的
+    接口指针(缓存名不缓存方法,review-1019 P1-3)。
     """
-    suffix = f"__com_{method}".lower()
-    for klass in type(com).__mro__:
-        for key in vars(klass):
-            if key.lower().endswith(suffix):
-                return getattr(com, key)
-    raise OmniPLCInternalError(
-        _(
-            "MX Component 接口缺少原始方法 {}(COM 控件未按类型库绑定,块读写无法走原始 vtable 通道)"
-        ).format(method)
-    )
+    # cast:mypy 对 type[Any] 与 lru_cache 形参 Hashable 的已知误报,
+    # 类对象运行时恒可哈希
+    return getattr(com, _locate_raw_com_attr(cast(Any, type(com)), method))
 
 
 def _check_rc(code: int, method: str) -> None:
@@ -913,13 +934,16 @@ class MelsecMxClient(BaseClient):
                     _("MX 批量读取不支持的数据类型:{}").format(data_type_enum)
                 )
             words = data_type_enum.register_size
-            plan.append(("block", address, 0, data_type_enum, words))
+            # block 条目第 2 位直接存规范软元件文本:operation 免去每条目
+            # 重复 _check_address + _device_text(review-1019 P3-4;random
+            # 条目该位存原始地址,仅计划自述用,运行期不读)
+            plan.append(("block", _device_text(parsed), 0, data_type_enum, words))
 
         def operation() -> List[PrimitiveValue]:
             raws = self._read_random(random_texts) if random_texts else []
             values: List[PrimitiveValue] = []
             cursor = 0
-            for kind, address, bit, data_type_enum, words in plan:
+            for kind, text, bit, data_type_enum, words in plan:
                 if kind == "random":
                     raw = raws[cursor]
                     cursor += 1
@@ -930,8 +954,7 @@ class MelsecMxClient(BaseClient):
                     else:
                         values.append(raw)
                     continue
-                parsed = _check_address(address)
-                block = self._read_words(_device_text(parsed), words)
+                block = self._read_words(text, words)
                 if words == 2:
                     values.append(_decode_32(block, data_type_enum))
                 else:

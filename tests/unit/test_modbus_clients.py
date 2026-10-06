@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import socket
 import struct
-from typing import List
+from typing import Any, List
 
 import pytest
 
@@ -21,7 +21,8 @@ from omniplc import ModbusRtuClient, ModbusTcpClient
 from omniplc.core.base_client import BaseClient
 from omniplc.core.debug import format_hex
 from omniplc.core.errors import ErrorCategory, ProtocolFrameError, TransportTimeoutError
-from omniplc.plc.modbus import codec
+from omniplc.core.types import DataType
+from omniplc.plc.modbus import codec, parse_address
 from omniplc.transport.base import BaseTransport
 from scripted import ScriptedTransport as _ScriptedTransport, mount_real_tcp
 
@@ -2314,3 +2315,57 @@ def test_tcp_ping_fc08_unsupported_slave_keeps_connection(
     assert client.ping() is False
     assert client.connected is True
     assert client.last_error_code == 1  # 异常码 01:illegal function
+
+
+# ----------------------------------------------------------------------
+# 写合并切片不变量(review-1019 P1-1:write 路径按连续切片回填依赖)
+# ----------------------------------------------------------------------
+
+
+def _coalesce_entry(address: str, dtype: DataType) -> Any:
+    from omniplc.plc.modbus.modbus import _CoalesceEntry, _classify
+
+    parsed = parse_address(address)
+    kind, width = _classify(parsed, dtype)
+    return _CoalesceEntry(
+        item_index=0, parsed=parsed, dtype=dtype, kind=kind, width=width
+    )
+
+
+def test_coalesce_group_chunks_slice_group() -> None:
+    """_coalesce_group 输出恒为排序后 group 的连续切片(拼接 == 原序)。
+
+    write 路径按 ``group[pos:pos+len(chunk)]`` 指针切片回填条目,依赖
+    此不变量(空洞拆块 / 超上限二切 / 重叠吸收 / 混合宽度逐项核实)。
+    """
+    from omniplc.plc.modbus.modbus import _CoalesceEntry, _classify, _coalesce_group
+
+    group = [
+        ("hr100", DataType.SHORT),  # 连续区 100~102
+        ("hr101", DataType.SHORT),
+        ("hr102", DataType.FLOAT),  # 宽 2,覆盖 102~103
+        ("hr300", DataType.SHORT),  # 空洞 → 拆块
+        ("hr400", DataType.LONG),  # 连续 8 字区 400~407
+        ("hr404", DataType.DOUBLE),
+        ("hr500", DataType.SHORT),  # 重叠区吸收(review 1001 R9-7)
+        ("hr500", DataType.SHORT),
+    ]
+    built: List[Any] = []
+    for index, (address, dtype) in enumerate(group):
+        parsed = parse_address(address)
+        kind, width = _classify(parsed, dtype)
+        built.append(
+            _CoalesceEntry(
+                item_index=index, parsed=parsed, dtype=dtype, kind=kind, width=width
+            )
+        )
+    chunks = _coalesce_group(built, "word", 125)
+    flattened = [entry for chunk in chunks for entry in chunk]
+    assert flattened == built  # 拼接 == 原序(每条目恰入一个 chunk 且不重排)
+    position = 0
+    for chunk in chunks:
+        assert built[position : position + len(chunk)] == chunk  # 连续切片
+        position += len(chunk)
+    assert position == len(built)
+    # 空洞确实拆了块、重叠未拆(防不变量测试退化成恒真)
+    assert len(chunks) >= 3

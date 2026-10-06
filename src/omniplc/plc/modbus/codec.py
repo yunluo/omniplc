@@ -151,12 +151,15 @@ def build_write_single_pdu(function_code: int, offset: int, value: int) -> bytes
     return struct.pack(">BHH", function_code, offset, payload)
 
 
-def build_write_multi_pdu(function_code: int, offset: int, values: List[int]) -> bytes:
+def build_write_multi_pdu(
+    function_code: int, offset: int, values: Sequence[int]
+) -> bytes:
     """构造批量写请求 PDU(FC 15 写多线圈 / FC 16 写多寄存器)。
 
     :param function_code: 15 或 16
     :param offset: 0 基起始地址
     :param values: 寄存器原始值序列;线圈传 0/1 序列,由本函数按 LSB 在前打包
+      (``Sequence`` 协变:调用方直接传 ``List[bool]``,bool 本就是 int 子类)
     :raises ValueError: 功能码/地址/数量/数值非法
     """
     _check_offset(offset)

@@ -527,6 +527,30 @@ def test_com_helpers_raw_error_code() -> None:
         mx_module._com_read_words(com, "D100", 2)
 
 
+def test_raw_com_method_rebinds_new_instance_after_reconnect() -> None:
+    """重连新建 COM 实例后原始方法重新绑定到新实例(review-1019 P1-3)。
+
+    记忆化只落**属性名**:若缓存绑定方法,重连后的新控件会拿到旧实例
+    已释放的接口指针——两实例同型,方法必须各自绑定。
+    """
+    com_a = ComtypesStyleActUtlType()
+    com_b = ComtypesStyleActUtlType()
+    fn_a = mx_module._raw_com_method(com_a, "ReadDeviceBlock")
+    fn_b = mx_module._raw_com_method(com_b, "ReadDeviceBlock")
+    assert fn_a.__self__ is com_a
+    assert fn_b.__self__ is com_b
+    assert fn_a is not fn_b
+
+
+def test_raw_com_attr_resolution_memoized_per_type() -> None:
+    """属性名定位按 COM 类型记忆化:同类型重复解析返回同一结果(review-1019 P1-3)。"""
+    com_a = ComtypesStyleActUtlType()
+    name_first = mx_module._locate_raw_com_attr(type(com_a), "ReadDeviceBlock")
+    name_again = mx_module._locate_raw_com_attr(type(com_a), "ReadDeviceBlock")
+    assert name_again is name_first  # lru_cache 命中:同一 str 对象
+    assert name_again.lower().endswith("__com_readdeviceblock")
+
+
 def test_com_get_error_message_releases_reference_on_error() -> None:
     """GetErrorMessage 失败路径不扣留 ActSupportMsg 代理引用(配对收口)。
 

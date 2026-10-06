@@ -24,7 +24,8 @@ from scripted import ScriptedTransport
 
 
 def _chunks(line: bytes) -> list:
-    """把一行响应切成单字节分片(匹配 TCP recv(1) 逐字节收包契约)。"""
+    """把一行响应切成单字节分片(覆盖收行循环的最碎分片形态;
+    块读收行下任意分片均可,整行一片见 test_tcp_line_single_chunk)。"""
     return [line[i : i + 1] for i in range(len(line))]
 
 
@@ -88,6 +89,37 @@ class _TrickleTransport(ScriptedTransport):
     def recv(self, size: int) -> bytes:
         time.sleep(0.02)
         return b"x"
+
+
+def test_tcp_line_single_chunk(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TCP 收行整行一片(review-1019 P1-2 块读契约):单次 recv_some 收尽。"""
+    client = KeyenceHostLinkTcpClient("127.0.0.1", 8000)
+    scripted = ScriptedTransport([b"20\r\n"])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("DM100") == (True, 20)
+    assert bytes(scripted.sent) == b"RD DM100.U\r"
+
+
+def test_tcp_line_arbitrary_fragments(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TCP 收行任意分片(多字节半行):跨块拼行,终止符即停。"""
+    client = KeyenceHostLinkTcpClient("127.0.0.1", 8000)
+    scripted = ScriptedTransport([b"20", b"\r", b"\n1"])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("DM100") == (True, 20)
+
+
+def test_tcp_line_trailing_bytes_after_terminator_discarded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """终止符后同块剩余字节丢弃,不污染下一事务(Host Link 一命令一响应行)。"""
+    client = KeyenceHostLinkTcpClient("127.0.0.1", 8000)
+    scripted = ScriptedTransport([b"OK\r\nJUNK", b"20\r\n"])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.write_bool("R10", True) is True
+    assert client.read_ushort("DM100") == (True, 20)
 
 
 def test_tcp_line_deadline_bounds_dribble(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -54,20 +54,35 @@ _INT_RANGES: Dict[DataType, Tuple[int, int, str]] = {
 }
 
 
+def _build_crc16_table() -> List[int]:
+    """构建 CRC-16 反射查表(多项式 0xA001,import 时构建一次)。"""
+    table: List[int] = []
+    for index in range(256):
+        crc = index
+        for _unused in range(8):
+            crc = (crc >> 1) ^ CRC16_POLY if crc & 1 else crc >> 1
+        table.append(crc)
+    return table
+
+
+_CRC16_TABLE: List[int] = _build_crc16_table()
+"""CRC-16 查表(256 表项,查表法替代逐位循环,review-1019 P3-6)。"""
+
+
 def crc16(data: BytesLike) -> int:
     """计算 Modbus RTU 的 CRC-16(多项式 0xA001,反射输入/输出)。
+
+    查表法逐字节算(逐位 Python 循环换表驱动,review-1019 P3-6):
+    ``crc = table[(crc ^ byte) & 0xFF] ^ (crc >> 8)`` 与逐位版逐值等价
+    (黄金样本 0x6870/0xCCD5 由既有测试锁定)。
 
     :param data: 参与校验的字节序列(不含 CRC 本身)
     :return: 16 位无符号校验值。RTU 帧按**低字节在前**追加到报文尾部
     """
     crc = CRC16_INIT
+    table = _CRC16_TABLE
     for byte in data:
-        crc ^= byte & 0xFF
-        for _unused in range(8):
-            if crc & 0x0001:
-                crc = (crc >> 1) ^ CRC16_POLY
-            else:
-                crc >>= 1
+        crc = table[(crc ^ (byte & 0xFF)) & 0xFF] ^ (crc >> 8)
     return crc & 0xFFFF
 
 
@@ -129,11 +144,16 @@ def words_to_bytes(
     :raises ValueError: 任一字超出 0~65535(不做静默掩码——写错值比报错更危险)
     """
     order = _byteorder(byteorder)
+    numbers: List[int] = []
     for word in words:
         number = int(word)
         if not 0 <= number <= 0xFFFF:
             raise ValueError(_("字值超出 0~65535 范围:{}").format(number))
-    return b"".join((int(word) & 0xFFFF).to_bytes(2, order) for word in words)
+        numbers.append(number)
+    # 校验后的整数列表一次 struct.pack(逐字 to_bytes + join 换出,
+    # review-1019 P2-2;范围错误语义不变——首遇越界即抛)
+    prefix = ">" if order == "big" else "<"
+    return struct.pack(f"{prefix}{len(numbers)}H", *numbers)
 
 
 def bytes_to_words(
@@ -148,7 +168,11 @@ def bytes_to_words(
     order = _byteorder(byteorder)
     if len(data) % 2 != 0:
         raise ValueError(_("字节串长度必须为偶数,收到:{}").format(len(data)))
-    return [int.from_bytes(data[i : i + 2], order) for i in range(0, len(data), 2)]
+    # 一次 struct.unpack(逐字切片 + from_bytes 换出,实测百字 ≈18x,
+    # review-1019 P2-1);BytesLike 含 Sequence[int] 时先收一次 bytes
+    raw = bytes(data)
+    prefix = ">" if order == "big" else "<"
+    return list(struct.unpack(f"{prefix}{len(raw) // 2}H", raw))
 
 
 def bytes_to_short(
@@ -450,19 +474,21 @@ def words_to_value(
     :example: ``words_to_value([0x4F4D, 0x4E49], DataType.STRING,
         ByteOrder.BIG)`` 得 ``"OMNI"``
     """
-    seq = list(reversed(words)) if reverse_words else list(words)
+    seq: Sequence[int] = list(reversed(words)) if reverse_words else words
     if data_type is DataType.BOOL:
-        if len(seq) != 1:
-            raise ValueError(_("BOOL 需要 1 个字,收到 {} 个").format(len(seq)))
-        return bool(int(seq[0]) & 0xFFFF)
+        if len(words) != 1:
+            raise ValueError(_("BOOL 需要 1 个字,收到 {} 个").format(len(words)))
+        return bool(int(words[0]) & 0xFFFF)
     if data_type is DataType.STRING:
         return decode_string(words_to_bytes(seq, byteorder), encoding)
     if data_type not in _TYPE_BYTE_SIZES:
         raise ValueError(_("不支持的数据类型:{!r}").format(data_type))
     size = _TYPE_BYTE_SIZES[data_type]
-    if len(seq) * 2 != size:
+    if len(words) * 2 != size:
         raise ValueError(
-            _("{} 需要 {} 个字,收到 {} 个").format(data_type.name, size // 2, len(seq))
+            _("{} 需要 {} 个字,收到 {} 个").format(
+                data_type.name, size // 2, len(words)
+            )
         )
     raw = words_to_bytes(seq, byteorder)
     order = _byteorder(byteorder)

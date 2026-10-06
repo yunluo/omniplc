@@ -694,8 +694,12 @@ class AsyncModbusTcpClient(AsyncBaseClient):
             max_unit = (
                 MODBUS_MAX_WRITE_BITS if kind == "bit" else MODBUS_MAX_WRITE_REGISTERS
             )
+            # 与同步侧同款:_coalesce_group 输出恒为 group 连续切片,
+            # 指针按序切替代逐 chunk 全量深比较(review-1019 P1-1)
+            position = 0
             for chunk_entries in _coalesce_group([t[1] for t in group], kind, max_unit):
-                chunk_items = [item for item in group if item[1] in chunk_entries]
+                chunk_items = group[position : position + len(chunk_entries)]
+                position += len(chunk_entries)
                 if fail_fast:
                     await self._write_chunk(area, kind, chunk_items)
                     for item_index, _entry, _area in chunk_items:
