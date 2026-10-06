@@ -814,7 +814,7 @@ FINS_TCP_COMMAND_HANDSHAKE: int = 0
 """FINS/TCP 命令:节点分配握手(**请求侧**)。"""
 FINS_TCP_COMMAND_HANDSHAKE_RESPONSE: int = 1
 """FINS/TCP 命令:握手**响应**侧命令码 = 1(真机黄金样本
-fins_tcp_handshake_001.json 命令域 00000001 + libfins fins_io.c L311
+fins_tcp_handshake_001.json 命令域 00000001 + C 语言参考实现 fins_io.c L311
 校验响应命令 == 1 互证;review-1010 P3-1 补回显校验时确立——请求 0 /
 响应 1 是同一次握手的两侧,勿按请求常量比对)。"""
 FINS_TCP_COMMAND_DATA: int = 2
@@ -844,7 +844,7 @@ T/C(定时器/计数器)共享码表(按地址区分):位 = 完成标志(09,只�
 字 = 当前值 PV(89,可读写)。
 **C 区地址前缀分歧(review-1018 P1-1,真机核证项)**:W342 §5-2-2 地址表
 CNT 行为 ``C0000 to C4095 = 800000 to 8FFF00``(字面带 0x8000 前缀),而
-libfins(C)与 fins(Python)两大参考实现均只按码区分、**不加前缀**——
+C 语言参考实现(C)与 fins(Python)两大参考实现均只按码区分、**不加前缀**——
 本库跟随参考实现,真机读 C10 验 PV 落 Timer 还是 Counter 后终裁
 (docs/real-machine-checklist.md 欧姆龙行)。"""
 FINS_TIMER_COUNTER_AREAS: Tuple[str, ...] = ("T", "C")
@@ -1347,7 +1347,7 @@ S7_WSTRING_DEFAULT_LENGTH: int = 64
 """S7 WSTRING 默认读取字符数(UTF-16,单字符 2 字节)。"""
 S7_MAX_MULTI_VARS: int = 20
 """S7 多变量一次读(``read_multi_vars``)条目上限(S7 Read Var 多 Item
-每请求 20 项;snap7 库常量 ``MAX_VARS`` 同值口径)。"""
+每请求 20 项;同类开源库 库常量 ``MAX_VARS`` 同值口径)。"""
 
 
 class S7ModelPreset(NamedTuple):
@@ -1372,15 +1372,15 @@ class S7ModelPreset(NamedTuple):
 
 
 # 依据(「参考实现逐字节比对」退档纪律,型号预设全部**待真机核证**):
-# - S7-300/400/1200/1500:python-snap7 3.2.0 client.py L334(本端 0x0100)+
+# - S7-300/400/1200/1500:同类开源参考实现(3.2.0 快照) client.py L334(本端 0x0100)+
 #   L620-621(远端 = 连接类型<<8 | rack<<5 | slot,缺省 PG);槽位惯例
-#   300/400=2、1200/1500=1(S7netplus CpuType 表;1200 slot 0 亦常被接受)
-# - S7-200 SMART:IoTClient(IoTClient/Clients/PLC/Constants/SiemensConstant.cs
+#   300/400=2、1200/1500=1(交叉参考实现 B CpuType 表;1200 slot 0 亦常被接受)
+# - S7-200 SMART:商业参考实现(商业参考实现/Clients/PLC/Constants/SiemensConstant.cs
 #   Command1_200Smart,L36-41)连接帧字节黄金——Calling 0x1000、Called
-#   0x0300(类型 3 = S7 基本,rack 0/slot 0)、TPDU 0x0A;交叉 S7netplus
+#   0x0300(类型 3 = S7 基本,rack 0/slot 0)、TPDU 0x0A;交叉 交叉参考实现 B
 #   CpuType.S7200Smart(rack 0/slot 1)与社区 0x0301(slot 1)口径——分歧
 #   在槽位位,rack/slot 可显式覆写,真机核证裁决
-# - S7-200(经 CP243-1 以太网模块):IoTClient SiemensConstant.cs
+# - S7-200(经 CP243-1 以太网模块):商业参考实现 SiemensConstant.cs
 #   Command1_200(L56-61)连接帧字节黄金——两侧 TSAP = ASCII "MW"
 #   (0x4D57,Micro/WIN 记号)、TPDU 0x09(512);S7-200 无内置以太网,
 #   无 CP243 时走串口 PPI(无官方公开帧文档,未实现,见 README)

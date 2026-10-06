@@ -702,7 +702,7 @@ def parse_handshake_response(frame: bytes) -> Tuple[int, int]:
     command = int.from_bytes(frame[8:12], "big")
     if command != FINS_TCP_COMMAND_HANDSHAKE_RESPONSE:
         # 命令码回显校验(review-1010 P3-1):握手**响应**命令码 = 1
-        # (黄金样本命令域 00000001 + libfins fins_io.c L311 校验 == 1;
+        # (黄金样本命令域 00000001 + C 语言参考实现 fins_io.c L311 校验 == 1;
         # 请求 0 / 响应 1 是同一次握手的两侧,勿按请求常量比对)——TCP 虽有
         # 连接语义,响应头错位/非握手帧落入时早失败优于按错位字段取节点号
         raise ProtocolFrameError(

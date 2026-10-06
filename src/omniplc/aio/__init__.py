@@ -2673,7 +2673,7 @@ class ASiemensS7Client(ABaseClient):
         await client.connect()
         ok, value = await client.read_float("DB1.DBD6")
 
-    .. note:: v0.52.x 的 ``dll_path`` 参数已随 python-snap7 依赖退役移除。
+    .. note:: v0.52.x 的 ``dll_path`` 参数已随 同类开源封装 依赖退役移除。
     """
 
     def __init__(

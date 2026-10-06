@@ -1,7 +1,7 @@
 """丰田 TOYOPUC 计算机链接客户端(TCP/UDP)。
 
 依据状态:**TOYOPUC PC Link 官方手册未收录**(`docs/protocol/README.md`
-「待补」),帧格式/命令码/软元件基址表经**同源参考实现 `plc-comm-toyopuc`
+「待补」),帧格式/命令码/软元件基址表经**同源参考实现 `同源参考实现`
 4.2.0 双向裁决**逐项一致(帧 `00 00 LL LH CMD` / `80 RC LL LH CMD`、
 `FT_COMMAND=0x00`/`FT_RESPONSE=0x80`、CMD 1C/1D/1E/1F/20/21、位/字/字节
 基址表均相同;裁决记入 `docs/architecture.md` §8.1),官方手册拿到后可再核。

@@ -33,8 +33,8 @@
 
    - 库内基址表满足 ``_BIT_BASE == _WORD_BASE << 4``(16 位/字),位号与
      字/字节视图共存,字索引 = 位号 >> 4;
-   - 同源参考实现 `plc-comm-toyopuc` 4.2.0(临时环境 `pip install
-     plc-comm-toyopuc` 后 `toyopuc.address`):其 ``encode_word_address`` /
+   - 同源参考实现 `同源参考实现` 4.2.0(临时环境 `pip install
+     同源参考实现` 后 `toyopuc.address`):其 ``encode_word_address`` /
      ``encode_byte_address`` 与本库一致,``_validate_packed_index`` **直接**
      以字索引校验 ``_BASIC_PACKED_SEGMENTS``(无 ``>>4``);其帧格式
      (``00 00 LL LH CMD``、CMD 1C/1D/1E/1F/20/21、``FT_COMMAND=0x00`` /
@@ -191,7 +191,7 @@ def parse_toyopuc_address(address: str) -> ToyopucAddress:
         _require_in_segments(address, number, _BIT_SEGMENTS[area])
     if suffix in ("L", "H", "W") and area in TOYOPUC_BIT_DEVICES:
         # 编号是"字索引"(非位号):直接以字索引校验打包段
-        # (参考实现 plc-comm-toyopuc 4.2.0 _validate_packed_index 口径;
+        # (参考实现 同源参考实现 4.2.0 _validate_packed_index 口径;
         #  与 encode_word_address/encode_byte_address 的 `+ number` 一致)
         _require_in_segments(address, number, _PACKED_SEGMENTS[area])
     return ToyopucAddress(area=area, number=number, suffix=suffix)
@@ -201,7 +201,7 @@ def encode_word_address(parsed: ToyopucAddress) -> int:
     """把字访问地址编码为协议地址(CMD=1C/1D,内部函数)。
 
     位软元件打包字(``W`` 后缀)的编号是字索引,``地址 = _WORD_BASE + 编号``
-    (与参考实现 plc-comm-toyopuc 4.2.0 一致;见模块 docstring)。
+    (与参考实现 同源参考实现 4.2.0 一致;见模块 docstring)。
     """
     if parsed.unit != "word":
         raise ValueError(_("期望字访问地址,收到:{!r}").format(parsed))
@@ -212,7 +212,7 @@ def encode_byte_address(parsed: ToyopucAddress) -> int:
     """把字节访问地址编码为协议地址(CMD=1E/1F,内部函数)。
 
     位软元件字节(``L``/``H`` 后缀)的编号是字索引,``地址 = _BYTE_BASE +
-    编号*2 + (H?1:0)``(与参考实现 plc-comm-toyopuc 4.2.0 一致)。
+    编号*2 + (H?1:0)``(与参考实现 同源参考实现 4.2.0 一致)。
     """
     if parsed.unit != "byte":
         raise ValueError(_("期望字节访问地址,收到:{!r}").format(parsed))

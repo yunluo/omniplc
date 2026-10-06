@@ -4,17 +4,17 @@
 > 范围:HEAD = `5b40bf0`(v0.55.0);10 协议 × 逐字段/逐字节对照手册
 > (Modbus/MC/FINS+OJ-CIP/AB/S7/汇川/KV/TOYOPUC/松下/OPC-UA)
 > 方法:10 并行只读子代理(两批)+ **主会话亲验 4 项关键发现**(手册 PDF 逐页抽取 +
-> 参考库 fins/aphyt/pycomm3/pylogix/snap7 源码实测对照)
+> 参考库 fins/开源参考实现/同类开源参考实现/同类开源库 源码实测对照)
 > 防锚定:主会话未读 review*.md/CHANGELOG;纯只读未改文件。
 
 > **核实与修复批注(2026-10-06,主会话复核后入库)**:P1×3 独立复核
 > **全部属实**(P1-1 手册铁证坐实——W342 地址表 CNT 行三处 `800000 to
-> 8FFF00`,但 libfins/fins 双参考实测均无前缀逻辑,真分歧待真机终裁;
+> 8FFF00`,但 C 语言参考实现/fins 双参考实测均无前缀逻辑,真分歧待真机终裁;
 > P1-2/P1-3 代码现状属实)——已随 8c78b0d 修复。P2 修复:P2-1/2/3
 > (d5305e7)、P2-9/P2-12(699eaa7)、P2-14~18(cd9564e);P2-16 为
 > 文档修正。**误报两项撤销**:P2-8(Modbus STRING 批量吞错)实测三
 > 路径均同步抛 ValueError 符合契约;P2-7(AB 0x25 实例段大端)实测
-> pycomm3 LogicalSegment `_encode` + pylogix `pack('<HH')` 双源均为
+> 同类开源参考实现 LogicalSegment `_encode` + 同类开源参考实现 `pack('<HH')` 双源均为
 > 小端 LE、与本库逐字节一致。**待核证不修**:P2-4/5/6(NJ,真机)、
 > P2-10(KV EA/EB,手册)、P2-11/13(松下 L/点号,手册)、P2-19/20
 > (S7 宽容度,真机)——均已落真机清单与代码披露(628bc0b)。
@@ -31,7 +31,7 @@
 | 三菱 MC | 0 | 0 | 3 | 5 | 核心命令逐字节与 SH-080008 一致;写侧门控不对称 |
 | 欧姆龙 FINS/CIP | 0 | **2** | 2 | 多 | **T/C 计数器寻址(可能 P0)** + NJ STRING D0 布局 |
 | AB EtherNet/IP | 0 | **1** | 2 | 多 | **connected list_tags 必拆连**(解析器用错) |
-| 西门子 S7 | 0 | 0 | 2 | 多 | 帧面与 snap7 3.2.0 逐字节核平,型号参数化全对 |
+| 西门子 S7 | 0 | 0 | 2 | 多 | 帧面与 参考实现 3.2.0 快照 逐字节核平,型号参数化全对 |
 | 汇川 | 0 | 0 | 0 | 4 | 两本手册逐项相符,无实质问题 |
 | 基恩士 KV | 0 | 0 | 1 | 多 | EA/EB 扩展错码未覆盖 |
 | TOYOPUC | 0 | 0 | 0 | 7 | 与参考 4.2.0 逐项一致,仅 P3 |
@@ -116,7 +116,7 @@
 - **MC**:1E 码表缺 F/T/C 族(§18.4 印刷页 398 有);1E 写侧点数未分口(位 160/字 64/位字 10);
   `_merge_bit_blocks` docstring 位图标错(M4/M5/M13 → M5/M12/M13);MX docstring 与 read_batch
   行为矛盾;上限未按机型分口(已披露)
-- **FINS**:握手错误码未解码(0x20~0x25,libfins 有表);codec 双重取词;native 测试夹具路由字段
+- **FINS**:握手错误码未解码(0x20~0x25,C 语言参考实现 有表);codec 双重取词;native 测试夹具路由字段
   错位;D/EM read_range BOOL 保守拒绝(已披露);EM bank 13~15 码仅限 CJ2 机型(过度放行)
 - **AB**:扩展状态 word_count==2 只读首字;页码级出处缺口(ENIP 头/RegisterSession/Forward Open
   无就近引用);docstring「ListIdentity 待核」陈旧(odva/ 实收);`_tag_list_operation` 停滞

@@ -12,7 +12,7 @@
   的 extra,不是 dependency-group;`uv lock` 同步 lockfile)。
 - **编辑器**:任意;提交前请跑通门禁五件套(见「三、测试」,静态检查用
   `uvx ruff check`,格式统一用 `uvx ruff format`(2026-10-04 起,配置取
-  ruff 默认与 pymodbus 对齐,提交前 `uvx ruff format src tests` 再入检))。
+  ruff 默认与 同类参考实现 对齐,提交前 `uvx ruff format src tests` 再入检))。
 
 ## 二、代码约定
 
@@ -51,7 +51,7 @@
 
 ```bash
 uv run python -m pytest tests -q         # 全量(当前 1699 例,随批次增长;无平台跳过;超 120s 由 pytest-timeout 判失败)
-uvx ruff format --check src tests        # 格式零漂移(ruff 默认配置,与 pymodbus 对齐;改动后先 uvx ruff format src tests)
+uvx ruff format --check src tests        # 格式零漂移(ruff 默认配置,与 同类参考实现 对齐;改动后先 uvx ruff format src tests)
 uvx ruff check src tests                 # 0 告警(规则集显式固定,target-version 由 requires-python 推导为 py37)
 uvx --python 3.12 mypy src/omniplc       # 0 问题(81 源文件,目标 python_version=3.10;mypy 已不支持 <3.10,3.7 兼容由 ruff + 3.7.9 测试腿兜底)
 uvx ty check src/omniplc                 # 0 问题(Astral 第二类型检查器,与 mypy 互补)
@@ -67,7 +67,7 @@ uv pip install --python "%LOCALAPPDATA%\omniplc_py312\Scripts\python.exe" -e ".[
 "%LOCALAPPDATA%\omniplc_py312\Scripts\python.exe" -m pytest tests -q
 ```
 
-依赖线差异按需跳过:仅存在于单一扩展依赖轨道的用例(如历史 snap7 双轨期的 `snap7.types`,该双轨已随 S7 自研退役)
+依赖线差异按需跳过:仅存在于单一扩展依赖轨道的用例(如历史 同类开源库 双轨期的 `同类开源库.types`,该双轨已随 S7 自研退役)
 ctypes 线)须在入口用 `importlib.util.find_spec` 探测并 `pytest.skip`,保证两条
 腿各自全绿(3.7:0 skipped;3.12:仅依赖线跳过)。
 

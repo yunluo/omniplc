@@ -1,8 +1,8 @@
 """西门子 S7 自研栈测试:codec 黄金帧(参考字节锁)+ 会话全流程(假 TCP)。
 
-黄金帧依据:docs/protocol/siemens/s7comm/README.md(python-snap7 3.2.0
+黄金帧依据:docs/protocol/siemens/s7comm/README.md(同类开源参考实现(3.2.0 快照)
 帧面事实);会话流程用 monkeypatch 的假 TCP(size 感知应答)驱动完整
-TCP → COTP → S7 协商 → 事务序列,不依赖 snap7。
+TCP → COTP → S7 协商 → 事务序列,不依赖 同类开源库。
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ def test_cotp_cr_golden() -> None:
     """COTP CR:TSAP 编码 rack/slot(rack 0 / slot 1 → 远端 0x0101)。
 
     参数 TLV 各含 code+len 两字节头:Calling(4)+ Called(4)+ PDU Size(3)
-    = 11 字节,PDU 长度字节 = 6 + 11 = 0x11(与 python-snap7
+    = 11 字节,PDU 长度字节 = 6 + 11 = 0x11(与 同类开源封装
     `_build_cotp_cr` 的 `total = 6 + len(parameters)` 一致)。
     """
     frame = codec.build_cotp_cr(0x0101)
@@ -123,7 +123,7 @@ def test_write_request_multi_byte_golden() -> None:
     """多字节写:地址规范 count = 数据长 // 元素宽(review-1008 P0-1,曾恒 1)。
 
     DB1.DBD6 写 4 字节:参数区 count=0x0004、数据段长 0x0020 位 +
-    4 字节数据,与 python-snap7 3.2.0 `build_write_request` 逐字节一致
+    4 字节数据,与 同类开源参考实现(3.2.0 快照) `build_write_request` 逐字节一致
     (count 与数据段长度必须自洽,否则真机按条目返回码拒绝)。
     """
     frame = codec.build_write(
@@ -180,7 +180,7 @@ def test_multi_read_golden() -> None:
 
 
 def test_multi_read_rejects_over_max() -> None:
-    """multi 超 20 项:入参期 ValueError(snap7 MAX_VARS 口径)。"""
+    """multi 超 20 项:入参期 ValueError(同类开源库 MAX_VARS 口径)。"""
     items = [(codec.AREA_DB, 1, 0, 2)] * 21
     with pytest.raises(ValueError):
         codec.build_multi_read(items, 1)
@@ -357,7 +357,7 @@ def _write_ack(sequence: int, count: int = 1) -> bytes:
 def _szl_ack(sequence: int, entries: bytes) -> bytes:
     """SZL 应答(参考桩真机形态):USERDATA 应答参数 12 字节 + 传输尺寸 0x09。
 
-    参数区布局(python-snap7 3.2.0 `_parse_userdata_response_params`
+    参数区布局(同类开源参考实现(3.2.0 快照) `_parse_userdata_response_params`
     L1663-1678 / server 桩 L2193-2208):[3]=0x08 响应长、[4]=0x12、
     [5]=0x84(响应位 0x8|SZL 组 0x4)、[6]=0x01 子功能、[10:12]=参数级
     错误码(0)——review-1008 P2:曾按请求形态 8 字节伪造且传输尺寸 0x04。
@@ -390,7 +390,7 @@ def _szl_ack(sequence: int, entries: bytes) -> bytes:
 def _szl_cpu_record(bzu_id: int) -> bytes:
     """0x0424 标准记录 20 字节:bereig(2)+ae(1)+bzu_id(1)+res(4)+anlinfo(4)+time(8)。
 
-    bzu_id 在记录区 [3](snap7 C `opGetPlcStatus` L2038 读 opData[7],
+    bzu_id 在记录区 [3](同类开源库 C `opGetPlcStatus` L2038 读 opData[7],
     opData = AddLen/AddCount + 记录区,即记录区 [3])——review-1008 P1
     之前 fixture 按「记录首字节=状态」自造帧,固化错误偏移。
     """
@@ -639,7 +639,7 @@ def test_close_dr_carries_dst_ref(s7: Any) -> None:
 def test_read_area_auto_split(s7: Any) -> None:
     """读跨 PDU 自动分片(pdu=20 → 片容量 2):5 字节 = 2+2+1 三事务。
 
-    与 python-snap7 read_area 自动分片行为对齐(review-1008 P2:旧实现
+    与 同类开源封装 read_area 自动分片行为对齐(review-1008 P2:旧实现
     单事务硬发,超 PDU 被 PLC 拒绝)。
     """
     client, fake = s7
@@ -807,7 +807,7 @@ def test_constructor_validation() -> None:
         SiemensS7Client("192.168.0.1", 102, rack=8, slot=1)
     with pytest.raises(ValueError):
         SiemensS7Client("192.168.0.1", 102, rack=0, slot=32)
-    # v0.53 破坏性变更:dll_path 随 python-snap7 退役移除;
+    # v0.53 破坏性变更:dll_path 随 同类开源封装 退役移除;
     # 型号批:构造签名第 3 参起为 model(原 rack/slot 位置实参须改键字)
     with pytest.raises(TypeError):
         SiemensS7Client("192.168.0.1", 102, S7Model.S7_1200, 0, 1, "")  # type: ignore[misc]
@@ -884,7 +884,7 @@ def test_async_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_model_preset_resolution() -> None:
     """六款型号 → 连接预设解析(local/remote TSAP、TPDU、缺省 rack/slot)。
 
-    预设依据见 S7_MODEL_PRESETS(python-snap7 主源 + IoTClient 字节黄金,
+    预设依据见 S7_MODEL_PRESETS(同类开源封装 主源 + 商业参考实现 字节黄金,
     全部待真机核证)。
     """
     expected = {
@@ -922,10 +922,10 @@ def test_model_rejects_non_enum() -> None:
 
 
 def test_cotp_cr_golden_smart() -> None:
-    """200 SMART 连接帧:与 IoTClient Command1_200Smart 的 COTP 段逐字节一致。
+    """200 SMART 连接帧:与 商业参考实现 Command1_200Smart 的 COTP 段逐字节一致。
 
     本端 TSAP 0x1000 + Called 0x0300(S7 基本资源类型)+ TPDU 0x0A;
-    IoTClient 帧含 TPKT 头 `03 00 00 16`,此处锁其后的 18 字节 COTP。
+    商业参考实现 帧含 TPKT 头 `03 00 00 16`,此处锁其后的 18 字节 COTP。
     """
     frame = codec.build_cotp_cr(0x0300, 0x1000)
     assert frame == bytes.fromhex(
@@ -934,7 +934,7 @@ def test_cotp_cr_golden_smart() -> None:
 
 
 def test_cotp_cr_golden_s7_200_cp243() -> None:
-    """S7-200(CP243)连接帧:与 IoTClient Command1_200 的 COTP 段逐字节一致。
+    """S7-200(CP243)连接帧:与 商业参考实现 Command1_200 的 COTP 段逐字节一致。
 
     两侧 TSAP = ASCII "MW"(0x4D57,Micro/WIN 记号)+ TPDU 0x09(512)。
     """
@@ -977,7 +977,7 @@ def test_smart_model_v_read_walks_db1(monkeypatch: pytest.MonkeyPatch) -> None:
     fake.queue(_tpkt(_cotp_cc()))
     fake.queue(_tpkt(_dt(_negotiate_ack(1))))
     assert client.connect() is True, client.last_error
-    # CR:本端 TSAP 0x1000 + 远端 TSAP 0x0300(IoTClient SMART 口径)
+    # CR:本端 TSAP 0x1000 + 远端 TSAP 0x0300(商业参考实现 SMART 口径)
     assert b"\xc1\x02\x10\x00\xc2\x02\x03\x00" in fake.sent
     fake.queue(_tpkt(_dt(_read_ack(2, [b"\x00\x2a"]))))
     ok, value = client.read_ushort("VW10")

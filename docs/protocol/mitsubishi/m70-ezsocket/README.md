@@ -9,8 +9,8 @@
 | 层 | 依据 | 性质 |
 | --- | --- | --- |
 | COM 方法语义(方法名/参数含义/数据范围/错误码) | 官方手册 **FCSB1224W000 リファレンス IB-1501208**(262 页,OLE/COM 接口;PDF 本地留存 `docs/protocol/mitsubishi/FCSB1224W000_IB-1501208_EZSocket_Reference.pdf`,不入库;印刷页 2-7 起为各 I/F 详解,3-1 起为错误码表) | **官方**,权威 |
-| GIOP 线上帧格式(TCP 报文逐字节) | **无官方公开文档**——手册只覆盖 COM 接口层,传输层(GIOP 变体帧)不对外。帧面依据 = 参考实现 **wqliceman/mitsubishi_cnc_m70_ezsocket_net**(C 语言,MIT;作者声明已在 M70 真机验证,活跃维护至 2026-05)逐字节参照 | **单源参考**,真机核证必做 |
-| 机型枚举数值(EZNC_SYS_MELDAS700M = 6) | freedomikeppp/mitsubishi-cnc-m700 `m700.py`(官方 COM 组件真机样例,`Open2(6, ...)` 注释「マシンタイプ6=EZNC_SYS_MELDAS700M」)+ wqliceman C 库 `typedef.h` | 双源一致 |
+| GIOP 线上帧格式(TCP 报文逐字节) | **无官方公开文档**——手册只覆盖 COM 接口层,传输层(GIOP 变体帧)不对外。帧面依据 = 参考实现 **开源参考实现快照(内部留存,M70 真机验证)**(C 语言,MIT;作者声明已在 M70 真机验证,活跃维护至 2026-05)逐字节参照 | **单源参考**,真机核证必做 |
+| 机型枚举数值(EZNC_SYS_MELDAS700M = 6) | 官方组件用法样例快照(内部留存) `m700.py`(官方 COM 组件真机样例,`Open2(6, ...)` 注释「マシンタイプ6=EZNC_SYS_MELDAS700M」)+ 开源参考实现 C 库 `typedef.h` | 双源一致 |
 | section/sub_section 概念称谓 | 手册 §3 错误码 `EZNC_DATA_READ_SECT`(0x80040191)**大区分番号不正**、`EZNC_DATA_READ_SUBSECT`(0x80040192)**小区分番号不正**——官方证实该传输层参数即 NC 内部数据空间的「大区分/小区分番号」 | 官方(概念)/单源(编号值) |
 
 **结论**:GIOP 帧格式与 section/sub_section 编号表无官方文档,编号值
@@ -246,7 +246,7 @@ FC=自动有效、FE=螺纹(§4 表 42/33 区)。
 
 ## 8. 交叉核对记录
 
-- C 库(GIOP)vs freedomikeppp m700.py(COM)语义对照:
+- C 库(GIOP)vs 官方组件样例 m700.py(COM)语义对照:
   `Status_GetRunStatus(1)`(自动运转中?)↔ (35,20,T_DLONG);
   `Position_GetCurrentPosition(axis)` ↔ (37,1~6,T_FLOATBIN);
   `Monitor_GetSpindleMonitor(2,1)`(转速)↔ (34,1)、参数 3(负载)

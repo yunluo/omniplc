@@ -236,7 +236,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 | `generic_message`(任意服务/类/实例) | ✅ | |
 | 字符串(STRING 4 字头)/ BOOL 数组元素 | ✅ | |
 | 分片读/写(Read/Write Tag Fragmented 0x52/0x53) | ❌ | 超大字符串/数组受限 |
-| 标签列表枚举 `list_tags`(Get_Instance_Attribute_List 0x55) | ✅ | 自动分页(状态 0x06 以最大实例+1 续传——pycomm3 语义,pylogix 的 `Offset` 游标语义不同不取);属性 1(名)/2(类型)/8(维度),应答**只含所请求属性**(pylogix 请求 3 属性步长 `名长+20` 真机可用、pycomm3 请求 7 属性应答多 3 个地址类 UDINT——两源各与请求集自洽,不作全量假设),返回 `AbTagEntry`(含 is_struct/dims);类段 = 8 位段 `20 6B`(pylogix 源码 `pack('<H', 0x6B20)` 是「段头+类码」助记写法,**0x6B20 非类码**——review-1007 P0-1 曾误用已修正);名长 UINT 2 字节 + utf-8(review-1007 P0-2 修正);**1756-PM020 手册待补(docs/protocol「待补」)**,真机核证待做;首期控制器域,程序域逐程序枚举未实现;NJ/NX 覆写为显式拒绝(Symbol Object 是 Logix 私有面) |
+| 标签列表枚举 `list_tags`(Get_Instance_Attribute_List 0x55) | ✅ | 自动分页(状态 0x06 以最大实例+1 续传——同类开源参考实现 语义,同类开源参考实现 的 `Offset` 游标语义不同不取);属性 1(名)/2(类型)/8(维度),应答**只含所请求属性**(同类开源参考实现 请求 3 属性步长 `名长+20` 真机可用、同类开源参考实现 请求 7 属性应答多 3 个地址类 UDINT——两源各与请求集自洽,不作全量假设),返回 `AbTagEntry`(含 is_struct/dims);类段 = 8 位段 `20 6B`(同类开源参考实现 源码 `pack('<H', 0x6B20)` 是「段头+类码」助记写法,**0x6B20 非类码**——review-1007 P0-1 曾误用已修正);名长 UINT 2 字节 + utf-8(review-1007 P0-2 修正);**1756-PM020 手册待补(docs/protocol「待补」)**,真机核证待做;首期控制器域,程序域逐程序枚举未实现;NJ/NX 覆写为显式拒绝(Symbol Object 是 Logix 私有面) |
 | CIP Security | ➖ | 永不考虑(内网部署口径,项目红线) |
 
 ---
@@ -493,7 +493,7 @@ start/stop,印刷页 45-47)+ §4.7.3 串口通讯协议(印刷页 52)+《极小�
 
 ---
 
-## 18. 西门子 S7(自研 S7comm 协议栈,v0.53 直接替换 python-snap7 封装)
+## 18. 西门子 S7(自研 S7comm 协议栈,v0.53 直接替换 同类开源封装 封装)
 
 客户端:`SiemensS7Client`
 
@@ -511,7 +511,7 @@ start/stop,印刷页 45-47)+ §4.7.3 串口通讯协议(印刷页 52)+《极小�
 | SZL 系统状态列表读 | ⭕ | 仅 CPU 状态(SZL 0x0424,`get_cpu_state`/探活);状态字节偏移**待真机核证**;SZL 全家未实现 |
 | CPU 控制(RUN/STOP)/ 时钟 / 组态 | ❌ | 未实现(运维/控制面,与 MC/MX 同口径) |
 | S7-1200/1500 优化 DB | ➖ | 经典 S7comm 协议边界(优化块需符号访问);DB 访问失败的错误消息已带指引 |
-| 依赖 | ✅ | **核心零第三方依赖**(v0.53 自研栈直接替换 python-snap7 双轨线);帧面依据 python-snap7 3.2.0 逐字节比对(docs/protocol/siemens/s7comm/);**真机核证待做**(P5:与 python-snap7 独立脚本对拍) |
+| 依赖 | ✅ | **核心零第三方依赖**(v0.53 自研栈直接替换 同类开源封装 双轨线);帧面依据 同类开源参考实现(3.2.0 快照) 逐字节比对(docs/protocol/siemens/s7comm/);**真机核证待做**(P5:与 同类开源封装 独立脚本对拍) |
 
 ---
 
@@ -532,7 +532,7 @@ start/stop,印刷页 45-47)+ §4.7.3 串口通讯协议(印刷页 52)+《极小�
 | PMC 族 / 参数族 / 程序族 / 诊断族 | ❌ | 二批以后;参数写面需官方手册页码级依据(铁律) |
 | 写面 | ❌ | 数采只读口径(与 MTConnect 同域);FOCAS 写函数一律不做 |
 | 平台 | ➖ | **仅 Windows**(WinDLL/__stdcall);Linux .so 留后续(加载期显式报不支持);HSSB 走线与系列限定 DLL 构建不支持(Ethernet 通用 DLL 口径,系列宏全不定义,MAX_AXIS=32) |
-| 依赖 | ✅ | ctypes 直调**无 Python 侧依赖**(不加 extra,海康 SDK 同款);fwlib32.dll 运行库现场自备(`sdk_dir`/`dll_path` 二选一);头文件主源 = strangesast/fwlib 社区仓库(**与官方 Development 包 diff 待做**);真机核证待做(0i 系,真机清单六项) |
+| 依赖 | ✅ | ctypes 直调**无 Python 侧依赖**(不加 extra,海康 SDK 同款);fwlib32.dll 运行库现场自备(`sdk_dir`/`dll_path` 二选一);头文件主源 = 社区打包参考实现快照(内部留存) 社区仓库(**与官方 Development 包 diff 待做**);真机核证待做(0i 系,真机清单六项) |
 
 ---
 
@@ -540,7 +540,7 @@ start/stop,印刷页 45-47)+ §4.7.3 串口通讯协议(印刷页 52)+《极小�
 
 客户端:`MitsubishiEzSocketClient`(aio 镜像 `AMitsubishiEzSocketClient`);
 依据档案 `docs/protocol/mitsubishi/m70-ezsocket/README.md`(**关键披露**:
-线上 GIOP 帧格式无官方公开文档,帧面 = 参考实现 wqliceman C 库单源,
+线上 GIOP 帧格式无官方公开文档,帧面 = 参考实现 开源参考实现 C 库单源,
 真机核证必做;语义层锚官方手册 FCSB1224W000 IB-1501208,PDF 本地留存)。
 
 | 功能 | 状态 | 备注 |
@@ -562,7 +562,7 @@ start/stop,印刷页 45-47)+ §4.7.3 串口通讯协议(印刷页 52)+《极小�
 | 文件操作(mochaFS* 十一操作) | ❌ | 二批:DNC 程序传输场景(COM 样例 m700.py 有 read/write/delete/find_dir 用法可交叉) |
 | 主轴/进给倍率 | ❌ | 二批:三段 PLC 设备路由拼合(Y 区判别 + 码表),C 库注释单源 |
 | 平台 | ✅ | 纯协议零依赖(TCP,任何平台);机型枚举含 700L/C70/800M/800L 但帧面一致性待真机,不承诺 |
-| 依据链 | ➖ | **帧面单源**(wqliceman C 库 MIT,作者声明 M70 真机验证)+ 语义层官方手册(§2.3~§2.10 方法语义、§3 表 3-1 官方错误码);section/sub_section 编号值无官方文档,真机核证必做(真机清单) |
+| 依据链 | ➖ | **帧面单源**(开源参考实现 C 库 MIT,作者声明 M70 真机验证)+ 语义层官方手册(§2.3~§2.10 方法语义、§3 表 3-1 官方错误码);section/sub_section 编号值无官方文档,真机核证必做(真机清单) |
 
 ---
 

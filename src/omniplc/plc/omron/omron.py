@@ -860,7 +860,7 @@ def _words_to_value(words: List[int], data_type: DataType) -> PrimitiveValue:
     欧姆龙 CS/CJ/CP 的 32/64 位值**低字存低地址**(线上 = ``[低字高, 低字低,
     高字高, 高字低]``),故解码先反转子序再按字内大端拼接。
     依据:W342 §5-2-1(元素 = 字、按地址序返回,未规定多字值字序);
-    多字值字序经参考实现双向裁决——aphyt/omron-fins ``reverse_word_order``
+    多字值字序经参考实现双向裁决——开源参考实现/omron-fins ``reverse_word_order``
     与 omron-fins-rust ``swap_words_32/64`` 均先反转字序;同库 MEWTOCOL/
     TOYOPUC 对同款日系低字在前约定同口径。欧姆龙编程手册的官方表述待补
     (见 docs/protocol/README.md「待补」)。

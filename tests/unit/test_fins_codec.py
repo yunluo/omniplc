@@ -149,7 +149,7 @@ def test_golden_handshake() -> None:
 def test_handshake_rejects_wrong_command_echo() -> None:
     """握手响应命令码回显校验(review-1010 P3-1):命令域非 0 → 坏帧拒绝。
 
-    参考实现 libfins fins_io.c L311 同校验(其命令 1);防响应头错位/
+    参考实现 C 语言参考实现 fins_io.c L311 同校验(其命令 1);防响应头错位/
     非握手帧落入时按错位字段取节点号。
     """
     data = _load("fins_tcp_handshake_001")

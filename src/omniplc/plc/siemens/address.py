@@ -1,7 +1,7 @@
 """西门子 S7 地址解析(DB/I/Q/M,位与字节起点)。
 
 依据:S7-1500 Communication Function Manual §3(开放式通信 / PUT-GET 访问);
-DB/位/字节地址语法依 S7comm/Snap7 约定,手册未逐条给,**待核**。
+DB/位/字节地址语法依 S7comm 协议与同类开源实现约定,手册未逐条给,**待核**。
 
 支持的地址语法(不区分大小写):
 
@@ -46,7 +46,7 @@ _V_RE = re.compile(r"^V(?:(?:([BWDS])(\d+))|(\d+)(?:\.(\d+))?)$", re.IGNORECASE)
 ``VD10``/``VS20``——形态与 I/Q/M 记号一致,前缀 V。"""
 
 _AREA_CODES = {"I": 0x81, "Q": 0x82, "M": 0x83, "DB": 0x84}
-"""地址区域 → snap7 Cli_Area 码(PE/PA/MK/DB)。"""
+"""地址区域 → 同类开源库 Cli_Area 码(PE/PA/MK/DB)。"""
 
 
 class S7Address(NamedTuple):
@@ -65,7 +65,7 @@ class S7Address(NamedTuple):
 
 
 def area_code(area: str) -> int:
-    """把区域名换算为 snap7 Cli_Area 码(内部函数)。"""
+    """把区域名换算为 同类开源库 Cli_Area 码(内部函数)。"""
     return _AREA_CODES[area]
 
 
@@ -128,9 +128,9 @@ def parse_s7_address(address: str) -> S7Address:
 def translate_v_address(address: str) -> str:
     """V 区记号 → DB1 记号(纯函数;调用方负责按型号放行)。
 
-    S7-200/200 SMART 的 V 存储器在 S7comm 线上就是 DB1(IoTClient
+    S7-200/200 SMART 的 V 存储器在 S7comm 线上就是 DB1(商业参考实现
     SiemensClient.cs ``ConvertArg`` L1473-1476:``'V' → TypeCode 0x84、
-    DbBlock=1``;python-snap7 3.2.0 ppi.py L36-45 注「V memory is
+    DbBlock=1``;同类开源参考实现(3.2.0 快照) ppi.py L36-45 注「V memory is
     addressed as DB1 on the wire」双源交叉)。映射:``V10.3`` →
     ``DB1.DBX10.3``;``V10`` → ``DB1.DBB10``;``VB/VW/VD/VS`` →
     ``DB1.DBB/DBW/DBD/DBS``。

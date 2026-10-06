@@ -1287,7 +1287,7 @@ def _tag_entry_bytes(
 ) -> bytes:
     """0x55 应答单条点位(instance UDINT + STRING 名长 UINT + 名 + type UINT + dims)。
 
-    布局按 pylogix ``lgx_tag.Tag.parse`` 逐字节锁定(review-1007 P0-2):
+    布局按 同类开源参考实现 ``lgx_tag.Tag.parse`` 逐字节锁定(review-1007 P0-2):
     名长 = **UINT 2 字节**,名字 utf-8,尾接 3×UDINT 维度(请求属性 1/2/8)。
     """
     raw = name.encode("utf-8")
@@ -1303,8 +1303,8 @@ def _tag_entry_bytes(
 def test_list_tags_request_golden() -> None:
     """0x55 请求帧黄金:服务 0x55 + Symbol Object 路径(8 位类段 20 6B + 实例 8 位段)+ 属性 1/2/8。
 
-    类段字节 ``20 6B`` 与两参考逐字节一致:pycomm3 ``ClassCode.symbol_object
-    = b'k'``(0x6B)走 8 位段;pylogix ``pack('<H', 0x6B20)`` 小端即 ``20 6B``
+    类段字节 ``20 6B`` 与两参考逐字节一致:同类开源参考实现 ``ClassCode.symbol_object
+    = b'k'``(0x6B)走 8 位段;同类开源参考实现 ``pack('<H', 0x6B20)`` 小端即 ``20 6B``
     (review-1007 P0-1:0x6B20 是助记写法,非类码)。
     """
     expected = bytes.fromhex(
@@ -1462,7 +1462,7 @@ def test_list_tags_name_len_field_truncated(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_list_tags_utf8_name(monkeypatch: pytest.MonkeyPatch) -> None:
-    """非 ASCII 标签名按 utf-8 解码(pylogix Tag.parse 同口径),名长按字节计。"""
+    """非 ASCII 标签名按 utf-8 解码(同类开源参考实现 Tag.parse 同口径),名长按字节计。"""
     client = AllenBradleyEthIpClient("127.0.0.1", 44818)
     payload = _tag_entry_bytes(1, "温度Tag", 0xC4)
     scripted = ScriptedTransport(

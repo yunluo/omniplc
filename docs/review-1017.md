@@ -33,20 +33,20 @@
 
 | 调整点 | 核查结果 |
 |---|---|
-| `S7_MODEL_PRESETS` 六款预设 | 1200/1500=PG+slot1(远端 0x0101)、300/400=PG+slot2(0x0102)=python-snap7 3.2.0 主源(client.py L334/L621);SMART=本端 0x1000/远端 0x0300/TPDU 0x0A、200-CP243=两侧 TSAP "MW"(0x4D57)/TPDU 0x09=IoTClient `SiemensConstant.cs` 字节黄金(HSL 7.0.1 双源坐实,档案 §2) |
+| `S7_MODEL_PRESETS` 六款预设 | 1200/1500=PG+slot1(远端 0x0101)、300/400=PG+slot2(0x0102)=同类开源参考实现(3.2.0 快照) 主源(client.py L334/L621);SMART=本端 0x1000/远端 0x0300/TPDU 0x0A、200-CP243=两侧 TSAP "MW"(0x4D57)/TPDU 0x09=商业参考实现 `SiemensConstant.cs` 字节黄金(商业参考实现 7.0.1 快照 双源坐实,档案 §2) |
 | `resolve_s7_connection` | `fixed_remote_tsap` 分支下 rack/slot 仅校验(0~7/0~31)+进调试标签、不参与组帧,与测试锁定一致;非枚举 model 构造期拒 |
 | `build_cotp_cr` 参数化 | `local_tsap`/`tpdu_size_code` 进参,缺省值不变;标准 CR 与参考 `ISOTCPConnection._build_cotp_cr()` 实例方法逐字节一致 |
 | V 区记号(=DB1) | 翻译映射(V10.3→DB1.DBX10.3、V10→DB1.DBB10、VB/VW/VD/VS 同构)与型号门禁(仅 200/200 SMART)sync/native 两侧同构;V 读写请求帧地址规范 DB 号 1+区码 0x84 逐字节验证 |
 | WString 型号门禁 | 仅 1200/1500 放行,sync/native 同构;ValueError 经 `_execute` 直抛(参数错误约定),单测锁定 |
 | CC 回显校验(f481f44 新增) | TLV 不按序扫描(cursor=7 起、`end=min(len, pdu_len+1)`)对 itpub 真机帧(`11 D0 … C0 01 09 C1 02 01 00 C2 02 01 01`)逐字节正确;命中放行/不符拒/无参数宽容三形态独立复核通过,会话层不符拆连单测在位 |
 | 分片与 DR | 读 PDU−18 / 写 PDU−35 与参考 client_base.py L208/L219 一致;COTP DR 的 dst_ref=CC 回显取法与参考 `_send_cotp_disconnect`(L436-444)一致 |
-| SZL 0x0424 偏移 | snap7 C `opReadSZL`(`PDataFirst=ResDataFirst+8`;opData=LENTHDR/N_DR/记录区)复核 `opData[7]`=记录区[3],本库 `entries[3]` 取法成立 |
-| 三面同构 | sync/native/aio 构造签名、`model` 属性贯通;aio 转发同步侧(守卫随同步生效);根包 `S7Model` 导出在位;S7Cpu 更名零残留(S7CpuStatus* 为 snap7 状态字符串,有意保留) |
+| SZL 0x0424 偏移 | 同类开源库 C `opReadSZL`(`PDataFirst=ResDataFirst+8`;opData=LENTHDR/N_DR/记录区)复核 `opData[7]`=记录区[3],本库 `entries[3]` 取法成立 |
+| 三面同构 | sync/native/aio 构造签名、`model` 属性贯通;aio 转发同步侧(守卫随同步生效);根包 `S7Model` 导出在位;S7Cpu 更名零残留(S7CpuStatus* 为 同类开源库 状态字符串,有意保留) |
 | 文档登记 | 真机清单⑨⑩(SMART/CP243 专项)、CHANGELOG v0.54.0 破坏性披露(位置实参 rack/slot 改键字)在位 |
 
 ## 三、程序化对拍(21/21 全绿)
 
-环境:`%TEMP%\s7ref2`(python-snap7 3.2.0,3.12 项目外临时环境);脚本
+环境:`%TEMP%\s7ref2`(同类开源参考实现(3.2.0 快照),3.12 项目外临时环境);脚本
 `%TEMP%\s7_cross.py`(上轮 7 项)+ `%TEMP%\s7_cross2.py`(本轮扩展 21 项)。
 
 **对拍盲区补正(方法论)**:上轮 review-1013 对拍全部 start=0——参考
@@ -96,6 +96,6 @@ P3-1:档案 §11 一句「本库 `parse_cotp_cc` 只校验类型 0xD0 与长度,
 
 ## 六、待真机核证项(维持原登记,无新增)
 
-①SMART 槽位分歧(本库缺省 0x0300,社区/S7netplus 0x0301,`slot=1` 覆写可切);
-②SZL 请求前缀两字节(本库 0x0A/00 vs C/Sharp7/HSL FF/09,被拒首先改此);
+①SMART 槽位分歧(本库缺省 0x0300,社区/交叉参考实现 B 0x0301,`slot=1` 覆写可切);
+②SZL 请求前缀两字节(本库 0x0A/00 vs C/交叉参考实现 C/商业参考实现 FF/09,被拒首先改此);
 ③CC 回显在 SMART/CP243 上的实际形态(缺参数宽容,有参不符即拆)。

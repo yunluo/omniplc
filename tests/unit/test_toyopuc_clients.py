@@ -72,7 +72,7 @@ def test_parse_address() -> None:
 
 
 def test_packed_bit_device_index_is_word_index() -> None:
-    """位软元件 L/H/W 的编号是"字索引"(参考实现 plc-comm-toyopuc 4.2.0 裁决)。
+    """位软元件 L/H/W 的编号是"字索引"(参考实现 同源参考实现 4.2.0 裁决)。
 
     回归:校验曾按"位号"多移 4 位(number>>4),导致越界编号(如 M0201W)被放行、
     合法编号被误算;现直接以字索引校验,与 encode_*_address 一致。

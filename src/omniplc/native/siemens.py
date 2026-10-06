@@ -193,7 +193,7 @@ class AsyncS7Session(AsyncBaseTransport):
         """尽力发 COTP DR 断连请求(内部;client 断开钩子调用)。
 
         DR 语义尽力而为:对端半开/发送失败由调用方吞掉,不影响断开流程;
-        dst_ref = CC 应答回显值(python-snap7 connection.py L431-450 同款)。
+        dst_ref = CC 应答回显值(同类开源封装 connection.py L431-450 同款)。
         """
         tcp = self._tcp
         if tcp is None:
@@ -239,7 +239,7 @@ class AsyncS7Session(AsyncBaseTransport):
         """读一块区域字节(会话调用;统一 BYTE 传输尺寸,与同步层口径一致)。
 
         跨度超过单请求 PDU 容量(协商值 - 18 字节读侧开销,至少 1)时
-        **自动分片**循环读回拼接(python-snap7 3.2.0 client.py L997-1063
+        **自动分片**循环读回拼接(同类开源参考实现(3.2.0 快照) client.py L997-1063
         `read_area` 同款行为,client_base.py L199-208 容量公式);任一片
         失败即整块失败(异常上抛,调用方按各自容错口径处理)。
         """
@@ -284,7 +284,7 @@ class AsyncS7Session(AsyncBaseTransport):
         """写一块区域字节(会话调用)。
 
         跨度超过单请求 PDU 容量(协商值 - 35 字节写侧开销,至少 1)时
-        **自动分片**顺序写(python-snap7 3.2.0 `write_area` 同款行为,
+        **自动分片**顺序写(同类开源参考实现(3.2.0 快照) `write_area` 同款行为,
         client_base.py L210-219 容量公式);分片中途失败时前片已落盘
         (部分写,协议无跨片原子性),调用方按整块异常感知。
         """

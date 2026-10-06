@@ -88,8 +88,8 @@ CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST: int = 0x55
 """CIP Get_Instance_Attribute_List(Logix 符号对象点位枚举,list_tags)。
 
 依据:Rockwell《Logix 5000 Data Access》(1756-PM020)私有扩展——公开
-手册库暂缺该册(见 docs/protocol/README.md「待补」);帧面经 pycomm3
-1.2.16 与 pylogix 1.1.6 双参考实现逐字节对照裁决(2026-10-03)。"""
+手册库暂缺该册(见 docs/protocol/README.md「待补」);帧面经 同类开源参考实现
+1.2.16 与 同类开源参考实现(1.1.6 快照) 双参考实现逐字节对照裁决(2026-10-03)。"""
 CIP_STATUS_CONNECTION_FAILURE: int = 0x01
 """CIP 通用状态 0x01:Connection failure(connected 消息的会话已失效)。
 
@@ -108,16 +108,16 @@ CIP_STATUS_PARTIAL_TRANSFER: int = 0x06
 AB_SYMBOL_OBJECT_CLASS: int = 0x6B
 """Logix Symbol Object 类码(list_tags 枚举对象)= **0x6B**(单字节)。
 
-注意:pylogix 源码里的 ``0x6B20`` 是「8 位段头 0x20 + 类码 0x6B」拼成 u16
+注意:同类开源参考实现 源码里的 ``0x6B20`` 是「8 位段头 0x20 + 类码 0x6B」拼成 u16
 的助记写法(``pack('<H', 0x6B20)`` 小端 = 字节 ``20 6B``),**不是类码**;
-pycomm3 的 ``ClassCode.symbol_object = b'k'``(0x6B)同理。线上段编码 =
+同类开源参考实现 的 ``ClassCode.symbol_object = b'k'``(0x6B)同理。线上段编码 =
 8 位类段 ``0x20`` + 类码 ``0x6B``,与两参考实现逐字节一致(review-1007
 P0-1:曾误把 0x6B20 当真类码按 16 位段组帧,真机必失败)。"""
 AB_TAG_LIST_ATTRIBUTES: "tuple" = (0x0001, 0x0002, 0x0008)
-"""0x55 请求的属性集:1=符号名 / 2=符号类型 / 8=数组维度(pylogix 同款
-最小集;pycomm3 的 7 属性含未公开语义字段,不取)。**应答只含所请求的
-属性**(pylogix 请求同款 3 属性、条目步长 = 名长 + 20 字节且真机可用;
-pycomm3 请求 7 属性其应答多 3 个地址类 UDINT——两源布局各与自己的请求集
+"""0x55 请求的属性集:1=符号名 / 2=符号类型 / 8=数组维度(同类开源参考实现 同款
+最小集;同类开源参考实现 的 7 属性含未公开语义字段,不取)。**应答只含所请求的
+属性**(同类开源参考实现 请求同款 3 属性、条目步长 = 名长 + 20 字节且真机可用;
+同类开源参考实现 请求 7 属性其应答多 3 个地址类 UDINT——两源布局各与自己的请求集
 自洽,不作全量假设)。"""
 AB_TAG_LIST_MAX_PAGES: int = 1000
 """0x55 分页轮数上限(防不收敛)。每页受 unconnected 包 ~500 字节约束约
@@ -427,8 +427,8 @@ def build_symbol_path(
             path += b"\x00"
         for number in member_indices:
             # padded EPATH:逻辑段段内补齐——段头 1 字节后补 1 个 0x00
-            # 再接值,保证每段偶数字节(pylogix ``pack('<HH', 0x29, v)`` /
-            # pycomm3 ``LogicalSegment(padded=True)`` 同型;不补齐则路径
+            # 再接值,保证每段偶数字节(同类开源参考实现 ``pack('<HH', 0x29, v)`` /
+            # 同类开源参考实现 ``LogicalSegment(padded=True)`` 同型;不补齐则路径
             # 奇长,下标 ≥256 的合法标签会被偶数校验误拒)
             if number < 0x100:
                 path += struct.pack("<BB", 0x28, number)
@@ -512,8 +512,8 @@ def build_tag_list_request(instance: int) -> bytes:
     实例段(起始实例 ≤255 用 8 位段头 ``0x24``,否则 16 位 ``0x25``),
     奇长度补齐字节(CIP 字对齐);body = 属性数 + :data:`AB_TAG_LIST_ATTRIBUTES`。
 
-    依据:pycomm3 1.2.16 ``ClassCode.symbol_object = b'k'``(0x6B)与
-    pylogix 1.1.6 ``eip._build_tag_list_request`` 的 ``pack('<H', 0x6B20)``
+    依据:同类开源参考实现(1.2.16 快照) ``ClassCode.symbol_object = b'k'``(0x6B)与
+    同类开源参考实现(1.1.6 快照) ``eip._build_tag_list_request`` 的 ``pack('<H', 0x6B20)``
     (小端 = ``20 6B``)双源逐字节一致;实例段/属性号两源同款;
     1756-PM020 手册待补(见 docs/protocol/README.md)。
 
@@ -588,10 +588,10 @@ def parse_tag_list_payload(data: bytes) -> List[AbTagEntry]:
 
     每条 = 实例号(UDINT)+ 符号名(CIP STRING:**UINT 2 字节长度** + 字符,
     utf-8)+ 符号类型(UINT)+ 三个数组维度(UDINT × 3)——与请求属性序
-    1(名)/2(类型)/8(维度)对应。依据:pylogix 1.1.6 ``lgx_tag.Tag.parse``
+    1(名)/2(类型)/8(维度)对应。依据:同类开源参考实现(1.1.6 快照) ``lgx_tag.Tag.parse``
     (``unpack_from('<H', packet, 4)`` 名长 + utf-8,条目步长 ``tag_len + 20``
-    = 4 + 2 + 名 + 2 + 12)与 pycomm3 1.2.16 ``_parse_instance_attribute_list``
-    (``STRING.decode`` = UINT 长度前缀)双源一致;pycomm3 应答另有的
+    = 4 + 2 + 名 + 2 + 12)与 同类开源参考实现(1.2.16 快照) ``_parse_instance_attribute_list``
+    (``STRING.decode`` = UINT 长度前缀)双源一致;同类开源参考实现 应答另有的
     symbol_address 等 3 个 UDINT 是其请求属性 3/5/6 的回值,本库未请求
     故不出现。真机核证待做。
 
@@ -1220,7 +1220,7 @@ def _service_data_offset(cip: bytes) -> int:
     CIP 服务应答头 = 服务回显(1)+ 保留(1)+ 通用状态(1)+ 附加状态长(1,
     单位 **16 位字**)+ 附加状态(2×N 字节)。附加状态长按**字**计,
     数据域自 ``4 + 2×N`` 起(与 :func:`_extended_status_text` 同口径;
-    pycomm3 ``get_extended_status`` 亦按 ``size × 2`` 计字节)。
+    同类开源参考实现 ``get_extended_status`` 亦按 ``size × 2`` 计字节)。
     """
     return 4 + 2 * cip[3]
 
@@ -1307,7 +1307,7 @@ def parse_list_identity_reply(reply: bytes) -> Dict[str, object]:
 
     布局(CPF 标准,依 Rockwell《Communicating with RA Products Using
     EtherNet/IP Explicit Messaging》p.20-21 封装头 24 字节 + CPF Item
-    结构,及 pycomm3 1.2.16 ``ListIdentityObject`` 参考实现裁决,2026-09-27):
+    结构,及 同类开源参考实现(1.2.16 快照) ``ListIdentityObject`` 参考实现裁决,2026-09-27):
 
     - ENIP 头 24 字节(``EIP_HEADER_SIZE``)
     - Item Count(2)+ Item Type Code(2,``0x000C`` ListIdentity)+ Item
@@ -1418,7 +1418,7 @@ def parse_get_attribute_list_payload(
 ) -> List[Tuple[int, object]]:
     """解析 Get_Attribute_List(0x03)应答数据域,返回 ``[(属性号, 值), ...]``。
 
-    布局(ODVA CIP Vol 1 §5-4 Get_Attribute_List 应答;经 pycomm3 1.2.16
+    布局(ODVA CIP Vol 1 §5-4 Get_Attribute_List 应答;经 同类开源参考实现(1.2.16 快照)
     ``get_plc_time`` 应答解码与 OpENer ``cipcommon.c: GetAttributeList``
     服务端写回顺序对照核证,2026-09-27)= 属性数(u16)+ 每项
     ``[属性号 u16][状态 u16][属性值]``——**值仅在逐项状态为 0 时存在**,

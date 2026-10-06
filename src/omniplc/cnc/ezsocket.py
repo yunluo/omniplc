@@ -6,7 +6,7 @@
   OLE/COM 接口;PDF 本地留存 ``docs/protocol/mitsubishi/``,印刷页
   2-7 起 I/F 详解、3-1 起错误码表)——方法含义/数据范围/错误码文本。
 - **帧面层**:GIOP 线上格式**无官方公开文档**,逐字节参照同源参考
-  实现 ``wqliceman/mitsubishi_cnc_m70_ezsocket_net``(MIT,M70 真机
+  实现 ``开源参考实现快照(内部留存,M70 真机验证)``(MIT,M70 真机
   验证;下称「C 库」,行号指 ``m70_giop.c``/``m70_ezsocket_private.h``
   /``m70_ezsocket.c``)——**单源,真机核证必做**;section/sub_section
   编号值同(官方仅证实「大区分/小区分番号」概念,见错误码

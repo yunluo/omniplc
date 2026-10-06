@@ -1,16 +1,16 @@
 """西门子 S7 客户端(自研 S7comm 协议栈,ISO-on-TCP 102,核心零第三方依赖)。
 
 依据:S7comm 无官方公开手册,帧面按「参考实现逐字节比对」铁律退档——
-python-snap7 3.2.0(纯 Python 重写版,MIT)为主源,Sally7/S7netplus 交叉,
-snap7 C++(LGPL)只比对行为不抄码;全部帧面事实与出处(文件 + 函数)
+同类开源参考实现(3.2.0 快照)(纯 Python 重写版,MIT)为主源,交叉参考实现 交叉,
+同类开源库 C++(LGPL)只比对行为不抄码;全部帧面事实与出处(文件 + 函数)
 归档 `docs/protocol/siemens/s7comm/README.md`(2026-10-03 抽取)。S7-1500
 Communication Function Manual §3.5 p.22(ISO-on-TCP 端口 102)、§7 p.50
 (PUT/GET 指令:仅绝对寻址数据块、需在 CPU 保护组态开启该服务)。
 
-v0.53 起由 python-snap7 封装**整体替换为自研 S7comm 栈**(用户裁决:
-名字与 API 不变、依赖退役):`dll_path` 参数移除(snap7 DLL 按解释器
+v0.53 起由 同类开源封装 封装**整体替换为自研 S7comm 栈**(用户裁决:
+名字与 API 不变、依赖退役):`dll_path` 参数移除(同类开源库 DLL 按解释器
 分版本、32 位自备 DLL 的痛点正是替换动机);3.7~3.9 用户从此免装
-python-snap7 1.3 + setuptools。公开面冻结:构造参数 / rack·slot /
+同类开源封装(1.3) + setuptools。公开面冻结:构造参数 / rack·slot /
 通用读写全族 / `get_cpu_state` / `read_range` / `read_many` /
 `read_batch` / `read_wstring` / `write_wstring` 与地址语法全部不变。
 
@@ -97,7 +97,7 @@ _CPU_STATUS_NAMES: Dict[int, str] = {
     0x03: "S7CpuStatusStop",
 }
 """SZL 0x0424 状态值(bzu_id)→ 枚举名:0x08 Run / 0x04 Stop / 0x03 Stop
-(老 CPU 兼容,snap7 C `opGetPlcStatus` L2044-2048 注「STOP 有时编为 0x03」;
+(老 CPU 兼容,同类开源库 C `opGetPlcStatus` L2044-2048 注「STOP 有时编为 0x03」;
 其余 Unknown 兜底——**有意不照搬 C 的「未知一律按 STOP」**:把坏帧/新值
 误报成停机比 Unknown 更危险,分歧点已记帧面档案;**偏移待真机核证**)。"""
 
@@ -151,7 +151,7 @@ class _S7Session(BaseTransport):
     TCP → COTP(CR/CC,TSAP 编码 rack/slot)→ S7 通信协商(PDU 长度)
     三步,``close`` 尽力发 COTP DR 后关传输;区域读写经
     :meth:`read_area` / :meth:`write_area`(统一 BYTE 传输尺寸,与
-    snap7 read_area/write_area 的 WORDLen=BYTE 口径一致),错误边界:
+    同类开源库 read_area/write_area 的 WORDLen=BYTE 口径一致),错误边界:
 
     - TCP 层 OSError 透传(惰性重连)
     - 帧结构错(codec :class:`.codec.S7ProtocolError`)→ 内部协议错误,
@@ -271,7 +271,7 @@ class _S7Session(BaseTransport):
         if tcp is None:
             return
         try:
-            # COTP DR(断连请求,python-snap7 connection.py L431-450 同款;
+            # COTP DR(断连请求,同类开源封装 connection.py L431-450 同款;
             # dst_ref = CC 应答回显的对端引用,src_ref 恒本端缺省)
             dr = struct.pack(
                 ">BBHHBB", 6, 0x80, self._dst_ref, codec.SRC_REFERENCE, 0x00, 0x00
@@ -319,7 +319,7 @@ class _S7Session(BaseTransport):
         """读一块区域字节(会话调用;统一 BYTE 传输尺寸,与旧封装口径一致)。
 
         跨度超过单请求 PDU 容量(协商值 - 18 字节读侧开销,至少 1)时
-        **自动分片**循环读回拼接(python-snap7 3.2.0 client.py L997-1063
+        **自动分片**循环读回拼接(同类开源参考实现(3.2.0 快照) client.py L997-1063
         `read_area` 同款行为,client_base.py L199-208 容量公式);任一片
         失败即整块失败(异常上抛,调用方按各自容错口径处理)。
         """
@@ -360,7 +360,7 @@ class _S7Session(BaseTransport):
         """写一块区域字节(会话调用)。
 
         跨度超过单请求 PDU 容量(协商值 - 35 字节写侧开销,至少 1)时
-        **自动分片**顺序写(python-snap7 3.2.0 `write_area` 同款行为,
+        **自动分片**顺序写(同类开源参考实现(3.2.0 快照) `write_area` 同款行为,
         client_base.py L210-219 容量公式);分片中途失败时前片已落盘
         (部分写,协议无跨片原子性),调用方按整块异常感知。
         """
@@ -416,7 +416,7 @@ class _S7Session(BaseTransport):
 
         返回状态枚举名(``"S7CpuStatusRun"``/``"S7CpuStatusStop"``/
         ``"S7CpuStatusUnknown"``)。状态取记录区第 4 字节 bzu_id——
-        snap7 C `opGetPlcStatus` L2038 读 ``opData[7]``,opData =
+        同类开源库 C `opGetPlcStatus` L2038 读 ``opData[7]``,opData =
         AddLen/AddCount + 记录区,即记录区 [3](ereig 2B + ae 1B 之后);
         review-1008 P1:曾取记录区 [0](ereig 首字节,与状态字段错位,
         真机近乎必错)。**偏移仍待真机核证**(C 源 + 参考桩双源,pcap
@@ -502,8 +502,8 @@ class SiemensS7Client(BaseClient):
             200 SMART=0);显式给出则覆写
         :raises ValueError: 参数非法
 
-        .. note:: v0.52.x 的 ``dll_path`` 参数已随 python-snap7 依赖退役
-            移除(snap7 DLL 分发痛点正是自研动机);传递该参数会得到
+        .. note:: v0.52.x 的 ``dll_path`` 参数已随 同类开源封装 依赖退役
+            移除(同类开源库 DLL 分发痛点正是自研动机);传递该参数会得到
             TypeError,请删除该实参。v0.53 构造签名第 3 参起为
             ``model``(原 rack/slot 位置实参须改键字传递)。
         """

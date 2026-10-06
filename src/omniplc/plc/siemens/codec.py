@@ -2,8 +2,8 @@
 
 依据源:S7comm 无官方公开手册,帧面按「参考实现逐字节比对」铁律退档,
 全部事实与出处(文件 + 函数)归档于
-`docs/protocol/siemens/s7comm/README.md`(python-snap7 3.2.0 为主源,
-Sally7/S7netplus 交叉;snap7 C++ 源码 LGPL 只比对行为不抄码)。
+`docs/protocol/siemens/s7comm/README.md`(同类开源参考实现(3.2.0 快照) 为主源,
+交叉参考实现 交叉;同类开源库 C++ 源码 LGPL 只比对行为不抄码)。
 
 - TPKT(RFC 1006):4 字节头,版本 3 + 总长 u16 大端
 - COTP(ISO 8073):CR/CC/DT 三形态
@@ -33,7 +33,7 @@ PDU_ACK_DATA: int = 0x03
 PDU_USERDATA: int = 0x07
 """S7 PDU 类型:Job 请求 / ACK 写应答 / ACK_DATA 读·协商应答 / USERDATA。
 
-依据:python-snap7 3.2.0 s7protocol.py `S7PDUType`;ACK/ACK_DATA 应答头
+依据:同类开源参考实现(3.2.0 快照) s7protocol.py `S7PDUType`;ACK/ACK_DATA 应答头
 12 字节(尾接 error_class+error_code),USERDATA 头 10 字节(无错误两字,
 `parse_response` L1536-1554)。"""
 
@@ -51,16 +51,16 @@ COTP_PARAM_CALLED_TSAP: int = 0xC2
 """COTP PDU 类型与参数码(ISO 8073;connection.py L49-63)。"""
 
 LOCAL_TSAP: int = 0x0100
-"""本端 TSAP(python-snap7 默认,client.py L334)。"""
+"""本端 TSAP(同类开源封装 默认,client.py L334)。"""
 
 CONNECTION_TYPE_PG: int = 1
-"""S7 连接资源类型:PG(编程设备);OP=2、S7 基本=3(python-snap7 同款缺省)。"""
+"""S7 连接资源类型:PG(编程设备);OP=2、S7 基本=3(同类开源封装 同款缺省)。"""
 
 TPDU_SIZE_CODE: int = 0x0A
 """COTP 协商请求的 TPDU 尺寸指数(2^0x0A = 1024;connection.py 缺省)。"""
 
 SRC_REFERENCE: int = 0x0001
-"""COTP CR 源引用(python-snap7 缺省 0x0001)。"""
+"""COTP CR 源引用(同类开源封装 缺省 0x0001)。"""
 
 AREA_PE: int = 0x81
 AREA_PA: int = 0x82
@@ -89,10 +89,10 @@ SZL_READ_SUBFUNCTION: int = 0x01
 """USERDATA SZL 读子功能(s7protocol.py L64-66)。"""
 
 SZL_CPU_STATUS_ID: int = 0x0424
-"""CPU 状态 SZL ID(snap7 C 家族 `Cli_GetCpuStatus` 读 0x0424/0)。
+"""CPU 状态 SZL ID(同类开源库 C 家族 `Cli_GetCpuStatus` 读 0x0424/0)。
 
-python-snap7 3.2.0 的 `build_cpu_state_request` 是纯 Python 服务端桩
-(恒返 Run),不可作依据;本表按 snap7 C 行为对照,**待真机核证**。"""
+同类开源参考实现(3.2.0 快照) 的 `build_cpu_state_request` 是纯 Python 服务端桩
+(恒返 Run),不可作依据;本表按 同类开源库 C 行为对照,**待真机核证**。"""
 
 RETURN_CODE_OK: int = 0xFF
 """S7 数据段条目返回码:0xFF = 成功(s7protocol.py `S7_RETURN_CODES`)。"""
@@ -115,10 +115,10 @@ RETURN_CODE_TEXT: Dict[int, str] = {
 L78-100,条目文本按中文口径意译)。"""
 
 MAX_PDU_REQUEST: int = 480
-"""协商请求的 PDU 长度(python-snap7 缺省 480;实际以对端确认为准)。"""
+"""协商请求的 PDU 长度(同类开源封装 缺省 480;实际以对端确认为准)。"""
 
 MAX_VARS: int = 20
-"""multi read 单 PDU 项数上限(snap7 MAX_VARS 口径,与旧封装一致)。"""
+"""multi read 单 PDU 项数上限(同类开源库 MAX_VARS 口径,与旧封装一致)。"""
 
 
 class S7ProtocolError(ProtocolFrameError):
@@ -144,7 +144,7 @@ def return_code_text(code: int) -> str:
 def build_tpkt(payload: bytes) -> bytes:
     """TPKT 封帧:版本 3 + 保留 0 + 总长 u16 大端(含头 4 字节)。
 
-    依据:python-snap7 3.2.0 connection.py `_build_tpkt`(L279-291)。
+    依据:同类开源参考实现(3.2.0 快照) connection.py `_build_tpkt`(L279-291)。
     :raises S7ProtocolError: 总长越出 7~65535
     """
     length = len(payload) + 4
@@ -181,9 +181,9 @@ def build_cotp_cr(
     CPU 型号预设(S7-200 SMART 本端 0x1000、S7-200/CP243 TPDU 0x09,
     见 :data:`~omniplc.core.constants.S7_MODEL_PRESETS`)。
 
-    依据:python-snap7 3.2.0 connection.py `_build_cotp_cr`(L293-339);
+    依据:同类开源参考实现(3.2.0 快照) connection.py `_build_cotp_cr`(L293-339);
     TSAP 编码 `client.py::Client.connect`(L621);SMART/CP243 变体
-    IoTClient SiemensConstant.cs `Command1_200Smart`/`Command1_200`。
+    商业参考实现 SiemensConstant.cs `Command1_200Smart`/`Command1_200`。
     """
     body = struct.pack(
         ">BBHHB",
@@ -210,7 +210,7 @@ def parse_cotp_cc(payload: bytes, expected_remote_tsap: Optional[int] = None) ->
     `11 D0 00 01 00 xx 00 C0 01 09 C1 02 01 00 C2 02 01 01`——CC 侧
     参数顺序 PDU Size 在前,不按序扫描会漏)——``expected_remote_tsap``
     给出时逐 TLV 找 0xC2 并比对(陈旧串扰/错口应答在此拦截;漏参数的
-    老 CPU 宽容跳过)。依据:python-snap7 3.2.0 `_parse_cotp_cc`
+    老 CPU 宽容跳过)。依据:同类开源参考实现(3.2.0 快照) `_parse_cotp_cc`
     (L431-450 只取 dst_ref;回显校验为本库加固,同
     FINS 应答身份回显校验统一模式)。
 
@@ -306,7 +306,7 @@ def parse_s7_response(
     """解析 S7 应答报文,返回 ``(功能码, error_class, error_code, 参数, 数据)``。
 
     ACK/ACK_DATA 头 12 字节(尾接 error_class/error_code),USERDATA 头
-    10 字节;PDU 引用须与请求一致。依据:python-snap7 3.2.0
+    10 字节;PDU 引用须与请求一致。依据:同类开源参考实现(3.2.0 快照)
     `parse_response`(L1523-1606)。
 
     :raises S7ProtocolError: 协议 ID/类型/序列号/分段长度不符
@@ -374,7 +374,7 @@ def parse_s7_response(
 def build_setup_comm(pdu_length: int, sequence: int) -> bytes:
     """构造通信协商请求(功能 0xF0):参数 8 字节 + 请求数据长 0。
 
-    依据:python-snap7 3.2.0 `build_setup_communication_request`(L373-398)。
+    依据:同类开源参考实现(3.2.0 快照) `build_setup_communication_request`(L373-398)。
     """
     parameters = struct.pack(">BBHHH", FUNC_SETUP_COMM, 0x00, 1, 1, pdu_length)
     return build_s7_request(PDU_REQUEST, sequence, parameters)
@@ -404,7 +404,7 @@ def build_address_spec(
     """构造 12 字节 S7-Any 地址规范。
 
     地址 = BIT 形态(字节地址 ×8 + 位号);字类访问由调用方传入已 ×8 的
-    位地址。依据:python-snap7 3.2.0 datatypes.py `encode_address`
+    位地址。依据:同类开源参考实现(3.2.0 快照) datatypes.py `encode_address`
     (L55-96):`>BBBBHHB3s` = 0x12 / 0x0A / 0x10(S7-Any)/ 传输尺寸 /
     count u16 / DB 号 u16(DB 区外 0)/ 区域码 / 地址 3 字节大端。
 
@@ -444,7 +444,7 @@ def build_read(
 ) -> bytes:
     """构造单变量读请求(功能 0x04,单 Item)。
 
-    依据:python-snap7 3.2.0 `build_read_request`(L151-188)——参数 =
+    依据:同类开源参考实现(3.2.0 快照) `build_read_request`(L151-188)——参数 =
     功能 + 项数 + 地址规范,头数据长 0。
 
     :raises ValueError: count 超出 u16(分片在会话层完成,单事务到不了
@@ -466,10 +466,10 @@ def build_multi_read(
     """构造多变量读请求(功能 0x04,N Item 单 PDU)。
 
     各项按字节跨度编(WORD_LEN_BYTE,count = 字节数)——与旧封装
-    snap7 read_multi_vars 的 WORDLen=BYTE 口径一致。
+    同类开源库 read_multi_vars 的 WORDLen=BYTE 口径一致。
 
     :param items: ``(区域码, DB 号, 字节起点, 字节数)`` 列表(≤ :data:`MAX_VARS`)
-    依据:python-snap7 3.2.0 `build_multi_read_request`(L190-226)。
+    依据:同类开源参考实现(3.2.0 快照) `build_multi_read_request`(L190-226)。
     """
     if not 1 <= len(items) <= MAX_VARS:
         raise ValueError(
@@ -491,7 +491,7 @@ def parse_read_response(
 
     数据段逐项 = 返回码 1B + 传输尺寸 1B + 位长 u16 + 数据;传输尺寸
     0x04(BIT)按位长/8 计字节数,其余按字节;奇数长非末项后随 1 字节
-    填充。依据:python-snap7 3.2.0 `extract_multi_read_data`(L228-285)。
+    填充。依据:同类开源参考实现(3.2.0 快照) `extract_multi_read_data`(L228-285)。
 
     :param byte_lengths: 单项读时给 None(按位长/8 推);multi 时给逐项
         期望字节数(与 build_multi_read 的 count 一致)
@@ -499,7 +499,7 @@ def parse_read_response(
     :raises DeviceError: 条目返回码非 0xFF(地址非法等)
     """
     function, _eclass, _ecode, parameters, data = parse_s7_response(pdu, sequence)
-    # 功能码 + 条目数强校验(python-snap7 3.2.0 `_validate_area_response`
+    # 功能码 + 条目数强校验(同类开源参考实现(3.2.0 快照) `_validate_area_response`
     # L1768-1774 同款;review-1008 P1:跨功能/串帧旧应答曾被误收)
     if function != FUNC_READ or len(parameters) < 2 or parameters[1] != item_count:
         raise S7ProtocolError(
@@ -571,7 +571,7 @@ _WRITE_TRANSPORT_SIZES: Dict[int, int] = {
 }
 """写数据段传输尺寸映射(与地址规范 WordLen 不同码)。
 
-依据:python-snap7 3.2.0 `build_write_request`(L336-355):BIT→0x03、
+依据:同类开源参考实现(3.2.0 快照) `build_write_request`(L336-355):BIT→0x03、
 BYTE/WORD/DWORD→0x04、INT/DINT→0x05、REAL→0x07、CHAR/CT/TM→0x09。"""
 
 _WORD_LEN_ITEM_SIZES: Dict[int, int] = {
@@ -588,7 +588,7 @@ _WORD_LEN_ITEM_SIZES: Dict[int, int] = {
 }
 """地址规范 WordLen 的元素字节数:count = 数据长 // 元素宽。
 
-依据:python-snap7 3.2.0 `build_write_request` L301-305
+依据:同类开源参考实现(3.2.0 快照) `build_write_request` L301-305
 (`count = len(data) // item_size`)与 `S7DataTypes.get_size_bytes`
 (BIT 公开口径 1 字节/位)。count 与数据段长度必须自洽,否则真机按
 条目返回码拒绝(0x07 类型不一致)或按 1 元素截写。"""
@@ -608,7 +608,7 @@ def build_write(
     STRING 类数据长 = 字节数,BYTE/WORD/DWORD/INT/DINT 数据长 = **位数**。
     地址规范 count = 数据长 // 元素宽(与数据段长度自洽,review-1008 P0-1:
     曾恒写 1,多字节写真机必拒绝)。
-    依据:python-snap7 3.2.0 `build_write_request`(L287-371)。
+    依据:同类开源参考实现(3.2.0 快照) `build_write_request`(L287-371)。
 
     :raises ValueError: 数据长非元素宽整数倍 / 元素数超出 u16
     """
@@ -639,7 +639,7 @@ def build_write(
 def parse_write_response(pdu: bytes, sequence: int, item_count: int) -> None:
     """解析写应答(ACK,数据段 = 逐项返回码)。
 
-    功能码/条目数/数据段长度强校验(python-snap7 3.2.0
+    功能码/条目数/数据段长度强校验(同类开源参考实现(3.2.0 快照)
     `_validate_area_response` L1768-1774 与 `check_write_response`
     L1776-1794 同款:单条目应答恰 1 字节)。
 
@@ -678,7 +678,7 @@ def build_read_szl(szl_id: int, szl_index: int, sequence: int) -> bytes:
 
     参数 8 字节 `>BBBBBBBB`(0x00/0x01/0x12/0x04/0x11/type|group/子功能/
     DataRef)+ 数据段 `>BBHHH`(0x0A/0x00/4/ID/Index)。
-    依据:python-snap7 3.2.0 `build_read_szl_request`(L1075-1120)。
+    依据:同类开源参考实现(3.2.0 快照) `build_read_szl_request`(L1075-1120)。
     """
     parameters = struct.pack(
         ">BBBBBBBB",
@@ -708,12 +708,12 @@ def parse_szl_response(
     返回值为 AddLen/AddCount 之后的记录区;通用 SZL 消费者如需记录步长
     与条数,拿不到当前返回值(真机核证 AddLen/AddCount 布局后按需扩展
     返回形态)。
-    USERDATA 应答参数区 12 字节(python-snap7 3.2.0
+    USERDATA 应答参数区 12 字节(同类开源参考实现(3.2.0 快照)
     `_parse_userdata_response_params` L1663-1678):[3]=0x08(响应长)、
     [4]=0x12(method)、[5]=type<<4|group(响应位 0x8|SZL 组=0x84)、
     [6]=子功能、[10:12]=**参数级错误码**(`check_userdata_response`
     L1460-1476 单独校验,与数据段返回码是两条通道)。
-    依据:python-snap7 3.2.0 `parse_read_szl_response`(L1168-1201)。
+    依据:同类开源参考实现(3.2.0 快照) `parse_read_szl_response`(L1168-1201)。
 
     :param szl_id: 期望的 SZL ID(提供时校验应答回显,不符按坏帧)
     :param szl_index: 期望的 SZL Index(提供时校验,同上)

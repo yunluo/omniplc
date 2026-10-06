@@ -195,7 +195,7 @@ def test_handshake_parity_smart_model(
         loop, monkeypatch, [], lambda _client: None, model=S7Model.S7_200_SMART
     )
     assert holder["sent"] == sync_sent
-    # 与 IoTClient Command1_200Smart COTP 段逐字节同口径
+    # 与 商业参考实现 Command1_200Smart COTP 段逐字节同口径
     assert b"\xc1\x02\x10\x00\xc2\x02\x03\x00" in holder["sent"]
 
 

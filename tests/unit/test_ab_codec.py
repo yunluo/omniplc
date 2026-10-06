@@ -114,7 +114,7 @@ def test_symbol_path_odd_index_segment_padded() -> None:
 
     原 ``<BH``/``<BI`` 打包产生奇数段,与 0x91 段拼出奇长路径,
     ``_service_request`` 偶数校验误拒 ``MyDint[300]`` 等合法地址。
-    现按 padded EPATH 段内补齐(pylogix/pycomm3 同型),路径恒偶长。
+    现按 padded EPATH 段内补齐(同类开源参考实现 同型),路径恒偶长。
     """
     path = codec_cip.build_symbol_path(("MyDint",), ((300,),))
     assert path == bytes.fromhex("91064d7944696e7429002c01")

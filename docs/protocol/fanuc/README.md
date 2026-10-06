@@ -8,7 +8,7 @@
 
 - 主源:`fwlib32.h`——FANUC「CNC/PMC Data Window Library for FOCAS」
   官方头文件,版权 2003-2017 FANUC(头文件 1~19 行自印);获取渠道为
-  **社区打包仓库 strangesast/fwlib(GitHub)**,非 FANUC 官方 Development
+  **社区打包仓库 社区打包参考实现快照(内部留存)(GitHub)**,非 FANUC 官方 Development
   包渠道——内容与官方开发包头文件一致性**待与官方包核对**(拿到官方包后
   diff 一次),在此之前所有布局事实均以本仓库这份头文件文本为准。
 - 交叉:`examples/ctypes/main.py`(同仓库,Python ctypes 连接参考)、

@@ -758,7 +758,7 @@ class BaseClient(ABC):
 
         与 :meth:`read_many` 的差异:本方法按"**起始地址 + 数量**"表达,
         无需逐个列出地址——``read_range("hr0", 100, "ushort")`` 一次取回
-        hr0 起连续 100 个字,与 pymodbus ``read_holding_registers(0, 100)``
+        hr0 起连续 100 个字,与 同类参考实现 ``read_holding_registers(0, 100)``
         同型。"连续"依赖**数值化地址按协议步进**,只在有块读原语的驱动上
         有定义,已覆写为协议单事务:Modbus(FC 01~04)、MC(0401 成批读)、
         FINS(0101 Area Read)、S7(Read Var)、MX(ReadDeviceBlock)、

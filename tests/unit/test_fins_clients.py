@@ -432,7 +432,7 @@ def test_fins_multiword_value_word_order(monkeypatch: pytest.MonkeyPatch) -> Non
     REAL 100.5(0x42C90000)按欧姆龙约定存 D100=0x0000 / D101=0x42C9,
     线上 4 字节 = ``00 00 42 C9``——曾误作整体大端解成 ≈5.9e-39。
     依据:W342 §5-2-1(元素 = 字按地址序)+ 参考实现双向裁决
-    (aphyt/omron-fins、omron-fins-rust 均先反转字序),官方编程手册表述待补。
+    (开源参考实现/omron-fins、omron-fins-rust 均先反转字序),官方编程手册表述待补。
     """
     client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
     # 读:00 00 42 C9 → 100.5;写:100.5 → 线上低字在前 00 00 42 C9
