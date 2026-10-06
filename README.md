@@ -201,6 +201,12 @@ EZSocket 读系统数、海康读码器状态查询等——
 | [CONTRIBUTING.md](CONTRIBUTING.md)                               | 开发约定、门禁、双版本测试                        |
 | [CHANGELOG.md](CHANGELOG.md)                                     | 完整变更历史                                      |
 
+#### AI 技能
+
+仓库内置 ZCode 技能 `.zcode/skills/omniplc-usage/SKILL.md`(库使用向导:安装、
+通用 API 契约、客户端速查、批量/监视/异步选型、排障入口)——用 ZCode 打开本仓库
+自动发现;其他支持 skills 规范的工具可将该目录复制到各自的项目技能路径。
+
 #### 开发
 
 ```bash
