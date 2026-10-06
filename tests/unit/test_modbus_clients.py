@@ -1450,6 +1450,31 @@ def test_rtu_read_device_id_incremental_recv(monkeypatch: pytest.MonkeyPatch) ->
     }
 
 
+def test_rtu_read_device_id_oversize_rejects_before_crc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FC43(RTU)超限边界:循环末恰过旧检查、补 CRC 后 ADU 超 256 → 拒绝。
+
+    review-1018 P2-9:累计长度检查原未预留 CRC 2 字节,循环末 len(tail)
+    = 253~254 时补 CRC 后完整 ADU 可达 257~258 > 256;现检查预留 CRC 空间
+    (len(tail) + 2 > 254 即拒)。构造固定头 6 + 三对象(80+80+81 字节值)
+    = 循环末 253 字节的响应。
+    """
+    client = ModbusRtuClient(1)
+    objects = [(0x00, b"\x41" * 80), (0x01, b"\x42" * 80), (0x02, b"\x43" * 81)]
+    pdu = _device_id_response(objects)
+    body = bytes([1]) + pdu
+    frame = body + codec.crc16(body).to_bytes(2, "little")
+    assert len(frame) == 2 + (6 + 247) + 2  # 循环末 tail=253,加 CRC 后 ADU=257
+    scripted = _ScriptedTransport(_device_id_rtu_chunks(frame))
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    # ProtocolFrameError 走 _execute 转换为 (False, None),原因落 last_error
+    assert client.read_device_id("basic") == (False, None)
+    assert client.last_error is not None and "超 RTU ADU 上限" in client.last_error
+    assert client.connected is False  # 坏帧拆连
+
+
 def test_read_device_object(monkeypatch: pytest.MonkeyPatch) -> None:
     """FC43 个体访问(读取码 04):返回请求对象的原始字节。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)

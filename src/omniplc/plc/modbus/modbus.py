@@ -1818,10 +1818,13 @@ def _recv_device_id_tail(transport: BaseTransport) -> bytes:
         header = transport.recv(2)
         tail += header
         tail += transport.recv(header[1])
-        if len(tail) > tail_limit:
+        # 循环内 tail 尚不含 CRC(循环结束后追加 2 字节),预留空间检查
+        # (review-1018 P2-9:原按 254 检查,补 CRC 后完整 ADU 可达
+        # 258 > 256 上限 2 字节)
+        if len(tail) + 2 > tail_limit:
             raise ProtocolFrameError(
                 _("FC43 响应累计长度超 RTU ADU 上限:{} > {}").format(
-                    len(tail) + 2, MODBUS_RTU_MAX_ADU_SIZE
+                    len(tail) + 2 + 2, MODBUS_RTU_MAX_ADU_SIZE
                 )
             )
     tail += transport.recv(2)

@@ -253,6 +253,19 @@ class _MewtocolBase(BaseClient):
                     MEWTOCOL_WORD_FIELD_MAX, parsed.word, count * width
                 )
             )
+        # UDP 走线入参期预算预检(review-1018 P2-12):响应超整包缓冲的错误
+        # 与走线相关(TCP 可过/UDP 必拒),上提到入参期暴露,避免锁内
+        # ValueError 从与走线无关的调用契约里穿出(_transact 内拦截保留兜底)
+        transport = self._transport
+        if transport is not None and transport.datagram:
+            expected = codec_mewtocol.parse_expected_size(count * width * 4)
+            if expected > MEWTOCOL_MAX_DATAGRAM:
+                raise ValueError(
+                    _(
+                        "MEWTOCOL UDP 长读超出整包缓冲:预算响应 {} 字节 > {}"
+                        "(UDP 侧请减小单次字数或改 TCP 走线)"
+                    ).format(expected, MEWTOCOL_MAX_DATAGRAM)
+                )
 
         def operation() -> List[PrimitiveValue]:
             words = self._read_words(parsed, count * width)

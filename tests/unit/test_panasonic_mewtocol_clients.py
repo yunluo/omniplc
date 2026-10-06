@@ -403,6 +403,34 @@ def test_udp_drains_stale_datagram_before_send(
     assert scripted.drained == [stale]
 
 
+def test_udp_read_range_budget_rejected_before_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """UDP 走线 read_range 超整包缓冲:入参期拒绝(review-1018 P2-12)。
+
+    响应超 UDP 缓冲的错误与走线相关(TCP 可过),上提到入参期暴露——
+    曾在锁内 _transact 才抛,ValueError 从与走线无关的调用契约穿出。
+    1000 字 × 4 字符 = 4000 > 2048 缓冲;不发包。
+    """
+    client = PanasonicMewtocolUdpClient("127.0.0.1", 1024)
+    scripted = ScriptedTransport([], datagram=True)
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    with pytest.raises(ValueError, match="超出整包缓冲"):
+        client.read_range("D0", 1000, "ushort")
+    assert len(scripted.sent) == 0
+    # TCP 走线同参数不受 UDP 预算约束(编内域允许,响应正常收齐)
+    client.disconnect()
+    tcp_client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
+    data = "0000" * 1000
+    tcp_frame = _resp("RD", data, station="01")
+    scripted2 = ScriptedTransport([tcp_frame[:4], tcp_frame[4:]])
+    _mount(monkeypatch, tcp_client, scripted2)
+    tcp_client.connect()
+    ok, values = tcp_client.read_range("D0", 1000, "ushort")
+    assert ok is True and values[0] == 0
+
+
 def test_defaults() -> None:
     """默认 IP/端口 1024/站号 1。"""
     client = PanasonicMewtocolTcpClient()
