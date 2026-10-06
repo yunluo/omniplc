@@ -9,11 +9,11 @@
 > - P3 轻微 / 披露
 >
 > 关联台账:
-> - `docs/review-1005.md`(逐协议深查)
-> - `docs/review-1006.md`(监视器专项)
-> - `docs/review-1018.md`(十协议细胞级审查)
 > - `docs/real-machine-checklist.md`(真机核证)
 > - `docs/protocol/README.md`「待补」表
+>
+> (历轮审查台账(review-1005/1006/1017/1018)已按维护惯例清除,
+> 修复记录存 CHANGELOG 对应版本条目与协作记忆。)
 
 ---
 
