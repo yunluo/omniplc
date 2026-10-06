@@ -8,6 +8,7 @@ RD/WD 数据区、低字在前+字内高字节在前的多字编解码、读-改
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 import pytest
 
@@ -156,6 +157,51 @@ def test_read_range_ints_low_word_first(monkeypatch: pytest.MonkeyPatch) -> None
     ok, values = client.read_range("D0", 2, "uint")
     assert ok is True
     assert values == [100, 200]
+
+
+def test_read_range_block_decode_all_types(monkeypatch: pytest.MonkeyPatch) -> None:
+    """read_range 整块解码逐类型对拍(review-1019 P2-9):低字在前语义不变。
+
+    向量与 ``convert.words_to_value(BIG, reverse_words=True)`` 逐值等价:
+    32 位 = 低字在前两字;64 位 = 低字在前四字;字内高字节在前。
+    """
+
+    def _range(address: str, count: int, dtype: str, data: str) -> Any:
+        client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
+        frame = _resp("RD", data)
+        scripted = ScriptedTransport([frame[:4], frame[4:]])
+        _mount(monkeypatch, client, scripted)
+        client.connect()
+        return client.read_range(address, count, dtype)
+
+    # FLOAT ×2:1.5 = 3FC00000 → [0000, 3FC0];-2.5 = C0200000 → [0000, C020]
+    assert _range("D0", 2, "float", "00003FC00000C020") == (True, [1.5, -2.5])
+    # DOUBLE ×1:1.5 = 3FF8000000000000 → 字组反转 [0000,0000,0000,3FF8]
+    assert _range("D0", 1, "double", "0000000000003FF8") == (True, [1.5])
+    # LONG ×2:100000 = 00000000000186A0 → 字组反转 [86A0,0001,0000,0000];-1 → 全 F
+    assert _range("D0", 2, "long", "86A0000100000000" + "FFFFFFFFFFFFFFFF") == (
+        True,
+        [100000, -1],
+    )
+    # ULONG ×1:0xFFFFFFFF = 00000000FFFFFFFF → 字组反转 [FFFF,FFFF,0000,0000]
+    assert _range("D0", 1, "ulong", "FFFFFFFF00000000") == (True, [0xFFFFFFFF])
+    # INT ×1:-2 = FFFFFFFE → 字组反转 [FFFE, FFFF]
+    assert _range("D0", 1, "int", "FFFEFFFF") == (True, [-2])
+
+
+def test_read_words_non_hex_text_is_protocol_frame_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """数据段非十六进制 / 空白挤占十六进制位 → 坏帧,struct.error 不穿出。"""
+    for bad_text in ("ZZZZ", "12 3"):  # 非法字符 / 字符数够但十六进制位不足
+        client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
+        frame = _resp("RD", bad_text)
+        scripted = ScriptedTransport([frame[:4], frame[4:]])
+        _mount(monkeypatch, client, scripted)
+        client.connect()
+        ok, _values = client.read_range("D0", 1, "uint")
+        assert ok is False
+        assert client.last_error_category is ErrorCategory.PROTOCOL
 
 
 def test_read_range_rejects() -> None:

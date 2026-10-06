@@ -727,7 +727,8 @@ class SiemensS7Client(BaseClient):
         parsed = self._parse_address(address)
         if parsed.bit is not None:
             raise ValueError(_("S7 字符串地址不带位号:{!r}").format(address))
-        encoded = convert.encode_string(value, len(value.encode(encoding)), encoding)
+        # 目标长度 = 本次实际长:ljust 恒空转,等价直接编码(只编一次,review-1019 P3-2)
+        encoded = value.encode(encoding)
         head = self._session().read_area(
             area_code(parsed.area), parsed.db_number, parsed.byte_index, 1
         )
@@ -911,23 +912,15 @@ class SiemensS7Client(BaseClient):
                 parsed.byte_index,
                 size * count,
             )
-            values: List[PrimitiveValue] = []
-            for index in range(count):
-                blob = data[index * size : (index + 1) * size]
-                if data_type_enum is DataType.FLOAT:
-                    values.append(struct.unpack(">f", blob)[0])
-                elif data_type_enum is DataType.DOUBLE:
-                    values.append(struct.unpack(">d", blob)[0])
-                else:
-                    values.append(
-                        int.from_bytes(
-                            blob,
-                            "big",
-                            signed=data_type_enum
-                            in (DataType.SHORT, DataType.INT, DataType.LONG),
-                        )
-                    )
-            return values
+            # 整块一次 struct 解码(逐元素切片 + from_bytes 换出,
+            # review-1019 P2-7);长度由会话层逐条目强校验保证恒为
+            # size*count(parse_read_response 不符即 S7ProtocolError)
+            if data_type_enum is DataType.FLOAT:
+                return list(struct.unpack(f">{count}f", data))
+            if data_type_enum is DataType.DOUBLE:
+                return list(struct.unpack(f">{count}d", data))
+            format_char = _INT_FORMATS[data_type_enum][1]
+            return list(struct.unpack(f">{count}{format_char}", data))
 
         ok, values = self._execute(operation)
         if not ok or values is None:

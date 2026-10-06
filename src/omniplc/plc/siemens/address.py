@@ -34,9 +34,14 @@ DataType 而非记号后缀决定**。
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from typing import NamedTuple, Optional
 
-from ...core.constants import S7_BYTE_INDEX_MAX, S7_DB_NUMBER_MAX
+from ...core.constants import (
+    ADDRESS_CACHE_MAXSIZE,
+    S7_BYTE_INDEX_MAX,
+    S7_DB_NUMBER_MAX,
+)
 from ...core.i18n import _
 
 _DB_RE = re.compile(r"^DB(\d+)\.DB([XBWDS])(\d+)(?:\.(\d+))?$", re.IGNORECASE)
@@ -69,8 +74,11 @@ def area_code(area: str) -> int:
     return _AREA_CODES[area]
 
 
+# 地址串 → 解析结果缓存(结果类型不可变):高频轮询同址免重复正则解析
+# (与 KV/MEWTOCOL/OPC-UA 同款;此前全库唯一无缓存的地址解析,review-1019 P2-8)
+@lru_cache(maxsize=ADDRESS_CACHE_MAXSIZE)
 def parse_s7_address(address: str) -> S7Address:
-    """解析 S7 地址(内部函数,非法抛 ValueError)。"""
+    """解析 S7 地址(内部函数,非法抛 ValueError;异常不入缓存)。"""
     text = address.strip() if isinstance(address, str) else ""
     match = _DB_RE.match(text)
     if match is not None:

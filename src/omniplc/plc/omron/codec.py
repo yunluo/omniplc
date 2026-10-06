@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import datetime
+import struct
 from typing import Dict, List, NamedTuple, Sequence, Tuple
 
 from .address import FinsAddress
@@ -185,12 +186,14 @@ def build_multiple_area_read(
             )
         )
     payload = bytearray()
+    # 条目定长 4 字节(区码 1 + 字地址 2 大端 + 保留 0x00),校验后一次组包
+    # (逐条目三次 to_bytes 追加换出,上限 167 条,review-1019 P3-7)
+    flat: List[int] = []
     for code, offset in entries:
         if not 0 <= offset <= 0xFFFF:
             raise ValueError(_("FINS 字地址超出范围 0~65535:{}").format(offset))
-        payload += code.to_bytes(1, "big")
-        payload += offset.to_bytes(2, "big")
-        payload += b"\x00"
+        flat.extend((code, offset >> 8, offset & 0xFF, 0))
+    payload += struct.pack(f">{len(flat)}B", *flat)
     return _build_frame(
         destination_network,
         destination_node,
@@ -250,6 +253,7 @@ def parse_multiple_area_read(
             ).format(expected, len(data), format_hex(frame))
         )
     words: List[int] = []
+    # 条目 3 字节定长(区码回显 1 + 字数据 2 大端),unpack_from 免切片分配
     for index, code in enumerate(codes):
         base = index * 3
         echo = data[base]
@@ -259,7 +263,7 @@ def parse_multiple_area_read(
                     "FINS 多存储区读区码回显不符:期望 0x{:02X},收到 0x{:02X}(收到的原始帧:{})"
                 ).format(code, echo, format_hex(frame))
             )
-        words.append(int.from_bytes(data[base + 1 : base + 3], "big"))
+        words.append(struct.unpack_from(">H", data, base + 1)[0])
     return words
 
 
@@ -323,7 +327,8 @@ def parse_response(
         )
     if is_bit:
         return [int(byte) for byte in data]
-    return [int.from_bytes(data[i : i + 2], "big") for i in range(0, expected, 2)]
+    # 一次 struct.unpack(逐字切片 + from_bytes 换出,review-1019 P2-4)
+    return list(struct.unpack(f">{expected // 2}H", data))
 
 
 # ----------------------------------------------------------------------
@@ -854,7 +859,8 @@ def _write_data(data: List[int], is_bit: bool) -> bytes:
     for word in data:
         if not 0 <= word <= 0xFFFF:
             raise ValueError(_("字写数据超出范围 0~65535:{}").format(word))
-    return b"".join(word.to_bytes(2, "big") for word in data)
+    # 校验遍保留,打包一次 struct.pack(逐字 to_bytes + join 换出,review-1019 P2-5)
+    return struct.pack(f">{len(data)}H", *data)
 
 
 def _check_count(count: int) -> None:

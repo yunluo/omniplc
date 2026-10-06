@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import struct
 from typing import List, Optional, Sequence, Tuple
 
 from ...core.constants import (
@@ -64,7 +65,8 @@ def unpack_u16(data: bytes) -> List[int]:
                 len(data), format_hex(data)
             )
         )
-    return [data[index] | (data[index + 1] << 8) for index in range(0, len(data), 2)]
+    # 一次 struct.unpack(逐字下标+移位换出,512 字 ≈200µs,review-1019 P2-3)
+    return list(struct.unpack(f"<{len(data) // 2}H", data))
 
 
 def build_word_read(address: int, count: int) -> bytes:

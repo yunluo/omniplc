@@ -610,9 +610,7 @@ class _MelsecMcBase(BaseClient):
                 else:
                     # INT/UINT/FLOAT:字访问走两字解码;双字访问按 32 位原始值还原
                     if index < word_count:
-                        values.append(
-                            _decode_32(list(words[index : index + 2]), item_type)
-                        )
+                        values.append(_decode_32(words[index : index + 2], item_type))
                     else:
                         values.append(
                             _decode_dword(dwords[index - word_count], item_type)

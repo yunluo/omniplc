@@ -22,6 +22,7 @@ TCP 按响应头(4 字节)判断正常/错误后精确收齐;UDP 一次收整包
 
 from __future__ import annotations
 
+import struct
 from abc import abstractmethod
 from typing import List, Optional, Sequence, Tuple, Union
 
@@ -148,9 +149,11 @@ class _MewtocolBase(BaseClient):
         parsed = parse_mewtocol_address(address, False)
         if parsed.bit is not None:
             raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
-        raw = convert.encode_string(
-            value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
-        )
+        # 编码一次后直接补 \\x00 到偶数字节(encode_string 目标长度 = 向上取偶,
+        # 长度校验恒不触发,review-1019 P3-2)
+        raw = value.encode(encoding)
+        if len(raw) % 2:
+            raw += b"\x00"
         words = convert.bytes_to_words(raw, ByteOrder.BIG)
         self._write_words(parsed, words)
         return value
@@ -193,11 +196,20 @@ class _MewtocolBase(BaseClient):
                 )
             )
         try:
-            return [int(data_text[i : i + 4], 16) for i in range(0, len(data_text), 4)]
+            # fromhex 一次收十六进制文本(逐 4 字符 int(,16) 切片换出,
+            # review-1019 P2-6);非十六进制字符同样 ValueError → 坏帧包装。
+            # fromhex 忽略空白:字符数够但十六进制位不足时下方长度兜住,
+            # 不让 struct.error 穿出 ProtocolFrameError 包装
+            raw = bytes.fromhex(data_text)
         except ValueError as exc:
             raise ProtocolFrameError(
                 _("MEWTOCOL 读响应含非十六进制数据:{!r}").format(data_text)
             ) from exc
+        if len(raw) != word_count * 2:
+            raise ProtocolFrameError(
+                _("MEWTOCOL 读响应含非十六进制数据:{!r}").format(data_text)
+            )
+        return list(struct.unpack(f">{word_count}H", raw))
 
     def read_range(
         self,
@@ -268,20 +280,30 @@ class _MewtocolBase(BaseClient):
 
         def operation() -> List[PrimitiveValue]:
             words = self._read_words(parsed, count * width)
-            values: List[PrimitiveValue] = []
+            # 整块一次解码替代逐元素三重遍历(review-1019 P2-9):低字在
+            # 前语义 = 元素内字序反转、首字为最高有效字,与
+            # words_to_value(BIG, reverse_words=True) 逐值等价
+            if width == 1:
+                if data_type_enum is DataType.USHORT:
+                    return list(words)
+                return [convert.to_signed(word, 16) for word in words]
+            combined: List[int] = []
             for index in range(count):
-                chunk = words[index * width : (index + 1) * width]
-                if data_type_enum in (DataType.SHORT, DataType.USHORT):
-                    values.append(
-                        chunk[0]
-                        if data_type_enum is DataType.USHORT
-                        else convert.to_signed(chunk[0], 16)
-                    )
-                elif data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
-                    values.append(_decode(chunk, data_type_enum))
-                else:
-                    values.append(_decode(chunk, data_type_enum))
-            return values
+                number = 0
+                for word in reversed(words[index * width : (index + 1) * width]):
+                    number = (number << 16) | word
+                combined.append(number)
+            if data_type_enum in (DataType.UINT, DataType.ULONG):
+                return list(combined)
+            if data_type_enum is DataType.INT:
+                return [convert.to_signed(number, 32) for number in combined]
+            if data_type_enum is DataType.LONG:
+                return [convert.to_signed(number, 64) for number in combined]
+            if data_type_enum is DataType.FLOAT:
+                raw = struct.pack(f">{count}I", *combined)
+                return list(struct.unpack(f">{count}f", raw))
+            raw = struct.pack(f">{count}Q", *combined)
+            return list(struct.unpack(f">{count}d", raw))
 
         ok, values = self._execute(operation)
         if not ok or values is None:

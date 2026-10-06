@@ -25,6 +25,7 @@
 
 from __future__ import annotations
 
+import struct
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from .address import McAddress
@@ -175,7 +176,8 @@ def parse_data(data: bytes, points: int, is_bit: bool) -> List[int]:
             1 if data[index // 2] & (0x10 if index % 2 == 0 else 0x01) else 0
             for index in range(points)
         ]
-    return [int.from_bytes(data[i : i + 2], "little") for i in range(0, points * 2, 2)]
+    # 一次 struct.unpack(逐字切片 + from_bytes 换出,review-1019 P2-10)
+    return list(struct.unpack(f"<{points}H", data))
 
 
 def build_request(
@@ -390,11 +392,10 @@ def parse_random_read_response(
                 "MC 多块批量读响应数据长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})"
             ).format(expected, len(data), format_hex(frame))
         )
-    words = [int.from_bytes(data[i : i + 2], "little") for i in range(0, word_bytes, 2)]
-    bits = [
-        int.from_bytes(data[word_bytes + i : word_bytes + i + 2], "little")
-        for i in range(0, bit_bytes, 2)
-    ]
+    # 字/位两段各一次 struct.unpack(review-1019 P2-10;位块 1 点 = 16 位
+    # = 2 字节,与字同宽)
+    words = list(struct.unpack(f"<{word_points}H", data[:word_bytes]))
+    bits = list(struct.unpack(f"<{bit_points}H", data[word_bytes:]))
     return words, bits
 
 
@@ -480,11 +481,9 @@ def parse_random_read_devices_response(
                 word_bytes + dword_bytes, len(data), format_hex(frame)
             )
         )
-    words = [int.from_bytes(data[i : i + 2], "little") for i in range(0, word_bytes, 2)]
-    dwords = [
-        int.from_bytes(data[word_bytes + i : word_bytes + i + 4], "little")
-        for i in range(0, dword_bytes, 4)
-    ]
+    # 字/双字两段各一次 struct.unpack(review-1019 P2-10;双字 4 字节小端)
+    words = list(struct.unpack(f"<{word_points}H", data[:word_bytes]))
+    dwords = list(struct.unpack(f"<{double_word_points}I", data[word_bytes:]))
     return words, dwords
 
 
@@ -728,4 +727,5 @@ def _write_payload(points: int, is_bit: bool, data: List[int]) -> bytes:
     for word in data:
         if not 0 <= word <= 0xFFFF:
             raise ValueError(_("字写数据超出范围 0~65535:{}").format(word))
-    return b"".join(word.to_bytes(2, "little") for word in data)
+    # 校验遍保留,打包一次 struct.pack(review-1019 P2-10)
+    return struct.pack(f"<{len(data)}H", *data)

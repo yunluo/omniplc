@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import struct
 from typing import List, Optional, Tuple
 
 from .address import McAddress
@@ -184,7 +185,8 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
             1 if data[index // 2] & (0x10 if index % 2 == 0 else 0x01) else 0
             for index in range(points)
         ]
-    return [int.from_bytes(data[i : i + 2], "little") for i in range(0, expected, 2)]
+    # 一次 struct.unpack(逐字切片 + from_bytes 换出,review-1019 P2-10)
+    return list(struct.unpack(f"<{points}H", data))
 
 
 def _write_payload(points: int, is_bit: bool, data: List[int]) -> bytes:
@@ -200,4 +202,5 @@ def _write_payload(points: int, is_bit: bool, data: List[int]) -> bytes:
     for word in data:
         if not 0 <= word <= 0xFFFF:
             raise ValueError(_("字写数据超出范围 0~65535:{}").format(word))
-    return b"".join(word.to_bytes(2, "little") for word in data)
+    # 校验遍保留,打包一次 struct.pack(review-1019 P2-10)
+    return struct.pack(f"<{len(data)}H", *data)

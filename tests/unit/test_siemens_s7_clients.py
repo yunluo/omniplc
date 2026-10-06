@@ -754,6 +754,38 @@ def test_read_range_float_multi(s7: Any) -> None:
     assert values == [100.5, 1.0]
 
 
+def test_read_range_short_response_rejected_by_session(s7: Any) -> None:
+    """read_range 应答短于请求:会话层逐条目强校验拒收,整批失败(review-1008 口径,
+    review-1019 P2-7 复核确认整块解码依赖该校验保证长度)。"""
+    client, fake = s7
+    _connect_ready(client, fake)
+    fake.queue(_tpkt(_dt(_read_ack(2, [b"\x42\xc9"]))))  # 请求 8 字节只回 2
+    ok, values = client.read_range("DB1.DBD0", 2, "FLOAT")
+    assert ok is False
+    assert values is None
+    assert client.last_error is not None and "与请求期望" in client.last_error
+
+
+def test_read_range_short_decode_types(s7: Any) -> None:
+    """read_range 整块解码 16/32/64 位整型符号与大端(review-1019 P2-7)。
+
+    read_range 为单 Item 事务,应答数据 = 一整块(长度 = size × count);
+    应答序列号随事务递增(会话回显校验)。
+    """
+    client, fake = s7
+    _connect_ready(client, fake)
+    fake.queue(_tpkt(_dt(_read_ack(2, [b"\xff\xfe\xff\xfe"]))))
+    assert client.read_range("DB1.DBW0", 2, "SHORT") == (True, [-2, -2])
+    fake.queue(_tpkt(_dt(_read_ack(3, [b"\x00\x01\x00\x00"]))))
+    assert client.read_range("DB1.DBW0", 2, "USHORT") == (True, [1, 0])
+    fake.queue(_tpkt(_dt(_read_ack(4, [b"\xff\xff\xff\xfe"]))))
+    assert client.read_range("DB1.DBD0", 1, "INT") == (True, [-2])
+    fake.queue(_tpkt(_dt(_read_ack(5, [b"\x00\x00\x00\x01"]))))
+    assert client.read_range("DB1.DBD0", 1, "UINT") == (True, [1])
+    fake.queue(_tpkt(_dt(_read_ack(6, [b"\xff" * 7 + b"\xfe"]))))
+    assert client.read_range("DB1.DBD0", 1, "ULONG") == (True, [0xFFFFFFFFFFFFFFFE])
+
+
 def test_read_range_rejects_string_and_bit(s7: Any) -> None:
     """read_range:STRING 与位地址入参期 ValueError(docstring :raises 口径)。"""
     client, _fake = s7

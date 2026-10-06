@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import random
 import struct
-from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from . import codec_cip
 from .codec_cip import CIP_CLASS_IDENTITY, CIP_INSTANCE_IDENTITY
@@ -714,8 +714,10 @@ class AllenBradleyEthIpClient(BaseClient):
 
         def operation() -> List[PrimitiveValue]:
             requests: List[bytes] = []
-            # 解码计划:(类别, 标签地址, 位号/数组下标, 数据类型)
-            plan: List[Tuple[str, str, int, DataType]] = []
+            # 解码计划:(类别, 标签地址, 已解析对象, 位号/数组下标, 数据类型)
+            # ——已解析对象随计划存下,解码循环免逐条目重解析 + base 重建
+            # (review-1019 P3-8;地址文本仍随行,错误消息保持原文)
+            plan: List[Tuple[str, str, Any, int, DataType]] = []
             for address, data_type in items:
                 data_type_enum = DataType.coerce(data_type)
                 parsed = parse_ab_tag(address)
@@ -733,7 +735,7 @@ class AllenBradleyEthIpClient(BaseClient):
                                 codec_cip.tag_type_path(_strip_bit(parsed)), 1
                             )
                         )
-                        plan.append(("bitofword", address, bit, data_type_enum))
+                        plan.append(("bitofword", address, parsed, bit, data_type_enum))
                     elif cip_type == codec_cip.CIP_TYPE_DWORD:
                         index = _single_array_index(parsed)
                         read_parsed, bit_index = self._batch_bool_array_address(
@@ -744,12 +746,14 @@ class AllenBradleyEthIpClient(BaseClient):
                                 codec_cip.tag_type_path(read_parsed), 1
                             )
                         )
-                        plan.append(("boolarray", address, bit_index, data_type_enum))
+                        plan.append(
+                            ("boolarray", address, parsed, bit_index, data_type_enum)
+                        )
                     else:
                         requests.append(
                             codec_cip.build_tag_read(codec_cip.tag_type_path(parsed), 1)
                         )
-                        plan.append(("booltag", address, 0, data_type_enum))
+                        plan.append(("booltag", address, parsed, 0, data_type_enum))
                     continue
                 if parsed.bit is not None:
                     raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
@@ -757,9 +761,9 @@ class AllenBradleyEthIpClient(BaseClient):
                     codec_cip.build_tag_read(codec_cip.tag_type_path(parsed), 1)
                 )
                 if data_type_enum is DataType.STRING:
-                    plan.append(("string", address, 0, data_type_enum))
+                    plan.append(("string", address, parsed, 0, data_type_enum))
                 else:
-                    plan.append(("scalar", address, 0, data_type_enum))
+                    plan.append(("scalar", address, parsed, 0, data_type_enum))
             payloads: List[bytes] = []
             for chunk in _chunk_batch_requests(requests):
                 packet = codec_cip.build_multiple_service_packet(chunk)
@@ -770,8 +774,9 @@ class AllenBradleyEthIpClient(BaseClient):
                     )
                 )
             values: List[PrimitiveValue] = []
-            for (kind, address, extra, data_type_enum), payload in zip(plan, payloads):
-                parsed = parse_ab_tag(address)
+            for (kind, address, parsed, extra, data_type_enum), payload in zip(
+                plan, payloads
+            ):
                 cip_type, data = codec_cip.parse_tag_read_payload(payload)
                 if parsed.bit is None:
                     self._known_types.setdefault(parsed.base, cip_type)
