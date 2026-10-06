@@ -24,6 +24,12 @@ from ...core.errors import DeviceError, ProtocolFrameError
 from ...core.i18n import _
 
 _CR = b"\r"
+# 出错代码形状:单字符 E0~E9(KV 手册出错代码表)。
+# **EA/EB 扩展出错码未覆盖(review-1018 P2-10,待核证)**:上位链路
+# 类扩展错码(EA=上位机侧/EB=通信超时类)形状为 E + 两位十六进制,
+# 手册未给出完整码表与语义——命中与否影响 .H 读路径(0xEA=234 数据
+# 与错码同形,协议层无法区分,见 hostlink._transact 披露);拿到码表
+# 后再扩正则与文案,避免误吞合法数据。
 _ERROR_RE = re.compile(r"^E[0-9]$")
 _SPLIT_RE = re.compile(r"[ ,]+")
 

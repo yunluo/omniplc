@@ -569,7 +569,11 @@ MEWTOCOL_STATION_DIRECT: int = 0xEE
 """MEWTOCOL 直连站号(EE):经编程口/无需站号寻址的场景使用(常见约定)。"""
 MEWTOCOL_CONTACT_AREAS: Tuple[str, ...] = ("X", "Y", "R", "T", "C", "L")
 """MEWTOCOL 接点(位)区代码:X/Y 外部输入输出、R 内部继电器、
-T/C 定时器计数器接点、L 链接继电器。"""
+T/C 定时器计数器接点、L 链接继电器。
+**L 双语境披露(review-1018 P2-11,待手册)**:链接寄存器的字访问记号
+为 LT(部分场景缩写 L),本库 read_range 对 L 区一律按接点区拒绝——
+字语境 L 必为 LT 的裁决缺手册页码依据(待 MEWTOCOL-COM 手册到手核),
+拒绝是保守正确(发错区码比拒绝更糟)。"""
 MEWTOCOL_WORD_FIELD_MAX: int = 99999
 """MEWTOCOL 数据区编号域上限(RD/WD 起止编号各 5 位十进制 0~99999)。"""
 MEWTOCOL_MAX_DATAGRAM: int = 2048
@@ -837,7 +841,12 @@ FINS_MEMORY_CODES: Dict[str, Tuple[int, int]] = {
 }
 """FINS 存储区码:区名 → (位操作码, 字操作码)。来源:手册 W342 §5-2-1/§5-2-2;EM 区按 bank 换算(位 0x20/字 0xA0 + bank,bank 0~15)。
 T/C(定时器/计数器)共享码表(按地址区分):位 = 完成标志(09,只读),
-字 = 当前值 PV(89,可读写)。"""
+字 = 当前值 PV(89,可读写)。
+**C 区地址前缀分歧(review-1018 P1-1,真机核证项)**:W342 §5-2-2 地址表
+CNT 行为 ``C0000 to C4095 = 800000 to 8FFF00``(字面带 0x8000 前缀),而
+libfins(C)与 fins(Python)两大参考实现均只按码区分、**不加前缀**——
+本库跟随参考实现,真机读 C10 验 PV 落 Timer 还是 Counter 后终裁
+(docs/real-machine-checklist.md 欧姆龙行)。"""
 FINS_TIMER_COUNTER_AREAS: Tuple[str, ...] = ("T", "C")
 """定时器/计数器区记号:位访问为完成标志(只读,地址不带位号),
 字访问为当前值 PV(可读写)。"""
