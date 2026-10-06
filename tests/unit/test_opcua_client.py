@@ -144,7 +144,7 @@ def test_browse_reference_type_requires_ns0_numeric() -> None:
 
 
 def test_parse_nodeid_guid_format_strict() -> None:
-    """GUID 严格校验:8-4-4-4-12 hex 格式(允许带花括号;OPC 10000-3 / RFC 4122)。"""
+    """GUID 严格校验:8-4-4-4-12 hex 格式(花括号须成对;OPC 10000-3 / RFC 4122)。"""
     valid = (
         "g=0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0",
         "g=00000000-0000-0000-0000-000000000000",
@@ -160,6 +160,8 @@ def test_parse_nodeid_guid_format_strict() -> None:
         "g=ZZ1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0",  # 非 hex 字符
         "g=0F1E2D3C4B5A69788796A5B4C3D2E1F0",  # 无连字符
         "g=[0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0]",  # 方括号非法(只接受花括号)
+        "g={0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0",  # 单开括号(review-1018 P2-14)
+        "g=0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0}",  # 单闭括号(review-1018 P2-14)
     )
     for text in invalid:
         with pytest.raises(ValueError):
@@ -391,6 +393,95 @@ def test_read_batch_rejects() -> None:
 # ----------------------------------------------------------------------
 # asyncua 异常翻译(桩模块,不安装 asyncua 也可测)
 # ----------------------------------------------------------------------
+
+
+def test_subscribe_deadband_type_rejected_before_connect() -> None:
+    """deadband_type 非法入参期即拒(review-1018 P2-15:原深埋锁内,未连接也抛)。"""
+    client = OpcUaClient("127.0.0.1", 4840)
+    with pytest.raises(ValueError, match="DeadbandType 非法"):
+        client.subscribe_data_change(
+            "ns=2;s=Temp", lambda *_: None, deadband_value=1.0, deadband_type="Bogus"
+        )
+
+
+def test_read_batch_count_mismatch_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """read_batch 应答数量不符 → 整批失败(review-1018 P2-17:zip 曾静默截断)。"""
+    from types import MethodType, SimpleNamespace
+
+    client = OpcUaClient("127.0.0.1", 4840)
+    fake = FakeSession()
+    monkeypatch.setattr(client, "_create_transport", lambda: fake)
+    client.connect()
+
+    def _read_attributes(nodes):
+        # 假 ua_client 的 read_attributes 少返回一项(DataValue 形态同 asyncua)
+        return [SimpleNamespace(StatusCode=None, Value=None) for _ in nodes][:-1]
+
+    monkeypatch.setattr(
+        fake,
+        "_client",
+        SimpleNamespace(
+            get_node=lambda text: SimpleNamespace(), read_attributes=_read_attributes
+        ),
+    )
+    # FakeSession 覆写了 read_values;绑定真实现(_OpcUaSession)到实例,
+    # 才能走到数量校验与 read_attributes 路径
+    from omniplc.plc.opcua.client import _OpcUaSession
+
+    monkeypatch.setattr(
+        fake, "read_values", MethodType(_OpcUaSession.read_values, fake)
+    )
+    ok, values = client.read_batch([("ns=2;s=A", "ushort"), ("ns=2;s=B", "ushort")])
+    assert ok is False and values is None
+    assert client.last_error is not None and "数量不符" in client.last_error
+    assert client.connected is False  # 协议坏帧口径:拆连重同步(不再 zip 截断)
+
+
+def test_stale_subscription_unsubscribe_keeps_active_handle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """stale 句柄退订不得误删同 id 新句柄的活跃索引(review-1018 P2-18)。
+
+    subscription_id 是会话作用域,重连重订后服务端可复用同 id——旧句柄
+    unsubscribe()(走真 unsub 闭包)只应摘自己,活跃索引里的新句柄
+    保持原位。假 ua_client 两次签发同 id=7 模拟重订复用。
+    """
+    from types import SimpleNamespace
+
+    client = OpcUaClient("127.0.0.1", 4840)
+    fake = FakeSession()
+    monkeypatch.setattr(client, "_create_transport", lambda: fake)
+    client.connect()
+
+    def _make_ua_client(sub_id: int):
+        return SimpleNamespace(
+            get_node=lambda text: SimpleNamespace(),
+            create_subscription=lambda period, handler: SimpleNamespace(
+                subscription_id=sub_id,
+                delete=lambda: None,
+                subscribe_data_change=lambda nodes, sampling_interval=0: [
+                    SimpleNamespace()
+                ],
+            ),
+        )
+
+    def _subscribe_once(sub_id: int):
+        monkeypatch.setattr(fake, "_client", _make_ua_client(sub_id))
+        return client._create_data_change_subscription(
+            "ns=2;s=Temp", lambda *_: None, 1000, None, None
+        )
+
+    stale = _subscribe_once(7)
+    renewed = _subscribe_once(7)  # 重订:服务端复用同 id
+    assert client.active_subscriptions == {7: renewed}
+    # 对 stale 句柄退订(真闭包):身份不符,不得误删新句柄索引
+    assert stale.unsubscribe() is True
+    assert client.active_subscriptions == {7: renewed}
+    # 新句柄退订:身份匹配,索引摘除
+    assert renewed.unsubscribe() is True
+    assert client.active_subscriptions == {}
 
 
 def test_translate_ua_error(monkeypatch: pytest.MonkeyPatch) -> None:

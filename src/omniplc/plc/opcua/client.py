@@ -257,6 +257,14 @@ class _OpcUaSession(BaseTransport):
         except Exception as exc:
             raise _translate_ua_error(exc) from exc
         values: List[Any] = []
+        # 应答数量须与请求一致(review-1018 P2-17:zip 对不齐会静默截断,
+        # 违反"按请求序同数量"契约)
+        if len(data_values) != len(node_texts):
+            raise OmniPLCInternalError(
+                _("OPC-UA 批量读应答数量不符:请求 {},应答 {}").format(
+                    len(node_texts), len(data_values)
+                )
+            )
         for text, data_value in zip(node_texts, data_values):
             status = data_value.StatusCode
             if status is not None and status.is_bad():
@@ -801,7 +809,9 @@ class OpcUaClient(BaseClient):
         :param max_depth: 递归深度上限(``None`` = 用安全默认上限
             :data:`OPCUA_BROWSE_DEFAULT_MAX_DEPTH`);防服务端巨大树爆栈
         :param reference_type_id: 限定 ReferenceType(标准 NodeId 字符串如
-            ``"i=33"`` = HierarchicalReferences;``None`` = 所有参考)
+            ``"i=33"`` = HierarchicalReferences);``None``(默认)= 交给
+            asyncua 缺省(分层引用集,非字面"所有参考"——review-1018 P2-16
+            原描述与实现不符,订正)
         :return: ``(成功, 嵌套 dict)``;嵌套结构::
 
             {node_id_str: {
@@ -940,6 +950,18 @@ class OpcUaClient(BaseClient):
             raise ValueError(
                 _("deadband_value 不能为负,收到:{}").format(deadband_value)
             )
+        if deadband_type is not None and deadband_type not in (
+            "Absolute",
+            "Percent",
+        ):
+            # 入参期校验(review-1018 P2-15:原深埋锁内 _build_data_change_filter,
+            # 先触发惰性重连才发现参数非法);白名单与 asyncua.ua.DeadbandType
+            # 的成员名一致,锁内构建时仍二次校验兜底
+            raise ValueError(
+                _("OPC-UA DeadbandType 非法:{!r},可选:Absolute/Percent").format(
+                    deadband_type
+                )
+            )
         if not node_text:
             raise ValueError(_("node_text 不能为空"))
         if not callable(on_change):
@@ -1059,9 +1081,13 @@ class OpcUaClient(BaseClient):
             except Exception:
                 ok = False
             # 从 client 索引与重订意图表中移除(状态锁,与快照/增补同口径;
-            # 意图按对象身份移除——同参双订阅的 dict 相等会有歧义)
+            # 意图按对象身份移除——同参双订阅的 dict 相等会有歧义)。
+            # 摘索引须**核对句柄身份**(review-1018 P2-18):subscription_id
+            # 是会话作用域,重连重订后服务端可复用同 id——stale 旧句柄的
+            # 退订不得误删新句柄的活跃索引
             with self._state_lock:
-                self._active_subscriptions.pop(sub_id, None)
+                if self._active_subscriptions.get(sub_id) is handle:
+                    del self._active_subscriptions[sub_id]
                 for i, item in enumerate(self._resubscribe_specs):
                     if item is spec:
                         del self._resubscribe_specs[i]
@@ -1076,7 +1102,9 @@ class OpcUaClient(BaseClient):
             except Exception:
                 ok = False
             with self._state_lock:
-                self._active_subscriptions.pop(sub_id, None)
+                # 句柄身份核对,防 stale 别名误删(P2-18,同 _do_unsubscribe)
+                if self._active_subscriptions.get(sub_id) is handle:
+                    del self._active_subscriptions[sub_id]
             return ok
 
         handle = OpcUaSubscription(
@@ -1174,9 +1202,11 @@ class OpcUaClient(BaseClient):
                 ok = False
             # 订阅索引统一走状态锁(与 data-change / 快照 / disconnect 同口径;
             # 原用事务锁会与长事务争用,违反状态锁短临界区纪律);意图按对象
-            # 身份移除(同 data-change)
+            # 身份移除(同 data-change)。句柄身份核对防 stale 别名误删
+            # (P2-18:subscription_id 会话作用域,重订后服务端可复用 id)
             with self._state_lock:
-                self._active_subscriptions.pop(sub_id, None)
+                if self._active_subscriptions.get(sub_id) is handle:
+                    del self._active_subscriptions[sub_id]
                 for i, item in enumerate(self._resubscribe_specs):
                     if item is spec:
                         del self._resubscribe_specs[i]
@@ -1191,7 +1221,9 @@ class OpcUaClient(BaseClient):
             except Exception:
                 ok = False
             with self._state_lock:
-                self._active_subscriptions.pop(sub_id, None)
+                # 句柄身份核对,防 stale 别名误删(P2-18,同 _do_unsubscribe)
+                if self._active_subscriptions.get(sub_id) is handle:
+                    del self._active_subscriptions[sub_id]
             return ok
 
         handle = OpcUaSubscription(
