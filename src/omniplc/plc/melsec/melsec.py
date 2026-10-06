@@ -173,6 +173,26 @@ class _MelsecMcBase(BaseClient):
     # 协议原语(BaseClient 类型化方法只调用 _read/_write)
     # ------------------------------------------------------------------
 
+    def _check_bit_device_word_access(self, parsed: McAddress) -> None:
+        """位软元件字单位访问门控(读/写共用,内部方法)。
+
+        位软元件塞进字单位请求会被 PLC 拒绝或按 16 点/字错读写——读侧
+        (第八轮 P2-14)与写侧(review-1018 P2-1)共用此防线,与
+        read_batch 的 0406 字块同口径。未知名不在此处报错(事务组帧路径
+        的 ``_device_info`` 原样上抛)。
+        """
+        try:
+            _code, is_bit_device, _base = self._device_info(parsed.device)
+        except ValueError:
+            return
+        if is_bit_device and not self._bit_device_word_access_allowed:
+            raise ValueError(
+                _(
+                    "MC 位软元件 {}{} 只支持 BOOL,字单位请改用字软元件"
+                    "(如 D)或逐点位读"
+                ).format(parsed.device, parsed.number)
+            )
+
     def _read(self, address: str, data_type: DataType) -> PrimitiveValue:
         """MC 读原语:软元件地址 → 成批读请求 → 按类型解码(MC 字序小端)。
 
@@ -186,21 +206,8 @@ class _MelsecMcBase(BaseClient):
         if data_type is DataType.BOOL:
             return self._read_bool_impl(parsed)
         # 位软元件按字单位访问受门控(第八轮 P2-14):_device_info 对未知
-        # 软元件的报错时机与旧实现一致(事务组帧路径),此处兜底不前移——
-        # 故仅捕获已知名(未知名抛 ValueError 由 _device_info 原样上抛)
-        try:
-            _code, is_bit_device, _base = self._device_info(parsed.device)
-        except ValueError:
-            is_bit_device = False
-        else:
-            if is_bit_device and not self._bit_device_word_access_allowed:
-                # 位软元件塞进字单位请求会被 PLC 拒绝或按 16 点/字错读
-                raise ValueError(
-                    _(
-                        "MC 位软元件 {}{} 只支持 BOOL,字单位请改用字软元件"
-                        "(如 D)或逐点位读"
-                    ).format(parsed.device, parsed.number)
-                )
+        # 软元件的报错时机与旧实现一致(事务组帧路径),此处兜底不前移
+        self._check_bit_device_word_access(parsed)
         if data_type in (DataType.SHORT, DataType.USHORT):
             data = self._read_words(parsed, 1)
             return (
@@ -217,7 +224,11 @@ class _MelsecMcBase(BaseClient):
         raise ValueError(_("MC 不支持的数据类型:{}").format(data_type))
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
-        """MC 写原语:成批写请求。位软元件按位写;字软元件按位写用读-改-写。"""
+        """MC 写原语:成批写请求。位软元件按位写;字软元件按位写用读-改-写。
+
+        位软元件按**字单位**写(``write_short("M16", 5)``)受
+        :attr:`_bit_device_word_access_allowed` 门控(review-1018 P2-1:
+        写侧原缺门控静默按 16 点/字写,与读侧第八轮 P2-14 同防线)。"""
         parsed = parse_mc_address(address)
         if data_type is not DataType.BOOL and parsed.bit is not None:
             raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
@@ -232,6 +243,7 @@ class _MelsecMcBase(BaseClient):
                     parsed, [convert.set_bit(words[0], parsed.bit or 0, flag)]
                 )
             return
+        self._check_bit_device_word_access(parsed)
         if data_type is DataType.SHORT:
             self._write_words(parsed, [check_int16(value)])
             return

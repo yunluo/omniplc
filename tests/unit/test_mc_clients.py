@@ -826,6 +826,64 @@ def test_tcp_3e_bit_device_word_access_gated(monkeypatch: pytest.MonkeyPatch) ->
     assert client.read_bool("D100") == (True, True)
 
 
+def test_tcp_3e_bit_device_word_write_gated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """位软元件按字单位写受门控(review-1018 P2-1:写侧原缺,静默按 16 点/字写)。
+
+    ``write_short("M16", 5)`` 原会组出字单位写——M16 写 1 字冲掉 M16~M31
+    共 16 点;现与读侧同防线入参期拒绝,不发报文。
+    """
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    scripted = ScriptedTransport([])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    with pytest.raises(ValueError, match="只支持 BOOL"):
+        client.write_short("M16", 5)
+    assert len(scripted.sent) == 0  # 参数错误不发报文
+    # 字软元件写不受门控影响(D100 正常组帧)
+    client.disconnect()
+    response = _qna_write_response()
+    scripted2 = ScriptedTransport([response[:9], response[9:]])
+    _mount(monkeypatch, client, scripted2)
+    client.connect()
+    assert client.write_short("D100", 5) is True
+
+
+def test_tcp_3e_random_write_bit_device_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """随机写位软元件编号边界按访问宽度分口(review-1018 P2-3 与同步对齐)。
+
+    末编号 = 编号 + (每设备点数 - 1) ≤ 0xFFFFFF:字访问 16 点(上限
+    0xFFFFFF-15)、双字访问 32 点(上限 0xFFFFFF-31);越界拒绝且不发包。
+    """
+
+    def _split_write_response() -> list:
+        response = _qna_write_response()
+        return [response[:9], response[9:]]
+
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    scripted = ScriptedTransport([])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    # 双字访问:0xFFFFFF-31 = 16777184 恰好可写,16777185 越界
+    with pytest.raises(ValueError, match="越界"):
+        client.random_write([], [("M16777185", 1)])
+    assert len(scripted.sent) == 0
+    client.disconnect()
+    boundary = ScriptedTransport(_split_write_response())
+    _mount(monkeypatch, client, boundary)
+    client.connect()
+    assert client.random_write([], [("M16777184", 1)]) is True
+    # 字访问上限 0xFFFFFF-15 = 16777200:恰好可写
+    client.disconnect()
+    boundary2 = ScriptedTransport(_split_write_response())
+    _mount(monkeypatch, client, boundary2)
+    client.connect()
+    assert client.random_write(word_items=[("M16777200", 1)]) is True
+
+
 def test_tcp_3e_fx5u_xy_octal(monkeypatch: pytest.MonkeyPatch) -> None:
     """xy_octal=True:iQ-F 口径,X/Y 编号按八进制换算组帧。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000, xy_octal=True)

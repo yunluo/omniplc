@@ -1033,6 +1033,53 @@ def test_ping_3e_uses_0101_and_1e_disabled(
     loop.run_until_complete(scenario())
 
 
+def test_bit_device_word_access_gated_single_point(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """native 单点位软元件字单位读写受门控(review-1018 P2-2:曾缺,与同步同防线)。
+
+    ``read("M16", SHORT)``/``write_short("M16", 5)`` 原会组出字单位请求——
+    读被 PLC 拒或按 16 点/字错读、写冲掉 M16~M31 共 16 点;现入参期拒绝
+    不发报文。
+    """
+
+    async def scenario() -> None:
+        client = AsyncMelsecMcTcpClient("127.0.0.1", 2000, "3E")
+        scripted = ScriptedAsyncTransport([])
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        with pytest.raises(ValueError, match="只支持 BOOL"):
+            await client.read("M16", "short")
+        with pytest.raises(ValueError, match="只支持 BOOL"):
+            await client.write_short("M16", 5)
+        assert len(scripted.sent) == 0  # 参数错误不发报文
+        await client.close()
+
+    loop.run_until_complete(scenario())
+
+
+def test_random_write_bit_device_boundary(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """native 随机写位软元件编号边界按访问宽度分口(review-1018 P2-3)。
+
+    双字访问 32 点/设备(上限 0xFFFFFF-31 = 16777184),与同步侧
+    review-1009 P3-1 修复对齐——曾恒用字访问的 -15。
+    """
+
+    async def scenario() -> None:
+        client = AsyncMelsecMcTcpClient("127.0.0.1", 2000, "3E")
+        scripted = ScriptedAsyncTransport([])
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        with pytest.raises(ValueError, match="越界"):
+            await client.random_write([], [("M16777185", 1)])
+        assert len(scripted.sent) == 0
+        await client.close()
+
+    loop.run_until_complete(scenario())
+
+
 def test_read_range_3e_words_0401(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None:
     """native read_range:D100 起 3 个 SHORT = 0401 成批读 3 字单事务(与同步帧一致)。"""
 

@@ -143,13 +143,37 @@ class AsyncMelsecMcBase(AsyncBaseClient):
     # 协议原语(基类类型化方法只调用 _read/_write)
     # ------------------------------------------------------------------
 
+    def _check_bit_device_word_access(self, parsed: McAddress) -> None:
+        """位软元件字单位访问门控(单点读/写共用,内部方法)。
+
+        位软元件塞进字单位请求会被 PLC 拒绝或按 16 点/字错读写——与同步侧
+        同名助手同款(review-1018 P2-2:native 单点路径曾缺,仅
+        read_range/read_batch 有门控)。未知名不在此处报错(事务组帧路径
+        的 ``_device_info`` 原样上抛)。
+        """
+        try:
+            _code, is_bit_device, _base = self._device_info(parsed.device)
+        except ValueError:
+            return
+        if is_bit_device and not self._bit_device_word_access_allowed:
+            raise ValueError(
+                _(
+                    "MC 位软元件 {}{} 只支持 BOOL,字单位请改用字软元件(如 D)或逐点位读"
+                ).format(parsed.device, parsed.number)
+            )
+
     async def _read(self, address: str, data_type: DataType) -> PrimitiveValue:
-        """MC 读原语:软元件地址 → 成批读请求 → 按类型解码(MC 字序小端)。"""
+        """MC 读原语:软元件地址 → 成批读请求 → 按类型解码(MC 字序小端)。
+
+        位软元件按字单位访问受 :attr:`_bit_device_word_access_allowed`
+        门控(与同步侧同款,review-1018 P2-2:native 单点路径曾缺)。
+        """
         parsed = parse_mc_address(address)
         if data_type is not DataType.BOOL and parsed.bit is not None:
             raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         if data_type is DataType.BOOL:
             return await self._read_bool_impl(parsed)
+        self._check_bit_device_word_access(parsed)
         if data_type in (DataType.SHORT, DataType.USHORT):
             data = await self._read_words(parsed, 1)
             return (
@@ -168,7 +192,11 @@ class AsyncMelsecMcBase(AsyncBaseClient):
     async def _write(
         self, address: str, data_type: DataType, value: PrimitiveValue
     ) -> None:
-        """MC 写原语:成批写请求。位软元件按位写;字软元件按位写用读-改-写。"""
+        """MC 写原语:成批写请求。位软元件按位写;字软元件按位写用读-改-写。
+
+        位软元件按字单位写受 :attr:`_bit_device_word_access_allowed`
+        门控(与同步侧同款,review-1018 P2-2:native 单点路径曾缺)。
+        """
         parsed = parse_mc_address(address)
         if data_type is not DataType.BOOL and parsed.bit is not None:
             raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
@@ -183,6 +211,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
                     parsed, [convert.set_bit(words[0], parsed.bit or 0, flag)]
                 )
             return
+        self._check_bit_device_word_access(parsed)
         if data_type is DataType.SHORT:
             await self._write_words(parsed, [check_int16(value)])
             return
@@ -628,7 +657,11 @@ class AsyncMelsecMcBase(AsyncBaseClient):
                     )
                 code, is_bit_device, base = self._device_info(parsed.device)
                 number = codec_qna.device_number(parsed.device, parsed.number, base)
-                if is_bit_device and not 0 <= number <= 0xFFFFFF - 15:
+                # 位软元件按访问宽度指定点数:字访问 16 点/设备、双字访问
+                # 32 点/设备——末编号 = 编号 + (每设备点数 - 1) 不得超过
+                # 3 字节域(review-1018 P2-3:native 曾恒用字访问的 -15,
+                # 与同步侧 review-1009 P3-1 修复对齐)
+                if is_bit_device and not 0 <= number <= 0xFFFFFF - (byte_count * 8 - 1):
                     raise ValueError(
                         _("MC 随机写位软元件编号越界:{}{}").format(
                             parsed.device, parsed.number
