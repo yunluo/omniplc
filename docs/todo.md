@@ -11,6 +11,7 @@
 > 关联台账:
 > - `docs/review-1005.md`(逐协议深查)
 > - `docs/review-1006.md`(监视器专项)
+> - `docs/review-1018.md`(十协议细胞级审查)
 > - `docs/real-machine-checklist.md`(真机核证)
 > - `docs/protocol/README.md`「待补」表
 
@@ -22,6 +23,16 @@
 
 | # | 项 | 优先级 | 依据 / 出处 | 状态 |
 |---|---|---|---|---|
+| 1 | FINS 计数器 C 区地址补 0x8000 前缀 | P1 | review-1018 P1-1:W342 §5-2-2 印刷页 165(CNT 地址列 `800000 to 8FFF00`);现 C/T 同码同址逐字节相同,真机可能静默命中 Timer PV——先真机核证 C10 PV 读落哪个区,裁决后重锚测试;libfins/fins 双参考实测均无前缀(真分歧),披露已落 constants 注释 + 真机清单 FINS UDP 行 | 待核证待修复 |
+| 2 | AB connected 模式 list_tags 拆连 | P1 | review-1018 P1-2:`_transact_with_status` connected 分支把 SendUnitData 应答(0x70)交给只放行 0x6F/0x66 的 `_parse_rr_data_cip` → 必 ProtocolFrameError;修法:改走 `parse_send_unit_data_reply` 与 `_transact` 同构;补 connected list_tags 黄金用例 | 已修复(8c78b0d:新 parse_send_unit_data_reply_with_status + 黄金用例) |
+| 3 | native Modbus FC11 忙态错误码 code=0 | P1 | review-1018 P1-3:sync 已按 R9-2 改 `DeviceError(...,0)`(不计 device_error_count),native 仍透传 0xFFFF;补 native 忙态镜像测试 | 已修复(8c78b0d) |
+| 4 | MC 位软元件字单位写门控(同步+native) | P2 | review-1018 P2-1/2:`_write`(melsec.py:235-246)与 native 单点 `_read`/`_write`(native/melsec.py:146-198)缺 `_bit_device_word_access_allowed` 门控(读侧有写侧无);native random_write 位软元件边界恒 -15 未随同步 `byte_count*8-1` 修(P2-3) | 已修复(d5305e7:门控助手共用 + native 边界对齐,+4 例) |
+| 5 | OPC-UA 五条 P2 缝隙 | P2 | review-1018:①GUID 花括号不成对放行(address.py:34-39)②deadband_type 校验上提到入参期(client.py:117-124)③browse None=分层引用非所有参考(client.py:803-804)④read_values 应答数量校验(client.py:259-269)⑤stale 句柄 sub_id 别名误删活跃索引(client.py:1063-1064) | 已修复(cd9564e:①②④⑤修+③文档订正,+4 例) |
+| 6 | AB 0x55 16 位实例段填充位置 | P2 | review-1018 P2-7:codec_cip.py:528-531 `25 00 01 00` vs 参考 `25 00 00 01`;>255 点分页潜伏风险 | 误报撤销(2026-10-06 实测 pycomm3 LogicalSegment `_encode` + pylogix `pack('<HH')` 双源均小端 LE `25 00 01 00`,与本库一致) |
+| 7 | Modbus STRING 批量吞错 + FC43 RTU off-by-2 | P2 | review-1018 P2-8/9:read_many/read_batch/write_batch STRING 静默 (False,None);FC43 增量收包 tail 上限在 CRC 前检查帧可达 258>256 | 已修复(699eaa7:FC43 预留 CRC +1 例);STRING 吞错误报撤销(实测三路径均同步抛 ValueError 符合契约) |
+| 8 | 松下 MEWTOCOL/松下 MC 三缺口 | P2 | review-1018 P2-11/12/13:read_range 拒绝 L(LT)字访问复现;UDP 预算裸 ValueError 逃出契约;MC 点号形式 R1.15 被基类门控误拒 | 已修复(699eaa7:UDP 预算入参期预检 +1 例);L 双语境(P2-11)/点号语义(P2-13)待手册,披露已落 constants 注释 + 真机清单 |
+| 9 | KV EA/EB 扩展错码 | P2 | review-1018 P2-10:`_ERROR_RE=^E[0-9]$` 只认 E0~E9;EA 读路径拆连、.H 路径静默当数据 0xEA=234;需手册确认语义后扩 `^E[0-9A-F]$` | 待核证待修复(披露已落 codec.py 注释 + 真机清单 KV 行) |
+| 10 | S7 SZL 0x84 与读应答长度宽容度 | P2 | review-1018 P2-19/20:强校验严于参考(0x44 回显拆连 / 老 300 填充怪癖无宽容)——真机核证项 | 待真机核证(已落真机清单 S7 行⑬) |
 | 1 | README「AI 欢迎策略」章节 | P3 | libplctag AI Policy 先例;已落地——**不排斥 AI 开发,但必须知道自己的代码有什么作用和干嘛的,对自己提交的代码负责;对待 AI 和对待 IDE 一样,都是工具**(用户口径,2026-10-03) | 已完成 |
 | 2 | AB `list_tags` 点位枚举 | P2 | CIP Get Instance Attribute List(服务 0x55)+ Symbol Object(0x6B20);帧面经 pycomm3/pylogix 双参考实现对照裁决(1756-PM020 手册待补,protocol「待补」已登记);sync+aio 双层、自动分页、`AbTagEntry` 根包导出;+6 例测试(黄金帧/分页/坏帧/停滞/aio);真机核证项入清单 | 已完成(v0.52.2 发布 / 0.52.3 修复) |
 | 3 | Monitor 点位级死区(deadband) | P3 | 2026-10-03 现场调研「数据质量三害」:当前 `_changed` 严格不等比较,浮点传感器抖动逐周期误发 `on_change`;已落地——`Monitor`/`create_monitor` 新增 `deadband` 参数(数值=全点统一,`Dict[tag_id, 死区]`=逐点指定,0=关闭),锚点=该点上次报告值(OPC-UA DataChangeFilter 同款,防单步差压线漏报),死区内快照照常刷新仅压事件;首拍/质量跨界/bool/NaN 不受压制;aio 镜像透传;+11 例测试 | 已完成 |
