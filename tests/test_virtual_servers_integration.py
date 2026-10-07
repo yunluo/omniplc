@@ -1,4 +1,4 @@
-"""外部模拟器端到端联测(可选环境,无模拟器自动跳过)。
+"""外部模拟器端到端联测(可选环境,**显式启用**才运行,默认跳过)。
 
 针对本地运行的**第三方 PLC 模拟器网关**(HTTP 8731)的端到端读写验证:
 本库作客户端直连模拟器提供的各协议虚拟服务器,做「写 → 读 → 精确对拍」。
@@ -7,8 +7,12 @@
 
 运行条件与降级:
 
-- 网关未运行(8731 不可达)或某协议虚拟服务器未创建 → 对应用例 **skip**,
-  不影响常规门禁(CI 环境恒 skip);
+- **默认恒 skip**(不依赖环境,常规门禁与 CI 不受影响);显式启用:
+  ``set OMNIPLC_INTEGRATION=1``(pwsh ``$env:OMNIPLC_INTEGRATION="1"``)
+  后运行本文件。显式启用而模拟器状态不佳时用例会**如实失败**——
+  联测套件兼作模拟器健康哨兵(2026-10-08 实测:Demo 进程劣化后全协议
+  RST,本套件第一时间暴露,绕开本库的裸 socket 同样被 RST);
+- 网关未运行(8731 不可达)或某协议虚拟服务器未创建 → 对应用例 skip;
 - 各服务器端口由网关 REST 动态发现(按服务器类型查端口),模拟器里
   重建服务器导致端口变化无需改本文件;
 - 已知模拟器侧限制(非本库问题,断言口径已按此调整):
@@ -23,6 +27,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 import struct
 import urllib.request
@@ -144,7 +149,9 @@ def _udp_port(server_type: str) -> int:
 
 
 def _require_server(server_type: str):
-    """按类型取 ``(端口, 网络模式)``,网关未运行或服务器不存在时 skip。"""
+    """按类型取 ``(端口, 网络模式)``,未启用/网关未运行/服务器不存在时 skip。"""
+    if os.environ.get("OMNIPLC_INTEGRATION") != "1":
+        pytest.skip("外部模拟器联测未启用(设 OMNIPLC_INTEGRATION=1 后运行)")
     if not _gateway_online():
         pytest.skip("模拟器网关未运行(127.0.0.1:8731)")
     info = _discover_servers().get(server_type)
