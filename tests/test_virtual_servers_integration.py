@@ -31,6 +31,7 @@ import pytest
 
 from omniplc import (
     AllenBradleyEthIpClient,
+    InovanceTcpClient,
     MelsecMcTcpClient,
     ModbusTcpClient,
     OmronCipClient,
@@ -217,6 +218,32 @@ def test_melsec_mc_3e_server_types() -> None:
             [("D200", "ushort", 7), ("D201", "ushort", 8), ("D202", "ushort", 9)]
         ) == [True, True, True]
         assert client.read_range("D200", 3, "ushort") == (True, [7, 8, 9])
+    finally:
+        client.disconnect()
+
+
+def test_inovance_tcp_server_batch_tokens() -> None:
+    """汇川批量双记号:汇川软元件记号(D7021)批量读/写直连 Modbus 虚拟服务器。
+
+    现场场景回归:D7021 单点可读而批量报「无法解析 Modbus 地址」——批量
+    路径现按「Modbus 记号优先」翻译(汇川记号换算、Modbus 记号原样),
+    与单点同收口。
+    """
+    port = _skip_if_missing("ModbusTcpServer")
+    client = InovanceTcpClient(GATEWAY_HOST, port, 1)
+    assert client.connect() is True, client.last_error
+    try:
+        ok = client.write_many([("D400", "short", 11), ("D401", "short", 22)])
+        assert ok == [True, True], ok
+        rng = client.read_range("D400", 2, "short")
+        assert rng == (True, [11, 22]), rng
+        values = client.read_many(["D7021", "D7022"], "ushort")
+        assert all(ok for ok, _ in values), values
+        client.write_ushort("D500", 99)
+        batch_ok, batch_values = client.read_batch(
+            [("D500", "ushort"), ("D501", "ushort")]
+        )
+        assert batch_ok is True and batch_values[0] == 99, (batch_ok, batch_values)
     finally:
         client.disconnect()
 
