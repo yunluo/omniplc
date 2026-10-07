@@ -361,6 +361,56 @@ def test_batch_modbus_span_error_stays_modbus(monkeypatch: pytest.MonkeyPatch) -
         client.read_many(["hr65535"], "int")
 
 
+# ------------------------------------------------------ 区间读双记号(补漏)
+
+
+def test_tcp_read_range_d_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
+    """区间读双记号:D7021 起始地址翻译后一笔 FC03(根治批漏网方法补齐)。"""
+    client = InovanceTcpClient("127.0.0.1", 502, 1)
+    response = bytes([3, 4, 0x00, 0x14, 0x00, 0x1E])
+    frame = codec.build_mbap(1, 1, response)
+    scripted = ScriptedTransport([frame[:7], frame[7:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, values = client.read_range("D7021", 2, "ushort")
+    assert ok is True and values == [20, 30]
+    assert bytes(scripted.sent) == codec.build_mbap(
+        1, 1, codec.build_read_pdu(3, 7021, 2)
+    )
+
+
+def test_tcp_read_range_bool_bit_device(monkeypatch: pytest.MonkeyPatch) -> None:
+    """区间读 BOOL 位软元件:M100 翻译为线圈 c100 起连续 4 位(LSB first)。"""
+    client = InovanceTcpClient("127.0.0.1", 502, 1)
+    response = bytes([1, 1, 0x0A])
+    frame = codec.build_mbap(1, 1, response)
+    scripted = ScriptedTransport([frame[:7], frame[7:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, values = client.read_range("M100", 4, "bool")
+    assert ok is True and values == [False, True, False, True]
+    assert bytes(scripted.sent) == codec.build_mbap(
+        1, 1, codec.build_read_pdu(1, 100, 4)
+    )
+
+
+def test_read_range_c_token_is_modbus_coil_word_rejected() -> None:
+    """区间读 C 记号歧义与批量同裁决:C205 = Modbus 线圈,字类型报区域错。
+
+    汇川 C32 计数器区间读请用单点(单点 C 记号恒为汇川计数器)。
+    """
+    client = InovanceTcpClient("127.0.0.1", 502, 1)
+    with pytest.raises(ValueError, match="字类型仅支持寄存器区域"):
+        client.read_range("C205", 1, "int")
+
+
+def test_read_range_modbus_token_span_error_stays_modbus() -> None:
+    """区间读 Modbus 记号跨度越界:仍报 Modbus 错误,不回落汇川。"""
+    client = InovanceTcpClient("127.0.0.1", 502, 1)
+    with pytest.raises(ValueError, match="地址空间"):
+        client.read_range("hr65535", 2, "ushort")
+
+
 # ---------------------------------------------------------------- RTU
 
 

@@ -57,7 +57,7 @@ from ..plc.melsec.address import McAddress
 class AsyncInovanceTcpClient(AsyncModbusTcpClient):
     """汇川 H3U/H5U Modbus TCP 客户端(原生异步,端口 502)。
 
-    单点与批量读写都支持**双记号**(与同步
+    单点与批量/区间读写都支持**双记号**(与同步
     :class:`~omniplc.plc.inovance.InovanceTcpClient` 同收口):汇川软元件
     记号(``D100``/``X17``/``C205``)与本库 Modbus 记号(``hr100``/
     ``c10``);批量按「Modbus 记号优先」翻译(:func:`~omniplc.plc.inovance.address.translate_batch_address`),
@@ -137,6 +137,21 @@ class AsyncInovanceTcpClient(AsyncModbusTcpClient):
         return await AsyncModbusTcpClient.read_many(
             self,
             [translate_batch_address(addr, data_type_enum) for addr in addresses],
+            data_type_enum,
+        )
+
+    async def read_range(
+        self,
+        address: str,
+        count: int,
+        data_type: Union[DataType, str],
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """区间读(双记号):起始地址翻译后走 Modbus 区间读(与同步侧同收口)。"""
+        data_type_enum = DataType.coerce(data_type)
+        return await AsyncModbusTcpClient.read_range(
+            self,
+            translate_batch_address(address, data_type_enum),
+            count,
             data_type_enum,
         )
 

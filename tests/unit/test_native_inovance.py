@@ -292,6 +292,39 @@ def test_modbus_tcp_batch_c_token_is_modbus_coil(
     assert holder["sent"][7:12] == b"\x01\x00\x0a\x00\x01"
 
 
+def test_modbus_tcp_read_range_d_token(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """区间读双记号:D7021 翻译后一笔 FC03@7021,同步/异步逐字节对拍。"""
+    response = _mbap(1, bytes([3, 4, 0x00, 0x14, 0x00, 0x1E]))
+    chunks = [response[:7], response[7:]]
+
+    sync_client = InovanceTcpClient("127.0.0.1", 502, 1)
+    sync_scripted = ScriptedTransport(chunks)
+    monkeypatch.setattr(sync_client, "_create_transport", lambda: sync_scripted)
+    sync_client.connect()
+    sync_result = sync_client.read_range("D7021", 2, DataType.USHORT)
+    sync_sent = bytes(sync_scripted.sent)
+
+    holder: Dict[str, Any] = {}
+
+    async def scenario() -> None:
+        client = AsyncInovanceTcpClient("127.0.0.1", 502, 1)
+        scripted = ScriptedAsyncTransport(chunks)
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        holder["result"] = await client.read_range("D7021", 2, DataType.USHORT)
+        holder["sent"] = bytes(scripted.sent)
+        await client.close()
+
+    loop.run_until_complete(scenario())
+
+    assert holder["result"] == sync_result == (True, [20, 30])
+    assert holder["sent"] == sync_sent
+    # D7021 起始 ×2 元素 → FC03@7021 数量 2
+    assert holder["sent"][7:12] == b"\x03\x1b\x6d\x00\x02"
+
+
 # ----------------------------------------------------------------------
 # MC 兼容 3E 走线:码表/记号换算对拍
 # ----------------------------------------------------------------------

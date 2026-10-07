@@ -53,7 +53,7 @@ class _InovanceBase(ModbusBaseClient):
     32 位计数器(C200~C255)的 32 位类型门控在翻译收口处完成
     (``C205`` → ``hr63242``,双寄存器展开由 Modbus 层按类型自动完成)。
 
-    **记号约定**:单点读写与批量读写都支持**双记号**——汇川软元件记号
+    **记号约定**:单点读写与批量/区间读写都支持**双记号**——汇川软元件记号
     (``D100``/``X17``/``C205``)与本库 Modbus 记号(``hr100``/``c10``)。
     批量路径按 :func:`~omniplc.plc.inovance.address.translate_batch_address`
     「Modbus 记号优先」裁决:本库 Modbus 记号形态原样放行(存量批量行为
@@ -75,7 +75,7 @@ class _InovanceBase(ModbusBaseClient):
         return to_modbus_address(parsed, False)
 
     # ------------------------------------------------------------------
-    # 批量方法覆写:双记号翻译后委托 Modbus 基类(读/写/掩码/FC23)
+    # 批量方法覆写:双记号翻译后委托 Modbus 基类(读/写/掩码/FC23/区间读)
     # ------------------------------------------------------------------
 
     def read_many(
@@ -87,6 +87,24 @@ class _InovanceBase(ModbusBaseClient):
         data_type_enum = DataType.coerce(data_type)
         return super().read_many(
             [translate_batch_address(addr, data_type_enum) for addr in addresses],
+            data_type_enum,
+        )
+
+    def read_range(
+        self,
+        address: str,
+        count: int,
+        data_type: Union[DataType, str],
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """区间读(双记号):起始地址翻译后走 Modbus 区间读。
+
+        BOOL 仅位软元件(翻译为线圈区,``M100`` → ``c100``);字软元件
+        BOOL 区间读语义未定义,由 Modbus 层拒绝(同 Modbus 记号口径)。
+        """
+        data_type_enum = DataType.coerce(data_type)
+        return super().read_range(
+            translate_batch_address(address, data_type_enum),
+            count,
             data_type_enum,
         )
 
