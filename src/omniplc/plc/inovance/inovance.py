@@ -20,9 +20,8 @@ Modbus 线圈/保持寄存器地址,见 :mod:`.address`。
 
 from __future__ import annotations
 
-from typing import Union
+from typing import List, Optional, Sequence, Tuple, Union
 
-from .address import check_counter_word_type, parse_inovance_address, to_modbus_address
 from ...core.constants import (
     INOVANCE_SERIAL_DEFAULT_STOP_BITS,
     MODBUS_DEFAULT_PORT,
@@ -32,7 +31,18 @@ from ...core.constants import (
     SERIAL_DEFAULT_PARITY,
 )
 from ..modbus.modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
-from ...core.types import DataType, PrimitiveValue, SerialParity
+from .address import (
+    check_counter_word_type,
+    parse_inovance_address,
+    to_modbus_address,
+    translate_batch_address,
+)
+from ...core.types import (
+    ByteOrder,
+    DataType,
+    PrimitiveValue,
+    SerialParity,
+)
 
 
 class _InovanceBase(ModbusBaseClient):
@@ -43,13 +53,14 @@ class _InovanceBase(ModbusBaseClient):
     32 位计数器(C200~C255)的 32 位类型门控在翻译收口处完成
     (``C205`` → ``hr63242``,双寄存器展开由 Modbus 层按类型自动完成)。
 
-    **记号边界(注意)**:地址翻译只挂在单点读写钩子上
-    (``_read``/``_write``/``_read_string``/``_write_string``)——单点方法
-    用汇川记号(``D100``/``X17``/``C205``)。批量与诊断方法
-    (:meth:`read_batch`/:meth:`write_batch`/:meth:`write_mask_register`/
-    :meth:`read_write_registers`/:meth:`read_file_record` 等)直承
-    Modbus 基类实现,按 **Modbus 记号**(``hr100``/``c10``)解析;传汇川
-    记号会以"无法解析地址" ValueError 明确拒绝(不静默错址)。
+    **记号约定**:单点读写与批量读写都支持**双记号**——汇川软元件记号
+    (``D100``/``X17``/``C205``)与本库 Modbus 记号(``hr100``/``c10``)。
+    批量路径按 :func:`~omniplc.plc.inovance.address.translate_batch_address`
+    「Modbus 记号优先」裁决:本库 Modbus 记号形态原样放行(存量批量行为
+    零变化),非 Modbus 记号才按汇川换算表翻译。唯 **``C`` 记号歧义**
+    (Modbus 线圈 vs 汇川计数器)批量按 Modbus 线圈裁决——汇川计数器
+    (含 C32)的批量访问请用单点(单点 ``C10`` 恒为汇川计数器,与批量
+    语义分叉已在两处 docstring 披露)。
     """
 
     def _translate(self, address: str, data_type: DataType) -> str:
@@ -62,6 +73,88 @@ class _InovanceBase(ModbusBaseClient):
         parsed = parse_inovance_address(address)
         check_counter_word_type(parsed, data_type)
         return to_modbus_address(parsed, False)
+
+    # ------------------------------------------------------------------
+    # 批量方法覆写:双记号翻译后委托 Modbus 基类(读/写/掩码/FC23)
+    # ------------------------------------------------------------------
+
+    def read_many(
+        self,
+        addresses: Sequence[str],
+        data_type: Union[DataType, str],
+    ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
+        """批量读(双记号):汇川记号翻译后走 Modbus 合并读。"""
+        data_type_enum = DataType.coerce(data_type)
+        return super().read_many(
+            [translate_batch_address(addr, data_type_enum) for addr in addresses],
+            data_type_enum,
+        )
+
+    def read_batch(
+        self,
+        items: Sequence[Tuple[str, Union[DataType, str]]],
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """混类型批量读(双记号):逐条目翻译后走 Modbus 合并读。"""
+        return super().read_batch(
+            [
+                (translate_batch_address(addr, DataType.coerce(dtype)), dtype)
+                for addr, dtype in items
+            ]
+        )
+
+    def write_many(
+        self,
+        items: Sequence[Tuple[str, Union[DataType, str], PrimitiveValue]],
+    ) -> List[bool]:
+        """批量写(双记号):逐条目翻译后走 Modbus 合并写。"""
+        return super().write_many(
+            [
+                (translate_batch_address(addr, DataType.coerce(dtype)), dtype, value)
+                for addr, dtype, value in items
+            ]
+        )
+
+    def write_batch(
+        self,
+        items: Sequence[Tuple[str, Union[DataType, str], PrimitiveValue]],
+    ) -> Tuple[bool, Optional[List[bool]]]:
+        """混类型批量写(双记号):逐条目翻译后走 Modbus 批量写。"""
+        return super().write_batch(
+            [
+                (translate_batch_address(addr, DataType.coerce(dtype)), dtype, value)
+                for addr, dtype, value in items
+            ]
+        )
+
+    def write_mask_register(
+        self,
+        address: str,
+        and_mask: int,
+        or_mask: int,
+        byte_order: Union[ByteOrder, str] = "big",
+    ) -> bool:
+        """掩码写(FC 22,双记号):汇川字记号翻译为保持寄存器。"""
+        return super().write_mask_register(
+            translate_batch_address(address, DataType.USHORT),
+            and_mask,
+            or_mask,
+            byte_order,
+        )
+
+    def read_write_registers(
+        self,
+        read_address: str,
+        read_count: int,
+        write_address: str,
+        values: Sequence[int],
+    ) -> Tuple[bool, Optional[List[int]]]:
+        """「先写后读」多寄存器(FC 23,双记号):两地址分别翻译。"""
+        return super().read_write_registers(
+            translate_batch_address(read_address, DataType.USHORT),
+            read_count,
+            translate_batch_address(write_address, DataType.USHORT),
+            values,
+        )
 
     def _read(self, address: str, data_type: DataType) -> PrimitiveValue:
         return ModbusBaseClient._read(

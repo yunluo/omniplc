@@ -228,11 +228,68 @@ def test_modbus_tcp_counter_type_gate(
     loop.run_until_complete(scenario())
 
 
-def test_modbus_tcp_batch_uses_modbus_notation() -> None:
-    """批量方法直承 Modbus 原生实现:汇川记号入参期明确拒绝(不静默错址)。"""
-    client = AsyncInovanceTcpClient("127.0.0.1", 502, 1)
-    with pytest.raises(ValueError):
-        asyncio.run(client.read_many(["D100"], DataType.USHORT))
+def test_modbus_tcp_batch_translates_inovance_tokens(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """批量方法双记号(与同步侧同收口):D 记号翻译合并为同帧,逐字节对拍。"""
+    response = _mbap(1, bytes([3, 4, 0x00, 0x14, 0x00, 0x1E]))
+    chunks = [response[:7], response[7:]]
+
+    sync_client = InovanceTcpClient("127.0.0.1", 502, 1)
+    sync_scripted = ScriptedTransport(chunks)
+    monkeypatch.setattr(sync_client, "_create_transport", lambda: sync_scripted)
+    sync_client.connect()
+    sync_result = sync_client.read_many(["D7021", "D7022"], DataType.USHORT)
+    sync_sent = bytes(sync_scripted.sent)
+
+    holder: Dict[str, Any] = {}
+
+    async def scenario() -> None:
+        client = AsyncInovanceTcpClient("127.0.0.1", 502, 1)
+        scripted = ScriptedAsyncTransport(chunks)
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        holder["result"] = await client.read_many(["D7021", "D7022"], DataType.USHORT)
+        holder["sent"] = bytes(scripted.sent)
+        await client.close()
+
+    loop.run_until_complete(scenario())
+
+    assert holder["result"] == sync_result == [(True, 20), (True, 30)]
+    assert holder["sent"] == sync_sent
+    # D7021/D7022 连续 → 合并一笔 FC03@7021 数量 2
+    assert holder["sent"][7:12] == b"\x03\x1b\x6d\x00\x02"
+
+
+def test_modbus_tcp_batch_c_token_is_modbus_coil(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """批量 ``C`` 记号歧义按 Modbus 优先锁定(与同步侧同裁决)。"""
+    response = _mbap(1, bytes([1, 1, 1]))
+    chunks = [response[:7], response[7:]]
+
+    sync_client = InovanceTcpClient("127.0.0.1", 502, 1)
+    sync_scripted = ScriptedTransport(chunks)
+    monkeypatch.setattr(sync_client, "_create_transport", lambda: sync_scripted)
+    sync_client.connect()
+    sync_result = sync_client.read_many(["C10"], DataType.BOOL)
+
+    holder: Dict[str, Any] = {}
+
+    async def scenario() -> None:
+        client = AsyncInovanceTcpClient("127.0.0.1", 502, 1)
+        scripted = ScriptedAsyncTransport(chunks)
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        holder["result"] = await client.read_many(["C10"], DataType.BOOL)
+        holder["sent"] = bytes(scripted.sent)
+        await client.close()
+
+    loop.run_until_complete(scenario())
+
+    assert holder["result"] == sync_result == [(True, True)]
+    # C10 → Modbus 线圈 c10(FC01@10),非汇川计数器
+    assert holder["sent"][7:12] == b"\x01\x00\x0a\x00\x01"
 
 
 # ----------------------------------------------------------------------

@@ -171,3 +171,19 @@ def _parse_modicon(text: str) -> ModbusAddress:
         if start <= number <= end:
             return ModbusAddress(area=area, offset=number - start)
     raise ValueError(_("Modicon 地址超出区段:{},支持 {}").format(number, hint))
+
+
+def is_modbus_address(address: str) -> bool:
+    """判定地址串是否为本库 Modbus 记号形态(仅记号,不做范围校验)。
+
+    供厂商记号客户端(如汇川)做「Modbus 记号优先」的双记号批量翻译:
+    本函数为**纯记号形态判定**——``hr0``/``c10``/``di10``/``ir3`` 前缀
+    与 1~6 位纯数字(Modicon 1 基)返回 ``True``;范围/跨度等合法性仍由
+    :func:`parse_address` 及其调用方校验。
+
+    :param address: 待判定地址串
+    """
+    if not address:
+        return False
+    text = address.strip().lower()
+    return bool(text.isdigit() or _PREFIX_RE.match(text))

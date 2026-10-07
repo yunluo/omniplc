@@ -219,6 +219,148 @@ def test_tcp_defaults() -> None:
     assert client.station == 1
 
 
+# ------------------------------------------------------ 批量双记号(根治批)
+
+_FC16_ECHO = 5  # FC16 正常响应 = 请求前 5 字节回显(规范 §6.12)
+_FC15_ECHO = 5  # FC15 同口径
+
+
+def test_tcp_read_many_d_registers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """批量读汇川记号:连续 D 地址翻译后合并为一笔 FC03(帧逐字节断言)。"""
+    client = InovanceTcpClient("127.0.0.1", 502, 1)
+    response = bytes([3, 4, 0x00, 0x14, 0x00, 0x1E])
+    frame = codec.build_mbap(1, 1, response)
+    scripted = ScriptedTransport([frame[:7], frame[7:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    values = client.read_many(["D7021", "D7022"], "ushort")
+    assert [v for _, v in values] == [20, 30]
+    assert bytes(scripted.sent) == codec.build_mbap(
+        1, 1, codec.build_read_pdu(3, 7021, 2)
+    )
+
+
+def test_tcp_read_batch_mixed_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
+    """混类型批量读双记号:D7021 翻译、hr300 原样,Modbus 记号行为零变化。
+
+    合并组内按地址升序切块:hr300 先读、hr7021 后读;返回值按 items 原序
+    回填(D7021=20、hr300=30)。
+    """
+    client = InovanceTcpClient("127.0.0.1", 502, 1)
+    frame_a = codec.build_mbap(1, 1, bytes([3, 2, 0x00, 0x1E]))  # hr300 = 30
+    frame_b = codec.build_mbap(2, 1, bytes([3, 2, 0x00, 0x14]))  # hr7021 = 20
+    scripted = ScriptedTransport([frame_a[:7], frame_a[7:], frame_b[:7], frame_b[7:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, values = client.read_batch([("D7021", "ushort"), ("hr300", "ushort")])
+    assert ok is True and values == [20, 30]
+    sent = bytes(scripted.sent)
+    # 两笔 FC03:7021(翻译自 D7021)与 300(原样)
+    assert codec.build_read_pdu(3, 7021, 1) in sent
+    assert codec.build_read_pdu(3, 300, 1) in sent
+
+
+def test_tcp_write_many_d_registers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """批量写汇川记号:连续 D 地址翻译后合并为一笔 FC16。"""
+    client = InovanceTcpClient("127.0.0.1", 502, 1)
+    pdu = codec.build_write_multi_pdu(16, 400, [11, 22])
+    frame = codec.build_mbap(1, 1, pdu[:_FC16_ECHO])
+    scripted = ScriptedTransport([frame[:7], frame[7:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.write_many([("D400", "short", 11), ("D401", "short", 22)]) == [
+        True,
+        True,
+    ]
+    assert bytes(scripted.sent) == codec.build_mbap(1, 1, pdu)
+
+
+def test_tcp_write_batch_d_and_coil(monkeypatch: pytest.MonkeyPatch) -> None:
+    """混类型批量写:D500 字走 FC16、M100 位走 FC15(两笔独立事务)。"""
+    client = InovanceTcpClient("127.0.0.1", 502, 1)
+    word_pdu = codec.build_write_multi_pdu(16, 500, [5])
+    bit_pdu = codec.build_write_multi_pdu(15, 100, [1])
+    scripted = ScriptedTransport(
+        [
+            codec.build_mbap(1, 1, word_pdu[:_FC16_ECHO])[:7],
+            codec.build_mbap(1, 1, word_pdu[:_FC16_ECHO])[7:],
+            codec.build_mbap(2, 1, bit_pdu[:_FC15_ECHO])[:7],
+            codec.build_mbap(2, 1, bit_pdu[:_FC15_ECHO])[7:],
+        ]
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, results = client.write_batch([("D500", "ushort", 5), ("M100", "bool", True)])
+    assert ok is True and results == [True, True]
+    sent = bytes(scripted.sent)
+    assert word_pdu in sent
+    assert bit_pdu in sent
+
+
+def test_tcp_write_mask_register_d(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC22 掩码写汇川记号:D700 翻译为 hr700 后走原 Modbus 路径。"""
+    client = InovanceTcpClient("127.0.0.1", 502, 1)
+    pdu = codec.build_mask_write_pdu(700, 0x00FF, 0x0010, "big")
+    frame = codec.build_mbap(1, 1, pdu)
+    scripted = ScriptedTransport([frame[:7], frame[7:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.write_mask_register("D700", 0x00FF, 0x0010) is True
+    assert bytes(scripted.sent) == codec.build_mbap(1, 1, pdu)
+
+
+def test_tcp_read_write_registers_d(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FC23 先写后读双记号:读 D800/写 D801 两地址分别翻译。"""
+    client = InovanceTcpClient("127.0.0.1", 502, 1)
+    pdu = codec.build_read_write_registers_pdu(800, 1, 801, [7])
+    response = bytes([23, 2, 0x00, 0x09])
+    frame = codec.build_mbap(1, 1, response)
+    scripted = ScriptedTransport([frame[:7], frame[7:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    ok, values = client.read_write_registers("D800", 1, "D801", [7])
+    assert ok is True and values == [9]
+    assert bytes(scripted.sent) == codec.build_mbap(1, 1, pdu)
+
+
+def test_batch_c_token_is_modbus_coil(monkeypatch: pytest.MonkeyPatch) -> None:
+    """C 记号歧义按 Modbus 优先锁定:批量 ``C10`` = 线圈 c10(FC01),非汇川计数器。"""
+    client = InovanceTcpClient("127.0.0.1", 502, 1)
+    frame = codec.build_mbap(1, 1, _RESPONSE_ONE_COIL)
+    scripted = ScriptedTransport([frame[:7], frame[7:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_many(["C10"], "bool") == [(True, True)]
+    assert bytes(scripted.sent) == codec.build_mbap(
+        1, 1, codec.build_read_pdu(1, 10, 1)
+    )
+
+
+def test_batch_c32_counter_requires_single_point() -> None:
+    """汇川 C32 计数器批量被 Modbus 优先裁决为线圈记号 → 区域×类型错误。
+
+    批量与单点对 ``C`` 记号的语义分叉(单点=汇川计数器、批量=Modbus 线圈)
+    是双记号的有意取舍,汇川计数器批量访问请用单点(docstring 披露)。
+    """
+    client = InovanceTcpClient("127.0.0.1", 502, 1)
+    with pytest.raises(ValueError, match="寄存器区域"):
+        client.read_many(["C205"], "int")
+
+
+def test_batch_invalid_token_reports_inovance_error() -> None:
+    """两类记号都不认的地址报汇川解析错误(回落链末端)。"""
+    client = InovanceTcpClient("127.0.0.1", 502, 1)
+    with pytest.raises(ValueError, match="无法解析汇川地址"):
+        client.read_many(["ZZ9"], "ushort")
+
+
+def test_batch_modbus_span_error_stays_modbus(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Modbus 记号合法但跨度越界:仍报 Modbus 错误,不回落汇川(错误文案正确)。"""
+    client = InovanceTcpClient("127.0.0.1", 502, 1)
+    with pytest.raises(ValueError, match="地址空间"):
+        client.read_many(["hr65535"], "int")
+
+
 # ---------------------------------------------------------------- RTU
 
 

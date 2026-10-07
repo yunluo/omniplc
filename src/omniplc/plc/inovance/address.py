@@ -47,6 +47,7 @@ from ...core.constants import (
 )
 from ...core.types import DataType
 from ...core.i18n import _
+from ..modbus.address import is_modbus_address
 
 _INOVANCE_ADDRESS_RE = re.compile(
     r"^(SM|SD|M|S|T|C|X|Y|B|D|R)(\d+)(?:\.(\d+))?$", re.IGNORECASE
@@ -156,6 +157,29 @@ def to_modbus_address(
             return "hr{}.{}".format(base + parsed.number, parsed.bit)
         return "hr{}".format(base + parsed.number)
     raise ValueError(_("软元件 {} 为位软元件,不支持字访问").format(parsed.device))
+
+
+def translate_batch_address(address: str, data_type: DataType) -> str:
+    """批量路径双记号翻译:Modbus 记号原样放行,汇川记号换算为 Modbus 记号。
+
+    **Modbus 记号优先**(存量批量行为零变化):``hr300``/``c10``/``40001``
+    等本库 Modbus 记号形态原样返回,合法性校验仍由 Modbus 层完成——唯
+    **``C`` 记号歧义**(Modbus 线圈 vs 汇川计数器)按 Modbus 优先裁决,
+    汇川计数器的批量访问请用单点(单点路径记号无歧义)。非 Modbus 记号
+    才按汇川软元件换算(``D7021`` → ``hr7021``),32 位计数器门控与单点
+    同款(:func:`check_counter_word_type`)。
+
+    :param address: 批量条目地址(汇川记号或本库 Modbus 记号)
+    :param data_type: 该条目的数据类型(BOOL 决定位软元件的线圈映射
+        与 T/C 双性质取舍;C32 门控按类型)
+    :return: Modbus 记号地址文本,交由 Modbus 批量实现解析
+    :raises ValueError: 两类记号均无法解析 / 汇川编号越界 / C32 类型门控
+    """
+    if is_modbus_address(address):
+        return address
+    parsed = parse_inovance_address(address)
+    check_counter_word_type(parsed, data_type)
+    return to_modbus_address(parsed, data_type is DataType.BOOL)
 
 
 def check_counter_word_type(parsed: InovanceAddress, data_type: DataType) -> None:

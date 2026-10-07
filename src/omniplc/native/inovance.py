@@ -29,7 +29,7 @@ RTU 串口走线需要串口传输层,**不在本层**(与 MC 1C/3C/4C 同批口
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple, Union
 
 from .modbus import AsyncModbusTcpClient
 from .melsec import AsyncMelsecMcTcpClient
@@ -42,11 +42,12 @@ from ..core.constants import (
     MODBUS_DEFAULT_PORT,
     MODBUS_DEFAULT_STATION,
 )
-from ..core.types import DataType, McFrame, PrimitiveValue
+from ..core.types import ByteOrder, DataType, McFrame, PrimitiveValue
 from ..plc.inovance.address import (
     check_counter_word_type,
     parse_inovance_address,
     to_modbus_address,
+    translate_batch_address,
 )
 from ..plc.inovance.mc import _to_melsec_address
 from ..plc.melsec import codec_qna
@@ -56,11 +57,11 @@ from ..plc.melsec.address import McAddress
 class AsyncInovanceTcpClient(AsyncModbusTcpClient):
     """汇川 H3U/H5U Modbus TCP 客户端(原生异步,端口 502)。
 
-    单点读写用汇川记号(``D100``/``X17``/``C205``,与同步
-    :class:`~omniplc.plc.inovance.InovanceTcpClient` 一致);批量
-    (:meth:`read_many`/`read_batch`/`write_many`/`write_batch`)与诊断方法
-    直承 Modbus 原生实现,按 **Modbus 记号**(``hr100``/``c10``)解析,
-    传汇川记号会以"无法解析地址" ``ValueError`` 明确拒绝。
+    单点与批量读写都支持**双记号**(与同步
+    :class:`~omniplc.plc.inovance.InovanceTcpClient` 同收口):汇川软元件
+    记号(``D100``/``X17``/``C205``)与本库 Modbus 记号(``hr100``/
+    ``c10``);批量按「Modbus 记号优先」翻译(:func:`~omniplc.plc.inovance.address.translate_batch_address`),
+    **``C`` 记号歧义批量按 Modbus 线圈裁决**,汇川计数器批量请用单点。
 
     :example: ``client = AsyncInovanceTcpClient("192.168.1.88", 502, 1)``
     """
@@ -120,6 +121,94 @@ class AsyncInovanceTcpClient(AsyncModbusTcpClient):
         """汇川记号翻译后委托 Modbus 字符串写原语(内部方法)。"""
         return await AsyncModbusTcpClient._write_string(
             self, self._translate(address, DataType.STRING), value, encoding
+        )
+
+    # ------------------------------------------------------------------
+    # 批量方法覆写:双记号翻译后委托 Modbus 原生批量(与同步侧同收口)
+    # ------------------------------------------------------------------
+
+    async def read_many(
+        self,
+        addresses: Sequence[str],
+        data_type: Union[DataType, str],
+    ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
+        """批量读(双记号):汇川记号翻译后走 Modbus 合并读。"""
+        data_type_enum = DataType.coerce(data_type)
+        return await AsyncModbusTcpClient.read_many(
+            self,
+            [translate_batch_address(addr, data_type_enum) for addr in addresses],
+            data_type_enum,
+        )
+
+    async def read_batch(
+        self,
+        items: Sequence[Tuple[str, Union[DataType, str]]],
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """混类型批量读(双记号):逐条目翻译后走 Modbus 合并读。"""
+        return await AsyncModbusTcpClient.read_batch(
+            self,
+            [
+                (translate_batch_address(addr, DataType.coerce(dtype)), dtype)
+                for addr, dtype in items
+            ],
+        )
+
+    async def write_many(
+        self,
+        items: Sequence[Tuple[str, Union[DataType, str], PrimitiveValue]],
+    ) -> List[bool]:
+        """批量写(双记号):逐条目翻译后走 Modbus 合并写。"""
+        return await AsyncModbusTcpClient.write_many(
+            self,
+            [
+                (translate_batch_address(addr, DataType.coerce(dtype)), dtype, value)
+                for addr, dtype, value in items
+            ],
+        )
+
+    async def write_batch(
+        self,
+        items: Sequence[Tuple[str, Union[DataType, str], PrimitiveValue]],
+    ) -> Tuple[bool, Optional[List[bool]]]:
+        """混类型批量写(双记号):逐条目翻译后走 Modbus 批量写。"""
+        return await AsyncModbusTcpClient.write_batch(
+            self,
+            [
+                (translate_batch_address(addr, DataType.coerce(dtype)), dtype, value)
+                for addr, dtype, value in items
+            ],
+        )
+
+    async def write_mask_register(
+        self,
+        address: str,
+        and_mask: int,
+        or_mask: int,
+        byte_order: Union[ByteOrder, str] = "big",
+    ) -> bool:
+        """掩码写(FC 22,双记号):汇川字记号翻译为保持寄存器。"""
+        return await AsyncModbusTcpClient.write_mask_register(
+            self,
+            translate_batch_address(address, DataType.USHORT),
+            and_mask,
+            or_mask,
+            byte_order,
+        )
+
+    async def read_write_registers(
+        self,
+        read_address: str,
+        read_count: int,
+        write_address: str,
+        values: Sequence[int],
+    ) -> Tuple[bool, Optional[List[int]]]:
+        """「先写后读」多寄存器(FC 23,双记号):两地址分别翻译。"""
+        return await AsyncModbusTcpClient.read_write_registers(
+            self,
+            translate_batch_address(read_address, DataType.USHORT),
+            read_count,
+            translate_batch_address(write_address, DataType.USHORT),
+            values,
         )
 
 
