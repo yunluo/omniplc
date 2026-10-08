@@ -464,6 +464,8 @@ def _com_get_error_message(com: Any, code: int) -> str:
                 _("MX Component GetErrorMessage 失败:{}").format(exc), 0
             ) from exc
         if not probe_failed:
+            # 零参路径的返回码形态未校验(GetDevice 族同类盲区,第八轮
+            # P1-2 已披露);真机核证项随 review-1020 P3-16 入真机清单
             return str(_first(result))
         message = VARIANT()
         try:

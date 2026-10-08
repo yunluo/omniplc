@@ -930,6 +930,10 @@ class MitsubishiEzSocketClient(BaseClient):
 
         模式读取失败 → 整体失败;模式 = MEM/DNC 时读自动运转位
         (RUN/IDLE),模式 = LNK~LIN 时判 DEBUG;运转状态 = EMG 判 STOP。
+
+        与 C 库的**已登记差异**(review-1020 P3-10):任一段读取失败本库
+        整体 ``(False, None)``,C 库对失败段仅告警并返回已得状态——本库
+        语义更严(不给出部分拼合的疑似状态),非错值。
         """
         system = self._check_system_no(system_no)
 

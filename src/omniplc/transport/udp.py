@@ -110,7 +110,11 @@ class UdpTransport(BaseTransport):
 
         - **POSIX**(Linux/macOS):``recv_into`` + ``MSG_TRUNC`` 拿到真实
           报文字节数,超出缓冲即按上述口径处理(POSIX ``recv`` 本身会
-          静默截断,``MSG_TRUNC`` 是探测真长的唯一手段)。
+          静默截断,``MSG_TRUNC`` 是探测真长的唯一手段;平台注记
+          review-1020 P3-20⑤:``MSG_TRUNC`` 返回真长在 Linux 确证,
+          macOS/BSD 待核——即便个别平台不回报真长,协议层长度校验仍会
+          兜底拒坏帧,最坏情况退化为"静默截断被当完整帧",由帧级校验
+          暴露而非本层)。
         - **Windows**:``recv`` 对超长报文抛 ``WSAEMSGSIZE``(errno
           10040),捕获后同口径处理。
 

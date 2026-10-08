@@ -78,7 +78,8 @@ class AsyncModbusTcpClient(AsyncBaseClient):
     """Modbus TCP 客户端(MBAP over TCP,默认端口 502)。
 
     语义与同步 :class:`~omniplc.plc.modbus.ModbusTcpClient` 一致:站号(Unit ID)
-    1~247、字序默认 ABCD、位与寄存器区域按地址前缀区分;区别只在 I/O 是原生
+    0~255(TCP 路由字段,非串口 1~247 线)、字序默认 ABCD、位与寄存器区域按
+    地址前缀区分;区别只在 I/O 是原生
     ``asyncio``(属性读取不阻塞事件循环、``await`` 可被真取消)。
     TCP 无广播语义(Unit ID 0 部分网关要求路由),读操作照常收发——
     ``_BROADCAST_WITHOUT_RESPONSE=False`` 与同步基类同口径。
@@ -1012,6 +1013,9 @@ class AsyncModbusTcpClient(AsyncBaseClient):
 
     async def read_fifo_queue(self, address: str) -> Tuple[bool, Optional[List[int]]]:
         """读 FIFO 队列(FC24,规范 §6.18),单次最多 31 个寄存器。
+
+        注意:地址**不走汇川等子类的批量双记号翻译钩子**(与同步侧同口径,
+        review-1020 P3-4 披露)。
 
         :param address: FIFO 指针所指的保持寄存器地址,如 ``"hr1000"``
         :return: ``(是否成功, FIFO 寄存器值列表)``;失败为 ``(False, None)``

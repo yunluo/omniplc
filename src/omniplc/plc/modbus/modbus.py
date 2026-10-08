@@ -443,7 +443,11 @@ class ModbusBaseClient(BaseClient):
         # 3) 每组:排序 → 合并 → 逐 chunk 读 + 切片回填
         for (area, kind, _width, _dtype), group in groups.items():
             group.sort(key=lambda e: e.parsed.offset)
-            max_unit = 2000 if kind == "bit" else 125
+            # 读上限常量收口(review-1020 P3-18:原硬编码与写侧/native 双份
+            # 常量并行,数值当前一致,漂移风险归一)
+            max_unit = (
+                MODBUS_MAX_READ_BITS if kind == "bit" else MODBUS_MAX_READ_REGISTERS
+            )
             chunks = _coalesce_group(group, kind, max_unit)
             for chunk in chunks:
                 _read_and_fill(self, area, kind, chunk, result)
@@ -1099,6 +1103,10 @@ class ModbusBaseClient(BaseClient):
         设备把 ``address`` 指向的保持寄存器当 FIFO 指针,返回队列中按先进
         先出排列的寄存器值(队列空时返回空列表)。单次最多 31 个寄存器。
         需设备支持 FC24(部分老设备/网关不支持,失败见 last_error)。
+
+        注意:地址**不走汇川等子类的批量双记号翻译钩子**(FC24 为纯
+        Modbus 特性,批量翻译覆写只覆盖 read/write 批量与 read_range;
+        汇川记号在此按 Modbus 记号解释,review-1020 P3-4 披露)。
 
         :param address: FIFO 指针所指的保持寄存器地址,如 ``"hr1000"``
         :return: ``(是否成功, FIFO 寄存器值列表)``;失败为 ``(False, None)``

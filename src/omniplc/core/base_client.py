@@ -105,12 +105,14 @@ def validate_endpoint(ip_address: str, port: int) -> None:
     """网络型客户端的构造参数校验(供各驱动共用)。
 
     :param ip_address: IP 或主机名
-    :param port: 端口号
-    :raises ValueError: 地址为空或端口不在 1~65535
+    :param port: 端口号(非 int 显式拒绝,不做 ``int()`` 静默收窄——
+        502.9→502、True→1 这类收窄会掩盖调用侧类型错误,review-1020 P3-20③)
+    :raises ValueError: 地址为空 / 端口非 int / 端口不在 1~65535
     """
     if not ip_address or not ip_address.strip():
         raise ValueError(_("ip_address 不能为空"))
-    if not PORT_MIN <= int(port) <= PORT_MAX:
+    require_int(port)
+    if not PORT_MIN <= port <= PORT_MAX:
         raise ValueError(
             _("port 必须在 {}~{} 之间,收到:{}").format(PORT_MIN, PORT_MAX, port)
         )
@@ -144,7 +146,7 @@ class BaseClient(ABC):
         :param port: 端口号(串口客户端为 0)
         """
         self._ip_address = ip_address
-        self._port = int(port)
+        self._port = require_int(port)
         self._connect_timeout: float = DEFAULT_CONNECT_TIMEOUT
         self._receive_timeout: float = DEFAULT_RECEIVE_TIMEOUT
         self._retries: int = 0

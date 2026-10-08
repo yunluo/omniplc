@@ -9,8 +9,11 @@
   钩子(``_read``/``_write``/``_read_string``/``_write_string``)做汇川记号
   → Modbus 地址翻译后委托 Modbus 原语(与同步 ``_InovanceBase._translate``
   同一换算收口,复用 :mod:`omniplc.plc.inovance.address` 纯函数);
-  批量与诊断方法直承 Modbus 原生实现,按 **Modbus 记号**(``hr100``/``c10``)
-  解析——汇川记号明确拒绝,不静默错址(记号边界与同步侧同口径)。
+  批量/区间读写同样覆写七方法(``read_many``/``read_batch``/``write_many``/
+  ``write_batch``/``write_mask_register``/``read_write_registers``/
+  ``read_range``),按「Modbus 记号优先」双记号翻译后委托 Modbus 原生
+  实现(与同步 ``_InovanceBase`` 七覆写同款,``C`` 记号歧义的裁决口径
+  也与同步侧一致)。
 - MC 版继承 :class:`~omniplc.native.AsyncMelsecMcTcpClient`,覆写
   ``_device_info``(换汇川码表)/``_translate_address``(R→D 统一编址、
   X/Y 八进制→帧内十六进制)/``_build_frame`` 三个纯编解码钩子,收发与解析

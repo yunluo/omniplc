@@ -655,7 +655,8 @@ class AllenBradleyEthIpClient(BaseClient):
 
         Logix 口径:BOOL 数组按 DWORD 位打包,读 ``下标//32`` 字、
         提 ``下标%32`` 位;应答仍带实际类型(元素应答 BOOL 时按本体解码)。
-        NJ/NX 等不做打包的设备覆写为直读元素本体。
+        (继承定制点:不做 DWORD 位打包的设备可覆写为直读元素本体;
+        本库现无此类覆写实现,review-1020 P3-20① 口径订正。)
         """
         return _word_index_path(parsed, index), index % 32
 

@@ -166,8 +166,11 @@ def translate_batch_address(address: str, data_type: DataType) -> str:
     等本库 Modbus 记号形态原样返回,合法性校验仍由 Modbus 层完成——唯
     **``C`` 记号歧义**(Modbus 线圈 vs 汇川计数器)按 Modbus 优先裁决,
     汇川计数器的批量访问请用单点(单点路径记号无歧义)。非 Modbus 记号
-    才按汇川软元件换算(``D7021`` → ``hr7021``),32 位计数器门控与单点
-    同款(:func:`check_counter_word_type`)。
+    才按汇川软元件换算(``D7021`` → ``hr7021``)。注:汇川 C 软元件
+    (如 ``C205``)必先被 ``is_modbus_address`` 的 ``c`` 前缀分支按
+    Modbus 线圈拦截,故 ``check_counter_word_type`` 门控在本函数内
+    **实际只对纯数字汇川记号形态可达**(行为与 C 歧义拍板自洽,
+    review-1020 P3-3 披露口径)。
 
     :param address: 批量条目地址(汇川记号或本库 Modbus 记号)
     :param data_type: 该条目的数据类型(BOOL 决定位软元件的线圈映射

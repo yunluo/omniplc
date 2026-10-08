@@ -330,6 +330,11 @@ def _load_fwlib(sdk_dir: Optional[str], dll_path: Optional[str]) -> ctypes.CDLL:
     ``ctypes.WinDLL``;Linux ``.so`` 留后续(档案 §1),加载期显式报
     不支持。依赖 DLL(fwlibe1.dll 等)与主库同目录,加载前前置 PATH
     与 add_dll_directory(海康 SDK 同款)。
+
+    生命周期登记(review-1020 P3-6):每次 connect 都会调本工厂,ctypes
+    对同一路径**不重复映射**(引用计数 +1),库内从不显式 ``FreeLibrary``
+    ——进程存活期常驻,与海康 SDK 封装同口径;重复 connect 只增引用计数,
+    无重复映射危害。
     """
     if platform.system() != "Windows":
         raise OmniPLCInternalError(
@@ -785,6 +790,10 @@ class FanucFocasClient(BaseClient):
     随 FOCAS Development 包或随机资料分发,须现场安装);``sdk_dir`` 指向
     含动态库的目录,或 ``dll_path`` 显式指定。机床侧需启用内嵌以太网口
     (端口 8193)。**首批仅支持 Windows**。
+
+    **receive_timeout 作用域**(第八轮 P2-5 分类口径):连接建立时经
+    ``cnc_settimeout`` 下发为 DLL 会话超时;连接后修改只更新属性,**不
+    重发 DLL**——下一个重连周期生效(review-1020 P3-9 登记口径)。
     """
 
     _has_ping = True
@@ -837,8 +846,12 @@ class FanucFocasClient(BaseClient):
             if isinstance(transport, _FocasSession):
                 try:
                     transport.apply_receive_timeout()
-                except (DeviceError, OSError):
-                    pass  # 超时下发尽力而为,失败不阻断建连
+                except (DeviceError, OSError, OmniPLCInternalError):
+                    # 超时下发尽力而为,失败不阻断建连(吞 OmniPLCInternalError:
+                    # _check_rc 的 EW_NODLL/EW_MMCSYS 分支抛该类,不接会从
+                    # connect() 逃逸违背 →bool 契约,review-1020 P3-5;
+                    # 会话已建立,DLL 级异常留给首个数据操作暴露)
+                    pass
         return ok
 
     @property

@@ -69,7 +69,7 @@ from ..core.i18n import _
 
 
 class AsyncMelsecMcBase(AsyncBaseClient):
-    """三菱 MC 原生异步基类:帧分发 + 位/字原语(1E/3E)。
+    """三菱 MC 原生异步基类:帧分发 + 位/字原语(1E/3E/4E)。
 
     走线子类只实现 :meth:`_create_transport` 与 :meth:`_transact`。
     帧级地址换算钩子 :meth:`_translate_address` 与同步层同名同义(品牌兼容
@@ -100,8 +100,9 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         :param ip_address: PLC 的 IP 或主机名
         :param port: 端口(MELSEC 以太网模块常用 2000,调试器场景 6000)
         :param frame: 帧型,推荐 :class:`omniplc.types.McFrame` 枚举
-            (``FRAME_3E`` 为 QnA 兼容、``FRAME_1E`` 为 A 兼容);也兼容
-            ``"3E"``/``"1E"`` 字符串
+            (``FRAME_3E`` 为 QnA 兼容、``FRAME_1E`` 为 A 兼容、
+            ``FRAME_4E`` 为 QnA 兼容 4E 序列号帧);也兼容
+            ``"3E"``/``"1E"``/``"4E"`` 字符串
         :param network_number: 网络编号(仅 3E 使用)
         :param pc_number: PC 编号(仅 3E 使用;1E 帧语义为站号)
         :param xy_octal: X/Y 编号按八进制解释(iQ-F/FX5U 口径,默认 False)
@@ -619,7 +620,9 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         """随机写(1402,手册命令名 "test")单事务乱序写不连续软元件(仅 3E/4E 帧)。
 
         双字直接按 32 位写入;**本命令无响应数据**,PLC 只回应答头;写值越界与
-        位软元件编号越界在入参期拒绝。
+        位软元件编号越界在入参期拒绝。位软元件走 1402 字访问即**整字 16 点
+        下发**(写 1 点也如此,相邻 15 点被一并清/置;与同步侧同口径披露,
+        review-1020 P3-15)。
 
         :param word_items: 字访问 ``(地址, 值)`` 序列(16 位:0~65535;位软元件 0/1)
         :param double_word_items: 双字访问 ``(地址, 值)`` 序列(32 位)
@@ -856,7 +859,8 @@ class AsyncMelsecMcBase(AsyncBaseClient):
             )
 
     def _next_serial(self) -> int:
-        """3E 序列号递增(0~65535 回绕,内部方法)。"""
+        """4E 序列号递增(0~65535 回绕,内部方法;3E 恒 0,review-1020
+        P3-13 文档订正)。"""
         return self._bump_id("_serial", 16)
 
     async def _transact(self, request: bytes, tail_size: int = 0) -> bytes:
@@ -896,7 +900,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
 
 
 class AsyncMelsecMcTcpClient(AsyncMelsecMcBase):
-    """三菱 MC 客户端(TCP 走线,1E/3E 帧)。
+    """三菱 MC 客户端(TCP 走线,1E/3E/4E 帧)。
 
     :example: ``client = AsyncMelsecMcTcpClient("192.168.3.39", 2000, "3E")``
     """

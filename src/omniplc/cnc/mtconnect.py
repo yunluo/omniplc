@@ -219,6 +219,12 @@ class _MtConnectSession(BaseTransport):
         握手);每请求收发超时在 :meth:`_exchange` 按 ``receive_timeout``
         对活动 socket 生效(第八轮 P2-5:原实现建连误用 receive_timeout)。
 
+        边界登记(review-1020 P3-7):HTTPConnection **惰性建链**,首次
+        请求才真正 TCP 握手——该请求的 socket 超时即 ``connect_timeout``
+        (握手+收发同一超时),从第二个请求起 ``_exchange`` 才能对活动
+        socket 下发 ``receive_timeout``;首个请求偏保守而非失控。
+        keep-alive 失效原位重建(:meth:`_recreate`)后同理。
+
         :raises OSError: 连接对象创建失败
         """
         self._conn = _new_connection(
@@ -460,7 +466,9 @@ class MTConnectClient(BaseClient):
         """探活探测命令:HTTP GET ``/probe``(内部方法)。
 
         依据:MTConnect Part1 §8.3.1 p.98-100——Agent 必须实现 /probe,
-        返回设备清单,零副作用。HTTP 逐请求建连,探活即完整性校验。
+        返回设备清单,零副作用。HTTP 走 **keep-alive 复用**(失效时原位
+        重建再重试,见 ``_MtConnectSession.request``),非逐请求建连;
+        探活即一次完整请求-响应往返(review-1020 P3-8 口径订正)。
         """
         return self._fetch_probe()
 

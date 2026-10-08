@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 from typing import Dict, NamedTuple
+from ...core.constants import ADDRESS_CACHE_MAXSIZE
 from ...core.i18n import _
 
 _BASE64_RE = re.compile(
@@ -62,7 +63,7 @@ def _bad_nodeid(address: str) -> str:
 
 
 # 地址串 → 解析结果缓存(结果类型不可变):高频轮询同址免重复正则解析
-@lru_cache(maxsize=4096)
+@lru_cache(maxsize=ADDRESS_CACHE_MAXSIZE)
 def parse_opcua_nodeid(address: str) -> OpcUaNodeId:
     """解析 OPC-UA NodeId 字符串。
 

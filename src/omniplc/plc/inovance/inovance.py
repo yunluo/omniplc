@@ -53,9 +53,10 @@ class _InovanceBase(ModbusBaseClient):
     32 位计数器(C200~C255)的 32 位类型门控在翻译收口处完成
     (``C205`` → ``hr63242``,双寄存器展开由 Modbus 层按类型自动完成)。
 
-    **记号约定**:单点读写与批量/区间读写都支持**双记号**——汇川软元件记号
-    (``D100``/``X17``/``C205``)与本库 Modbus 记号(``hr100``/``c10``)。
-    批量路径按 :func:`~omniplc.plc.inovance.address.translate_batch_address`
+    **记号约定**:单点读写仅认**汇川软元件记号**(``D100``/``X17``/``C205``;
+    ``hr100``/``40001`` 等 Modbus 记号单点均拒,防两类编号体系静默混淆),
+    批量/区间读写支持**双记号**——批量路径按
+    :func:`~omniplc.plc.inovance.address.translate_batch_address`
     「Modbus 记号优先」裁决:本库 Modbus 记号形态原样放行(存量批量行为
     零变化),非 Modbus 记号才按汇川换算表翻译。唯 **``C`` 记号歧义**
     (Modbus 线圈 vs 汇川计数器)批量按 Modbus 线圈裁决——汇川计数器

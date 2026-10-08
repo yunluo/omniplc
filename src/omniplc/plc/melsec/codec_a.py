@@ -151,9 +151,9 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
     ) + 0x80
     if frame[0] != expected_head:
         raise ProtocolFrameError(
-            _("1E 响应副头部不符:期望 0x{:02X},收到 0x{:02X}(收到的原始数据:{})").format(
-                expected_head, frame[0], format_hex(frame)
-            )
+            _(
+                "1E 响应副头部不符:期望 0x{:02X},收到 0x{:02X}(收到的原始数据:{})"
+            ).format(expected_head, frame[0], format_hex(frame))
         )
     end_code = frame[1]
     if end_code != 0:
@@ -162,7 +162,9 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
             and len(frame) < MC_1E_RESPONSE_HEAD_SIZE + MC_1E_ERROR_EXTRA_SIZE
         ):
             raise ProtocolFrameError(
-                _("1E 错误响应缺少扩展信息字节(收到的原始数据:{})").format(format_hex(frame))
+                _("1E 错误响应缺少扩展信息字节(收到的原始数据:{})").format(
+                    format_hex(frame)
+                )
             )
         raise DeviceError(
             _("MC(1E) 结束代码 0x{:02X},详见 A 系列手册").format(end_code), end_code
@@ -173,9 +175,9 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
             # TCP 缓冲会被下一事务当响应头消费(串帧),UDP 整包路径下
             # 属数据报边界异常——统一按坏帧拒绝
             raise ProtocolFrameError(
-                _("1E 写响应尾部有冗余字节:期望 {} 字节,实际 {}(收到的原始数据:{})").format(
-                    MC_1E_RESPONSE_HEAD_SIZE, len(frame), format_hex(frame)
-                )
+                _(
+                    "1E 写响应尾部有冗余字节:期望 {} 字节,实际 {}(收到的原始数据:{})"
+                ).format(MC_1E_RESPONSE_HEAD_SIZE, len(frame), format_hex(frame))
             )
         return []
     expected = (points + 1) // 2 if is_bit else points * 2

@@ -786,7 +786,19 @@ class AsyncBaseClient(ABC):
         )
         if not ok or value is None:
             return False, None
-        return True, str(value)
+        if not isinstance(value, str):
+            # 驱动 _read_string 返回非 str(如 bytes)属库内缺陷:repr 包装
+            # 会把二进制噪声伪装成"读到的字符串"——与同步侧同口径显式拒绝
+            # (review-1020 P3-20④,原 str(value) 静默包装)
+            self._set_error(
+                _("read_string 内部类型错误:驱动返回 {} 而非 str").format(
+                    type(value).__name__
+                ),
+                ErrorCategory.UNKNOWN,
+                None,
+            )
+            return False, None
+        return True, value
 
     async def write_bool(self, address: str, value: bool) -> bool:
         """写入布尔量(位)。
