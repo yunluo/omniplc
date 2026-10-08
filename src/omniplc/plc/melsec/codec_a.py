@@ -166,6 +166,28 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
                     format_hex(frame)
                 )
             )
+        if (
+            end_code == MC_1E_ERROR_EXTRA
+            and len(frame) >= MC_1E_RESPONSE_HEAD_SIZE + MC_1E_ERROR_EXTRA_SIZE
+        ):
+            # 5BH 后跟 1 字节异常细分码;0x10 = PC 号错有手册算例直证
+            # (SH-080008 §18.2 印刷页 394:「5BH + abnormal code 10H
+            # (PC No. error)」)——消息带码值排障,其余细分码语义待
+            # 模块用户手册(完整结束码表同源,协议档案「待补」已登记)
+            abnormal = frame[2]
+            if abnormal == 0x10:
+                raise DeviceError(
+                    _(
+                        "MC(1E) 结束代码 0x5B,异常细分码 0x10 = PC 号错(站号/PC 号核对),详见 A 系列手册"
+                    ),
+                    end_code,
+                )
+            raise DeviceError(
+                _("MC(1E) 结束代码 0x5B,异常细分码 0x{:02X},详见 A 系列手册").format(
+                    abnormal
+                ),
+                end_code,
+            )
         raise DeviceError(
             _("MC(1E) 结束代码 0x{:02X},详见 A 系列手册").format(end_code), end_code
         )

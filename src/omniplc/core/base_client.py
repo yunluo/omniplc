@@ -16,6 +16,7 @@ from __future__ import annotations
 import math
 import random
 import socket
+import struct
 import sys
 import threading
 import time
@@ -50,7 +51,12 @@ from .constants import (
     RECONNECT_BACKOFF_MAX,
     RECONNECT_BACKOFF_MAX_EXPONENT,
 )
-from .debug import log_warning
+from .debug import (
+    FrameRecord,
+    frame_recorder_enabled,
+    log_warning,
+    recorded_frames,
+)
 from .errors import (
     DeviceError,
     ErrorCategory,
@@ -118,6 +124,24 @@ def validate_endpoint(ip_address: str, port: int) -> None:
         )
 
 
+def _verify_value_equal(
+    data_type: DataType, written: PrimitiveValue, readback: PrimitiveValue
+) -> bool:
+    """写后回读比对(内部函数):float 按位型,其余按值。
+
+    float32 写入值先折算 32 位上线,回读值即 float32 拓宽——``3.14`` 写读回
+    ``3.140000104904175`` 是正常位型,按数值直接比较会恒判不符。
+    """
+    if data_type is DataType.FLOAT:
+        try:
+            return struct.pack("<f", float(written)) == struct.pack(
+                "<f", float(readback)
+            )
+        except (TypeError, ValueError, struct.error):
+            return False
+    return bool(written == readback)
+
+
 class BaseClient(ABC):
     """所有 PLC 客户端的抽象基类。
 
@@ -151,6 +175,13 @@ class BaseClient(ABC):
         self._receive_timeout: float = DEFAULT_RECEIVE_TIMEOUT
         self._retries: int = 0
         self._write_retries: int = 0
+        # 写安全(review-1020 §七甲):只读模式 + 写白名单,默认全关
+        self._read_only = False
+        self._write_whitelist = False
+        self._write_allow_addresses: frozenset = frozenset()
+        # 拆连/设备错误现场快照(review-1020 §七乙):最近一次事故时点的
+        # 黑匣子帧拷贝(黑匣子继续滚动,快照不动)
+        self._incident_frames: List[FrameRecord] = []
         self._lock = threading.RLock()
         # 状态锁:仅保护错误三件套与统计计数(短临界区,绝不包 I/O)。
         # 与事务锁 _lock 分离——订阅回调在 asyncua 自己的线程里调用
@@ -726,8 +757,10 @@ class BaseClient(ABC):
         :param data_type: 数据类型,推荐用 :class:`omniplc.types.DataType` 枚举
         :param value: 待写入值
         :return: 是否成功
-        :raises ValueError: 参数非法
+        :raises RuntimeError: 只读模式(:attr:`read_only`)下拒绝一切写
+        :raises ValueError: 参数非法 / 写白名单开启且地址不在已绑定点位表
         """
+        self._check_write_allowed(address)
         data_type_enum = DataType.coerce(data_type)
         ok, _unused = self._execute(
             lambda: self._write(address, data_type_enum, value), is_write=True
@@ -943,9 +976,12 @@ class BaseClient(ABC):
             零长度写。支持空串的协议如 AB/OPC-UA 可用
             ``write(address, DataType.STRING, "")`` 写入)
         :param encoding: 字符编码,默认 ASCII
+        :raises RuntimeError: 只读模式下拒绝一切写
+        :raises ValueError: 空串 / 写白名单开启且地址不在已绑定点位表
         """
         if not value:
             raise ValueError(_("value 不能为空字符串"))
+        self._check_write_allowed(address)
         ok, _unused = self._execute(
             lambda: self._write_string(address, str(value), encoding), is_write=True
         )
@@ -958,9 +994,15 @@ class BaseClient(ABC):
     def bind_tags(self, table: TagTable) -> None:
         """绑定点位表,之后可用点位标识读写::``client.read_tag("furnace_temp")``。
 
+        同时为**写白名单**(:attr:`write_whitelist`)缓存可写地址集
+        (表构造后只读,绑定时快照;重复绑定按新表刷新)。
+
         :param table: :class:`omniplc.tag.TagTable` 实例
         """
         self._tag_table = table
+        self._write_allow_addresses = frozenset(
+            table[tag_id].address for tag_id in table
+        )
 
     def read_tag(self, tag: Union[str, Tag]) -> Tuple[bool, Optional[PrimitiveValue]]:
         """按点位(或标识)读取,数值自动应用 ``scale``/``offset``。
@@ -1051,6 +1093,186 @@ class BaseClient(ABC):
             return self._tag_table[tag]
         except KeyError:
             raise ValueError(_("点位表中不存在:{!r}").format(tag))
+
+    # ------------------------------------------------------------------
+    # 写安全与信号原语(review-1020 §七甲/丙)
+    # ------------------------------------------------------------------
+
+    @property
+    def read_only(self) -> bool:
+        """只读模式:``True`` 时一切写操作在入口被拒绝。
+
+        现场口径:新接产线先只读观察一个周期再开写;写方法(含驱动特有
+        批量/随机/时钟写)在 :meth:`_execute` 写入口统一拒绝,抛
+        :class:`RuntimeError`。默认 ``False``;可随时切换。
+        """
+        return self._read_only
+
+    @read_only.setter
+    def read_only(self, enabled: bool) -> None:
+        if not isinstance(enabled, bool):
+            raise ValueError(_("read_only 必须为布尔值,收到:{!r}").format(enabled))
+        self._read_only = enabled
+
+    @property
+    def write_whitelist(self) -> bool:
+        """写白名单:``True`` 时仅允许写已绑定 TagTable 内的地址。
+
+        依据 :meth:`bind_tags` 时快照的表内地址集判定(表构造后只读);
+        开启但未绑表 = 拒绝一切写(显式报错提示先绑表)。地址型写入口
+        (:meth:`write`/:meth:`write_string`,含经它们中转的类型化写/
+        ``write_tag``/批量基实现)逐地址校验;驱动特有非地址写
+        (时钟/随机写整组等)不在白名单校验范围,只受 :attr:`read_only`
+        管辖(范围披露,review-1020 §七甲2)。
+        """
+        return self._write_whitelist
+
+    @write_whitelist.setter
+    def write_whitelist(self, enabled: bool) -> None:
+        if not isinstance(enabled, bool):
+            raise ValueError(
+                _("write_whitelist 必须为布尔值,收到:{!r}").format(enabled)
+            )
+        self._write_whitelist = enabled
+
+    def _check_write_allowed(self, address: str) -> None:
+        """写入口安全守卫:只读模式与写白名单(内部方法)。
+
+        :raises RuntimeError: 只读模式下拒绝写
+        :raises ValueError: 白名单开启且(未绑表或地址不在表内)
+        """
+        if self._read_only:
+            raise RuntimeError(
+                _("客户端为只读模式(read_only=True),写操作已拒绝:{}").format(address)
+            )
+        if self._write_whitelist:
+            if self._tag_table is None:
+                raise ValueError(
+                    _(
+                        "写白名单已开启但未绑定 TagTable:请先 bind_tags() 或关闭 write_whitelist"
+                    )
+                )
+            if address not in self._write_allow_addresses:
+                raise ValueError(
+                    _(
+                        "写白名单已开启:地址 {!r} 不在已绑定点位表内,写操作已拒绝"
+                    ).format(address)
+                )
+
+    @property
+    def incident_frames(self) -> List[FrameRecord]:
+        """最近一次拆连/设备错误的现场报文快照(黑匣子开启时)。
+
+        :meth:`_execute` 在 DeviceError / 拆连级传输失败时点把黑匣子当前
+        留存拷贝到本快照(心跳失败不覆盖)——现场复现窗口常只有几秒,
+        事后 :func:`omniplc.core.debug.export_recorded_frames` 全量导出
+        之前,这里是事故时点的切片;黑匣子未开启或事故时点无留存时空列表。
+        """
+        return self._incident_frames
+
+    def _capture_incident(self) -> None:
+        """拆连/设备错误现场快照:复制黑匣子当前留存(内部方法)。"""
+        if frame_recorder_enabled():
+            records = recorded_frames()
+            if records:
+                self._incident_frames = records
+
+    def write_and_verify(
+        self,
+        address: str,
+        data_type: Union[DataType, str],
+        value: PrimitiveValue,
+        *,
+        verify: bool = True,
+        readback_type: Optional[Union[DataType, str]] = None,
+    ) -> Tuple[bool, Optional[PrimitiveValue]]:
+        """写入并回读校验(现场"打点确认"套路)。
+
+        写入成功后(默认)回读同址比对:一致 ``(True, 读回值)``;不一致
+        ``(False, 读回值)`` 并记入 :attr:`last_error`。32 位浮点按位型
+        比较(写入值先折算 float32 上线,回读值为 float32 拓宽,按数值
+        直接比较会把 ``3.14`` 误判不符)。
+
+        :param address: 协议地址
+        :param data_type: 写入数据类型
+        :param value: 待写入值
+        :param verify: ``False`` 跳过回读(只写不可读软元件场景),等价
+            :meth:`write` 但返回 ``(是否成功, None)``
+        :param readback_type: 回读类型;``None`` = 同写入类型(如写入用
+            32 位跨字设定值、回读按两个 16 位字拆读的场景可指定)
+        :return: ``(是否成功, 回读值)``;verify 关闭时回读值恒 ``None``
+        :raises RuntimeError: 只读模式;:raises ValueError: 参数/白名单拒绝
+        """
+        data_type_enum = DataType.coerce(data_type)
+        if not self.write(address, data_type_enum, value):
+            return False, None
+        if not verify:
+            return True, None
+        reread_enum = (
+            DataType.coerce(readback_type)
+            if readback_type is not None
+            else data_type_enum
+        )
+        ok, actual = self.read(address, reread_enum)
+        if not ok or actual is None:
+            return False, None
+        if not _verify_value_equal(data_type_enum, value, actual):
+            self._set_error(
+                _("write_and_verify 回读不符:写入 {!r},读回 {!r}({} @ {})").format(
+                    value, actual, address, reread_enum
+                ),
+                ErrorCategory.UNKNOWN,
+                None,
+            )
+            return False, actual
+        return True, actual
+
+    def wait_value(
+        self,
+        address: str,
+        data_type: Union[DataType, str],
+        predicate: Callable[[PrimitiveValue], bool],
+        *,
+        timeout: float,
+        interval: float = 0.1,
+    ) -> Tuple[bool, Optional[PrimitiveValue]]:
+        """轮询等待点位值满足条件(现场"等气缸到位 M100=1"信号原语)。
+
+        周期调用 :meth:`read` 直到 ``predicate(值)`` 为真或超时;单次读
+        失败(未连接/设备错)**不中断等待**(现场信号常常伴随链路抖动,
+        到期仍未等到按超时返回)。Monitor 管持续上报,本原语管一次性
+        等条件;阻塞当前线程(异步请用 native 层 ``wait_value``)。
+
+        :param address: 协议地址
+        :param data_type: 数据类型
+        :param predicate: 谓词 ``(值) -> bool``;抛出的异常原样传播
+        :param timeout: 总等待上限(秒,必须 > 0)
+        :param interval: 轮询间隔(秒,必须 > 0,默认 0.1)
+        :return: ``(是否等到, 最后一次读到的值)``;等到为 ``(True, 满足
+            谓词的值)``,超时为 ``(False, 期间最后一次成功读到值或 None)``
+        :raises ValueError: 参数非法
+        """
+        if not callable(predicate):
+            raise ValueError(
+                _("predicate 必须为可调用对象,收到:{!r}").format(predicate)
+            )
+        if timeout <= 0:
+            raise ValueError(_("timeout 必须大于 0,收到:{}").format(timeout))
+        if interval <= 0:
+            raise ValueError(_("interval 必须大于 0,收到:{}").format(interval))
+        data_type_enum = DataType.coerce(data_type)
+        deadline = time.monotonic() + timeout
+        last_value: Optional[PrimitiveValue] = None
+        while True:
+            ok, value = self.read(address, data_type_enum)
+            if ok and value is not None:
+                last_value = value
+                if predicate(value):
+                    return True, value
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False, last_value
+            time.sleep(interval if interval < remaining else remaining)
 
     # ------------------------------------------------------------------
     # 监视器(周期轮询采集;实现与语义口径见 core/monitor.py)
@@ -1160,6 +1382,10 @@ class BaseClient(ABC):
             (OSError 拆连)不受本标记影响,照常计数。
         :return: ``(是否成功, 值)``
         """
+        if is_write and self._read_only:
+            # 只读模式总闸(review-1020 §七甲1):驱动特有写(随机/时钟等)
+            # 不经 :meth:`write` 入口,在此统一拒绝(调用方错误,直接抛)
+            raise RuntimeError(_("客户端为只读模式(read_only=True),写操作已拒绝"))
         retries = self._write_retries if is_write else self._retries
         with self._lock:
             with self._state_lock:
@@ -1204,6 +1430,8 @@ class BaseClient(ABC):
                     self._set_error(
                         _describe(exc), _categorize(exc), code, record=not heartbeat
                     )
+                    if not heartbeat:
+                        self._capture_incident()
                     if not heartbeat and code is not None and code >= 0:
                         # 只计"PLC 明确返回错误码"的次数:code=0 的无码失败
                         # (能力缺失、设备侧条件、超时)与负码诊断
@@ -1215,6 +1443,7 @@ class BaseClient(ABC):
                     self._set_error(
                         _describe(exc), _categorize(exc), _extract_code(exc)
                     )
+                    self._capture_incident()
                     self._mark_disconnected()
             return False, None
 

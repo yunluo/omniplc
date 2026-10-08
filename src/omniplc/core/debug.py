@@ -148,6 +148,46 @@ def clear_recorded_frames() -> None:
             _recorder.clear()
 
 
+def format_frame_records(records: List[FrameRecord]) -> str:
+    """把黑匣子记录格式化为排障文本(带墙钟时间/方向/走线标签/转储)。
+
+    :param records: :func:`recorded_frames` 快照或客户端
+        ``incident_frames`` 快照
+    :return: 多行文本(首行为统计头;空记录返回提示行)
+    """
+    lines = ["共 {} 帧".format(len(records))]
+    for record in records:
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(record.at))
+        lines.append(
+            "{}.{:03d} {} {} ({} 字节)".format(
+                stamp,
+                int(record.at * 1000) % 1000,
+                record.direction,
+                record.label,
+                len(record.data),
+            )
+        )
+        # 每行 16 字节缩进转储(与 format_hex 单行形态互补,长帧可读)
+        data = record.data
+        for offset in range(0, len(data), 16):
+            chunk = data[offset : offset + 16]
+            lines.append("    " + " ".join("{:02X}".format(byte) for byte in chunk))
+    return "\n".join(lines)
+
+
+def export_recorded_frames(path: Optional[str] = None) -> str:
+    """黑匣子一键导出:快照当前留存并格式化为排障文本。
+
+    :param path: 目标文件路径;``None`` 只返回文本不落盘
+    :return: 与 :func:`format_frame_records` 同构的文本
+    """
+    text = format_frame_records(recorded_frames())
+    if path is not None:
+        with open(path, "w", encoding="utf-8") as fp:
+            fp.write(text)
+    return text
+
+
 def set_debug(enabled: bool) -> None:
     """开启/关闭全局报文调试输出(进程级开关,对所有客户端实例生效)。
 

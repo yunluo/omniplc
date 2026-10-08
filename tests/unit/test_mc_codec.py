@@ -449,6 +449,27 @@ def test_parse_response_1e_trailing_bytes_rejected() -> None:
         codec_a.parse_response(frame, 1, False, True)
 
 
+def test_parse_response_1e_5b_abnormal_code_in_message() -> None:
+    """1E 结束码 5BH:异常细分码入错误消息,0x10 标注 PC 号错。
+
+    依据 SH-080008 §18.2 印刷页 394 算例「5BH + abnormal code 10H
+    (PC No. error)」(review-1020 §七乙2 话术层)。
+    """
+    from omniplc.core.constants import MC_1E_READ_WORD
+
+    # 5BH + 10H(PC 号错):消息带标注
+    frame = bytes([MC_1E_READ_WORD + 0x80, 0x5B, 0x10])
+    with pytest.raises(DeviceError) as exc_info:
+        codec_a.parse_response(frame, 1, False, True)
+    assert "PC 号错" in str(exc_info.value)
+    # 其他细分码:带码值不带标注
+    frame = bytes([MC_1E_READ_WORD + 0x80, 0x5B, 0x24])
+    with pytest.raises(DeviceError) as exc_info:
+        codec_a.parse_response(frame, 1, False, True)
+    assert "0x24" in str(exc_info.value)
+    assert "PC 号错" not in str(exc_info.value)
+
+
 # ----------------------------------------------------------------------
 # 随机读/写(0403/1402)与 CPU 型号(0101)——SH-080008 §8.3/§11.2 黄金样本
 # ----------------------------------------------------------------------

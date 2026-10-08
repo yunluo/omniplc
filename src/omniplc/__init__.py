@@ -67,6 +67,8 @@ from .core.base_client import BaseClient, ClientStats
 from .core.debug import (
     FrameRecord,
     clear_recorded_frames,
+    export_recorded_frames,
+    format_frame_records,
     recorded_frames,
     set_debug,
     set_frame_recorder,
@@ -253,6 +255,8 @@ __all__ = [
     "FrameRecord",
     "recorded_frames",
     "clear_recorded_frames",
+    "format_frame_records",
+    "export_recorded_frames",
     # ---- 报错文案语言 ----
     "set_lang",
     # ---- 监视器(周期轮询采集) ----

@@ -59,8 +59,14 @@ from ..core.base_client import (
     _extract_code,
     _narrow_float,
     _narrow_int,
+    _verify_value_equal,
 )
-from ..core.debug import log_warning
+from ..core.debug import (
+    FrameRecord,
+    frame_recorder_enabled,
+    log_warning,
+    recorded_frames,
+)
 from ..core.validation import require_count, require_int
 from ..core.constants import (
     DEFAULT_CONNECT_TIMEOUT,
@@ -194,6 +200,12 @@ class AsyncBaseClient(ABC):
         # 中取消;间隔与语义与同步基类一致(见其「心跳保活」节)
         self._heartbeat_interval: float = HEARTBEAT_INTERVAL_DEFAULT
         self._heartbeat_task: Optional["asyncio.Task[None]"] = None
+        # 写安全(review-1020 §七甲):只读模式 + 写白名单,默认全关
+        self._read_only = False
+        self._write_whitelist = False
+        self._write_allow_addresses: frozenset = frozenset()
+        # 拆连/设备错误现场快照(review-1020 §七乙):与同步层同口径
+        self._incident_frames: List[FrameRecord] = []
 
     # ------------------------------------------------------------------
     # 连接管理
@@ -636,8 +648,10 @@ class AsyncBaseClient(ABC):
         :param data_type: 数据类型,推荐用 :class:`omniplc.types.DataType` 枚举
         :param value: 待写入值
         :return: 是否成功
-        :raises ValueError: 参数非法
+        :raises RuntimeError: 只读模式(:attr:`read_only`)下拒绝一切写
+        :raises ValueError: 参数非法 / 写白名单开启且地址不在已绑定点位表
         """
+        self._check_write_allowed(address)
         data_type_enum = DataType.coerce(data_type)
         ok, _unused = await self._execute(
             lambda: self._write(address, data_type_enum, value), is_write=True
@@ -855,6 +869,7 @@ class AsyncBaseClient(ABC):
         """
         if not value:
             raise ValueError(_("value 不能为空字符串"))
+        self._check_write_allowed(address)
         ok, _unused = await self._execute(
             lambda: self._write_string(address, str(value), encoding), is_write=True
         )
@@ -867,9 +882,15 @@ class AsyncBaseClient(ABC):
     def bind_tags(self, table: TagTable) -> None:
         """绑定点位表,之后可用点位标识读写::``await client.read_tag("furnace_temp")``。
 
+        同时为**写白名单**(:attr:`write_whitelist`)缓存可写地址集
+        (与同步 :meth:`~omniplc.core.BaseClient.bind_tags` 同口径)。
+
         :param table: :class:`omniplc.tag.TagTable` 实例
         """
         self._tag_table = table
+        self._write_allow_addresses = frozenset(
+            table[tag_id].address for tag_id in table
+        )
 
     async def read_tag(
         self, tag: Union[str, Tag]
@@ -964,6 +985,138 @@ class AsyncBaseClient(ABC):
             raise ValueError(_("点位表中不存在:{!r}").format(tag))
 
     # ------------------------------------------------------------------
+    # 写安全与信号原语(review-1020 §七甲/丙,与同步基类同口径)
+    # ------------------------------------------------------------------
+
+    @property
+    def read_only(self) -> bool:
+        """只读模式:``True`` 时一切写操作在入口被拒绝(语义同同步)。"""
+        return self._read_only
+
+    @read_only.setter
+    def read_only(self, enabled: bool) -> None:
+        if not isinstance(enabled, bool):
+            raise ValueError(_("read_only 必须为布尔值,收到:{!r}").format(enabled))
+        self._read_only = enabled
+
+    @property
+    def write_whitelist(self) -> bool:
+        """写白名单:``True`` 时仅允许写已绑定 TagTable 内的地址(语义同同步)。"""
+        return self._write_whitelist
+
+    @write_whitelist.setter
+    def write_whitelist(self, enabled: bool) -> None:
+        if not isinstance(enabled, bool):
+            raise ValueError(
+                _("write_whitelist 必须为布尔值,收到:{!r}").format(enabled)
+            )
+        self._write_whitelist = enabled
+
+    def _check_write_allowed(self, address: str) -> None:
+        """写入口安全守卫:只读模式与写白名单(内部方法,语义同同步)。"""
+        if self._read_only:
+            raise RuntimeError(
+                _("客户端为只读模式(read_only=True),写操作已拒绝:{}").format(address)
+            )
+        if self._write_whitelist:
+            if self._tag_table is None:
+                raise ValueError(
+                    _(
+                        "写白名单已开启但未绑定 TagTable:请先 bind_tags() 或关闭 write_whitelist"
+                    )
+                )
+            if address not in self._write_allow_addresses:
+                raise ValueError(
+                    _(
+                        "写白名单已开启:地址 {!r} 不在已绑定点位表内,写操作已拒绝"
+                    ).format(address)
+                )
+
+    @property
+    def incident_frames(self) -> List[FrameRecord]:
+        """最近一次拆连/设备错误的现场报文快照(语义同同步 :attr:`incident_frames`)。"""
+        return self._incident_frames
+
+    def _capture_incident(self) -> None:
+        """拆连/设备错误现场快照:复制黑匣子当前留存(内部方法)。"""
+        if frame_recorder_enabled():
+            records = recorded_frames()
+            if records:
+                self._incident_frames = records
+
+    async def write_and_verify(
+        self,
+        address: str,
+        data_type: Union[DataType, str],
+        value: PrimitiveValue,
+        *,
+        verify: bool = True,
+        readback_type: Optional[Union[DataType, str]] = None,
+    ) -> Tuple[bool, Optional[PrimitiveValue]]:
+        """写入并回读校验(与同步 :meth:`~omniplc.core.BaseClient.write_and_verify`
+        同契约,参数与返回值语义见彼处)。"""
+        data_type_enum = DataType.coerce(data_type)
+        if not await self.write(address, data_type_enum, value):
+            return False, None
+        if not verify:
+            return True, None
+        reread_enum = (
+            DataType.coerce(readback_type)
+            if readback_type is not None
+            else data_type_enum
+        )
+        ok, actual = await self.read(address, reread_enum)
+        if not ok or actual is None:
+            return False, None
+        if not _verify_value_equal(data_type_enum, value, actual):
+            self._set_error(
+                _("write_and_verify 回读不符:写入 {!r},读回 {!r}({} @ {})").format(
+                    value, actual, address, reread_enum
+                ),
+                ErrorCategory.UNKNOWN,
+                None,
+            )
+            return False, actual
+        return True, actual
+
+    async def wait_value(
+        self,
+        address: str,
+        data_type: Union[DataType, str],
+        predicate: Callable[[PrimitiveValue], bool],
+        *,
+        timeout: float,
+        interval: float = 0.1,
+    ) -> Tuple[bool, Optional[PrimitiveValue]]:
+        """轮询等待点位值满足条件(与同步 :meth:`~omniplc.core.BaseClient.wait_value`
+        同契约;等待期间以 ``asyncio.sleep`` 让出事件循环)。
+
+        参数校验同步完成后进入轮询;每次轮询之间同循环其他任务照常推进,
+        但同一客户端上的读事务仍由事务锁串行。
+        """
+        if not callable(predicate):
+            raise ValueError(
+                _("predicate 必须为可调用对象,收到:{!r}").format(predicate)
+            )
+        if timeout <= 0:
+            raise ValueError(_("timeout 必须大于 0,收到:{}").format(timeout))
+        if interval <= 0:
+            raise ValueError(_("interval 必须大于 0,收到:{}").format(interval))
+        data_type_enum = DataType.coerce(data_type)
+        deadline = time.monotonic() + timeout
+        last_value: Optional[PrimitiveValue] = None
+        while True:
+            ok, value = await self.read(address, data_type_enum)
+            if ok and value is not None:
+                last_value = value
+                if predicate(value):
+                    return True, value
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False, last_value
+            await asyncio.sleep(interval if interval < remaining else remaining)
+
+    # ------------------------------------------------------------------
     # 事务执行:惰性重连 + 重试 + 错误转换(事件循环内串行的核心)
     # ------------------------------------------------------------------
 
@@ -999,6 +1152,10 @@ class AsyncBaseClient(ABC):
         """
         self._ensure_open()
         self._check_loop_affinity()
+        if is_write and self._read_only:
+            # 只读模式总闸(review-1020 §七甲1,与同步层同口径):驱动特有写
+            # (随机/时钟等)不经 :meth:`write` 入口,在此统一拒绝
+            raise RuntimeError(_("客户端为只读模式(read_only=True),写操作已拒绝"))
         retries = self._write_retries if is_write else self._retries
         async with self._guard():
             # 关闸复查:close() 在等锁期间已置 _closed,排队进锁的事务
@@ -1037,6 +1194,8 @@ class AsyncBaseClient(ABC):
                     self._set_error(
                         _describe(exc), _categorize(exc), code, record=not heartbeat
                     )
+                    if not heartbeat:
+                        self._capture_incident()
                     if not heartbeat and code is not None and code >= 0:
                         # 只计"PLC 明确返回错误码"的次数(负码为库内诊断码,
                         # 与同步层同口径;native 侧当前无负码来源,防御一致)
@@ -1046,6 +1205,7 @@ class AsyncBaseClient(ABC):
                     self._set_error(
                         _describe(exc), _categorize(exc), _extract_code(exc)
                     )
+                    self._capture_incident()
                     self._mark_disconnected()
                 else:
                     if transport is not None:

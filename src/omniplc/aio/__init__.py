@@ -40,6 +40,7 @@ from typing import (
 )
 
 from ..core.base_client import BaseClient, ClientStats
+from ..core.debug import FrameRecord
 from ..core.errors import ErrorCategory, _CANCELLED_ERRORS
 from ..core.monitor import Monitor, MonitorEvent
 from ..cnc import FanucFocasClient, MitsubishiEzSocketClient, MTConnectClient
@@ -558,6 +559,69 @@ class ABaseClient:
     async def write_tag(self, tag: Union[str, Tag], value: PrimitiveValue) -> bool:
         """按点位写入(自动逆缩放)。"""
         return await self._run(lambda: self._sync.write_tag(tag, value))
+
+    # ------------------------------------------------------------------
+    # 写安全与信号原语(review-1020 §七甲/丙,转发同步实例)
+    # ------------------------------------------------------------------
+
+    @property
+    def read_only(self) -> bool:
+        """只读模式开关(转发同步实例;语义见同步 :attr:`read_only`)。"""
+        return self._sync.read_only
+
+    @read_only.setter
+    def read_only(self, enabled: bool) -> None:
+        self._sync.read_only = enabled
+
+    @property
+    def write_whitelist(self) -> bool:
+        """写白名单开关(转发同步实例;语义见同步 :attr:`write_whitelist`)。"""
+        return self._sync.write_whitelist
+
+    @write_whitelist.setter
+    def write_whitelist(self, enabled: bool) -> None:
+        self._sync.write_whitelist = enabled
+
+    @property
+    def incident_frames(self) -> List[FrameRecord]:
+        """最近一次拆连/设备错误的现场报文快照(转发同步实例)。"""
+        return self._sync.incident_frames
+
+    async def write_and_verify(
+        self,
+        address: str,
+        data_type: Union[DataType, str],
+        value: PrimitiveValue,
+        *,
+        verify: bool = True,
+        readback_type: Optional[Union[DataType, str]] = None,
+    ) -> Tuple[bool, Optional[PrimitiveValue]]:
+        """写入并回读校验(语义同同步 :meth:`~omniplc.core.BaseClient.write_and_verify`)。"""
+        return await self._run(
+            lambda: self._sync.write_and_verify(
+                address, data_type, value, verify=verify, readback_type=readback_type
+            )
+        )
+
+    async def wait_value(
+        self,
+        address: str,
+        data_type: Union[DataType, str],
+        predicate: Callable[[PrimitiveValue], bool],
+        *,
+        timeout: float,
+        interval: float = 0.1,
+    ) -> Tuple[bool, Optional[PrimitiveValue]]:
+        """轮询等待点位值满足条件(语义同同步 :meth:`~omniplc.core.BaseClient.wait_value`)。
+
+        等待期间占用本客户端的单工作线程(最长 ``timeout`` 秒),同客户端
+        其他调用排队;需要并发等待请用多个客户端实例或 native 层。
+        """
+        return await self._run(
+            lambda: self._sync.wait_value(
+                address, data_type, predicate, timeout=timeout, interval=interval
+            )
+        )
 
     # ------------------------------------------------------------------
     # 生命周期
