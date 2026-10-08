@@ -27,7 +27,7 @@ from __future__ import annotations
 import random
 import struct
 from enum import IntEnum
-from typing import Any, List, NamedTuple, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 from ..core.base_client import BaseClient, validate_endpoint
 from ..core.debug import format_hex
@@ -337,6 +337,21 @@ _T_UCHAR = 0x21
 _T_USHORT = 0x22
 _T_UINT32 = 0x23
 
+# 各类型解码所需最小字节数(尺寸按 get_data_type_length;T_FLOATBIN =
+# 2×i16 + i32 + f64 = 16;T_STR 至少含 4 字节长度域)
+_GET_DATA_TYPE_MIN_SIZE: Dict[int, int] = {
+    _T_CHAR: 1,
+    _T_UCHAR: 1,
+    _T_SHORT: 2,
+    _T_USHORT: 2,
+    _T_LONG: 4,
+    _T_UINT32: 4,
+    _T_DLONG: 8,
+    _T_DOUBLE: 8,
+    _T_FLOATBIN: 16,
+    _T_STR: 4,
+}
+
 
 # --------------------------------------------------------------------------
 # codec 纯函数(编解码与传输解耦,黄金帧测试直接打点)
@@ -541,6 +556,15 @@ def decode_get_data(payload: bytes, request_type: int) -> Any:
             _("GIOP 响应数据段长度非法:声明 {} 字节,实际 {} 字节").format(
                 data_length, len(data)
             )
+        )
+    # 类型所需字节不足按坏帧收口(review-1020 P2-1):否则 IndexError/
+    # struct.error 逃逸 _execute 契约直抛且不拆连(decode_prog_block 先例)
+    required = _GET_DATA_TYPE_MIN_SIZE.get(data_type)
+    if required is not None and len(data) < required:
+        raise ProtocolFrameError(
+            _(
+                "GIOP 响应数据段不足以按类型 0x{:02X} 解码:需 {} 字节,实际 {} 字节(原始数据:{})"
+            ).format(data_type, required, len(data), format_hex(payload))
         )
     if data_type == _T_CHAR or data_type == _T_UCHAR:
         return data[0]
@@ -1063,6 +1087,11 @@ class MitsubishiEzSocketClient(BaseClient):
         system = self._check_system_no(system_no)
         if feed == EzFeedSpeedType.FC:
             section, sub_section = 33, 1
+        elif feed == EzFeedSpeedType.FE:
+            # FE = 42/4(螺纹切削);FE 枚举值 4 不能套用「值+1」——
+            # FA/FM/FS 的段号恰为枚举值+1,FE 不是(C 库 case FE: 42,4;
+            # 旧实现 42/5,review-1020 P1-2)
+            section, sub_section = 42, 4
         else:
             section, sub_section = 42, int(feed) + 1
         return self._execute(

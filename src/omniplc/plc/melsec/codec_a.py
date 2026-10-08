@@ -4,7 +4,8 @@
 路由字段),软元件码表也不同。帧布局(按 MELSEC 手册 1E 帧格式口径):
 
 - 请求 = 副头部(1) + PLC号/站号(1) + 监视定时器(2,小端) + 设备编号(4,小端;
-  本库支持 ≤0xFFFF,高 2 字节恒 0) + 软元件码(2,小端) + 点数(2,小端) + [写数据]
+  本库支持 ≤0xFFFF,高 2 字节恒 0) + 软元件码(2,小端) + 点数(1 字节,
+  256 点 = 00H,SH-080008 p.402)+ 恒零域(1 字节,p.403)+ [写数据]
 - 副头部:位读 0x00 / 字读 0x01 / 位写 0x02 / 字写 0x03
 - 响应 = 副头部(请求值 + 0x80)(1) + 结束代码(1,0=成功) + [数据]
   位数据每字节 2 位、高位在前;字数据逐字小端
@@ -30,6 +31,7 @@ from ...core.constants import (
     MC_1E_WRITE_BIT,
     MC_1E_WRITE_WORD,
 )
+from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
 from ...core.i18n import _
 
@@ -119,7 +121,11 @@ def build_request(
     request += number.to_bytes(2, "little")
     request += b"\x00\x00"
     request += code.to_bytes(2, "little")
-    request += points.to_bytes(2, "little")
+    # 依据:SH-080008 p.402 §18.4(点数域二进制「1 字节数值」,256 点指定
+    # 00H)+ p.403(Fixed value 恒 0,二进制 00H)+ p.404 算例尾域 0C 00
+    # ——线上为「1 字节点数 + 1 字节恒零」,256 点低字节回绕为 00(旧实现
+    # 按 2 字节小端发 00 01,恰 256 点与手册相悖,review-1020 P1-6)
+    request += bytes((points & 0xFF, 0x00))
     if is_write:
         request += _write_payload(points, is_bit, data or [])
     return bytes(request)
@@ -134,7 +140,9 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
     """
     if len(frame) < MC_1E_RESPONSE_HEAD_SIZE:
         raise ProtocolFrameError(
-            _("1E 响应头不足 {} 字节:{}").format(MC_1E_RESPONSE_HEAD_SIZE, len(frame))
+            _("1E 响应头不足 {} 字节:{}(收到的原始数据:{})").format(
+                MC_1E_RESPONSE_HEAD_SIZE, len(frame), format_hex(frame)
+            )
         )
     expected_head = (
         (MC_1E_READ_BIT if is_bit else MC_1E_READ_WORD)
@@ -143,8 +151,8 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
     ) + 0x80
     if frame[0] != expected_head:
         raise ProtocolFrameError(
-            _("1E 响应副头部不符:期望 0x{:02X},收到 0x{:02X}").format(
-                expected_head, frame[0]
+            _("1E 响应副头部不符:期望 0x{:02X},收到 0x{:02X}(收到的原始数据:{})").format(
+                expected_head, frame[0], format_hex(frame)
             )
         )
     end_code = frame[1]
@@ -153,7 +161,9 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
             end_code == MC_1E_ERROR_EXTRA
             and len(frame) < MC_1E_RESPONSE_HEAD_SIZE + MC_1E_ERROR_EXTRA_SIZE
         ):
-            raise ProtocolFrameError(_("1E 错误响应缺少扩展信息字节"))
+            raise ProtocolFrameError(
+                _("1E 错误响应缺少扩展信息字节(收到的原始数据:{})").format(format_hex(frame))
+            )
         raise DeviceError(
             _("MC(1E) 结束代码 0x{:02X},详见 A 系列手册").format(end_code), end_code
         )
@@ -163,8 +173,8 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
             # TCP 缓冲会被下一事务当响应头消费(串帧),UDP 整包路径下
             # 属数据报边界异常——统一按坏帧拒绝
             raise ProtocolFrameError(
-                _("1E 写响应尾部有冗余字节:期望 {} 字节,实际 {}").format(
-                    MC_1E_RESPONSE_HEAD_SIZE, len(frame)
+                _("1E 写响应尾部有冗余字节:期望 {} 字节,实际 {}(收到的原始数据:{})").format(
+                    MC_1E_RESPONSE_HEAD_SIZE, len(frame), format_hex(frame)
                 )
             )
         return []
@@ -172,12 +182,14 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
     data = frame[2 : 2 + expected]
     if len(data) != expected:
         raise ProtocolFrameError(
-            _("1E 响应数据不足:期望 {} 字节,实际 {}").format(expected, len(data))
+            _("1E 响应数据不足:期望 {} 字节,实际 {}(收到的原始数据:{})").format(
+                expected, len(data), format_hex(frame)
+            )
         )
     if len(frame) != MC_1E_RESPONSE_HEAD_SIZE + expected:
         raise ProtocolFrameError(
-            _("1E 响应尾部有冗余字节:期望 {} 字节,实际 {}").format(
-                MC_1E_RESPONSE_HEAD_SIZE + expected, len(frame)
+            _("1E 响应尾部有冗余字节:期望 {} 字节,实际 {}(收到的原始数据:{})").format(
+                MC_1E_RESPONSE_HEAD_SIZE + expected, len(frame), format_hex(frame)
             )
         )
     if is_bit:

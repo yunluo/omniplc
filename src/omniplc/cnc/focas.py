@@ -509,17 +509,21 @@ class _FocasSession(BaseTransport):
         except (DeviceError, OSError):
             self.close()
             raise
-        log_op(self._debug_label, "会话已建立(cnc_id={})", self._cnc_id)
+        log_op(self._debug_label, "会话已建立(cnc_id=%s)", self._cnc_id)
 
     def apply_receive_timeout(self) -> None:
         """把 receive_timeout 下发为 socket 超时(cnc_settimeout,15128 行;
-        内部方法,每连接属性可随时改)。"""
+        内部方法,每连接属性可随时改)。注意 cnc_settimeout 形参单位是
+        **毫秒**(与 cnc_allclibhndl3 的秒不同),此处 ×1000 换算
+        (review-1020 P1-3)。"""
         functions = self._functions
         handle = self._handle
         if functions is None or handle is None:
             return
         _check_rc(
-            functions.cnc_settimeout(handle, max(1, int(self._receive_timeout))),
+            # cnc_settimeout 形参为毫秒(fwlib32.h 15128 行,档案 README §1
+            # 「long ms」;receive_timeout 为秒,×1000 换算)
+            functions.cnc_settimeout(handle, max(1, int(self._receive_timeout * 1000))),
             _("下发 socket 超时"),
         )
 

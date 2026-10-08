@@ -56,6 +56,7 @@ from ...core.constants import (
     SERIAL_DEFAULT_PARITY,
     SERIAL_DEFAULT_STOP_BITS,
 )
+from ...core.debug import format_hex
 from ...core.errors import ProtocolFrameError, TransportClosedError
 from ...core.validation import (
     check_byte_field,
@@ -1283,7 +1284,11 @@ class MelsecMcSerialClient(_MelsecMcBase):
             return head + transport.recv(6)
         if code == codec_serial.NAK:
             return head + transport.recv(8)
-        raise ProtocolFrameError(_("1C 响应控制码非法:0x{:02X}").format(code))
+        raise ProtocolFrameError(
+            _("1C 响应控制码非法:0x{:02X}(收到的原始帧:{})").format(
+                code, format_hex(head)
+            )
+        )
 
     @staticmethod
     def _transact_3c(transport: BaseTransport, tail_size: int) -> bytes:
@@ -1297,7 +1302,11 @@ class MelsecMcSerialClient(_MelsecMcBase):
             return head + transport.recv(12)
         if code == codec_serial.NAK:
             return head + transport.recv(16)
-        raise ProtocolFrameError(_("3C 响应控制码非法:0x{:02X}").format(code))
+        raise ProtocolFrameError(
+            _("3C 响应控制码非法:0x{:02X}(收到的原始帧:{})").format(
+                code, format_hex(head)
+            )
+        )
 
     @staticmethod
     def _transact_4c(transport: BaseTransport) -> bytes:
@@ -1347,9 +1356,9 @@ class MelsecMcSerialClient(_MelsecMcBase):
             pos += 2
             if head != bytes([codec_serial.DLE, codec_serial.STX]):
                 raise ProtocolFrameError(
-                    _("4C 响应必须以 DLE STX 开头:0x{:02X} 0x{:02X}").format(
-                        head[0], head[1]
-                    )
+                    _(
+                        "4C 响应必须以 DLE STX 开头:0x{:02X} 0x{:02X}(收到的原始帧:{})"
+                    ).format(head[0], head[1], format_hex(bytes(buf[pos - 2 :])))
                 )
             _ensure(1)
             first = buf[pos]
@@ -1370,18 +1379,23 @@ class MelsecMcSerialClient(_MelsecMcBase):
                 raise ProtocolFrameError(
                     _(
                         "4C 应答数据长非法(至少含帧识别码+路由+应答识别码+结束代码):{}"
-                    ).format(length)
+                        "(收到的原始帧:{})"
+                    ).format(length, format_hex(bytes(buf)))
                 )
             if length > MC_SERIAL_MAX_FRAME:
                 raise ProtocolFrameError(
-                    _("4C 应答数据长超限:{} > {}").format(length, MC_SERIAL_MAX_FRAME)
+                    _("4C 应答数据长超限:{} > {}(收到的原始帧:{})").format(
+                        length, MC_SERIAL_MAX_FRAME, format_hex(bytes(buf))
+                    )
                 )
             _ensure(1)
             frame_id = bytes(buf[pos : pos + 1])
             pos += 1
             if frame_id[0] != MC_SERIAL_FRAME_ID_4C:
                 raise ProtocolFrameError(
-                    _("4C 帧识别码不符:期望 F8H,收到 0x{:02X}").format(frame_id[0])
+                    _("4C 帧识别码不符:期望 F8H,收到 0x{:02X}(收到的原始帧:{})").format(
+                        frame_id[0], format_hex(bytes(buf))
+                    )
                 )
             body = bytearray()
             while len(body) < length - 1:
@@ -1397,7 +1411,9 @@ class MelsecMcSerialClient(_MelsecMcBase):
                     pos += 1
                     if following != codec_serial.DLE:
                         raise ProtocolFrameError(
-                            _("4C 附加码之后必须是 10H,收到 0x{:02X}").format(following)
+                            _(
+                                "4C 附加码之后必须是 10H,收到 0x{:02X}(收到的原始帧:{})"
+                            ).format(following, format_hex(bytes(buf)))
                         )
                 body.append(raw)
             _ensure(4)

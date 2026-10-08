@@ -406,9 +406,8 @@ class AsyncOmronFinsBase(AsyncBaseClient):
                         FINS_MAX_READ_ELEMENTS, count
                     )
                 )
-            frame = self._build_read(parsed, count, is_bit=True)
             ok, raw_bits = await self._execute(
-                lambda: self._read_bits_transaction(frame, count)
+                lambda: self._read_bits_transaction(parsed, count)
             )
             if not ok or raw_bits is None:
                 return False, None
@@ -435,8 +434,16 @@ class AsyncOmronFinsBase(AsyncBaseClient):
             values.append(_words_to_value(chunk, data_type_enum))
         return True, values
 
-    async def _read_bits_transaction(self, frame: bytes, count: int) -> List[int]:
-        """位区连续位读的单事务通道(内部方法,0101 位区码)。"""
+    async def _read_bits_transaction(
+        self, parsed: FinsAddress, count: int
+    ) -> List[int]:
+        """位区连续位读的单事务通道(内部方法,0101 位区码)。
+
+        组帧在事务闭包内(review-1020 P2-4,与同步层同口径):自动节点
+        模式下 DA1 等路由字段在惰性重连/握手后才落定,事务外预组帧会以
+        DA1=0(非法域,合法 1~254)出帧。
+        """
+        frame = self._build_read(parsed, count, is_bit=True)
         return codec.parse_response(
             await self._transact(frame), frame, count, is_bit=True, is_read=True
         )

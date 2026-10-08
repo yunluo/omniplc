@@ -61,7 +61,7 @@ from ..core.base_client import (
     _narrow_int,
 )
 from ..core.debug import log_warning
-from ..core.validation import require_count
+from ..core.validation import require_count, require_int
 from ..core.constants import (
     DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_RECEIVE_TIMEOUT,
@@ -371,6 +371,10 @@ class AsyncBaseClient(ABC):
         随后断开连接。与线程池包装层不同,本层没有待排空的任务队列——
         ``await`` 就是事务本身,取消它会真中断(见 :meth:`_execute`)。
         """
+        # 亲和检查先于取锁(review-1020 P2-2,与 disconnect 同口径):跨循环
+        # close 走 _guard 静默换锁后,心跳 cancel/await 与 transport.close()
+        # 都会在错误循环上执行,清理可能未落地(fd 泄漏)
+        self._check_loop_affinity()
         self._closed = True
         async with self._guard():
             await self._disconnect_locked()
@@ -543,7 +547,7 @@ class AsyncBaseClient(ABC):
     def retries(self, count: int) -> None:
         if count < 0:
             raise ValueError(_("retries 不能为负数,收到:{}").format(count))
-        self._retries = int(count)
+        self._retries = require_int(count)
 
     @property
     def write_retries(self) -> int:
@@ -554,7 +558,7 @@ class AsyncBaseClient(ABC):
     def write_retries(self, count: int) -> None:
         if count < 0:
             raise ValueError(_("write_retries 不能为负数,收到:{}").format(count))
-        self._write_retries = int(count)
+        self._write_retries = require_int(count)
 
     @property
     def reconnect_backoff(self) -> bool:
@@ -796,28 +800,28 @@ class AsyncBaseClient(ABC):
         return await self.write(address, DataType.BOOL, bool(value))
 
     async def write_short(self, address: str, value: int) -> bool:
-        """写入 16 位有符号整数。"""
-        return await self.write(address, DataType.SHORT, int(value))
+        """写入 16 位有符号整数(非 int 显式拒绝,与同步同口径)。"""
+        return await self.write(address, DataType.SHORT, require_int(value))
 
     async def write_ushort(self, address: str, value: int) -> bool:
-        """写入 16 位无符号整数。"""
-        return await self.write(address, DataType.USHORT, int(value))
+        """写入 16 位无符号整数(非 int 显式拒绝,与同步同口径)。"""
+        return await self.write(address, DataType.USHORT, require_int(value))
 
     async def write_int(self, address: str, value: int) -> bool:
-        """写入 32 位有符号整数。"""
-        return await self.write(address, DataType.INT, int(value))
+        """写入 32 位有符号整数(非 int 显式拒绝,与同步同口径)。"""
+        return await self.write(address, DataType.INT, require_int(value))
 
     async def write_uint(self, address: str, value: int) -> bool:
-        """写入 32 位无符号整数。"""
-        return await self.write(address, DataType.UINT, int(value))
+        """写入 32 位无符号整数(非 int 显式拒绝,与同步同口径)。"""
+        return await self.write(address, DataType.UINT, require_int(value))
 
     async def write_long(self, address: str, value: int) -> bool:
-        """写入 64 位有符号整数。"""
-        return await self.write(address, DataType.LONG, int(value))
+        """写入 64 位有符号整数(非 int 显式拒绝,与同步同口径)。"""
+        return await self.write(address, DataType.LONG, require_int(value))
 
     async def write_ulong(self, address: str, value: int) -> bool:
-        """写入 64 位无符号整数。"""
-        return await self.write(address, DataType.ULONG, int(value))
+        """写入 64 位无符号整数(非 int 显式拒绝,与同步同口径)。"""
+        return await self.write(address, DataType.ULONG, require_int(value))
 
     async def write_float(self, address: str, value: float) -> bool:
         """写入 32 位浮点数(float32)。"""
