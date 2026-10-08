@@ -20,6 +20,7 @@ import pytest
 
 from omniplc import (
     EzDeviceStatus,
+    EzFeedSpeedType,
     EzPositionType,
     EzRunMode,
     EzRunState,
@@ -191,6 +192,26 @@ def test_decode_str() -> None:
     assert decode_get_data(payload, 0x10) == "2.0"
 
 
+def test_decode_get_data_insufficient_bytes_rejected() -> None:
+    """数据段字节不足按类型解码 → ProtocolFrameError 收口(review-1020 P2-1)。
+
+    旧实现 IndexError/struct.error 直抛,逃逸 _execute 契约且不拆连
+    (decode_prog_block 同型防护先例)。
+    """
+    # T_CHAR 声明 0 字节:data[0] 曾 IndexError
+    with pytest.raises(ProtocolFrameError):
+        decode_get_data(struct.pack("<3I", 0, 0x01, 0), 0x01)
+    # T_DLONG 声明 2 字节:曾 struct.error
+    with pytest.raises(ProtocolFrameError):
+        decode_get_data(struct.pack("<3I", 0, 0x04, 2) + b"\x01\x00", 0x04)
+    # T_STR 不足 4 字节长度域
+    with pytest.raises(ProtocolFrameError):
+        decode_get_data(struct.pack("<3I", 0, 0x10, 2) + b"\x01\x00", 0x10)
+    # T_FLOATBIN 不足 16 字节
+    with pytest.raises(ProtocolFrameError):
+        decode_get_data(struct.pack("<3I", 0, 0x06, 8) + b"\x00" * 8, 0x06)
+
+
 def test_decode_alarms_two_entries() -> None:
     """报警数组:两条定长 264 字节结构逐条解码。"""
     entry = struct.pack("<2i", 101, 3) + b"Y01" + b"\x00" * 253
@@ -304,6 +325,28 @@ def test_read_axis_position_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert ok is True and pos == pytest.approx(-12.5)
     assert client._transport.sent == build_get_data_request(_RID, 37, 2, 1, 0x01, 0x06)
+
+
+def test_read_feed_speed_sections(monkeypatch: pytest.MonkeyPatch) -> None:
+    """进给速度分派:FC→33/1、FA/FM/FS→42/值+1、FE→42/4(review-1020 P1-2)。
+
+    FE 枚举值 4 不能套「值+1」:C 库 case FE: 42,4,旧实现发 42/5。
+    """
+    for feed, section, sub in (
+        (EzFeedSpeedType.FC, 33, 1),
+        (EzFeedSpeedType.FA, 42, 1),
+        (EzFeedSpeedType.FM, 42, 2),
+        (EzFeedSpeedType.FS, 42, 3),
+        (EzFeedSpeedType.FE, 42, 4),
+    ):
+        data = struct.pack("<hhId", 5, 3, 0, 1.5)
+        client = _client(monkeypatch, _chunks(_get_data_response(0x06, data)))
+        ok, speed = client.read_feed_speed(system_no=1, feed=feed)
+        assert ok is True and speed == pytest.approx(1.5)
+        assert client._transport.sent == build_get_data_request(
+            _RID, section, sub, 1, 0, 0x06
+        )
+        client.disconnect()
 
 
 def test_read_all_axis_positions_uses_axis_count(

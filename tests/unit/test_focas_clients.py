@@ -288,6 +288,29 @@ def test_connect_rejects_unreachable(fake: _FakeFocas) -> None:
     assert "分配库句柄失败" in client.last_error
 
 
+def test_connect_with_debug_enabled(fake: _FakeFocas) -> None:
+    """set_debug(True) 时 connect 不因日志格式化失败。
+
+    log_op 为 %-风格模板,旧实现 connect 末条用 {} 占位 → TypeError 被
+    connect 捕获记「连接初始化失败」(review-1020 P1-1,绿着错同型:
+    调试关闭时全部用例照绿)。
+    """
+    from omniplc.core.debug import set_debug
+
+    set_debug(True)
+    try:
+        client = _make_client(sdk_dir="C:/fwlib")
+        assert client.connect() is True
+        assert client.connected is True
+        assert client.last_error is None
+        # 读三件在调试开启下同样走通(log_op 其余调用均为 %-风格)
+        ok, _info = client.read_sysinfo()
+        assert ok is True
+        client.close()
+    finally:
+        set_debug(False)
+
+
 def test_close_idempotent(fake: _FakeFocas) -> None:
     """close 幂等:句柄只释放一次,重复调用不报错。"""
     client = _make_client(sdk_dir="C:/fwlib")
@@ -487,12 +510,16 @@ def test_unknown_rc_text(fake: _FakeFocas) -> None:
 
 
 def test_receive_timeout_applied(fake: _FakeFocas) -> None:
-    """connect 后 receive_timeout 经 cnc_settimeout 下发。"""
+    """connect 后 receive_timeout 经 cnc_settimeout 下发,秒 → 毫秒换算。
+
+    cnc_settimeout 形参单位是毫秒(fwlib32.h 15128 行;allclibhndl3 才是
+    秒),旧实现直传秒值 7 → 7ms 超时风暴(review-1020 P1-3)。
+    """
     client = _make_client(sdk_dir="C:/fwlib")
     client.receive_timeout = 7.0
     assert client.connect() is True
     handle = client._transport._handle  # type: ignore[attr-defined]
-    assert fake.handles[handle]["timeout"] == 7
+    assert fake.handles[handle]["timeout"] == 7000
     client.close()
 
 

@@ -150,17 +150,20 @@ def test_read_retry_reconnects_and_resends() -> None:
     transport = FakeTransport(["reset"] + _chunks(_RESP_TID2))
     client = _client(transport, retries=1)
 
-    result = asyncio.run(client.read_ushort("hr0"))
+    async def scenario() -> None:
+        result = await client.read_ushort("hr0")
 
-    assert result == (True, 20)
-    assert transport.connect_calls == 2  # 首次建连 + 失败后惰性重连
-    assert len(transport.sent) == 2  # 重发了一次(帧内事务号已递增)
-    assert transport.sent[1][:2] == b"\x00\x02"  # 重发用的是新事务号
-    assert client.stats["transactions"] == 1  # 一次公开调用 = 一次事务
-    assert client.stats["error_count"] == 1  # 失败尝试记一次
-    assert client.last_error is None  # 成功即清空
-    assert client.connected is True
-    asyncio.run(client.close())
+        assert result == (True, 20)
+        assert transport.connect_calls == 2  # 首次建连 + 失败后惰性重连
+        assert len(transport.sent) == 2  # 重发了一次(帧内事务号已递增)
+        assert transport.sent[1][:2] == b"\x00\x02"  # 重发用的是新事务号
+        assert client.stats["transactions"] == 1  # 一次公开调用 = 一次事务
+        assert client.stats["error_count"] == 1  # 失败尝试记一次
+        assert client.last_error is None  # 成功即清空
+        assert client.connected is True
+        await client.close()
+
+    asyncio.run(scenario())
 
 
 def test_write_retries_default_protects_against_duplicate_write() -> None:
@@ -181,13 +184,16 @@ def test_write_retries_enabled_resends_once() -> None:
     transport = FakeTransport(["reset"] + _chunks(_ECHO_TID2))
     client = _client(transport, retries=3, write_retries=1)
 
-    ok = asyncio.run(client.write_ushort("hr0", 20))
+    async def scenario() -> None:
+        ok = await client.write_ushort("hr0", 20)
 
-    assert ok is True
-    assert len(transport.sent) == 2
-    assert transport.sent[0][:2] == b"\x00\x01"
-    assert transport.sent[1][:2] == b"\x00\x02"
-    asyncio.run(client.close())
+        assert ok is True
+        assert len(transport.sent) == 2
+        assert transport.sent[0][:2] == b"\x00\x01"
+        assert transport.sent[1][:2] == b"\x00\x02"
+        await client.close()
+
+    asyncio.run(scenario())
 
 
 def test_backoff_gate_blocks_reconnect_without_polluting_error_count() -> None:
@@ -218,14 +224,17 @@ def test_transport_timeout_keeps_connection_and_retries() -> None:
     transport = FakeTransport(["timeout"] + _chunks(_RESP_TID2))
     client = _client(transport, retries=1)
 
-    result = asyncio.run(client.read_ushort("hr0"))
+    async def scenario() -> None:
+        result = await client.read_ushort("hr0")
 
-    assert result == (True, 20)
-    assert client.stats["disconnect_count"] == 0, "超时不得拆连"
-    assert client.stats["device_error_count"] == 0, "超时不是设备错误码"
-    assert len(transport.sent) == 2, "同连接上重发(未重连)"
-    assert transport.connect_calls == 1
-    asyncio.run(client.close())
+        assert result == (True, 20)
+        assert client.stats["disconnect_count"] == 0, "超时不得拆连"
+        assert client.stats["device_error_count"] == 0, "超时不是设备错误码"
+        assert len(transport.sent) == 2, "同连接上重发(未重连)"
+        assert transport.connect_calls == 1
+        await client.close()
+
+    asyncio.run(scenario())
 
 
 def test_socket_timeout_disconnects_like_sync_tcp() -> None:
@@ -355,17 +364,20 @@ def test_typed_calls_share_one_transaction_template() -> None:
     generic_transport = FakeTransport(_chunks(_RESP_TID1))
     generic_client = _client(generic_transport, retries=0)
 
-    assert asyncio.run(typed_client.read_ushort("hr0")) == (True, 20)
-    assert asyncio.run(generic_client.read("hr0", DataType.USHORT)) == (True, 20)
+    async def scenario() -> None:
+        assert await typed_client.read_ushort("hr0") == (True, 20)
+        assert await generic_client.read("hr0", DataType.USHORT) == (True, 20)
 
-    assert len(typed_transport.sent) == 1
-    assert len(generic_transport.sent) == 1
-    assert typed_transport.sent[0] == generic_transport.sent[0], (
-        "类型化与泛化请求帧必须同模板"
-    )
+        assert len(typed_transport.sent) == 1
+        assert len(generic_transport.sent) == 1
+        assert typed_transport.sent[0] == generic_transport.sent[0], (
+            "类型化与泛化请求帧必须同模板"
+        )
 
-    asyncio.run(typed_client.close())
-    asyncio.run(generic_client.close())
+        await typed_client.close()
+        await generic_client.close()
+
+    asyncio.run(scenario())
 
 
 def test_backoff_exponent_is_capped() -> None:
@@ -395,17 +407,23 @@ def test_write_tag_rejects_nonfinite_scale_offset() -> None:
 
     transport = FakeTransport([b"\x00\x00\x00\x00\x00\x06\x01\x06\x00\x00\x00\x05"])
     client = _client(transport)
-    asyncio.run(client.connect())
-    try:
-        tag = Tag(tag_id="t", address="hr0", data_type="short", scale=float("inf"))
-        with pytest.raises(ValueError, match="必须为有限数"):
-            asyncio.run(client.write_tag(tag, 100))
-        nan_tag = Tag(tag_id="t", address="hr0", data_type="short", offset=float("nan"))
-        with pytest.raises(ValueError, match="必须为有限数"):
-            asyncio.run(client.write_tag(nan_tag, 100))
-        assert transport.sent == []  # 校验失败零字节发送
-    finally:
-        asyncio.run(client.close())
+
+    async def scenario() -> None:
+        await client.connect()
+        try:
+            tag = Tag(tag_id="t", address="hr0", data_type="short", scale=float("inf"))
+            with pytest.raises(ValueError, match="必须为有限数"):
+                await client.write_tag(tag, 100)
+            nan_tag = Tag(
+                tag_id="t", address="hr0", data_type="short", offset=float("nan")
+            )
+            with pytest.raises(ValueError, match="必须为有限数"):
+                await client.write_tag(nan_tag, 100)
+            assert transport.sent == []  # 校验失败零字节发送
+        finally:
+            await client.close()
+
+    asyncio.run(scenario())
 
 
 def test_write_tag_inverse_scale_rounds_float_noise() -> None:
@@ -562,20 +580,42 @@ def test_close_wins_gate_race_and_queued_connect_cannot_revive() -> None:
     asyncio.run(scenario())
 
 
-def test_close_from_another_loop_still_closes() -> None:
-    """跨循环 ``close()`` 不拦(收尾路径):换锁后照常断开,不把清理机会也堵死。"""
+def test_close_rejects_cross_loop_when_connected() -> None:
+    """跨循环 ``close()`` 显式拒绝(review-1020 P2-2,与 disconnect 同口径)。
+
+    旧实现 close 无亲和门槛、经 ``_guard`` 静默换锁兜底:心跳 cancel/await
+    与 ``transport.close()`` 都会在错误循环上执行,清理可能未落地(fd 泄漏)
+    且失败被吞。拒绝后收尾须回原循环;**未连接**时换循环仍放行(无清理
+    对象,"逐个调用各起一次 ``asyncio.run``"在未连接场景照常工作)。
+    """
     client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+    loop = asyncio.new_event_loop()
+    try:
 
-    async def connect_in_first_loop() -> None:
-        client._create_transport = lambda: FakeTransport([])  # type: ignore[method-assign]
-        assert await client.connect() is True
+        async def connect_only() -> None:
+            client._create_transport = lambda: FakeTransport([])  # type: ignore[method-assign]
+            assert await client.connect() is True
 
-    asyncio.run(connect_in_first_loop())
+        async def close_in_original_loop() -> None:
+            await client.close()
+
+        loop.run_until_complete(connect_only())
+        with pytest.raises(RuntimeError, match="另一个事件循环"):
+            asyncio.run(client.close())
+        assert client.connected is True  # 拒绝未产生副作用,原循环仍可收尾
+        loop.run_until_complete(close_in_original_loop())
+        assert client.connected is False
+        with pytest.raises(RuntimeError):  # 关闸生效
+            asyncio.run(client.read_ushort("hr0"))
+    finally:
+        loop.close()
+
+
+def test_close_cross_loop_allowed_when_disconnected() -> None:
+    """未连接时跨循环 ``close()`` 放行(无清理对象,亲和检查不拦)。"""
+    client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
     asyncio.run(client.close())  # 不抛
-
     assert client.connected is False
-    with pytest.raises(RuntimeError):  # 关闸仍然生效
-        asyncio.run(client.read_ushort("hr0"))
 
 
 def test_concurrent_cross_loop_use_raises_runtime_error() -> None:
@@ -618,22 +658,29 @@ def test_concurrent_cross_loop_use_raises_runtime_error() -> None:
 
 
 def test_disconnect_rejects_cross_loop() -> None:
-    """跨循环 disconnect 显式拒绝(第八轮 P2-15):亲和检查先于取锁。
+    """跨循环 disconnect/close 都显式拒绝(第八轮 P2-15、1020 P2-2)。
 
-    跨循环 disconnect 会在错误循环上触发 ``transport.close()`` 的
-    ``call_soon``(非线程安全,debug 模式必炸),不能靠 ``_guard`` 静默
-    换锁兜底。close 无亲和门槛(兜底清理通道),收尾用它。
+    跨循环断开会在错误循环上触发 ``transport.close()`` 的 ``call_soon``
+    (非线程安全,debug 模式必炸),不能靠 ``_guard`` 静默换锁兜底;
+    收尾须回**仍存活**的原循环。
     """
     transport = FakeTransport(_chunks(_RESP_TID1))
     client = _client(transport)
+    loop = asyncio.new_event_loop()
+    try:
 
-    async def connect_only() -> None:
-        await client.connect()
+        async def close_in_original_loop() -> None:
+            await client.close()
 
-    asyncio.run(connect_only())
-    with pytest.raises(RuntimeError, match="另一个事件循环"):
-        asyncio.run(client.disconnect())
-    asyncio.run(client.close())
+        loop.run_until_complete(client.connect())
+        with pytest.raises(RuntimeError, match="另一个事件循环"):
+            asyncio.run(client.disconnect())
+        with pytest.raises(RuntimeError, match="另一个事件循环"):
+            asyncio.run(client.close())
+        loop.run_until_complete(close_in_original_loop())
+        assert client.connected is False
+    finally:
+        loop.close()
 
 
 # ----------------------------------------------------------------------

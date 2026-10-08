@@ -325,3 +325,69 @@ def test_write_bool_value_guard_matches_sync(monkeypatch: pytest.MonkeyPatch) ->
     assert len(sync_calls) == len(allowed) and len(async_calls) == len(allowed)
 
     asyncio.run(async_client.close())
+
+
+def test_typed_int_writes_reject_non_int_like_sync(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """native 六个类型化整数写拒绝非 int(与同步 require_int 同口径,1020 P1-5)。
+
+    旧实现 ``int(value)`` 静默收窄:int(1.9)→1、int(True)→1、int("3")→3,
+    双栈同调用两侧行为分叉,native 侧静默错值写。打桩在基类 ``write``
+    入口(零网络,与 write_bool 守卫用例同口径)。
+    """
+    names = [
+        "write_short",
+        "write_ushort",
+        "write_int",
+        "write_uint",
+        "write_long",
+        "write_ulong",
+    ]
+    sync_client = pkg.ModbusTcpClient("127.0.0.1", 502, 1)
+    async_client = native.AsyncModbusTcpClient("127.0.0.1", 502, 1)
+    sync_calls: list = []
+    async_calls: list = []
+
+    def _sync_capture(address: str, data_type: object, value: object) -> bool:
+        sync_calls.append(value)
+        return True
+
+    async def _async_capture(address: str, data_type: object, value: object) -> bool:
+        async_calls.append(value)
+        return True
+
+    monkeypatch.setattr(sync_client, "write", _sync_capture)
+    monkeypatch.setattr(async_client, "write", _async_capture)
+
+    for name in names:
+        assert getattr(sync_client, name)("hr0", 3) is True
+        assert asyncio.run(getattr(async_client, name)("hr0", 3)) is True
+        for bad in (1.9, True, "3", None):
+            with pytest.raises(ValueError):
+                getattr(sync_client, name)("hr0", bad)  # type: ignore[arg-type]
+            with pytest.raises(ValueError):
+                asyncio.run(getattr(async_client, name)("hr0", bad))  # type: ignore[arg-type]
+    assert len(sync_calls) == len(names) == len(async_calls)  # 拒绝零下发
+
+    asyncio.run(async_client.close())
+
+
+def test_retries_setters_reject_non_int_like_sync() -> None:
+    """retries/write_retries setter 拒绝非 int(与同步 require_int 同口径)。
+
+    旧实现 ``int(count)`` 静默收窄(1.5→1、True→1);str 因 ``count < 0``
+    先抛 TypeError,两侧结构相同故天然一致,不入断言。
+    """
+    for client in (
+        pkg.ModbusTcpClient("127.0.0.1", 502, 1),
+        native.AsyncModbusTcpClient("127.0.0.1", 502, 1),
+    ):
+        client.retries = 2
+        client.write_retries = 1
+        assert client.retries == 2 and client.write_retries == 1
+        for bad in (1.5, True):
+            with pytest.raises(ValueError):
+                client.retries = bad  # type: ignore[assignment]
+            with pytest.raises(ValueError):
+                client.write_retries = bad  # type: ignore[assignment]

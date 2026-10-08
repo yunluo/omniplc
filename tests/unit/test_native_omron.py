@@ -1056,3 +1056,34 @@ def test_native_read_range_rejects(loop: Any) -> None:
         await client.close()
 
     loop.run_until_complete(scenario())
+
+
+def test_native_read_range_bits_frame_built_in_transaction(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """自动节点模式**未显式 connect** 首调位区 read_range:帧内 DA1/SA1 为推导值。
+
+    组帧在事务闭包内(review-1020 P2-4,与同步层同口径):旧实现事务外
+    预组帧,自动模式下以 DA1=0(非法域,合法 1~254)出帧。
+    """
+    monkeypatch.setattr(
+        native_omron_module, "_local_ip_for", lambda host, port: "10.1.2.33"
+    )
+
+    async def scenario() -> None:
+        client = AsyncOmronFinsUdpClient("192.168.250.1")  # 节点全自动
+        bits_data = bytes([1, 0, 1, 1, 0, 0, 1, 0])
+        scripted = ScriptedAsyncTransport(
+            [_fins_response(1, 0x0101, bits_data)], datagram=True
+        )
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        # 惰性重连:首调即事务(建连 + 握手/推导 + 组帧收发全在同一事务内)
+        ok, values = await client.read_range("CIO0", 8, DataType.BOOL)
+        assert ok is True
+        assert values == [True, False, True, True, False, False, True, False]
+        sent = bytes(scripted.sent)
+        assert sent[4] == 1  # DA1 = PLC IP 末段(非 0)
+        assert sent[7] == 33  # SA1 = 本机出口 IP 末段
+        await client.close()
+
+    loop.run_until_complete(scenario())

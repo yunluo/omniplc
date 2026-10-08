@@ -219,6 +219,27 @@ def test_1e_word_access_bit_device_requires_multiple_of_16() -> None:
     )
 
 
+def test_1e_256_points_encode_as_zero_plus_fixed_zero() -> None:
+    """1E 256 点编码:低字节回绕 00 + 恒零域 00(SH-080008 印刷页 402/403)。
+
+    点数线上为「1 字节点数 + 1 字节恒零」:256 点指定 00H、Fixed value 恒 0,
+    印刷页 404 算例 12 点尾域 ``0C 00``。1~255 点两种写法逐字节巧合一致,
+    唯恰 256(位读上限)暴露语义分歧(review-1020 P1-6,「字段宽度巧合
+    一致」盲区)——旧 2 字节小端在 256 点发 ``00 01`` 与手册相悖。
+    """
+    frame = codec_a.build_request(
+        0x00, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("M0"), 256, True, False
+    )
+    # 尾两字节 = 点数(00)+ 恒零(00);旧实现发 00 01
+    assert frame[-2:] == b"\x00\x00"
+    # 12 点对照手册算例尾域 0C 00
+    frame12 = codec_a.build_request(
+        0x00, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("M100"), 12, True, False
+    )
+    assert frame12[-2:] == b"\x0c\x00"
+    assert frame12.endswith(b"\x64\x00\x00\x00\x20\x4d\x0c\x00")
+
+
 def test_build_random_read_response_budget() -> None:
     """0406 响应总量超 MC_MAX_RESPONSE_CONTENT → 入参期 ValueError(不发请求)。"""
     # 每块 900 点(≤单块上限),5 块 = 4500 点 → 9000 字节 > 8192 上限
