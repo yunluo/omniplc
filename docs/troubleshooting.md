@@ -212,11 +212,46 @@ for rec in omniplc.recorded_frames():   # 故障后取现场(墙钟时间升序)
 omniplc.clear_recorded_frames()    # 只清内容不关开关
 ```
 
+**一键导出**(review-1020 §七乙1):带墙钟时间/方向/走线标签/十六进制转储的
+排障文本,可直接归档或贴工单:
+
+```python
+text = omniplc.export_recorded_frames()            # 返回文本
+omniplc.export_recorded_frames("incident.txt")     # 同时落盘
+```
+
+**事故现场切片**:客户端在拆连/设备错误时点自动快照黑匣子留存(心跳失败
+不覆盖),`client.incident_frames` 取事故时点切片、`omniplc.format_frame_records`
+格式化——现场复现窗口经常只有几秒,这个快照不需要事后掐着时机抓。
+
+```python
+client.read("D100", "float")          # 某次失败后
+print(omniplc.format_frame_records(client.incident_frames))
+```
+
 黑匣子覆盖全部走线型协议(TCP/UDP/串口,与 `set_debug` 同一挂点);
 会话型(OPC-UA/MX/MTConnect,操作级日志口径)无字节流不进缓冲。
 与 `set_debug` 相互独立,推荐生产组合 = 黑匣子常驻 + 实时日志关闭。
 
-## 五、关联文档
+## 五、高频错误码现场话术(review-1020 §七乙2)
+
+> 完整错误码表以各协议官方文档为准(库内只带依据在档的文本);这里是
+> 十八轮审计与真机联测沉淀的「拿到错误码先查什么」。
+
+| 协议/错误形态                          | 现场先查什么                                                                                                                       |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Modbus 异常 02(Illegal Data Address)  | 站号/地址表对没对、地址区间是否越界;寄存器位写(`hr0.3`)走读改写,只读区写会报 02                                                    |
+| Modbus 异常 03(Illegal Data Value)    | 值域(有符号/无符号、写数量上限),网关型设备常见映射区不存在                                                                       |
+| 三菱 MC 结束码非 0                     | 完整码表在**所用模块的用户手册**(SH-080008 四处明示,完整表登记 `docs/protocol/README.md` 待补表);**1E 帧 5BH + 10H = PC 号错**——先核对站号/PC 号(库内错误消息已带此标注) |
+| FINS 结束码 2108                       | 先核对 `destination_network`/`destination_node`/`destination_unit` 构造参数与 CX-Programmer **路由表**是否一致(2026-09-24 真机教训:参数对即恢复,勿按字面"写保护"理解) |
+| 西门子 S7 地址越界/拒绝                | DB 编号与长度、**优化块访问的 DB 绝对寻址不可用**(明确报错非静默)、PUT/GET 授权是否在 CPU 属性开启                                  |
+| 基恩士 Host Link `E` 错码              | 常规 E0~E9 之外的 `EA`/`EB` 扩展错码手册无码表(登记待核),先核命令字与地址记号                                                       |
+| 松下 MEWTOCOL `!` 应答                 | 错误码 4 字符(类别+细分),码表在 MEWTOCOL 手册;TCP 收包残留疑点见真机清单                                                            |
+| 三菱 EZSocket mel_error_code           | 手册 §3 官方码;`0x80A00101`/`0x8202000A` 链路类(库自动拆连重连),其余为业务错误不断线                                               |
+| 写后回读不符(write_and_verify False)  | 先看设备侧:点位被程序周期覆盖(扫查回写)、只读区、32 位浮点位型(库按位型比对,`3.14` ≠ 判不符即为真不符)                            |
+| 只读模式拒绝(read_only)               | `RuntimeError` 含"只读模式"字样 = 客户端开关未关,`client.read_only = False` 解除;属安全设计非故障                                   |
+
+## 六、关联文档
 
 - [firmware-notes.md](firmware-notes.md):同型号不同固件/设备的行为差异
   与本库的兼容处理

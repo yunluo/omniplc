@@ -91,6 +91,13 @@ finally:
   周期采集 + 本地快照(`monitor.get(tag_id)`,**消费方必须检查 `quality`,
   STALE 是失败期保留的旧值**)、变更回调、点位级死区 `deadband` 抑制浮点抖动;
 - **点位表缩放**:`TagTable`/`Tag`(scale/offset)工程量换算;
+- **写安全**(接产线先开,现场铁律):
+  - `client.read_only = True`——一切写入口显式拒绝(只读观察期);
+  - `client.write_whitelist = True`(配合 `bind_tags`)——表外地址拒绝;
+  - `ok, readback = client.write_and_verify(地址, 类型, 值)`——写后回读校验
+    (32 位浮点按位型比对);
+- **等信号**:`ok, value = client.wait_value(地址, 类型, 谓词, timeout=…)`
+  ——轮询等待条件成立(单次读失败不中断);
 - **异步两层**:aio 包装层 `omniplc.aio`(类名前加 `A`,全协议镜像,拿不准选它);
   原生层 `omniplc.native`(`Async` 前缀,五协议:Modbus TCP/MC/FINS/汇川/S7,
   真中断与无锁属性读取)。选型详见仓库 `docs/async.md`。
@@ -99,9 +106,10 @@ finally:
 
 1. `last_error` / `last_error_category` / `last_error_code` 三件套定位;
 2. 仓库 `docs/troubleshooting.md`「按现象排查」九节(连不上/时好时坏/
-   超时/坏帧/读到旧值…);
+   超时/坏帧/读到旧值…)+「高频错误码现场话术」表;
 3. 报文级证据:`omniplc.set_debug(True)` 实时打印,或 `set_frame_recorder(True)`
-   黑匣子常驻(生产推荐),`recorded_frames()` 取故障现场;
+   黑匣子常驻(生产推荐),`export_recorded_frames("x.txt")` 一键导出,
+   `client.incident_frames` 取拆连/设备错误时点自动快照;
 4. 已知固件/设备差异:`docs/firmware-notes.md`。
 
 ## 深入文档(均在仓库 docs/ 下)

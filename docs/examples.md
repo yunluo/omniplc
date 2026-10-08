@@ -119,6 +119,33 @@ ok = client.write_batch([("Q0", "bool", True), ("hr10", "ushort", 7)])  # 协议
 
 合并形态对照见下文「批量读取」「批量写」两节。
 
+### 写安全与等信号(现场安全三件套 + 等条件)
+
+```python
+# 只读模式:新接产线先只读观察一个周期再开写;一切写入口显式拒绝
+client.read_only = True
+client.write("M0", "bool", True)     # → RuntimeError(只读模式)
+client.read_only = False             # 观察期结束,显式开写
+
+# 写白名单:仅允许写已绑定点位表内的地址(表外地址 ValueError)
+client.bind_tags(table)              # 可写集 = 表内地址快照
+client.write_whitelist = True
+client.write_tag("启停", True)       # 表内点位照常
+client.write("M99", "bool", True)    # → ValueError(表外地址)
+
+# 写后回读校验("打点确认";32 位浮点按位型比对,3.14 写读回相符)
+ok, readback = client.write_and_verify("hr10", "float", 3.14)
+ok, readback = client.write_and_verify("hr10", "float", 3.14, verify=False)  # 只写不可读软元件
+
+# 等信号("等气缸到位 M100=1";单次读失败不中断,到期按超时返回)
+ok, value = client.wait_value("M100", "bool", lambda v: bool(v), timeout=5.0, interval=0.1)
+```
+
+只读/白名单为运行期属性(同步/native/aio 三层同口径);驱动特有写
+(随机写/时钟写等)受只读管辖,白名单按地址逐点校验。异步三层同形态:
+`await client.wait_value(...)`(包装层占用单工作线程;原生层以
+`asyncio.sleep` 让出事件循环)。
+
 ### 全局开关(进程级,所有客户端生效)
 
 ```python
@@ -128,6 +155,9 @@ omniplc.set_debug(True)                    # 收发报文十六进制实时输�
 omniplc.set_frame_recorder(True)           # 报文黑匣子:只存不打印,常驻最近 1000 帧
 for rec in omniplc.recorded_frames():      # 故障后取现场(墙钟时间升序)
     print(rec.at, rec.direction, rec.label, rec.data.hex())
+omniplc.export_recorded_frames("incident.txt")  # 一键导出排障文本(带时间/方向/转储)
+print(omniplc.format_frame_records(client.incident_frames))
+# ↑ 拆连/设备错误时点自动快照的黑匣子切片(心跳失败不覆盖),不用掐时机抓现场
 omniplc.set_lang("en")                     # 报错文案切英文(默认中文)
 ```
 
