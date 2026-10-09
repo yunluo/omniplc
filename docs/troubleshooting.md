@@ -184,6 +184,17 @@ print(s["error_count"], s["last_rtt"], s["heartbeat_fail"])
 | `skipped_ticks`                     | 退避门控窗口内跳过的拍数         | >0 说明期间发生过断线,配套看客户端 `stats`                   |
 | `change_events` / `callback_errors` | 变更检测数 / 回调异常数          | 回调抛异常不会终止采集,但会记在这里                          |
 | `last_ok_at` / `last_duration`      | 最近成功周期时间戳/耗时          | `updated_at` 长期不动 = 采集实际已停                         |
+| `duration_p50/p95/p99_ms`           | 周期耗时百分位(最近 256 拍)     | 抖动统计可作现场网络验收依据(p99 贴 `interval` 即该错峰/降频);慢周期率 = `slow_cycles / cycle_count`(review-1020 §七丁1) |
+
+**断线恢复语义**(review-1020 §七丁3):恢复后第一成功拍,质量跨界
+(`STALE`/`INITIAL` → `GOOD`)**必发事件**(即使值没变),`updated_at`
+刷新为恢复时刻——据此感知恢复。**库不做离线期历史回补**:恢复拍交付的
+是当前值,离线期间的中间变化只剩最终值;接历史曲线的场景用 `updated_at`
+判断缺口(向历史库标记旧时间戳到恢复时刻的空洞),库不代劳。
+
+**告警合并**(review-1020 §七丁2):组读取异常 WARNING 首条照发,持续期
+每 60 拍汇总一条并报压制条数,无异常整拍即复位——长时间故障期不再刷屏;
+`on_disconnect` 本就是沿触发(失败期开始一次)。
 
 质量三态在快照里(`Monitor.get(tag_id).quality`):`INITIAL` 从未成功 /
 `GOOD` 最新值 / `STALE` 失败期保留的旧值——**消费方必须检查 quality**,

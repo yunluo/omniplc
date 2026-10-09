@@ -109,6 +109,13 @@ ctypes 线)须在入口用 `importlib.util.find_spec` 探测并 `pytest.skip`,�
 sdist + wheel、挂 GitHub Release、可信发布(OIDC)到 PyPI;PR 触发的是门禁工作流
 `.github/workflows/ci.yml`。
 
+**deprecation 周期**(review-1020 §七戊3,2026-10-09 起):公开 API 的破坏性
+变更(删除/改签名/改行为语义)须**提前一个 minor 版本**发布过渡——保留旧
+路径 + `warnings.warn(..., DeprecationWarning)` 栈级指明替代写法 + CHANGELOG
+条目,下一个 minor 才真正移除;0.x 阶段破坏频繁,此周期是给现场升级留的
+最小缓冲。纯缺陷修复(错误行为纠正)不受此约束,按「行为变更提示」在
+CHANGELOG 披露即可。
+
 ## 七、行为准则
 
 本仓库参与讨论须遵守 [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md);

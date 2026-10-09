@@ -86,6 +86,7 @@ finally:
   - `read_many(地址列表, 类型)`——同类型合并;
   - `read_batch([(地址, 类型), ...])`——混类型自动分组;
   - `read_range(起始地址, 数量, 类型)`——连续区段单事务;
+  - `read_many_strict(地址列表, 类型)`——一致性快照(全部成功才交付);
   - 七协议有原生单事务覆写,其余自动分组,失败语义整批一致;
 - **周期监视**:`client.create_monitor(点位表, interval, on_change)` 后台线程
   周期采集 + 本地快照(`monitor.get(tag_id)`,**消费方必须检查 `quality`,

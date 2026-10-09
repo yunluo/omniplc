@@ -85,11 +85,13 @@ mon = client.create_monitor(
     on_change=lambda ev: print(ev.tag_id, ev.old, "→", ev.new, ev.quality),
     on_disconnect=lambda: print("采集失败期开始"),
     deadband=0.5,                        # 全点统一死区;或 {"炉温": 0.5} 逐点指定
+    jitter=0.1,                          # 首拍 0~0.1s 随机抖动(多监视器错峰,默认 0)
 )
 mon.start()
 snap = mon.get("炉温")     # PointSnapshot(quality, value, updated_at)——纯本地不发报文
 mon.get_all()              # 全部点位快照
 mon.stats                  # cycle_count / consecutive_fails / slow_cycles /
+                           # duration_p50/p95/p99_ms(周期耗时百分位,网络验收)
                            # skipped_ticks(退避期跳拍)/ change_events / ...
 mon.stop()
 ```
@@ -112,6 +114,9 @@ mon.stop()
 pairs = client.read_many(["hr0", "hr2", "hr4"], "float")   # 逐点独立容错 [(ok, 值)]
 ok, values = client.read_range("hr0", 100, "float")        # 连续区段单事务(整批容错)
 ok, values = client.read_batch([("D100", "short"), ("M10", "bool")])  # 协议原生合并
+
+# 一致性快照:全部成功才交付,任一点失败整批 (False, None)(MES/SCADA 对接)
+ok, values = client.read_many_strict(["hr0", "hr2", "hr4"], "float")
 
 ok = client.write_many(["M0", "M1", "M2"], [True, False, True])       # 逐点写
 ok = client.write_batch([("Q0", "bool", True), ("hr10", "ushort", 7)])  # 协议原生合并写
