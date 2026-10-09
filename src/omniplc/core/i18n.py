@@ -1322,6 +1322,8 @@ _TRANSLATIONS: Dict[str, str] = {
     "points 必须为点位映射(Dict 或 TagTable),收到:{}": "points must be a point mapping (Dict or TagTable), got: {0}",
     "interval 必须为数值,收到:{!r}": "interval must be a number, got: {0!r}",
     "interval 必须为不小于 {} 秒的有限数,收到:{!r}": "interval must be a finite number >= {0} seconds, got: {1!r}",
+    "jitter 必须为数值,收到:{!r}": "jitter must be a number, got: {!r}",
+    "jitter 必须为 0~interval({!r})的有限数,收到:{!r}": "jitter must be a finite number between 0 and the interval ({0!r}), got: {1!r}",
     "点位标识必须为非空字符串,收到:{!r}": "Point id must be a non-empty string, got: {0!r}",
     "点位 {!r} 的地址必须为非空字符串": "Address of point {0!r} must be a non-empty string",
     "点位 {!r} 不支持 STRING:批量读不收变长字符串,请用客户端 read_string 自行轮询": "Point {0!r} does not support STRING: batch reads take no variable-length strings; poll via the client read_string instead",

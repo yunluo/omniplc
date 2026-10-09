@@ -646,6 +646,9 @@ def test_stats_keys_are_contract(monkeypatch: pytest.MonkeyPatch) -> None:
         "change_events",
         "callback_errors",
         "skipped_ticks",
+        "duration_p50_ms",
+        "duration_p95_ms",
+        "duration_p99_ms",
     }
     assert set(mon.stats) == expected
 
@@ -830,3 +833,117 @@ def test_slow_cycle_counts_and_does_not_wait(monkeypatch: pytest.MonkeyPatch) ->
     monitor._run()
     assert monitor.stats["slow_cycles"] == 1
     assert monitor.stats["cycle_count"] == 2
+
+
+# ----------------------------------------------------------------------
+# review-1020 §七丁1/丁2:错峰 jitter、耗时百分位、组异常告警合并
+# ----------------------------------------------------------------------
+
+
+def test_jitter_validation() -> None:
+    """jitter:非数值/负数/超 interval 构造期拒绝;合法值接受。"""
+    client = _client()
+    with pytest.raises(ValueError, match="jitter 必须为数值"):
+        Monitor(client, {"a": ("hr0", "ushort")}, jitter="x")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="jitter 必须为"):
+        Monitor(client, {"a": ("hr0", "ushort")}, jitter=-0.1)
+    with pytest.raises(ValueError, match="jitter 必须为"):
+        Monitor(client, {"a": ("hr0", "ushort")}, interval=0.1, jitter=0.2)
+    monitor = Monitor(client, {"a": ("hr0", "ushort")}, interval=0.1, jitter=0.05)
+    assert monitor._jitter == 0.05
+
+
+def test_jitter_first_deadline_uniform_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """首拍抖动取 [0, jitter) 均匀分布,且只抽取一次(相位建立后续恒定)。"""
+    import omniplc.core.monitor as monitor_mod
+
+    client = _client()
+    monitor = Monitor(client, {"a": ("hr0", "ushort")}, interval=1.0, jitter=0.3)
+    draws: List[float] = []
+
+    def fake_uniform(low: float, high: float) -> float:
+        assert (low, high) == (0.0, 0.3)
+        draws.append(0.12)
+        return 0.12
+
+    monkeypatch.setattr(monitor_mod.random, "uniform", fake_uniform)
+    times = iter([100.0 + i * 0.1 for i in range(20)])
+    monkeypatch.setattr(monitor_mod, "_monotonic", lambda: next(times))
+
+    def stop_after_first(
+        addresses: List[str], data_type: object
+    ) -> List[Tuple[bool, object]]:
+        monitor.stop()  # 首拍后即停:只验证首轮相位,不做真实 Event 等待
+        return [(False, None)]
+
+    monkeypatch.setattr(client, "read_many", stop_after_first)
+    monitor._run()
+    assert len(draws) == 1, "抖动只在首拍抽取一次(相位建立后恒定)"
+
+
+def test_duration_percentiles(monkeypatch: pytest.MonkeyPatch) -> None:
+    """周期耗时百分位:无周期为 None,有样本后 0<=p50<=p95<=p99。"""
+    monitor, client, calls, events, fires = _make(
+        monkeypatch, results=[[(True, 1)], [(True, 2)], [(True, 3)]]
+    )
+    assert monitor.stats["duration_p50_ms"] is None
+    monitor._cycle()
+    monitor._cycle()
+    monitor._cycle()
+    stats = monitor.stats
+    p50 = stats["duration_p50_ms"]
+    p95 = stats["duration_p95_ms"]
+    p99 = stats["duration_p99_ms"]
+    assert p50 is not None and p95 is not None and p99 is not None
+    assert 0.0 <= p50 <= p95 <= p99
+
+
+def test_group_error_warning_merge(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """组异常告警合并:首条照发,持续期压制,达阈值发汇总报压制数,复位后直发。
+
+    坏地址组每拍上抛(review-1006 组间隔离形态),旧实现每拍一条 WARNING
+    ——长时间故障期万条刷屏(review-1020 §七丁2)。
+    """
+    import logging
+
+    client = _client()
+
+    def boom(addresses: List[str], data_type: object) -> List[Tuple[bool, object]]:
+        raise ValueError("无法解析 MC 地址")
+
+    monkeypatch.setattr(client, "read_many", boom)
+    monitor = Monitor(
+        client,
+        {"a": ("hr0", "ushort")},
+        interval=1.0,
+        on_change=None,
+        on_disconnect=None,
+    )
+    monkeypatch.setattr(Monitor, "_ALARM_MERGE_TICKS", 3)
+
+    def warn_count() -> int:
+        return sum(
+            1
+            for record in caplog.records
+            if record.levelno == logging.WARNING and "组读取异常" in record.getMessage()
+        )
+
+    with caplog.at_level(logging.WARNING, logger="omniplc.debug"):
+        monitor._cycle()  # 第 1 次:首条照发
+        assert warn_count() == 1
+        monitor._cycle()  # 第 2 次:压制
+        monitor._cycle()  # 第 3 次:达阈值发汇总
+        assert warn_count() == 2
+        merged = [r for r in caplog.records if "压制" in r.getMessage()]
+        assert any("已连续 3 次" in r.getMessage() for r in merged)
+        # 无异常整拍复位:恢复后下次异常立即直发(不再压制)
+        monkeypatch.setattr(client, "read_many", lambda a, t: [(True, 1)])
+        monitor._cycle()
+        assert warn_count() == 2
+        monkeypatch.setattr(client, "read_many", boom)
+        monitor._cycle()
+        assert warn_count() == 3

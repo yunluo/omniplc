@@ -52,7 +52,10 @@
   校验入口),参数类错误(如坏地址)首周期从 ``read_many`` 上抛——读取
   段**按组**兜底 ``Exception``:单组异常只废本组(组内点失败降质),
   其余组照常读取,不饿同周期后续组;全部组都失败才计整周期失败。异常
-  文本入 ``omniplc.debug`` 日志(WARNING),监视线程不死;
+  文本入 ``omniplc.debug`` 日志(WARNING),监视线程不死;**告警合并**
+  (review-1020 §七丁2):组异常首条照发,持续期每
+  :data:`Monitor._ALARM_MERGE_TICKS` 拍发一条汇总并报压制条数,无异常
+  整拍即复位——防长时间故障期万条重复 WARNING 刷屏;
 - **退避联动**:客户端重连退避窗口内跳 tick(不发报文、不记账),计
   ``skipped_ticks``;重连本身由客户端惰性重连负责,监视器不插手;
 - **生命周期**:默认不启动;``start()`` 重复调用报错;``stop()`` 后可再次
@@ -62,6 +65,18 @@
   监视器,停掉即**终态**、不可再 ``start``(要监控请重建);
 - **周期调度**:monotonic 绝对 deadline 对齐防累计漂移;单周期读取耗时
   超过 ``interval`` 记 ``slow_cycles`` 并立即进下一轮(不叠加等待);
+  ``jitter`` 参数可在 ``start`` 时给首拍附加 ``[0, jitter)`` 抖动——
+  错峰相位一次性建立,多监视器同周期不再齐发(网络验收可用
+  ``stats`` 的 ``duration_p50/p95/p99_ms`` 百分位对表,review-1020 §七丁1);
+  慢周期率 = ``slow_cycles / cycle_count`` 由既有键直接算;
+- **断线恢复语义**(review-1020 §七丁3,核实口径 2026-10-09):恢复后
+  第一成功拍,质量跨界(STALE/INITIAL → GOOD)**必发事件**(即使值与
+  离线前相同),``updated_at`` 刷新为恢复时刻——消费方据此感知恢复;
+  ``on_disconnect`` 为沿触发,恢复本身无独立回调(恢复事件即通知)。
+  **库不做离线期历史回补**:PLC 侧无历史缓冲,恢复拍交付的是当前值,
+  离线期间的中间变化只剩最终一个值——接历史曲线的场景由消费方用
+  ``updated_at`` 判断缺口(例如向历史库标记从旧 ``updated_at`` 到恢复
+  时刻的空洞),库不代劳;
 - **STRING 不支持**:批量读层口径"变长不适合混读"(MC ``read_many``
   明示字符串走 ``read_string``),构造期即拒绝。
 """
@@ -69,9 +84,11 @@
 from __future__ import annotations
 
 import math
+import random
 import sys
 import threading
 import time
+from collections import deque
 from enum import Enum
 from itertools import count
 from typing import (
@@ -171,6 +188,15 @@ class MonitorStats(TypedDict):
     change_events: int
     callback_errors: int
     skipped_ticks: int
+    duration_p50_ms: Optional[float]
+    duration_p95_ms: Optional[float]
+    duration_p99_ms: Optional[float]
+    """周期耗时百分位(毫秒,最近样本窗口内;review-1020 §七丁1)。
+
+    现场网络验收依据:抖动统计可直接拿去与产线网络方对表;超时(慢周期)
+    率 = ``slow_cycles / cycle_count`` 由既有键直接算,不另设键。
+    无已完成周期时为 ``None``。
+    """
 
 
 class _Point(NamedTuple):
@@ -205,11 +231,22 @@ class Monitor:
         全部数值点统一死区;映射 ``Dict[tag_id, 死区]`` = 逐点指定,未列出的
         点不启用;0(默认)= 关闭。死区口径见模块 docstring「死区」条;
         非负有限数构造期校验,未知 ``tag_id`` 拒绝
-    :raises ValueError: points/interval/回调/deadband 参数非法
+    :param jitter: 错峰抖动上限(秒,默认 0 = 关):``start`` 时首拍 deadline
+        附加 ``[0, jitter)`` 均匀抖动,后续按固定周期推进——相位一次性错开,
+        多监视器同周期不再齐发打网络尖峰(review-1020 §七丁1);不超过 interval
+    :raises ValueError: points/interval/回调/deadband/jitter 参数非法
     """
 
     _INTERVAL_MIN = 0.05
     """周期下限(秒):拦住 0/负数与高频打爆链路的误配。"""
+
+    _DURATION_WINDOW = 256
+    """周期耗时百分位的样本窗口(帧数):内存恒定,滚动覆盖近期表现。"""
+
+    _ALARM_MERGE_TICKS = 60
+    """组读取异常告警合并(review-1020 §七丁2):首条照发,此后每 N 拍
+    发一条汇总并报压制条数——默认 60 拍(interval 1s 时 ≈ 每分钟一条),
+    防 50 台客户端 × 长时间检修的万条重复 WARNING 刷屏。"""
 
     def __init__(
         self,
@@ -219,6 +256,7 @@ class Monitor:
         on_change: Optional[Callable[[MonitorEvent], None]] = None,
         on_disconnect: Optional[Callable[[], None]] = None,
         deadband: Union[float, int, Mapping[str, float]] = 0.0,
+        jitter: float = 0.0,
     ) -> None:
         if not isinstance(points, Mapping):
             raise ValueError(
@@ -240,9 +278,18 @@ class Monitor:
             raise ValueError(_("on_change 必须为可调用对象或 None"))
         if on_disconnect is not None and not callable(on_disconnect):
             raise ValueError(_("on_disconnect 必须为可调用对象或 None"))
+        if isinstance(jitter, bool) or not isinstance(jitter, (int, float)):
+            raise ValueError(_("jitter 必须为数值,收到:{!r}").format(jitter))
+        if not math.isfinite(jitter) or not 0.0 <= jitter <= interval:
+            raise ValueError(
+                _("jitter 必须为 0~interval({!r})的有限数,收到:{!r}").format(
+                    interval, jitter
+                )
+            )
 
         self._client = client
         self._interval = float(interval)
+        self._jitter = float(jitter)
         self._on_change = on_change
         self._on_disconnect = on_disconnect
 
@@ -299,6 +346,12 @@ class Monitor:
             "last_ok_at": None,
             "last_duration": None,
         }
+        # 周期耗时样本窗口(百分位用;deque append 原子,快照取 list 排序)
+        self._durations: "deque[float]" = deque(maxlen=self._DURATION_WINDOW)
+        # 组读取异常告警合并账(review-1020 §七丁2):连续异常次数与被压制条数,
+        # 一个无异常周期即复位(恢复后下次异常立即告警)
+        self._group_error_count = 0
+        self._group_warn_suppressed = 0
         # 构造即注册:直接构造与工厂 create_monitor 行为一致——disconnect
         # 联动对两者同样生效,不存在"绕过注册表、线程活过客户端"的旁路
         self._client._register_monitor(self)
@@ -404,9 +457,22 @@ class Monitor:
         """采集健康统计快照(普通 dict,键集即契约;连接账在客户端 ``stats``)。
 
         无锁拷贝(review-1006 P3⑤;单写者线程 + GIL,仅观测级撕裂):
-        跨键可能读到跨周期中间态,单键恒一致。
+        跨键可能读到跨周期中间态,单键恒一致。周期耗时百分位
+        (``duration_p*_ms``)取最近 :data:`_DURATION_WINDOW` 拍样本,
+        供现场网络验收对表(review-1020 §七丁1);无已完成周期为 ``None``。
         """
-        return cast(MonitorStats, dict(self._counters, **self._timestamps))
+        data: Dict[str, object] = dict(self._counters, **self._timestamps)
+        samples = sorted(self._durations)
+        total = len(samples)
+
+        def _pct(quantile: float) -> float:
+            index = max(0, math.ceil(quantile / 100.0 * total) - 1)
+            return round(samples[index] * 1000.0, 3)
+
+        data["duration_p50_ms"] = _pct(50) if total else None
+        data["duration_p95_ms"] = _pct(95) if total else None
+        data["duration_p99_ms"] = _pct(99) if total else None
+        return cast(MonitorStats, data)
 
     # ------------------------------------------------------------------
     # 生命周期
@@ -500,8 +566,16 @@ class Monitor:
     # ------------------------------------------------------------------
 
     def _run(self) -> None:
-        """监视线程主循环:deadline 对齐调度,慢周期立即进下一轮(内部方法)。"""
-        next_deadline = _monotonic() + self._interval
+        """监视线程主循环:deadline 对齐调度,慢周期立即进下一轮(内部方法)。
+
+        ``jitter > 0`` 时首拍 deadline 附加 ``[0, jitter)`` 均匀抖动——错峰
+        相位**一次性建立**,后续按固定周期推进(同周期多监视器从此不再
+        齐发,review-1020 §七丁1)。
+        """
+        first_delay = self._interval
+        if self._jitter > 0.0:
+            first_delay += random.uniform(0.0, self._jitter)
+        next_deadline = _monotonic() + first_delay
         while not self._stop_event.is_set():
             self._cycle()
             if self._stop_event.is_set():
@@ -536,6 +610,7 @@ class Monitor:
         started = _monotonic()
         results: Dict[str, Tuple[bool, Optional[PrimitiveValue]]] = {}
         any_ok = False
+        group_error_this_cycle = False
         for data_type, group in self._groups:
             try:
                 pairs = client.read_many([p.address for p in group], data_type)
@@ -543,13 +618,8 @@ class Monitor:
                 # 组间隔离(review-1006 P2):单组参数类错误(如坏地址)只废
                 # 本组(组内点走下方失败降质),其余组照常读取——一个配置
                 # 笔误不得饿死同周期后续组
-                log_warning(
-                    getattr(client, "_debug_label", "omniplc"),
-                    "monitor 组读取异常(%d 点,类型 %s):%r",
-                    len(group),
-                    data_type,
-                    exc,
-                )
+                group_error_this_cycle = True
+                self._warn_group_error(data_type, len(group), exc)
                 continue
             for point, pair in zip(group, pairs):
                 ok, value = pair
@@ -559,8 +629,14 @@ class Monitor:
                 results[point.tag_id] = (ok, value)
                 if self._is_good_read(ok, value):
                     any_ok = True
-        self._timestamps["last_duration"] = _monotonic() - started
+        duration = _monotonic() - started
+        self._timestamps["last_duration"] = duration
+        self._durations.append(duration)
         self._counters["cycle_count"] += 1
+        if not group_error_this_cycle:
+            # 无组异常整拍:告警合并账复位(恢复后下次异常立即告警不压制)
+            self._group_error_count = 0
+            self._group_warn_suppressed = 0
         if any_ok:
             self._counters["consecutive_fails"] = 0
             self._timestamps["last_ok_at"] = _monotonic()
@@ -694,6 +770,40 @@ class Monitor:
             self._on_change(event)
         except Exception:
             self._counters["callback_errors"] += 1
+
+    def _warn_group_error(
+        self, data_type: DataType, points: int, exc: Exception
+    ) -> None:
+        """组读取异常告警合并(内部方法,review-1020 §七丁2)。
+
+        首条照发;持续期每 :data:`_ALARM_MERGE_TICKS` 拍发一条汇总并报
+        期间压制条数——「50 台客户端 × 检修 2h = 上万条重复 WARNING」的
+        防刷屏口径;无异常整拍即复位,恢复后下次异常立即告警。
+        """
+        self._group_error_count += 1
+        label = getattr(self._client, "_debug_label", "omniplc")
+        if self._group_error_count == 1:
+            log_warning(
+                label,
+                "monitor 组读取异常(%d 点,类型 %s):%r",
+                points,
+                data_type,
+                exc,
+            )
+            return
+        if self._group_error_count % self._ALARM_MERGE_TICKS == 0:
+            log_warning(
+                label,
+                "monitor 组读取异常持续:已连续 %d 次(%d 点,类型 %s;期间压制 %d 条同款告警):%r",
+                self._group_error_count,
+                points,
+                data_type,
+                self._group_warn_suppressed,
+                exc,
+            )
+            self._group_warn_suppressed = 0
+        else:
+            self._group_warn_suppressed += 1
 
     def _fire_disconnect(self) -> None:
         """发断连事件(采集失败期开始,内部方法)。"""

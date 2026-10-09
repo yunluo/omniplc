@@ -679,6 +679,19 @@ class AsyncBaseClient(ABC):
         """
         return [await self.read(address, data_type) for address in addresses]
 
+    async def read_many_strict(
+        self, addresses: Sequence[str], data_type: Union[DataType, str]
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """一致性批量读:「全部成功才交付」(与同步
+        :meth:`~omniplc.core.BaseClient.read_many_strict` 同契约,语义见彼处)。"""
+        pairs = await self.read_many(addresses, data_type)
+        values: List[PrimitiveValue] = []
+        for _address, (ok, value) in zip(addresses, pairs):
+            if not ok or value is None:
+                return False, None
+            values.append(value)
+        return True, values
+
     async def read_range(
         self,
         address: str,

@@ -783,6 +783,31 @@ class BaseClient(ABC):
         """
         return [self.read(address, data_type) for address in addresses]
 
+    def read_many_strict(
+        self, addresses: Sequence[str], data_type: Union[DataType, str]
+    ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
+        """一致性批量读:「**全部成功才交付**」,任一点失败整批 ``(False, None)``。
+
+        对接 MES/SCADA 的快照语义(review-1020 §七丙2):逐点独立容错的
+        :meth:`read_many` 在部分成功时返回 ``[(ok, 值)]``,调用方要自己翻
+        元组判断有没有混进失败点;本方法把这道门收进库——失败集非空即
+        整批不交付。需要**协议级单事务**原子性的场景请用
+        :meth:`read_batch`/`read_range`(驱动覆写整批容错);本方法在
+        逐点事务上只做「无失败才交付」的快照门。
+
+        :param addresses: 地址列表
+        :param data_type: 数据类型,推荐用 :class:`omniplc.types.DataType` 枚举
+        :return: ``(是否全部成功, 与地址顺序对应的值列表)``;任一点失败
+            为 ``(False, None)``
+        """
+        pairs = self.read_many(addresses, data_type)
+        values: List[PrimitiveValue] = []
+        for _address, (ok, value) in zip(addresses, pairs):
+            if not ok or value is None:
+                return False, None
+            values.append(value)
+        return True, values
+
     def read_range(
         self,
         address: str,
@@ -1285,6 +1310,7 @@ class BaseClient(ABC):
         on_change: Optional[Callable[[MonitorEvent], None]] = None,
         on_disconnect: Optional[Callable[[], None]] = None,
         deadband: Union[float, int, Mapping[str, float]] = 0.0,
+        jitter: float = 0.0,
     ) -> Monitor:
         """在本客户端下建监视器(周期轮询采集;**默认不启动**,须显式 ``start()``)。
 
@@ -1309,7 +1335,9 @@ class BaseClient(ABC):
             监视器线程执行)
         :param on_disconnect: 采集失败期开始回调(监视器线程执行)
         :param deadband: 值变化死区(0 = 关闭,口径见上)
-        :raises ValueError: points/interval/回调/deadband 参数非法
+        :param jitter: 错峰抖动上限(秒,默认 0 = 关;首拍 deadline 附加
+            ``[0, jitter)`` 抖动,多监视器同周期错峰,口径见 Monitor)
+        :raises ValueError: points/interval/回调/deadband/jitter 参数非法
         :return: 未启动的 :class:`~omniplc.core.monitor.Monitor` 实例
         """
         monitor = Monitor(
@@ -1319,6 +1347,7 @@ class BaseClient(ABC):
             on_change=on_change,
             on_disconnect=on_disconnect,
             deadband=deadband,
+            jitter=jitter,
         )
         return monitor
 

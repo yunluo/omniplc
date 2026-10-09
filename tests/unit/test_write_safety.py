@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import struct
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Sequence, Tuple, Union
 
 import pytest
 
@@ -379,3 +379,66 @@ class TestIncidentFrames:
         exported = export_recorded_frames(str(target))
         assert exported == text
         assert SEND_MARK in target.read_text(encoding="utf-8")
+
+
+# ----------------------------------------------------------------------
+# 丙2:read_many_strict 一致性批量读(整批成功才交付)
+# ----------------------------------------------------------------------
+
+
+class TestReadManyStrict:
+    def test_all_ok_delivers(self) -> None:
+        client = _ScriptedClient()
+        client.readback = 7
+        ok, values = client.read_many_strict(["hr0", "hr1", "hr2"], "ushort")
+        assert ok is True and values == [7, 7, 7]
+
+    def test_partial_failure_rejects_whole_batch(self) -> None:
+        client = _ScriptedClient()
+
+        def _fake_read(
+            address: str, data_type: object
+        ) -> Tuple[bool, Optional[PrimitiveValue]]:
+            # hr1 混入失败点:逐点容错的 read_many 会给 (False, None)
+            if address == "hr1":
+                return False, None
+            return True, 1
+
+        client.read = _fake_read  # type: ignore[method-assign]
+        pairs = client.read_many(["hr0", "hr1", "hr2"], "ushort")
+        assert pairs[1] == (False, None)  # 逐点容错形态
+        ok, values = client.read_many_strict(["hr0", "hr1", "hr2"], "ushort")
+        assert ok is False and values is None
+
+    def test_native_mirror(self) -> None:
+        client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+
+        async def _fake_read_many(
+            addresses: Sequence[str], data_type: object
+        ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
+            # 桩打在 read_many(native Modbus 覆写了合并读,不逐点走 read)
+            return [(True, 5) for _ in addresses]
+
+        client.read_many = _fake_read_many  # type: ignore[method-assign]
+
+        async def scenario() -> None:
+            ok, values = await client.read_many_strict(["hr0", "hr1"], "ushort")
+            assert ok is True and values == [5, 5]
+
+        asyncio.run(scenario())
+
+    def test_aio_mirror(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        sync_client = _ScriptedClient()
+
+        def _fake_transport() -> BaseTransport:
+            return _Transport()
+
+        monkeypatch.setattr(sync_client, "_create_transport", _fake_transport)
+        aio_client = AModbusTcpClient.__new__(AModbusTcpClient)
+        AModbusTcpClient.__bases__[0].__init__(aio_client, sync_client)
+
+        async def scenario() -> None:
+            ok, values = await aio_client.read_many_strict(["hr0"], "ushort")
+            assert ok is True and values == [1]
+
+        asyncio.run(scenario())
