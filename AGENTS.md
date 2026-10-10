@@ -1,7 +1,8 @@
 # AGENTS.md — omniplc 协作者约定(agent 用)
 
-> 面向 AI 编码代理的硬纪律摘编。完整开发规范见 `CONTRIBUTING.md`;本文件与其冲突时,
-> 以 CONTRIBUTING.md 与用户当次指令为准。
+> 面向 AI 编码代理的硬纪律摘编。**铁律全集见 `docs/rules.md`**(权威清单,
+> 含拦截点与历批沉淀条目);完整开发规范见 `CONTRIBUTING.md`。
+> 冲突次序:用户当次指令 > CONTRIBUTING.md > docs/rules.md > 本文件。
 
 ## 提交纪律
 
