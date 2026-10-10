@@ -298,6 +298,13 @@ def test_rtu_broadcast_silence_turnaround_and_t35() -> None:
     assert abs(client._broadcast_silence() - 0.5) < 1e-9
     with pytest.raises(ValueError):
         client.broadcast_turnaround = -1
+    # NaN/inf 能绕过"< 0"比较(review-1023 P3-2):赋值期拒绝,
+    # inf 否则会让 RTU 每帧前 sleep(inf) 抛 OverflowError 致事务必失败
+    for bad in (float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            client.broadcast_turnaround = bad
+        with pytest.raises(ValueError):
+            client.inter_frame_delay = bad
 
 
 def test_rtu_broadcast_read_rejected(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -556,10 +556,16 @@ class BaseClient(ABC):
 
     @connect_timeout.setter
     def connect_timeout(self, seconds: float) -> None:
-        if seconds <= 0:
-            raise ValueError(_("connect_timeout 必须大于 0,收到:{}").format(seconds))
+        value = float(seconds)
+        # NaN 与 inf 能绕过"<= 0"判定(NaN 比较恒 False)——流到
+        # socket.settimeout 抛非 OSError 的异常并使 FD 清理路径失效
+        # (review-1023 P1);同库 heartbeat_interval 等均为有限数口径
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(
+                _("connect_timeout 必须为大于 0 的有限数,收到:{}").format(seconds)
+            )
         with self._lock:
-            self._connect_timeout = float(seconds)
+            self._connect_timeout = value
             if self._transport is not None:
                 self._transport.connect_timeout = self._connect_timeout
 
@@ -580,10 +586,14 @@ class BaseClient(ABC):
 
     @receive_timeout.setter
     def receive_timeout(self, seconds: float) -> None:
-        if seconds <= 0:
-            raise ValueError(_("receive_timeout 必须大于 0,收到:{}").format(seconds))
+        value = float(seconds)
+        # NaN/inf 能绕过"<= 0"判定(review-1023 P1,与 connect_timeout 同口径)
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(
+                _("receive_timeout 必须为大于 0 的有限数,收到:{}").format(seconds)
+            )
         with self._lock:
-            self._receive_timeout = float(seconds)
+            self._receive_timeout = value
             if self._transport is not None:
                 self._transport.receive_timeout = self._receive_timeout
 

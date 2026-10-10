@@ -135,7 +135,6 @@ def test_after_connect_failure_hook_runs_before_transport_close() -> None:
     """握手失败:清理钩子在**关传输之前**跑(注销帧才发得出去),随后照常关闭。"""
     transport = _RecordingTransport()
     client = _HandshakeFailClient(transport)
-
     assert asyncio.run(client.connect()) is False
 
     assert client.hook_calls == 1
@@ -820,6 +819,18 @@ def test_heartbeat_interval_setter_validation() -> None:
     assert client.heartbeat_interval == 0.0
     client.heartbeat_interval = 5.5
     assert client.heartbeat_interval == 5.5
+
+
+def test_native_timeout_setters_reject_nan_inf() -> None:
+    """native 超时属性 NaN/inf 赋值期拒绝(review-1023 P1,与同步层同口径)。"""
+    client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+    for bad in (float("nan"), float("inf"), float("-inf"), 0, -1):
+        with pytest.raises(ValueError):
+            client.receive_timeout = bad
+        with pytest.raises(ValueError):
+            client.connect_timeout = bad
+    client.receive_timeout = 1.5
+    assert client.receive_timeout == 1.5
 
 
 def test_heartbeat_loop_released_when_client_abandoned() -> None:

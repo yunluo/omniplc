@@ -72,11 +72,14 @@ class UdpTransport(BaseTransport):
         try:
             sock.settimeout(self._connect_timeout)
             sock.connect((self._ip_address, self._port))
-        except OSError:
-            # connect 失败时清理局部套接字,避免惰性重连反复泄漏 FD
+            # settimeout 对 NaN/inf 抛 ValueError/OverflowError(review-1023
+            # P1),故收尾配置同样纳入 try——任何配置失败都要收 FD
+            sock.settimeout(self._receive_timeout)
+        except BaseException:
+            # connect/配置失败时清理局部套接字,避免惰性重连反复泄漏 FD;
+            # 不按异常类型收口(理由见 tcp.py 同处注释)
             sock.close()
             raise
-        sock.settimeout(self._receive_timeout)
         self._socket = sock
         log_op(self._debug_label, "已连接")
 

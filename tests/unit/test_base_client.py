@@ -242,6 +242,17 @@ class TestTimeoutProperties:
         with pytest.raises(ValueError):
             client.receive_timeout = 0
 
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+    def test_nan_inf_rejected(self, bad: float) -> None:
+        """NaN/inf 能绕过"<= 0"比较(review-1023 P1):赋值期拒绝,
+        否则流入 socket.settimeout 抛非 OSError 并使 FD 清理路径失效。"""
+        client = _ScriptedClient()
+        with pytest.raises(ValueError):
+            client.receive_timeout = bad
+        with pytest.raises(ValueError):
+            client.connect_timeout = bad
+        assert client.receive_timeout == 3.0  # 旧值未被污染
+
 
 class TestThreadSafety:
     """线程安全:同一 client 跨线程读,事务必须串行化。"""

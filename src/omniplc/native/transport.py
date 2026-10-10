@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import asyncio
 import errno
+import math
 import socket
 from abc import ABC, abstractmethod
 from typing import Awaitable, List, Optional, Tuple, TypeVar
@@ -133,18 +134,23 @@ class AsyncBaseTransport(ABC):
 
     @property
     def connect_timeout(self) -> float:
-        """连接超时(秒),必须大于 0。"""
+        """连接超时(秒),必须为大于 0 的有限数。"""
         return self._connect_timeout
 
     @connect_timeout.setter
     def connect_timeout(self, seconds: float) -> None:
-        if seconds <= 0:
-            raise ValueError(_("connect_timeout 必须大于 0,收到:{}").format(seconds))
-        self._connect_timeout = float(seconds)
+        value = float(seconds)
+        # NaN/inf 能绕过"<= 0"判定,流入 socket 配置会抛非 OSError 异常
+        # (review-1023 P1,与同步层同口径)
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(
+                _("connect_timeout 必须为大于 0 的有限数,收到:{}").format(seconds)
+            )
+        self._connect_timeout = value
 
     @property
     def receive_timeout(self) -> float:
-        """单次收发超时(秒),必须大于 0。
+        """单次收发超时(秒),必须为大于 0 的有限数。
 
         异步实现**每次 await 都读当前值**,因此改属性立即生效
         (无需下发给 socket,与同步层的"立即生效"语义一致)。
@@ -153,9 +159,12 @@ class AsyncBaseTransport(ABC):
 
     @receive_timeout.setter
     def receive_timeout(self, seconds: float) -> None:
-        if seconds <= 0:
-            raise ValueError(_("receive_timeout 必须大于 0,收到:{}").format(seconds))
-        self._receive_timeout = float(seconds)
+        value = float(seconds)
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(
+                _("receive_timeout 必须为大于 0 的有限数,收到:{}").format(seconds)
+            )
+        self._receive_timeout = value
 
     @property
     def pending(self) -> bool:
@@ -437,9 +446,10 @@ class AsyncUdpTransport(AsyncBaseTransport):
         try:
             sock.setblocking(False)
             sock.connect(sockaddr)
-        except OSError:
-            # connect 失败时清理局部套接字(_connect_locked 的 close() 收不到
-            # 未挂到 self._socket 的句柄,漏关即惰性重连反复泄 FD)
+        except BaseException:
+            # connect/配置失败时清理局部套接字(_connect_locked 的 close() 收不到
+            # 未挂到 self._socket 的句柄,漏关即惰性重连反复泄 FD);不按异常
+            # 类型收口(review-1023 P1:任何非 OSError 配置异常同样要收)
             sock.close()
             raise
         self._socket = sock

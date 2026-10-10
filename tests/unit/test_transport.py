@@ -63,6 +63,48 @@ class TestTcpTransport:
         with pytest.raises(ValueError):
             transport.connect_timeout = -1
 
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+    def test_timeout_rejects_nan_inf(self, bad: float) -> None:
+        """NaN/inf 能绕过比较判定(review-1023 P1):赋值期必须拒绝,零 FD。"""
+        transport = TcpTransport("127.0.0.1", 502)
+        with pytest.raises(ValueError):
+            transport.receive_timeout = bad
+        with pytest.raises(ValueError):
+            transport.connect_timeout = bad
+
+    def test_config_failure_after_connect_closes_socket(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """create_connection 成功后的非 OSError 配置失败也须收 FD(review-1023 P1)。
+
+        ``settimeout(some_value)`` 在本用例里模拟抛 ``ValueError``(真实场景
+        即 NaN/inf 致 ``socket.settimeout`` 抛错误)——旧实现只捕 ``OSError``,
+        该 FD 收不回且 ``_socket`` 未赋值,客户端兜底也够不到。
+        """
+        closed: list = []
+
+        class ConfigFailSocket:
+            closed_via = None
+
+            def settimeout(self, value: float) -> None:
+                raise ValueError("Invalid value NaN (not a number)")
+
+            def setsockopt(self, *_args: object) -> None:  # pragma: no cover
+                pass
+
+            def close(self) -> None:
+                closed.append(True)
+
+        monkeypatch.setattr(
+            "omniplc.transport.tcp.socket.create_connection",
+            lambda *a, **k: ConfigFailSocket(),
+        )
+        transport = TcpTransport("127.0.0.1", 502)
+        with pytest.raises(ValueError):
+            transport.connect()
+        assert closed == [True]
+        assert transport._socket is None
+
     def test_context_manager(self, tcp_echo_port: int) -> None:
         with TcpTransport("127.0.0.1", tcp_echo_port) as transport:
             transport.send(b"ping")
@@ -113,6 +155,34 @@ class TestUdpTransport:
         )
         transport = UdpTransport("127.0.0.1", 9600)
         with pytest.raises(OSError):
+            transport.connect()
+        assert closed == [True]
+        assert transport._socket is None
+
+    def test_receive_timeout_config_failure_closes_socket(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """connect 成功后的收尾 settimeout 失败同样收 FD(review-1023 P1)。"""
+        closed: list = []
+        calls: list = []
+
+        class HalfFailSocket:
+            def settimeout(self, value: float) -> None:
+                calls.append(value)
+                if len(calls) == 2:  # 第二次 = 配置 receive_timeout 处
+                    raise ValueError("Invalid value NaN (not a number)")
+
+            def connect(self, _addr: object) -> None:
+                pass
+
+            def close(self) -> None:
+                closed.append(True)
+
+        monkeypatch.setattr(
+            "omniplc.transport.udp.socket.socket", lambda *a, **k: HalfFailSocket()
+        )
+        transport = UdpTransport("127.0.0.1", 9600)
+        with pytest.raises(ValueError):
             transport.connect()
         assert closed == [True]
         assert transport._socket is None

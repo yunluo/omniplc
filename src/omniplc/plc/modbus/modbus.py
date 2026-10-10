@@ -15,6 +15,7 @@ V1.02(串行线实现指南)为准;中文资源见
 
 from __future__ import annotations
 
+import math
 import time
 from abc import abstractmethod
 from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple, Union, cast
@@ -1340,8 +1341,10 @@ class ModbusRtuClient(ModbusBaseClient):
     @inter_frame_delay.setter
     def inter_frame_delay(self, value: float) -> None:
         delay = float(value)
-        if delay < 0:
-            raise ValueError(_("inter_frame_delay 不能为负:{}").format(value))
+        # NaN/inf 能绕过"< 0"判定;inf 会让 RTU 每帧前 sleep(inf) 抛
+        # OverflowError 致每次事务必失败(review-1023 P3-2,与超时属性同批)
+        if not math.isfinite(delay) or delay < 0:
+            raise ValueError(_("inter_frame_delay 必须为非负有限数:{}").format(value))
         self._inter_frame_delay = delay
 
     # 3.5 字符时间(T3.5)的位宽口径:1 起始位 + 8 数据位 + 1 校验位 + 1 停止位
@@ -1386,8 +1389,11 @@ class ModbusRtuClient(ModbusBaseClient):
     @broadcast_turnaround.setter
     def broadcast_turnaround(self, value: float) -> None:
         seconds = float(value)
-        if seconds < 0:
-            raise ValueError(_("broadcast_turnaround 不能为负:{}").format(value))
+        # NaN/inf 能绕过"< 0"判定(review-1023 P3-2,与 inter_frame_delay 同批)
+        if not math.isfinite(seconds) or seconds < 0:
+            raise ValueError(
+                _("broadcast_turnaround 必须为非负有限数:{}").format(value)
+            )
         self._broadcast_turnaround = seconds
 
     def configure_serial(

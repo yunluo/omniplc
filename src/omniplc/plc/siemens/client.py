@@ -37,6 +37,7 @@ SZL 全家、时钟留后续版本。
 
 from __future__ import annotations
 
+import math
 import struct
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
@@ -204,12 +205,16 @@ class _S7Session(BaseTransport):
     @BaseTransport.receive_timeout.setter  # type: ignore[attr-defined]
     def receive_timeout(self, seconds: float) -> None:
         """单次收发超时(秒);已连接时立即下发到底层 TCP 传输。"""
-        if seconds <= 0:
-            raise ValueError(_("receive_timeout 必须大于 0,收到:{}").format(seconds))
-        BaseTransport.receive_timeout.fset(self, float(seconds))  # type: ignore[attr-defined]
+        value = float(seconds)
+        # NaN/inf 能绕过"<= 0"判定(review-1023 P1,与基类同口径)
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(
+                _("receive_timeout 必须为大于 0 的有限数,收到:{}").format(seconds)
+            )
+        BaseTransport.receive_timeout.fset(self, value)  # type: ignore[attr-defined]
         tcp = self._tcp
         if tcp is not None:
-            tcp.receive_timeout = float(seconds)
+            tcp.receive_timeout = value
 
     # ------------------------------------------------------------------
     # 会话生命周期

@@ -61,9 +61,12 @@ class TcpTransport(BaseTransport):
             sock.settimeout(self._receive_timeout)
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             _enable_keepalive(sock)
-        except OSError:
-            # create_connection 成功后的配置失败同样要收 FD,否则
-            # BaseClient.connect 的清理(transport._socket is None)兜不住
+        except BaseException:
+            # create_connection 成功后的任何配置失败同样要收 FD,否则
+            # BaseClient.connect 的清理(transport._socket is None)兜不住。
+            # **不按异常类型收口**:settimeout 对 NaN/inf 抛 ValueError/
+            # OverflowError 而非 OSError(review-1023 P1),只捕 OSError
+            # 会让该类配置失败反复泄漏 FD
             sock.close()
             raise
         self._socket = sock

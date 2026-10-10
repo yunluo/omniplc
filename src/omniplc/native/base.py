@@ -526,9 +526,13 @@ class AsyncBaseClient(ABC):
 
     @connect_timeout.setter
     def connect_timeout(self, seconds: float) -> None:
-        if seconds <= 0:
-            raise ValueError(_("connect_timeout 必须大于 0,收到:{}").format(seconds))
-        self._connect_timeout = float(seconds)
+        value = float(seconds)
+        # NaN/inf 能绕过"<= 0"判定(review-1023 P1,与同步层同口径)
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(
+                _("connect_timeout 必须为大于 0 的有限数,收到:{}").format(seconds)
+            )
+        self._connect_timeout = value
         if self._transport is not None:
             self._transport.connect_timeout = self._connect_timeout
 
@@ -539,9 +543,12 @@ class AsyncBaseClient(ABC):
 
     @receive_timeout.setter
     def receive_timeout(self, seconds: float) -> None:
-        if seconds <= 0:
-            raise ValueError(_("receive_timeout 必须大于 0,收到:{}").format(seconds))
-        self._receive_timeout = float(seconds)
+        value = float(seconds)
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(
+                _("receive_timeout 必须为大于 0 的有限数,收到:{}").format(seconds)
+            )
+        self._receive_timeout = value
         if self._transport is not None:
             self._transport.receive_timeout = self._receive_timeout
 

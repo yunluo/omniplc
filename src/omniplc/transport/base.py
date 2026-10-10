@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from types import TracebackType
 from typing import Optional, TypeVar
@@ -40,25 +41,33 @@ class BaseTransport(ABC):
 
     @property
     def connect_timeout(self) -> float:
-        """连接超时(秒),必须大于 0。"""
+        """连接超时(秒),必须为大于 0 的有限数。"""
         return self._connect_timeout
 
     @connect_timeout.setter
     def connect_timeout(self, seconds: float) -> None:
-        if seconds <= 0:
-            raise ValueError(_("connect_timeout 必须大于 0,收到:{}").format(seconds))
-        self._connect_timeout = float(seconds)
+        value = float(seconds)
+        # NaN/inf 能绕过"<= 0"判定,流入 socket.settimeout 会抛非 OSError
+        # 异常并使建连失败路径的 FD 清理失效(review-1023 P1)
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(
+                _("connect_timeout 必须为大于 0 的有限数,收到:{}").format(seconds)
+            )
+        self._connect_timeout = value
 
     @property
     def receive_timeout(self) -> float:
-        """单次收发超时(秒),必须大于 0。"""
+        """单次收发超时(秒),必须为大于 0 的有限数。"""
         return self._receive_timeout
 
     @receive_timeout.setter
     def receive_timeout(self, seconds: float) -> None:
-        if seconds <= 0:
-            raise ValueError(_("receive_timeout 必须大于 0,收到:{}").format(seconds))
-        self._receive_timeout = float(seconds)
+        value = float(seconds)
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(
+                _("receive_timeout 必须为大于 0 的有限数,收到:{}").format(seconds)
+            )
+        self._receive_timeout = value
 
     @abstractmethod
     def connect(self) -> None:
