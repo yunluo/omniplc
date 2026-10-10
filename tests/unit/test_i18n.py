@@ -124,29 +124,106 @@ def test_regressed_mixed_numbering_entries_format_in_en(key: str) -> None:
 
 
 def test_error_code_tables_fully_translated_in_en() -> None:
-    """9 张错误码→文案表逐条断言 en 可译(键在 ``_TRANSLATIONS`` 内)。
+    """经 ``_()`` 取词的**全部码表**逐条断言 en 可译(review-1022 P1-3)。
 
     取词 fallback 查不到键时静默返回中文原文(v0.47.2 刚修过 FINS/CIP 两处
-    漏包,用户无感知)——本门禁把全部 9 张表 import 遍历,新增码表行忘加
-    翻译立即失败。``AB_CIP_EXTENDED_STATUS_TEXT`` 为嵌套表(status →
-    {扩展码: 文案}),按值类型递归统一处理。
+    漏包,用户无感知)。历史门禁硬编码 9 张表,而实际经 ``_()`` 取词的码表
+    为 12 张(EZSocket/FOCAS/S7 三张从未进门禁,68 条漏收录)——现改为
+    **AST 自动发现**:
+
+    1. 全库扫描「Dict 字面量赋给**大写或下划线开头**名字」= 候选码表;
+    2. 逐文件对 ``_(非字面量)`` 取词点解析实参基名(``表.get(...)`` /
+       ``表[...]`` / 局部变量转发链),命中候选表的即判定"该表经取词";
+    3. import 该表并递归取全部文本值,逐条断言 ``_(text) != text``(en 命中)。
+    新增码表忘翻译、或新增取词点引用未收录表,本门禁立即失败。
     """
-    from omniplc.core import constants
-    from omniplc.plc.panasonic import codec_mewtocol
+    import ast
+    import importlib
+    from pathlib import Path
 
-    tables = [
-        ("MODBUS_EXCEPTION_TEXT", constants.MODBUS_EXCEPTION_TEXT),
-        ("FINS_END_CODE_TEXT", constants.FINS_END_CODE_TEXT),
-        ("FINS_END_CODE_HINT", constants.FINS_END_CODE_HINT),
-        ("AB_EIP_STATUS_TEXT", constants.AB_EIP_STATUS_TEXT),
-        ("AB_CIP_STATUS_TEXT", constants.AB_CIP_STATUS_TEXT),
-        ("AB_CIP_EXTENDED_STATUS_TEXT", constants.AB_CIP_EXTENDED_STATUS_TEXT),
-        ("KV_ERROR_TEXT", constants.KV_ERROR_TEXT),
-        ("TOYOPUC_ERROR_TEXT", constants.TOYOPUC_ERROR_TEXT),
-        ("MEWTOCOL_ERROR_MESSAGES", codec_mewtocol._ERROR_MESSAGES),
-    ]
+    src_root = Path(__file__).resolve().parents[2] / "src" / "omniplc"
 
-    def texts_of(value: object) -> "list[str]":
+    def _base_of(node: "ast.AST") -> "str | None":
+        """取表达式基名:``表.get(...)`` / ``表[...]`` / 裸名字。"""
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
+            return node.value.id
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and isinstance(node.func.value, ast.Name)
+        ):
+            return node.func.value.id
+        if isinstance(node, ast.Name):
+            return node.id
+        return None
+
+    def _targets(node: "ast.AST") -> "list":
+        if isinstance(node, ast.Assign):
+            return [t for t in node.targets if isinstance(t, ast.Name)]
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            return [node.target]
+        return []
+
+    src_files = [p for p in sorted(src_root.rglob("*.py")) if p.name != "i18n.py"]
+    trees = {}
+    for path in src_files:
+        trees[path] = ast.parse(path.read_text(encoding="utf-8"))
+
+    # 候选码表名:Dict 字面量赋给大写/下划线开头名字(全库口径)
+    candidate_tables = set()
+    for tree in trees.values():
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Assign, ast.AnnAssign)) and isinstance(
+                node.value, ast.Dict
+            ):
+                for target in _targets(node):
+                    if target.id.isupper() or target.id.startswith("_"):
+                        candidate_tables.add(target.id)
+
+    # 逐文件解析取词点 → 命中的表名 -> 所属模块文件
+    tables_dir = {}
+    for path, tree in trees.items():
+        var_map = {}
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+                base = _base_of(node.value)
+                if base:
+                    for target in _targets(node):
+                        if target.id != base:
+                            var_map.setdefault(target.id, set()).add(base)
+
+        def resolve(name: str, chain: "tuple" = ()) -> "set":
+            out = set()
+            if name in chain:
+                return out
+            if name in candidate_tables:
+                out.add(name)
+            for base in var_map.get(name, ()):
+                out |= resolve(base, chain + (name,))
+            return out
+
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "_"
+                and node.args
+            ):
+                continue
+            arg = node.args[0]
+            if isinstance(arg, (ast.Constant, ast.Str)):
+                continue  # 字面量模板由另一门禁覆盖
+            if isinstance(arg, ast.Call) and isinstance(arg.func, ast.Name):
+                continue  # 助手函数形态(助手体内取词点独立入扫)
+            base = _base_of(arg)
+            if base is not None:
+                for name in resolve(base):
+                    tables_dir[name] = path
+
+    assert len(tables_dir) >= 12, "码表发现数异常:{}".format(sorted(tables_dir))
+
+    def texts_of(value: object) -> "list":
         if isinstance(value, dict):
             out: list = []
             for item in value.values():
@@ -157,10 +234,16 @@ def test_error_code_tables_fully_translated_in_en() -> None:
     set_lang("en")
     try:
         missing = []
-        for name, table in tables:
+        for name, path in sorted(tables_dir.items()):
+            rel = path.relative_to(src_root).with_suffix("")
+            parts = list(rel.parts)
+            if parts[-1] == "__init__":
+                parts.pop()
+            module = importlib.import_module("omniplc." + ".".join(parts))
+            table = getattr(module, name)
             for text in texts_of(table):
                 if _(text) == text:
-                    missing.append("{}:{}".format(name, text[:40]))
+                    missing.append("{}:{}".format(name, str(text)[:40]))
     finally:
         set_lang("zh")
     assert missing == [], "码表 en 漏翻(键不在 _TRANSLATIONS):{}".format(missing)
