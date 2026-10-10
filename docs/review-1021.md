@@ -57,6 +57,28 @@
 >   由 `(False, None)`/`False` 改为同步抛 `ValueError`;`generic_message`
 >   判写服务与 `command` Set/Exec 在只读模式下拒绝。CHANGELOG 随下批
 >   发版统一落;§3.3 待裁决按推荐方向(收进契约)落地。
+>
+> **复核批注②(2026-10-10 第三方复核,`d485a7c`)**:修复批经交叉复核——
+> 门禁五件套**独立实跑**复现全绿(3.7.9 1921 passed / 11 skipped 全为
+> 模拟器网关未运行、ruff format 148 files / ruff check / mypy 83 files /
+> ty);三形态 13+3+2 条入口逐条对照源码确认;并补做报告 §2.6 修法 5 的
+> **反向自查**:反射枚举 77 个公开客户端类,筛「名字不属 `write*`/`*write`/
+> `set_*` 且未登记、但签名为单地址型」的方法 → **零命中**,命名面之外无
+> 地址型写方法漏网。
+> 复核另发现并落地一处**遗留契约声明缺口**(`d485a7c`,纯 docstring):
+> 新过闸入口中只有基类 `write_many` 与 S7 `write_wstring` 声明了
+> 「只读模式抛 `RuntimeError`」,其余 **8 处**未声明新契约,其中
+> `write_batch`/`write_mask_register` 连白名单拒绝也未提;已按仓库披露
+> 传统补齐 `:raises RuntimeError:`(只读)与 `:raises ValueError:` 扩写
+> (白名单表外拒绝;FC23 注明只闸写侧地址、MX/MC 注明逐软元件前置校验
+> 零字节发送),零行为变化。
+> **复核对原报告的裁决(两处定级订正,以本台账订正口径为准)**:原稿
+> §2.2 判「`read_only` 对 A 形态失效」**不成立**——13 处 `is_write=True`
+> 修复前即在位(`_execute` 总闸生效),真实缺口仅为**白名单闸全绕过**;
+> 原稿 §2.3 判 B 形态「`read_only` 与 `last_error` 双双失效」**不成立**
+> ——内部 `_write_control` 修复前即走公共 `write()`(FC06 单寄存器写,
+> 原稿"FC05/FC16"为笔误),两闸逐笔生效,残余真问题仅为异常契约逃逸
+> (§三 P0-2)。两处误判均为**审计侧定级过高**,修复必要性不受影响。
 
 ## 〇、执行摘要
 
@@ -251,6 +273,12 @@
 - C1 传写服务被 `read_only` 拦;传读服务放行;
 - C2 `command("Exec", ...)` 在 `read_only=True` 下拒发、在 `write_retries=0` 下不重发;
 - aio 层逐条镜像同断言(见 §五 P0-3)。
+
+**契约声明同步(复核批注②,`d485a7c`)**:上述入口的 docstring 除基类
+`write_many` 与 S7 `write_wstring` 外均未声明新契约,已补齐 8 处
+`:raises RuntimeError:`(只读模式)与 `:raises ValueError:` 扩写(白名单
+表外拒绝;FC23 注明只闸写侧地址、MX/MC 注明逐软元件前置校验零字节发送),
+零行为变化。
 
 ---
 
