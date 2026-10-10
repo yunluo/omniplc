@@ -995,6 +995,8 @@ class MelsecMxClient(BaseClient):
         words: List[int] = []
         for address, value in items:
             parsed = _check_address(address)
+            # 写安全闸(review-1021 P0-1:随机批量写属写路径,逐软元件过闸)
+            self._check_write_allowed(address)
             if parsed.bit is not None:
                 raise ValueError(
                     _(

@@ -1278,6 +1278,9 @@ _TRANSLATIONS: Dict[str, str] = {
     "采集状态应答非数字:{!r}": "The acquisition status reply is not numeric: {0!r}",
     # ---- read_range 连续批量读(审查 1002:新文案入表)+ 心跳/R9 随批 ----
     "当前驱动 {} 不支持连续批量读 read_range(起始地址+数量),请改用 read_many/read_batch 逐点列出地址": "Driver {0} does not support read_range (start address + count); use read_many/read_batch listing addresses one by one",
+    # ---- review-1021 P1-5:字符串能力缺失口径统一为 ValueError ----
+    "当前驱动 {} 暂不支持字符串读取": "Driver {0} does not support string reads",
+    "当前驱动 {} 暂不支持字符串写入": "Driver {0} does not support string writes",
     "count 必须是 ≥1 的整数,收到:{!r}": "count must be an integer >= 1, got: {0!r}",
     "{} 必须是 ≥1 的整数,收到:{!r}": "{0} must be an integer >= 1, got: {1!r}",
     "read_range 不支持 STRING,请用 read_string": "read_range does not support STRING; use read_string",

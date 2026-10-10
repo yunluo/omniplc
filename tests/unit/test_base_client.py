@@ -127,15 +127,16 @@ class TestStringSupport:
     """字符串原语缺省实现(驱动未覆写时)。"""
 
     def test_string_unsupported_default(self) -> None:
-        """read_string/write_string → (False, None)/False,不断线,last_error 说明。"""
+        """read_string/write_string → 同步抛 ValueError(review-1021 P1-5
+        口径统一:能力缺失属参数校验类错误,调用期显式暴露,不再静默
+        ``(False, None)`` 让调用方误判为设备侧不支持);不断线。"""
         client = _ScriptedClient()
         client.connect()
-        ok, value = client.read_string("D100", 4)
-        assert ok is False and value is None
-        assert "暂不支持字符串" in (client.last_error or "")
+        with pytest.raises(ValueError, match="暂不支持字符串"):
+            client.read_string("D100", 4)
+        with pytest.raises(ValueError, match="暂不支持字符串"):
+            client.write_string("D100", "AB")
         assert client.connected is True  # 能力缺失不是链路故障,不触发重连
-        assert client.write_string("D100", "AB") is False
-        assert client.connected is True
 
 
 class TestRetry:

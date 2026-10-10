@@ -583,6 +583,8 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         parsed_items: List[Tuple[ModbusAddress, DataType, PrimitiveValue]] = []
         for address, dtype, value in items:
             data_type_enum = DataType.coerce(dtype)
+            # 写安全闸逐地址过闸(review-1021 P0-1,与同步层同口径)
+            self._check_write_allowed(address)
             parsed_items.append(
                 (
                     _check_address(address, data_type_enum, is_write=True),
@@ -613,6 +615,8 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         parsed_items: List[Tuple[ModbusAddress, DataType, PrimitiveValue]] = []
         for address, dtype, value in items:
             data_type_enum = DataType.coerce(dtype)
+            # 写安全闸逐地址过闸(review-1021 P0-1,与同步层同口径)
+            self._check_write_allowed(address)
             parsed_items.append(
                 (
                     _check_address(address, data_type_enum, is_write=True),
@@ -780,6 +784,8 @@ class AsyncModbusTcpClient(AsyncBaseClient):
             )
         if parsed.bit is not None:
             raise ValueError(_("掩码写地址不支持位号后缀:{!r}").format(address))
+        # 写安全闸(review-1021 P0-1,与同步层同口径)
+        self._check_write_allowed(address)
         order = (
             byte_order.value if isinstance(byte_order, ByteOrder) else str(byte_order)
         )
@@ -814,6 +820,8 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         """
         read_parsed = _check_holding_register(read_address, "FC23 读地址")
         write_parsed = _check_holding_register(write_address, "FC23 写地址")
+        # 写安全闸(review-1021 P0-1:FC23 名似读实为写,只闸写侧地址)
+        self._check_write_allowed(write_address)
         self._reject_broadcast_read()
         data = [require_int(value) for value in values]
         pdu = codec.build_read_write_registers_pdu(

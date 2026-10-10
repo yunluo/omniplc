@@ -727,10 +727,18 @@ class AsyncBaseClient(ABC):
         Modbus 覆写为按 (区, 类型) 合笔;MC / FINS 维持逐点(协议无跨软元件
         单事务写原语),与同步层同面同语义。
 
+        入参先全量前置校验(类型 coerce + 写安全闸逐地址),任一非法在
+        零发送期同步抛出(与同步层同口径,review-1021 P1-4);事务期的
+        单点失败仍不影响其他点。
+
         :param items: ``(地址, 数据类型, 值)`` 三元组序列
         :return: 与 items 顺序对应的布尔结果列表
+        :raises RuntimeError: 只读模式(:attr:`read_only`)
         :raises ValueError: 地址/类型/值参数非法(任一项非法即抛出)
         """
+        for address, data_type, _value in items:
+            DataType.coerce(data_type)
+            self._check_write_allowed(address)
         return [
             await self.write(address, data_type, value)
             for address, data_type, value in items
@@ -1218,7 +1226,11 @@ class AsyncBaseClient(ABC):
                     self._set_error(
                         _describe(exc), _categorize(exc), _extract_code(exc)
                     )
-                    self._capture_incident()
+                    if not heartbeat:
+                        # 心跳 tick 不覆盖事故现场快照(review-1021 P1-1,
+                        # 与上方 DeviceError 分支及同步层同口径);拆连计数
+                        # 照常(传输类真实故障不受 heartbeat 豁免)
+                        self._capture_incident()
                     self._mark_disconnected()
                 else:
                     if transport is not None:
@@ -1280,10 +1292,12 @@ class AsyncBaseClient(ABC):
 
         :param record: 是否同时计一次失败统计(门控拒绝等无网络动作的
             失败传 False,不污染 ``stats["error_count"]``)
+        :param code: 原始错误码;``0`` 与 ``None`` 同为"无具体错误码"
+            (review-1021 §3.2 单点收口,与同步层同口径)
         """
         self._last_error = message
         self._last_error_category = category
-        self._last_error_code = code
+        self._last_error_code = code or None
         if record:
             self._record_error()
 
@@ -1391,16 +1405,24 @@ class AsyncBaseClient(ABC):
     ) -> PrimitiveValue:
         """字符串读原语,默认不支持,由驱动覆写(协程;内部方法)。
 
-        缺省实现抛 :class:`DeviceError`(链路正常,由基类转
-        ``(False, None)`` + ``last_error``),不逃逸裸异常。
+        缺省实现抛 :class:`ValueError`(review-1021 P1-5 口径统一:
+        「驱动不支持该能力」属参数校验类错误,与同步层同款在调用期
+        同步抛出,而非静默 ``(False, None)``)。
         """
-        raise DeviceError(_("当前驱动暂不支持字符串读取"), 0)
+        raise ValueError(
+            _("当前驱动 {} 暂不支持字符串读取").format(type(self).__name__)
+        )
 
     async def _write_string(
         self, address: str, value: str, encoding: str
     ) -> PrimitiveValue:
-        """字符串写原语,默认不支持,由驱动覆写(协程;内部方法)。"""
-        raise DeviceError(_("当前驱动暂不支持字符串写入"), 0)
+        """字符串写原语,默认不支持,由驱动覆写(协程;内部方法)。
+
+        缺省实现语义同 :meth:`_read_string`。
+        """
+        raise ValueError(
+            _("当前驱动 {} 暂不支持字符串写入").format(type(self).__name__)
+        )
 
     def _bump_id(self, attr: str, bits: int = 16) -> int:
         """递增指定字段的协议序列号(回绕到 0),返回新值(内部方法)。

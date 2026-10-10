@@ -86,7 +86,7 @@ from ..core.constants import (
     HIKROBOT_STATUS_TRIGGER_READY,
     MODBUS_DEFAULT_PORT,
 )
-from ..core.errors import DeviceError, ErrorCategory, TransportTimeoutError
+from ..core.errors import DeviceError, TransportTimeoutError
 from ..core.i18n import _
 from ..core.types import DataType
 from ..plc.modbus import ModbusTcpClient
@@ -123,7 +123,7 @@ class HikrobotIdModbusClient(ModbusTcpClient):
         client = HikrobotIdModbusClient("192.168.1.100", station=0)
         client.connect()
         ok, code = client.scan()            # (True, "ABC123") / (False, None)=NG
-        status = client.read_status()       # 状态区快照
+        ok, status = client.read_status()   # (True, 状态区快照) / (False, None)
         client.close()
     """
 
@@ -206,16 +206,17 @@ class HikrobotIdModbusClient(ModbusTcpClient):
         :param poll_interval: 状态轮询间隔(秒),过小增加 Modbus 事务负载
         :return: ``(是否读到条码, 条码文本)``。Results OK → ``(True, 文本)``
             (读码器 NoRead 使能时未读到码反馈 OK + ``"NoRead"`` 字符,原样
-            返回);Results NG(未读到码,需读码器侧关闭 NoRead)→
-            ``(False, None)``
-        :raises TransportTimeoutError: 超时未出结果(读码器/链路停滞)
-        :raises DeviceError: General Fault(设备内部异常,先
-            :meth:`clear_error` 再重试)、Results Ack 未被设备消费、
-            Modbus 事务失败(细节见 ``last_error``)
+            返回);Results NG(未读到码,需读码器侧关闭 NoRead)、超时、
+            General Fault(设备内部异常,先 :meth:`clear_error` 再重试)、
+            Results Ack 未被设备消费、Modbus 事务失败 → ``(False, None)``,
+            原因记入 :attr:`last_error`(契约收口,review-1021 §三)
+        :raises RuntimeError: 只读模式(:attr:`read_only`;触发属写操作)
         :raises ValueError: 参数非法
 
         握手全程持**事务锁**(与家族其余 scan 同口径,审查 1001 P2-5:
-        防并发线程交插图双触发),握手级失败写 ``last_error`` 三件套。
+        防并发线程交插图双触发),整段握手作为一个 ``is_write=True`` 事务
+        经 :meth:`_execute` 收发——失败语义由基类统一转 ``(False, None)``
+        + ``last_error`` 三件套,与同族 KeyenceSrClient 同契约。
         """
         if timeout <= 0:
             raise ValueError(_("timeout 必须大于 0,收到:{}").format(timeout))
@@ -223,8 +224,12 @@ class HikrobotIdModbusClient(ModbusTcpClient):
             raise ValueError(
                 _("poll_interval 必须大于 0,收到:{}").format(poll_interval)
             )
-        with self._lock:
-            return self._scan_locked(timeout, poll_interval)
+        ok, result = self._execute(
+            lambda: self._scan_locked(timeout, poll_interval), is_write=True
+        )
+        if not ok or result is None:
+            return False, None
+        return result
 
     def _scan_locked(
         self, timeout: float, poll_interval: float
@@ -254,12 +259,13 @@ class HikrobotIdModbusClient(ModbusTcpClient):
             words = self._read_status_and_result()
             status = words[0]
             if status & HIKROBOT_STATUS_GENERAL_FAULT:
-                # 设备内部异常(§3.6:确认错误原因后 Clear Error 可继续)
-                message = _(
-                    "读码器内部故障(General Fault),请排查后调用 clear_error() 清除"
+                # 设备内部异常(§3.6:确认错误原因后 Clear Error 可继续);
+                # raise 后由外层 _execute 统一记账并转 (False, None)
+                # (review-1021 §三,手动 _set_error 已撤避免双记)
+                raise DeviceError(
+                    _("读码器内部故障(General Fault),请排查后调用 clear_error() 清除"),
+                    0,
                 )
-                self._set_error(message, ErrorCategory.DEVICE, 0)
-                raise DeviceError(message, 0)
             if trigger_armed and status & HIKROBOT_STATUS_TRIGGER_ACK:
                 self._write_control(HIKROBOT_CTRL_TRIGGER_ENABLE, _("回落触发位"))
                 trigger_armed = False
@@ -270,9 +276,9 @@ class HikrobotIdModbusClient(ModbusTcpClient):
                 ng = True
                 break
             if time.monotonic() >= deadline:
-                message = _("读码超时({}s),设备未输出 Results OK/NG").format(timeout)
-                self._set_error(message, ErrorCategory.TIMEOUT, None)
-                raise TransportTimeoutError(message, 0)
+                raise TransportTimeoutError(
+                    _("读码超时({}s),设备未输出 Results OK/NG").format(timeout), 0
+                )
             time.sleep(poll_interval)
         # 5. Results Ack 应答(§3.6 步骤 5:读取完成后置位,设备清 OK/NG)
         self._write_control(
@@ -287,9 +293,10 @@ class HikrobotIdModbusClient(ModbusTcpClient):
             if not status & (HIKROBOT_STATUS_RESULTS_OK | HIKROBOT_STATUS_RESULTS_NG):
                 break
             if time.monotonic() >= ack_deadline:
-                message = _("Results Ack 未被设备消费(Results OK/NG 未清零),握手未闭环")
-                self._set_error(message, ErrorCategory.DEVICE, 0)
-                raise DeviceError(message, 0)
+                # raise 后由外层 _execute 统一记账转 (False, None)
+                raise DeviceError(
+                    _("Results Ack 未被设备消费(Results OK/NG 未清零),握手未闭环"), 0
+                )
             time.sleep(poll_interval)
         if ng:
             # Results NG:设备已把结果区清零(§3.6 步骤 3),正常未读到码
@@ -297,14 +304,19 @@ class HikrobotIdModbusClient(ModbusTcpClient):
         assert words is not None  # 循环必经 break,words 已就绪
         return True, self._decode_result(words)
 
-    def read_status(self) -> HikrobotStatus:
+    def read_status(self) -> Tuple[bool, Optional[HikrobotStatus]]:
         """读取状态区快照(FC03 读 REG1,一次事务)。
 
         供 PLC 式轮询/诊断使用;读码请走 :meth:`scan`。
 
-        :raises DeviceError: Modbus 事务失败(细节见 ``last_error``)
+        :return: ``(是否成功, 状态快照)``;Modbus 事务失败为
+            ``(False, None)``,原因记入 :attr:`last_error`(契约收口,
+            review-1021 §三:不再抛 :class:`DeviceError`)
         """
-        return self._to_status(self._read_status_word())
+        ok, raw = self._execute(self._read_status_word)
+        if not ok or raw is None:
+            return False, None
+        return True, self._to_status(raw)
 
     def _ping_probe(self) -> int:
         """探活探测命令:FC03 读状态字 REG1(内部方法)。
@@ -322,9 +334,12 @@ class HikrobotIdModbusClient(ModbusTcpClient):
 
         :param timeout: 等待故障清零的超时(秒)
         :param poll_interval: 状态轮询间隔(秒)
-        :return: 故障是否已清零
+        :return: 故障是否已清零;Modbus 事务失败亦为 ``False``,原因记入
+            :attr:`last_error`(契约收口,review-1021 §三:不再抛
+            :class:`DeviceError`)。清错属**写操作**,受 :attr:`read_only`
+            管辖
+        :raises RuntimeError: 只读模式(:attr:`read_only`)
         :raises ValueError: 参数非法
-        :raises DeviceError: Modbus 事务失败
         """
         if timeout <= 0:
             raise ValueError(_("timeout 必须大于 0,收到:{}").format(timeout))
@@ -332,6 +347,13 @@ class HikrobotIdModbusClient(ModbusTcpClient):
             raise ValueError(
                 _("poll_interval 必须大于 0,收到:{}").format(poll_interval)
             )
+        ok, cleared = self._execute(
+            lambda: self._clear_error_locked(timeout, poll_interval), is_write=True
+        )
+        return bool(ok and cleared)
+
+    def _clear_error_locked(self, timeout: float, poll_interval: float) -> bool:
+        """清错实现:置位 Clear Error + 轮询故障清零(内部方法,须事务内调用)。"""
         self._write_control(
             HIKROBOT_CTRL_TRIGGER_ENABLE | HIKROBOT_CTRL_CLEAR_ERROR, _("清除错误")
         )
@@ -400,19 +422,18 @@ class HikrobotIdModbusClient(ModbusTcpClient):
         while True:
             status = self._read_status_word()
             if status & HIKROBOT_STATUS_GENERAL_FAULT:
-                # 握手级失败写三件套(review-1002 P2-5 残留:与 scan 主循环
-                # 同口径,本方法不经 _execute,裸 raise 会漏 last_error)
-                message = _(
-                    "读码器内部故障(General Fault),请排查后调用 clear_error() 清除"
+                # 设备内部异常:raise 后由外层 _execute 统一记账转
+                # (False, None)(review-1021 §三,手动 _set_error 已撤)
+                raise DeviceError(
+                    _("读码器内部故障(General Fault),请排查后调用 clear_error() 清除"),
+                    0,
                 )
-                self._set_error(message, ErrorCategory.DEVICE, 0)
-                raise DeviceError(message, 0)
             if status & bit:
                 return
             if time.monotonic() >= deadline:
-                message = _("等待状态位超时({}),未在期限内置位").format(action)
-                self._set_error(message, ErrorCategory.TIMEOUT, None)
-                raise TransportTimeoutError(message, 0)
+                raise TransportTimeoutError(
+                    _("等待状态位超时({}),未在期限内置位").format(action), 0
+                )
             time.sleep(poll_interval)
 
     @staticmethod

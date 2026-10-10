@@ -155,8 +155,8 @@ def test_scan_noread_passthrough(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.scan(timeout=2.0, poll_interval=0.001) == (True, "NoRead")
 
 
-def test_scan_general_fault_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """General Fault(设备内部异常):抛 DeviceError,可区分于 NG。"""
+def test_scan_general_fault_returns_false(monkeypatch: pytest.MonkeyPatch) -> None:
+    """General Fault(设备内部异常):按契约返回 (False, None),可区分于 NG。"""
     frames = [
         _fc06_response(1, 0, 0x0001),
         _fc03_response(2, [0x0001]),
@@ -164,12 +164,14 @@ def test_scan_general_fault_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         _block_response(4, 0x8000, []),
     ]
     client, _scripted = _make_client(monkeypatch, frames)
-    with pytest.raises(DeviceError, match="General Fault"):
-        client.scan(timeout=2.0, poll_interval=0.001)
+    assert client.scan(timeout=2.0, poll_interval=0.001) == (False, None)
+    assert client.last_error is not None and "General Fault" in client.last_error
+    assert client.last_error_category is not None
+    assert client.connected is True  # DeviceError 不拆连
 
 
-def test_scan_timeout_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """超时未出结果:抛 TransportTimeoutError(区别于 NG 的正常未读到码)。"""
+def test_scan_timeout_returns_false(monkeypatch: pytest.MonkeyPatch) -> None:
+    """超时未出结果:按契约返回 (False, None)+TIMEOUT 分类(区别于 NG)。"""
     frames = [
         _fc06_response(1, 0, 0x0001),
         _fc03_response(2, [0x0001]),
@@ -184,12 +186,13 @@ def test_scan_timeout_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     # 假时钟每次 monotonic 步进 0.3s,timeout=1.0 → 若干次轮询内必到期;
     # 若脚本先耗尽(8 个应答用尽前未判定)则 ConnectionError 暴露测试错误
     monkeypatch.setattr(hikrobot_module.time, "monotonic", _FakeClock(step=0.3))
-    with pytest.raises(TransportTimeoutError, match="读码超时"):
-        client.scan(timeout=1.0, poll_interval=0.001)
+    assert client.scan(timeout=1.0, poll_interval=0.001) == (False, None)
+    assert client.last_error is not None and "读码超时" in client.last_error
+    assert client.connected is True  # TransportTimeoutError 不拆连
 
 
-def test_scan_ack_not_consumed_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Results Ack 未被设备消费(OK/NG 不清零):握手未闭环,抛 DeviceError。"""
+def test_scan_ack_not_consumed_returns_false(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Results Ack 未被设备消费(OK/NG 不清零):按契约 (False, None)+DEVICE。"""
     frames = [
         _fc06_response(1, 0, 0x0001),
         _fc03_response(2, [0x0001]),
@@ -202,14 +205,15 @@ def test_scan_ack_not_consumed_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     monkeypatch.setattr(hikrobot_module.time, "monotonic", _FakeClock(step=0.3))
-    with pytest.raises(DeviceError, match="Results Ack"):
-        client.scan(timeout=1.0, poll_interval=0.001)
+    assert client.scan(timeout=1.0, poll_interval=0.001) == (False, None)
+    assert client.last_error is not None and "Results Ack" in client.last_error
 
 
 def test_scan_handshake_failure_records_last_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """握手级失败写 last_error 三件套(审查 1001 P2-5:scan 持事务锁口径)。"""
+    """握手级失败不逃逸事务契约:失败原因进 last_error 三件套
+    (review-1021 §三收口,由外层 _execute 统一记账)。"""
     frames = [
         _fc06_response(1, 0, 0x0001),
         _fc03_response(2, [0x0001]),
@@ -217,9 +221,7 @@ def test_scan_handshake_failure_records_last_error(
         _block_response(4, 0x8000, []),  # General Fault
     ]
     client, _scripted = _make_client(monkeypatch, frames)
-    with pytest.raises(DeviceError, match="General Fault"):
-        client.scan(timeout=2.0, poll_interval=0.001)
-    # 抛出不逃逸事务契约:失败原因进 last_error(此前是残留旧值/空)
+    assert client.scan(timeout=2.0, poll_interval=0.001) == (False, None)
     assert client.last_error is not None and "General Fault" in client.last_error
     assert client.last_error_category is not None
     assert client.connected is True
@@ -275,12 +277,13 @@ def test_scan_byte_swap_decoding(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_read_status_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
-    """read_status():状态字各位正确展开,原始值保留。"""
+    """read_status():状态字各位正确展开,原始值保留(契约收口后为元组)。"""
     client, _scripted = _make_client(
         monkeypatch,
         [_fc03_response(1, [0x0002 | 0x0100 | 0x0008])],  # Ack + Decoding + OK
     )
-    status = client.read_status()
+    ok, status = client.read_status()
+    assert ok is True
     assert isinstance(status, HikrobotStatus)
     assert status.trigger_ready is False
     assert status.trigger_ack is True
@@ -324,35 +327,72 @@ def test_constructor_result_words_range() -> None:
         HikrobotIdModbusClient("127.0.0.1", result_words=501)
 
 
-def test_wait_status_bit_failure_writes_last_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """_wait_status_bit 握手级失败写三件套(review-1002 P2-5 残留):
-    General Fault / 超时两分支不再裸 raise 漏 last_error(本方法不经
-    _execute,scan docstring 承诺「握手级失败写三件套」)。"""
+def test_wait_status_bit_failure_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_wait_status_bit 两失败分支仍可区分(review-1021 §三后记账职责
+    上移外层 _execute:本方法只负责 raise,三件套由 scan 的外层事务统一
+    写——见 test_scan_handshake_failure_records_last_error)。"""
     client = HikrobotIdModbusClient("127.0.0.1", 502, _STATION, _RESULT_WORDS)
     monkeypatch.setattr(client, "_read_status_word", lambda: 0)
-    with pytest.raises(TransportTimeoutError):
+    with pytest.raises(TransportTimeoutError, match="等待状态位超时"):
         client._wait_status_bit(
             hikrobot_module.HIKROBOT_STATUS_TRIGGER_READY,
             time.monotonic() - 0.01,  # 期限已过 → 首拍即超时
             0.001,
             "测试",
         )
-    assert client.last_error is not None and "等待状态位超时" in client.last_error
     monkeypatch.setattr(
         client,
         "_read_status_word",
         lambda: hikrobot_module.HIKROBOT_STATUS_GENERAL_FAULT,
     )
-    with pytest.raises(DeviceError):
+    with pytest.raises(DeviceError, match="General Fault"):
         client._wait_status_bit(
             hikrobot_module.HIKROBOT_STATUS_TRIGGER_READY,
             time.monotonic() + 1.0,
             0.001,
             "测试",
         )
-    assert client.last_error is not None and "General Fault" in client.last_error
+
+
+def test_read_only_blocks_scan_before_handshake(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """read_only=True:scan 触发属写操作,入口即拒、零字节发送
+    (review-1021 §2.3 收口:外层 _execute(is_write=True) 总闸)。"""
+    client, scripted = _make_client(monkeypatch, [])
+    client.read_only = True
+    with pytest.raises(RuntimeError, match="只读模式"):
+        client.scan(timeout=2.0, poll_interval=0.001)
+    assert bytes(scripted.sent) == b""
+
+
+def test_read_status_failure_returns_false_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """read_status() 事务失败按契约返回 (False, None),不再抛 DeviceError
+    (review-1021 §三收口)。"""
+    client = HikrobotIdModbusClient("127.0.0.1", 502, _STATION, _RESULT_WORDS)
+    monkeypatch.setattr(
+        client,
+        "_read_status_word",
+        lambda: (_ for _ in ()).throw(DeviceError("状态字读取失败", 0)),
+    )
+    assert client.read_status() == (False, None)
+    assert client.last_error is not None
+
+
+def test_clear_error_failure_returns_false(monkeypatch: pytest.MonkeyPatch) -> None:
+    """clear_error() 事务失败按契约返回 False,不再抛 DeviceError
+    (review-1021 §三收口);且不拆连。"""
+    client, _scripted = _make_client(monkeypatch, [])
+    monkeypatch.setattr(
+        client,
+        "_write_control",
+        lambda value, action: (_ for _ in ()).throw(DeviceError("控制字写入失败", 0)),
+    )
+    assert client.clear_error(timeout=1.0, poll_interval=0.001) is False
+    assert client.last_error is not None
+    assert client.connected is True
 
 
 def test_constructor_defaults_station_zero() -> None:

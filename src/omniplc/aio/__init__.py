@@ -1633,7 +1633,7 @@ class AHikrobotIdModbusClient(AModbusBaseClient):
         """触发一次读码并等待结果(语义同同步版 :meth:`HikrobotIdModbusClient.scan`)。"""
         return await self._run(lambda: self._reader().scan(timeout, poll_interval))
 
-    async def read_status(self) -> HikrobotStatus:
+    async def read_status(self) -> Tuple[bool, Optional[HikrobotStatus]]:
         """读取状态区快照(语义同同步版)。"""
         return await self._run(self._reader().read_status)
 
@@ -2276,12 +2276,17 @@ class AOmronCipClient(ABaseClient):
         return await self._run(sync.list_tags)
 
     async def generic_message(
-        self, service: int, class_id: int, instance: int, body: bytes = b""
+        self,
+        service: int,
+        class_id: int,
+        instance: int,
+        body: bytes = b"",
+        is_write: Optional[bool] = None,
     ) -> Tuple[bool, Optional[bytes]]:
         """通用 CIP 服务(语义同同步版 :meth:`OmronCipClient.generic_message`)。"""
         sync = self._typed(OmronCipClient)
         return await self._run(
-            lambda: sync.generic_message(service, class_id, instance, body)
+            lambda: sync.generic_message(service, class_id, instance, body, is_write)
         )
 
     async def list_identity(self) -> Tuple[bool, Optional[dict]]:
@@ -2688,12 +2693,17 @@ class AAllenBradleyEthIpClient(ABaseClient):
         return await self._run(lambda: sync.read_batch(items))
 
     async def generic_message(
-        self, service: int, class_id: int, instance: int, body: bytes = b""
+        self,
+        service: int,
+        class_id: int,
+        instance: int,
+        body: bytes = b"",
+        is_write: Optional[bool] = None,
     ) -> Tuple[bool, Optional[bytes]]:
         """通用 CIP 服务(语义同同步版 :meth:`AllenBradleyEthIpClient.generic_message`)。"""
         sync = self._typed(AllenBradleyEthIpClient)
         return await self._run(
-            lambda: sync.generic_message(service, class_id, instance, body)
+            lambda: sync.generic_message(service, class_id, instance, body, is_write)
         )
 
     async def list_identity(self) -> Tuple[bool, Optional[dict]]:

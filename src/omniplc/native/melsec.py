@@ -641,6 +641,8 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         ) -> List[Tuple[int, int, int]]:
             out: List[Tuple[int, int, int]] = []
             for address, value in items:
+                # 写安全闸(review-1021 P0-1,与同步层同口径)
+                self._check_write_allowed(address)
                 parsed = self._translate_address(parse_mc_address(address))
                 if parsed.bit is not None:
                     # 与同步层同口径:位号后缀静默丢弃会按 16 点/字写,

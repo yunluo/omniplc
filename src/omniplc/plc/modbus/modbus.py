@@ -490,10 +490,12 @@ class ModbusBaseClient(BaseClient):
         :return: 与 items 顺序对应的 ``bool`` 列表;成功 ``True``
         """
         # 1) 入参合法性前置校验:任一非法即同步抛出,不进事务(含写区域收口:
-        #    ir/di 只读,批量写不再"锁内才抛")
+        #    ir/di 只读,批量写不再"锁内才抛");写安全闸逐地址过闸
+        #    (review-1021 P0-1:白名单/只读与地址校验同期,零发送期拒绝)
         parsed_items: List[Tuple[ModbusAddress, DataType, PrimitiveValue]] = []
         for address, dtype, value in items:
             data_type_enum = DataType.coerce(dtype)
+            self._check_write_allowed(address)
             parsed_items.append(
                 (
                     _check_address(address, data_type_enum, is_write=True),
@@ -534,10 +536,12 @@ class ModbusBaseClient(BaseClient):
         """
         if not items:
             raise ValueError(_("write_batch 至少需要一个 (地址, 数据类型, 值) 项"))
-        # 1) 入参合法性前置校验(含写区域收口:ir/di 只读)
+        # 1) 入参合法性前置校验(含写区域收口:ir/di 只读);写安全闸逐地址
+        #    过闸(review-1021 P0-1,与 write_many 同口径)
         parsed_items: List[Tuple[ModbusAddress, DataType, PrimitiveValue]] = []
         for address, dtype, value in items:
             data_type_enum = DataType.coerce(dtype)
+            self._check_write_allowed(address)
             parsed_items.append(
                 (
                     _check_address(address, data_type_enum, is_write=True),
@@ -803,6 +807,8 @@ class ModbusBaseClient(BaseClient):
             )
         if parsed.bit is not None:
             raise ValueError(_("掩码写地址不支持位号后缀:{!r}").format(address))
+        # 写安全闸(review-1021 P0-1:FC22 属写路径,与 write() 同闸)
+        self._check_write_allowed(address)
         order = (
             byte_order.value if isinstance(byte_order, ByteOrder) else str(byte_order)
         )
@@ -852,6 +858,8 @@ class ModbusBaseClient(BaseClient):
         """
         read_parsed = _check_holding_register(read_address, "FC23 读地址")
         write_parsed = _check_holding_register(write_address, "FC23 写地址")
+        # 写安全闸(review-1021 P0-1:FC23 名似读实为写,只闸写侧地址)
+        self._check_write_allowed(write_address)
         self._reject_broadcast_read()
         data = [require_int(value) for value in values]
         pdu = codec.build_read_write_registers_pdu(

@@ -722,6 +722,7 @@ class AsyncSiemensS7Client(AsyncBaseClient):
         """
         if not value:
             raise ValueError(_("value 不能为空字符串"))
+        self._check_write_allowed(address)
         ok, _unused = await self._execute(
             lambda: self._write_wstring_impl(address, str(value)), is_write=True
         )

@@ -786,10 +786,13 @@ class SiemensS7Client(BaseClient):
         :param address: 字符串起点地址
         :param value: 待写入文本(不能为空;须为 BMP 字符,避免代理对歧义)
         :return: 是否成功
-        :raises ValueError: 地址/值非法或超出 PLC 侧声明长
+        :raises RuntimeError: 只读模式(:attr:`read_only`)
+        :raises ValueError: 地址/值非法或超出 PLC 侧声明长;白名单开启且
+            地址不在已绑定点位表内(review-1021 P0-1 收口)
         """
         if not value:
             raise ValueError(_("value 不能为空字符串"))
+        self._check_write_allowed(address)
         ok, _unused = self._execute(
             lambda: self._write_wstring_impl(address, str(value)), is_write=True
         )

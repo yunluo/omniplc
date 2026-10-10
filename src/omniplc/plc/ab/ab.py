@@ -337,6 +337,7 @@ class AllenBradleyEthIpClient(BaseClient):
         class_id: int,
         instance: int,
         body: bytes = b"",
+        is_write: Optional[bool] = None,
     ) -> Tuple[bool, Optional[bytes]]:
         """通用 CIP 服务:拼装请求 + 走 :meth:`_transact` 收发,返回服务数据域裸字节。
 
@@ -346,14 +347,29 @@ class AllenBradleyEthIpClient(BaseClient):
         布局自行解码;便捷方法 :meth:`get_attribute_all` / :meth:`get_attribute_list`
         / :meth:`get_plc_info` 已覆盖 Identity Object 常见用法。
 
+        :param is_write: 该服务是否按**写事务**处理;缺省按服务码判定
+            (0x4D Write Tag / 0x4E Read-Modify-Write Tag 判写,与库内
+            写标签同款服务码,其余判读)。判写的服务受 :attr:`read_only`
+            管辖、失败重试取 ``write_retries``(review-1021 C1:入参是任意
+            CIP service,传写服务即写设备,不得一律按读事务跑);
+            Write Tag Fragmented(0x53)本库未实现不在判定表内,需要时显式
+            传 ``is_write=True``
         :returns: ``(True, 数据域)`` 或 ``(False, None)``(失败时 ``last_error`` 有消息)
+        :raises RuntimeError: 判写(或显式 ``is_write=True``)且只读模式
         """
+        if is_write is None:
+            is_write = service in (
+                codec_cip.CIP_SERVICE_WRITE_TAG,
+                codec_cip.CIP_SERVICE_READ_MODIFY_WRITE,
+            )
         request = codec_cip._service_request(
             service,
             codec_cip.build_class_instance_path(class_id, instance),
             body,
         )
-        return self._execute(lambda: self._transact(request, service), is_write=False)
+        return self._execute(
+            lambda: self._transact(request, service), is_write=bool(is_write)
+        )
 
     def list_identity(self) -> Tuple[bool, Optional[dict]]:
         """ListIdentity(ENIP 0x63)单播:无 CIP 会话也能调用。

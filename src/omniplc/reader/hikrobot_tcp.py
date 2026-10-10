@@ -468,6 +468,8 @@ class HikrobotIdTcpClient(BaseClient):
         :return: ``(是否成功, 应答参数)``——Set/Exec 成功应答为 OK,应答参数
             为 ``None``;Get 成功返回参数文本;errno 应答记 :attr:`last_error`
             (``last_error_code`` = 负 errno)返回 ``(False, None)``
+        :raises RuntimeError: 只读模式下 Set/Exec 被拒(review-1021 C2:
+            动作型命令按写事务,重试取 ``write_retries`` 防非幂等重发)
         :raises ValueError: 命令类型/参数组合非法
         """
         if cmd_type not in ("Get", "Set", "Exec"):
@@ -487,7 +489,13 @@ class HikrobotIdTcpClient(BaseClient):
                 raise ValueError(
                     _("{} 必须为 ASCII,收到:{!r}").format(name, part)
                 ) from exc
-        return self._execute(lambda: self._command_exchange(cmd_type, cmd, param))
+        # Set/Exec 按写事务(review-1021 C2:受只读闸管辖、重试取
+        # write_retries 防 Reboot/TriSoft 等动作型命令按读口径重发),
+        # Get 按读事务
+        return self._execute(
+            lambda: self._command_exchange(cmd_type, cmd, param),
+            is_write=cmd_type in ("Set", "Exec"),
+        )
 
     # ------------------------------------------------------------------
     # 内部实现

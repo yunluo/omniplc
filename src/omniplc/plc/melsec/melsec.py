@@ -698,6 +698,8 @@ class _MelsecMcBase(BaseClient):
         ) -> List[Tuple[int, int, int]]:
             out: List[Tuple[int, int, int]] = []
             for address, value in items:
+                # 写安全闸(review-1021 P0-1:1402 属写路径,逐软元件过闸)
+                self._check_write_allowed(address)
                 parsed = self._translate_address(parse_mc_address(address))
                 if parsed.bit is not None:
                     raise ValueError(

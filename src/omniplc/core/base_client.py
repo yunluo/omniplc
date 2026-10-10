@@ -715,11 +715,15 @@ class BaseClient(ABC):
 
         :param record: 是否同时计一次失败统计(门控拒绝等无网络动作的
             失败传 False,不污染 ``stats["error_count"]``)
+        :param code: 原始错误码;``0`` 与 ``None`` 同为"无具体错误码"
+            (review-1021 §3.2 单点收口:直写 0 在此统一归 ``None``,与
+            ``_extract_code`` 的 ``exc.code or None`` 同口径,新增调用点
+            不会再出现"异常路径 None、直写路径 0"的漂移)
         """
         with self._state_lock:
             self._last_error = message
             self._last_error_category = category
-            self._last_error_code = code
+            self._last_error_code = code or None
             if record:
                 self._record_error()
 
@@ -850,11 +854,21 @@ class BaseClient(ABC):
     def write_many(
         self, items: Sequence[Tuple[str, Union[DataType, str], PrimitiveValue]]
     ) -> List[bool]:
-        """批量写入,逐点独立容错
+        """批量写入,逐点独立容错。
+
+        入参先全量前置校验(类型 coerce + 写安全闸逐地址),任一非法在
+        零发送期同步抛出——避免"前面的点已写、调用方却拿不到部分结果"
+        的部分写入(review-1021 P1-4,与 Modbus 覆写的入参前置校验同口径);
+        事务期的单点失败仍不影响其他点。
 
         :param items: ``(地址, 数据类型, 值)`` 三元组列表
         :return: 与 items 顺序对应的布尔结果列表
+        :raises RuntimeError: 只读模式(:attr:`read_only`)
+        :raises ValueError: 任一地址/类型非法或白名单拒绝(零字节发送)
         """
+        for address, data_type, _value in items:
+            DataType.coerce(data_type)
+            self._check_write_allowed(address)
         return [
             self.write(address, data_type, value) for address, data_type, value in items
         ]
@@ -1146,8 +1160,9 @@ class BaseClient(ABC):
         依据 :meth:`bind_tags` 时快照的表内地址集判定(表构造后只读);
         开启但未绑表 = 拒绝一切写(显式报错提示先绑表)。地址型写入口
         (:meth:`write`/:meth:`write_string`,含经它们中转的类型化写/
-        ``write_tag``/批量基实现)逐地址校验;驱动特有非地址写
-        (时钟/随机写整组等)不在白名单校验范围,只受 :attr:`read_only`
+        ``write_tag``,以及各驱动的批量/随机/掩码/字符串写)逐地址校验
+        (review-1021 P0-1 收口);非地址写(时钟、读码器握手、按服务码
+        判写的通用命令等)不在白名单校验范围,只受 :attr:`read_only`
         管辖(范围披露,review-1020 §七甲2)。
         """
         return self._write_whitelist
@@ -1472,7 +1487,12 @@ class BaseClient(ABC):
                     self._set_error(
                         _describe(exc), _categorize(exc), _extract_code(exc)
                     )
-                    self._capture_incident()
+                    if not heartbeat:
+                        # 心跳 tick 不覆盖事故现场快照(review-1021 P1-1,
+                        # 与上方 DeviceError 分支同口径);拆连计数不受
+                        # heartbeat 豁免(传输类真实故障照常计,protocol-
+                        # features 心跳节口径)
+                        self._capture_incident()
                     self._mark_disconnected()
             return False, None
 
@@ -1565,17 +1585,23 @@ class BaseClient(ABC):
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """字符串读原语,默认不支持,由驱动覆写(内部方法)。
 
-        缺省实现抛 :class:`DeviceError`(链路正常,由基类转
-        ``(False, None)`` + ``last_error``),不逃逸裸异常。
+        缺省实现抛 :class:`ValueError`(review-1021 P1-5 口径统一:
+        「驱动不支持该能力」属参数校验类错误,与 :meth:`read_range` 缺省
+        实现同款在调用期同步抛出——静默 ``(False, None)`` 会让调用方误判
+        为设备侧不支持)。
         """
-        raise DeviceError(_("当前驱动暂不支持字符串读取"), 0)
+        raise ValueError(
+            _("当前驱动 {} 暂不支持字符串读取").format(type(self).__name__)
+        )
 
     def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
         """字符串写原语,默认不支持,由驱动覆写(内部方法)。
 
         缺省实现语义同 :meth:`_read_string`。
         """
-        raise DeviceError(_("当前驱动暂不支持字符串写入"), 0)
+        raise ValueError(
+            _("当前驱动 {} 暂不支持字符串写入").format(type(self).__name__)
+        )
 
     def _ping_probe(self) -> Any:
         """零副作用探测命令(内部方法;支持探活的驱动覆写)。
@@ -1647,6 +1673,11 @@ def _extract_code(exc: BaseException) -> Optional[int]:
     ``-WSAEMSGSIZE``),透传给 ``last_error_code`` 但基类不把它计入
     ``device_error_count``(非 PLC 报错)。
     """
+    if isinstance(exc, TransportTimeoutError):
+        # TIMEOUT ⇒ code=None 类型级保证,不依赖每个构造点手写 `, 0`
+        # (review-1021 P1-2;TransportTimeoutError 是 DeviceError 子类,
+        # 必须先于下方 DeviceError 分支判断)
+        return None
     if isinstance(exc, DeviceError):
         return exc.code or None
     if isinstance(exc, OSError):
