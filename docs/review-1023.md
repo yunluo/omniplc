@@ -3,9 +3,9 @@
 > 2026-10-10 · 基线:master `1fd1a3f`(review-1022 台账后,v0.56.0 未发版)
 > 范围:`src/omniplc/plc/modbus/`(modbus.py 2004 / codec.py 1219 /
 > address.py 189 / `__init__.py` 13 = **3425 行**)+ native 镜像
-> `native/modbus.py`(1163 行)+ 测试面(test_modbus_clients 127 例 /
-> test_modbus_codec 22 / test_golden_modbus 13 / test_native_modbus 17 /
-> 20 个黄金帧样本)。
+> `native/modbus.py`(1163 行)+ 测试面(test_modbus_clients 127 例,无参数化 /
+> test_modbus_codec 22 / test_golden_modbus 13 函数(5 参数化 → 实收 26 项) /
+> test_native_modbus 17 / **18 个黄金帧样本**——子代理实测纠正了本节初稿的"20 个")。
 > **本轮只检查与差距分析,不落地任何修改**;修复排期见 `docs/todo.md`。
 >
 > 方法:主会话逐段精读**客户端层**(地址解析 / 合并算法 / 事务层 /
@@ -24,17 +24,26 @@ Modbus 是全库**使用面最广**的驱动(协议清单首项、README 快速�
 
 | 切片 | 结论 | 最严重项 |
 | --- | --- | --- |
-| 帧面 codec | **穷尽喂入零非契约异常**(2432 + 1576 组);长度域/协议标识/回显/字节计数**逐项拒绝** | codec 切片待回报(§八) |
+| **codec 帧面**(对三份规范逐条核) | **实现与规范逐字节吻合**(19 个功能码算例回灌全通);但**全模块零页码级依据注释** | **P1-1**(§8.1) |
+| 帧面实现细节 | 10 项(P2×5 / P3×4 等):7 个 `parse_*` 漏异常分流、FC08/FC17 硬编码、FC22 little 无出处 | §8.2 |
+| **超时属性守卫** | **`connect_timeout`/`receive_timeout` 接受 NaN/inf → 传输层抛非 OSError → FD 泄漏** | **P1-1**(§二) |
 | 地址与入参守卫 | 区域×类型、跨度、只读区、单笔上限**全部入参期零发送拒绝** | — |
 | 合并分块算法 | 9 组对抗验算**不变量全部成立**(含倒序输入/顶格/空洞密集) | — |
 | 客户端契约 | 读/写/批量语义与文档一致 | P3 若干 |
-| **超时属性守卫** | **`connect_timeout`/`receive_timeout` 接受 NaN/inf → 传输层抛非 OSError → FD 泄漏** | **P1-1** |
-| 测试面 | 边界锁得很密,但 NaN/inf 零覆盖 | 测试切片待回报(§八) |
+| **测试面** | FC02 全链路零用例、翻页三守卫零用例、native station/word_order 零用例 | **P1-1~P1-5**(§9.1) |
+| 测试质量 | 23 处同源断言、黄金样本无再生成门禁、2 处断言过弱(共同回归会全绿) | §9.3、§9.4 |
 
-**P1-1 是本轮唯一实质缺陷**,且**不在 Modbus 内部**——它是
-`core/base_client.py` + `transport/*` 的守卫缺口,经 Modbus 走线实测暴露,
-**影响全部客户端**(所有客户端共用这两个属性)。之所以放在本报告,
-是因为它是本轮审查中唯一被实证的失败通道,且 Modbus 是其最容易触发的驱动。
+**本轮两条 P1,性质截然不同**:
+
+- **P1-1(§二,超时属性 → FD 泄漏)** 是本轮**唯一的实质缺陷**——但它**不在
+  Modbus 内部**,是 `core/base_client.py` + `transport/*` 的守卫缺口,
+  经 Modbus 走线实测暴露,**影响全部客户端**。之所以收录本报告:它是本轮唯一被
+  实证的失败通道,Modbus 是最容易触发的驱动。
+- **P1-1(§8.1,codec 零依据注释)** 是**纪律红线**:1219 行帧面实现**逐字节正确**,
+  但**无法回溯到手册**——而这正是本项目区别于"随便一个 Modbus 库"的立身依据。
+  **反差点值得强调:代码是对的,账没记。**
+
+**Modbus 帧面本身未发现任何静默错值或假成功**(§8.3),这是本轮最强的正面结论。
 
 ---
 
@@ -256,11 +265,17 @@ docstring 各加一句空表语义(现状未提),并把该不对称在
 | 序 | 批次 | 内容 | 依据 | 量级 |
 | --- | --- | --- | --- | --- |
 | **1** | `fix(超时守卫 + FD 清理)` | P1-1:两个 setter 加 `isfinite`;`transport/base.py` 同名 setter 同步;`tcp.py`/`udp.py` 的配置失败清理改为不依赖异常类型;P3-2 同批;+ 用例(属性期拒绝 + 配置期收 FD) | §二、§四 P3-2 | 半天 |
-| **2** | `test(modbus 补齐)` | 依测试切片结论补用例(待 §八 回报) | §八 | 待定 |
-| **3** | `chore(modbus 文档/小重构)` | P3-1 空表语义入 docstring;P3-3 `read_range` vs `read_many` 差异入 protocol-features;P3-4/§P3-5 抽助手 | §四 | 2 小时 |
+| **2** | `docs(modbus 依据补全)` | §8.1:codec.py 全模块补页码级 `依据:`(§8.3 已把页码逐条核出,可直接照抄)+ 模块 docstring 的第三方链接换手册编号;`modbus.py:1014` 同批补页码 | §八 | 半天 |
+| **3** | `fix(modbus codec 一致性)` | §8.2:7 个 `parse_*` 补 `check_response_exception`(异常响应不再误报坏帧);FC08 数据域支持 N 字;FC17 Server ID 标待核 + 登记;FC20/21 长度常量删或改推导;FC22 little 标待核;`build_rtu_frame` 补 ADU 上限与站号 247 收口 | §8.2 | 1 天 |
+| **4** | `test(modbus 缺口)` | §9.1 五项:FC02 全链路(含手写 hex 断言 + 黄金样本)、翻页三守卫、native `station`/`word_order` 行为、FC20/21 上限、写位 1968 切片;§9.3 加 `test_samples_reproducible` 再生成门禁;§9.4 两处过弱断言补强 + 三份 FC03 夹具去重上提 | §九 | 1~1.5 天 |
+| **5** | `chore(modbus 文档/小重构)` | P3-1 空表语义入 docstring;P3-3 `read_range` vs `read_many` 差异入 protocol-features;P3-4/§P3-5 抽助手 | §四 | 2 小时 |
 
-**门禁要求**(修复批):五件套全绿(3.7.9 + 3.12 双腿);
-P1-1 属行为收紧,CHANGELOG 须按「行为变更提示」披露。
+**建议顺序说明**:第 1 批是**唯一实质缺陷**,优先;第 2 批**不需要查手册**
+(页码已核出)、零行为风险,可与第 1 批并行;第 3 批含**行为变更**(异常响应
+从"坏帧"改判"设备错误",会改变 `last_error_category`:PROTOCOL → DEVICE),
+须按 CONTRIBUTING §六在 CHANGELOG 披露。
+
+**门禁要求**(修复批):五件套全绿(3.7.9 + 3.12 双腿)。
 
 ---
 
@@ -280,19 +295,158 @@ P1-1 属行为收紧,CHANGELOG 须按「行为变更提示」披露。
 
 ---
 
-## 八、待补切片(codec 帧面对规范 / 测试覆盖矩阵)
+## 八、codec 帧面切片(对三份规范 PDF 逐条核)
 
-> 本报告基线时两路只读子代理**尚未回报**:
-> - **codec 帧面切片**:`plc/modbus/codec.py` 1219 行对
->   `docs/protocol/modbus/` 三份规范(V1.1b3 应用协议 / TCP 实施指南 V1.0b /
->   串口链路 V1.02)的**逐功能码逐字段**核对,含注释页码与手册实核页码的一致性;
-> - **测试覆盖切片**:`plc/modbus/*` 与 `native/modbus.py` 的覆盖矩阵、
->   黄金帧缺口、边界用例盘点、测试质量反模式、生成器同源偏差风险。
->
-> 两切片到位后按本报告体例追加为 §九 / §十,并同步更新 §〇 摘要与 §六 排期。
-> **覆盖边界声明**:在 §九 到位前,本报告对**帧面字段级合规性**不作结论
-> (仅给出"拒绝行为正确"这一层实证结论);§二 P1-1 与 §三/§四 的结论
-> **不依赖**两切片,已可独立成立。
+> 子代理**亲自用 pdfplumber 抽取** `docs/protocol/modbus/` 三份 PDF 全文
+> (产物落 `$env:TEMP`,未入库),并**实锚定页码口径**——三份 PDF 的 PDF 页
+> = 自印页(页脚分别 `N/50`、`N/46`、`N/44`,各抽样 5 处页脚直证)。
+> 下文页码一律为**自印页**。主会话对下方 P1-1 与 P2-1/2/3/5 逐条**亲验**
+> (含行为实证)。
+
+### 8.1 P1:全模块零页码级 `依据:` 注释(纪律红线)
+
+- **实测**(亲验):`rg '依据:' src/omniplc/plc/modbus/codec.py` → **0 命中**;
+  唯一含"依据"的是模块 docstring `codec.py:6`「帧布局依据《Modbus 通信协议规范》」,
+  **无文档编号、无页码、无章节**,且指向**第三方镜像**
+  `https://www.modbus.cn/modbus-specifications`(`:8`)而非
+  `docs/protocol/modbus/` 的归档件。
+- **对照**:`modbus.py:1014` 已有 `依据:Modbus 应用协议 V1.1b3 §6.8` 形式
+  (同缺页码);即**同协议两个文件都未达铁律要求**。
+- **反差点**:帧面本身**逐条核对全部正确**(见 9.3)——1219 行代码实现是对的,
+  **缺的是可回溯性**。而这正是本项目区别于"随便一个 Modbus 库"的立身依据。
+- **严重度 P1**(违反 AGENTS.md「协议依据铁律」/ CONTRIBUTING 二·首条)。
+- **修法**:逐函数补 `依据:Modbus 应用协议 V1.1b3 p.<页> §<节>(<表/字段>)`;
+  MBAP 补 `TCP 实施指南 V1.0b p.5 §3.1.3`;RTU 补 `串口链路 V1.02 p.13 §2.5.1`;
+  模块 docstring 的第三方链接换成手册编号。**§8.3 已把页码逐条核出,可直接照抄**。
+
+### 8.2 确认问题(帧面/实现层)
+
+| # | 现象 | 证据 | 亲验 | 严重度 |
+| --- | --- | --- | --- | --- |
+| 1 | **7 个 `parse_*` 未调 `check_response_exception`** → 异常响应(0x80\|FC)被误报为**坏帧**而非设备错误。已调的 6 个:`:251`/`:282`/`:328`/`:397`/`:494`/`:1160`;未调:`parse_read_file_record_response:1049`、`parse_write_file_record_response:1136`、`parse_diagnostics_response:839`、`parse_read_exception_status_response:863`、`parse_report_server_id_response:880`、`parse_comm_event_counter_pdu:908`、`parse_comm_event_log_pdu:929` | 实证:7 个解析器**全部**返回 `ProtocolFrameError`,而同批对照 `parse_read_response(83 02, FC03)` 正确返回 `DeviceError(code=2)` | ✔ 实跑确认 | P2 |
+| 2 | `MODBUS_MAX_FILE_RECORD_LENGTH = 0x7D` **无出处且不可达**(「看似连续」推断痕迹) | `constants.py:163` 注"规范 0x7D = 125 个寄存器";而 §6.14 p.32-33 / §6.15 p.34-35 对 Record Length **只写 `2 Bytes N`,无上下限**;0x7D 全篇只出现在 FC03/04/23 语境(p.15/16/38) | ✔ 实测:FC20 121 过/122 拒(聚合 247 字节上限先触发),FC21 122 过/123 拒(0xFB 先触发)→ **123~125 三值在任何路径都不可达** | P2 |
+| 3 | FC08 诊断**数据域硬编码 1 个字**(`MODBUS_DIAGNOSTICS_PDU_SIZE = 5`,校验 `len(pdu) != 5`) | 规范 §6.8 p.21-22:请求/响应均为 **Data N × 2 Bytes**;§6.8.1 p.22 子功能 00 要求"应答与请求逐字节相同" | 子代理实测 `parse_diagnostics_response(08 00 00 A5 37 12 34, 0)` → `ProtocolFrameError`(N=2 的合法回显被拒) | P2 |
+| 4 | FC17「Server ID」长度**硬编码 1 字节** | `codec.py:900` `return pdu[2], pdu[3], pdu[4:]`;规范 §6.13 p.31 该栏为 **device specific**,未定长度 | ✔ 实测:`11 02 AB FF` 通过;**`11 03 41 42 43 FF`(Server ID 2 字节)被拒** → 该形态设备无法解析 | P2(须标待核 + 登记) |
+| 5 | FC22 掩码写的 `byte_order="little"` **无出处** | `codec.py:307-308`/`:317-324`;规范 §6.16 p.36-37 两掩码均 2 Bytes,§4.2 p.5 明文"MODBUS uses a **big-Endian** representation",无机型例外;`docs/protocol/` 未收录施耐德 Modbus 手册 | 审读(未展开) | P2(臆造风险) |
+| 6 | `build_rtu_frame` **无 ADU 上限守卫** | `codec.py:692-705` 只校验站号与 PDU 非空;`MODBUS_RTU_MAX_ADU_SIZE` 在该文件既未 import 也未使用;对照 `build_mbap:624` 有 253 守卫 | 子代理实测构造出 **257 字节**帧不报错,违 §2.5.1 p.13「maximum size is 256 bytes」 | P3(库内构造器最大 PDU=253,仅外部直接调用可触发) |
+| 7 | `build_rtu_frame` 站号允许 **248~255**(规范为 Reserved) | `codec.py:700` `0 <= station <= 0xFF`;串口链路 §2.2 p.8:0=广播、1~247=从站、248~255=Reserved | 子代理实测 248 通过;线上不受影响(`modbus.py:110-118` 用 247 收口) | P3 |
+| 8 | `parse_mbap` **静默忽略长度域外多余字节** | `codec.py:677-684`;子代理实测 `parse_mbap("0001000000040103021234")` 返回 PDU `03 02 12`,尾字节 `34` 被丢弃 | 审读 | P3(公共 API 有"静默接受坏帧"风险;TCP 走线按长度精确收包,不受影响) |
+| 9 | `MODBUS_SERVER_ID_MIN_BYTE_COUNT=2` 系推导值未标「推导」;模块 docstring(`:612`)称 MBAP 用于「Modbus **TCP/UDP**」,而全库无 Modbus UDP 客户端 | 见行号 | 审读 | P3 |
+
+### 8.3 经核无问题(帧面正确性 = 本轮最强的正面结论)
+
+子代理**逐功能码把规范算例回灌进实现**,主会话抽查未见反例:
+
+- **规范算例逐字节全通**:FC01 `0103CD6B05`→19 位(LSB 起)、FC02 `0203ACDB35`、
+  FC03 `0306022B00000064`、FC04 `0402000A`、FC05 构造 `0500ACFF00`、
+  FC06 `0600010003`、FC07 `076D`→109、FC08 `080000A537`、FC11 `0BFFFF0108`、
+  FC12 `0C080000010801212000`、FC15 构造 `0F0013000A02CD01`(**与 p.29 算例逐字节相同**)、
+  FC16 `100001000204000A0102`、FC17 `1102ABFF`、FC20 构造
+  `140E0600040001000206000300090002`(**与 p.33 逐字节相同**)、
+  FC21 构造 `150D0600040007000306AF04BE100D`(**与 p.35 逐字节相同**)、
+  FC22 `16000400F20025`、FC23 构造+解析 **与 p.38-39 一致**、FC24 `180006000201B81284`、
+  FC43 流式/翻页/个体/私有全通;
+- **CRC16 双向坐实**:`crc16(02 07)=0x1241` 与串口链路 **p.41** 逐位移位算例末态
+  `0001 0010 0100 0001` 完全一致;`crc16("123456789")=0x4B37` = CRC-16/MODBUS 标准值;
+  初值 FFFF、POLY 0xA001(p.39-40)、低字节在前(p.13/14)、CRC 范围=站号+PDU 全对;
+- **MBAP**:`build_mbap(0x1234,0xFF,FC03)` → `1234 0000 0006 FF …`,
+  长度 6 = Unit ID(1)+PDU(5),与 TCP 指南 p.5「including the Unit Identifier」
+  **逐字对应**;协议号≠0 / length<2 / length>254 三种坏头实测全拒;
+- **边界常量逐条对表全中**:2000(p.11)/125(p.15)/1968(p.29)/123(p.30)/
+  121 与 125(p.38)/FIFO 31(p.40)/FC20 byte count 0x07~0xF5(p.32)/
+  FC21 0x09~0xFB(p.34)/引用类型 6/访问码 1~4/对象 0x00~0x06/保留 0x07~0x7F/
+  私有 0x80~0xFF/MEI 0x0E/Conformity 值域(p.43-44);**FC20 子请求 35 条
+  (= 0xF5//7)推导正确**,36 条拒;
+- **异常码表**(`constants.py:201-211`)= §7 p.48-49 逐条一致,
+  **正确跳过 07/09/0C**,无补号痕迹(与本报告 §一 的"不得推断"口径吻合);
+- **坏帧拒绝全覆盖**:字节数不符/截断/多余字节/引用类型非 6/对象数不符,
+  全部 `ProtocolFrameError`;异常响应识别(`:203-248`)对 `81 02` 给
+  `DeviceError`、对错配 FC 给坏帧、对空 PDU/缺异常码给坏帧。
+
+**结论**:Modbus 帧面**实现质量高、与规范逐字节吻合**,本轮**未发现任何
+静默错值 / 假成功**;问题全部集中在**可回溯性**(P1-1)与**若干未标依据的
+自造常量/假设**(P2 批)。
+
+---
+
+## 九、测试覆盖切片
+
+> 子代理**纠正了本报告 §一 的一处数字**:黄金样本实测 **18 个**(非 20);
+> `test_modbus_clients.py` 的 127 个 `def test_` **全部无参数化**;
+> `test_native_edge_parity.py` 的 modbus 族 = shared 6 + 4 = **10 条**(26 是三协议合计)。
+> 主会话已复核前两项(目录枚举 18、`ndjson` 计数一致),**§一 的"20 个黄金帧样本"应订正为 18**。
+> 下方 P1-1/P1-2 两条由主会话**亲验**(见各条"实证"栏)。
+
+### 9.1 P1 缺口(按优先级)
+
+| # | 缺口 | 证据 | 亲验 | 为何重要 |
+| --- | --- | --- | --- | --- |
+| 1 | **FC02(离散输入 `di`)全链路零用例**——任何层级都没有 `di` 的**成功读** | `test_modbus_clients.py` 内 `di` 仅 5 处且**全是拒绝路径**(`:405`/`:2139`/`:2145`/`:2214` + `test_address.py:18/92`);`build_read_pdu(2,…)`、`parse_read_response(…, FC2, …)`、`expected_response_length` 的 FC02 分支从未执行;18 个黄金样本**无 FC02** | ✔ `rg` 确认无成功读 | FC02 与 FC01 共用全部代码路径(位打包/字节数/上限),**只差功能码常量**——正是"看似等价、复制粘贴改错"最易漏测的形态 |
+| 2 | **设备标识翻页三守卫零用例** | `modbus.py:1150`(指针非法→`DeviceError`)、`:1174`(翻页不收敛→`ProtocolFrameError`)、`:1179`(超 `MODBUS_DEVICE_ID_MAX_PAGES` →`ProtocolFrameError`);native `:1082`/`:1085`/`:1058` 同 | ✔ `rg '翻页不收敛\|翻页次数超过上限\|翻页指针非法' tests` → **零命中** | 这是**防恶意/故障设备把客户端钉死**的唯一循环上界(MoreFollows 恒 FF 的设备会让 `while` 永不退出);三守卫全无回归锁定 |
+| 3 | **native Unit ID(`station`)与 `word_order` 零用例** | `native/modbus.py:126`(station)/`:132`/`:137`(word_order);同步侧有对等用例(`test_modbus_clients.py:44` 0xFF 放行 / 300 拒,`:539`/`:883` CDAB) | 审读 | **正是 review-1001 R9-1 / review-1002 修过的漂移类型**(`native/modbus.py:108-110` 注释自陈);方法集守卫只锁"方法存在",锁不住**行为** |
+| 4 | FC20/21 的 **35 子请求 / 0xF5 / 0xFB 上限**零用例 | `codec.py:995`/`:1011`/`:1020`/`:1061`/`:1127`;`rg '35'` 零命中 | 审读 | 与本报告 §8.2-2(该上限**无规范出处**)叠加:既无依据又无回归,是最脆弱的一处 |
+| 5 | **写位 1968 上限从未触发切片** | `rg '1968'` 全库零命中;写字 123 有强用例(`:1686`)而写位缺;`_coalesce_group` 的写位分支(`modbus.py:671`,max_unit=1968)正是 **review-1019 P1-1 优化**的同款逻辑 | 审读 | 优化过的分支里,读侧/写字侧都有用例,**只有写位侧没有** |
+
+### 9.2 P2(次级缺口)
+
+- **MBAP 站号不匹配(TCP)零用例**(`modbus.py:1292`、native `:1156`);
+  RTU 站号不匹配**有**用例(`:227`)——两侧不对称;
+- `read_many([])`/`write_many([])` 返回 `[]` 而 `read_batch([])`/`write_batch([])`
+  抛 `ValueError` 且**有用例**(`:756`/`:1231`)→ 见本报告 §四 P3-1:
+  **四个批量 API 契约不对称,两个 `_many` 侧零用例**;
+- `build_mbap` PDU 超长(`codec.py:624-626`)与事务号越界零用例;
+- RTU 走线上 FC07/FC11/FC20/FC21(带响应)**无成功往返**,FC12 仅"长度封顶拒绝"
+  (`:2283`)→ `_transact` 的增量收包/推算分支对这些 FC 只被 TCP 用例绕开;
+- 客户端级合法上限(125·121、FC24 的 31、`read_range` 位区 2000)**无端到端用例**。
+
+**功能码覆盖**:黄金帧**零样本 10 个**(FC02/07/08/0B/0C/11/14/15/16/18);
+客户端级**零往返 1 个**(FC02);native 对拍表 `_EXT_CASES` **覆盖全部 11 个扩展功能码** ✓。
+
+### 9.3 同源偏差与门禁缺口
+
+- **生成器独立性达标**:`tests/golden/generate_modbus_samples.py:12-20` 只 import
+  `json/struct/pathlib/typing`,`crc16` 自写,全文**无 `omniplc`** ✓
+  —— 符合 `tests/golden/README.md` 的"独立实现"约定;
+- **但缺"再生成门禁"**:`rg generate_modbus_samples tests/` 只命中
+  `test_golden_modbus.py:4` 的 docstring → **手改 JSON 无任何测试能发现**
+  (README:44 反而鼓励手工添加样本)。建议加 `test_samples_reproducible`
+  (用 `runpy` 重跑生成器并逐字节比对);
+- **客户端层 23 处同源断言**:期望值写成 `sent == codec.build_*`(由被测 codec
+  自产),只能证明"客户端调了 codec"而非"帧对"(`codec.build_mbap` 出现 47 次、
+  `build_rtu_frame` 18 次);未被打手写向量的客户端帧:FC02/07/08/0B/0C/11/14/15/18。
+  **好范例**:`:1877` 用 `bytes.fromhex` 手写期望;
+- `test_golden_modbus.py:186-188` 的 FC23 解码期望取自**同源 JSON** 的
+  `expect.values`,建议改手写字面量。
+
+### 9.4 已量化的测试质量问题
+
+| 项 | 实测 |
+| --- | --- |
+| `[:7]` 切片样板 | 64 次;`_ScriptedTransport` 92 次;`setattr(_create_transport)` 87 次;函数内 `import asyncio` 11 次 |
+| **逐字重复的夹具** | `_fc03_response:566` 与 `_fc03_read_response:1034` **实现逐字相同**;FC03 夹具第三份在 `test_native_modbus.py:37` |
+| 断言过弱(1) | `test_native_modbus.py:1-6` docstring 声称对拍 `last_error`,但 `_snapshot:417-428` **只记 `has_error_text` 布尔**,错误文本不参与对拍 |
+| 断言过弱(2) | `ExtCase:657-670` **无 expect 字段**,`test_sync_async_parity_extended:892-907` 只比"两层相等 + 功能码序列"→ **两层共同回归会全绿**(对照 `:506-511` 有显式期望核对) |
+| 硬编码 sleep | `test_native_modbus.py:589`(0.05s)、`:614`(0.2s)、`:626`/`:628`;耗时断言 `:1107 elapsed < delay*3` 易假红。**正确做法见 `:2076`**(monkeypatch 替换 `time.sleep`) |
+| `skip`/`xfail` | **零命中**(四个目标文件 + edge_parity);`tests/` 与 `tests/unit/` 均**无 `conftest.py`** |
+
+### 9.5 已锁死、无需重复投入(该切片正面结论)
+
+- **native 公开面镜像**已有结构性守卫:`test_native_surface.py:82-89` 断言
+  `_public(ModbusTcpClient) - _public(AsyncModbusTcpClient) == {"create_monitor"}`,
+  `:193-228` 再锁签名 → **方法集/签名无需重复投入**,真正缺的是 `station`/`word_order`
+  的**行为**用例与 6 类未入 `edge_parity` 的边界入参(mask byte_order 非法 /
+  `read_device_id` level 非法 / FC20/21 字段越界等);
+- `modbus.py` 的 **21 个公开方法全部至少 1 个直接用例**;
+- 另有 18 条契约已锁(MBAP/RTU 逐字节、坏帧文本带原始 hex、DEVICE vs PROTOCOL
+  断线口径、超时分流、批量切片不变量 `:1607`/`:1636`/`:1659`/`:1686`/`:2335`、
+  写侧三件套、只读区收口、广播语义、扩展 FC 同步 TCP 全绿、RTU 增量收包与封顶、
+  地址语法全边界、native 生命周期与并发)。
+
+### 9.6 该切片未核实
+
+`parse_read_file_record_response` 的 0xF5 上限是否有直接断言;
+`configure_serial` 参数组合校验;`is_modbus_address` 在汇川侧的间接断言强度;
+规范是否要求校验 `conformity_level` 取值域。
 
 ---
 
