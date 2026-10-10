@@ -202,9 +202,22 @@ def test_fc20_truncated_subresponse_is_frame_error() -> None:
 
 
 def test_fc20_record_length_upper_bound() -> None:
-    """FC20 单条记录长度有上界(规范 0x7D)。"""
+    """FC20 单条记录长度由聚合上限收口(规范对 Record Length 无独立上限)。
+
+    review-1023 §8.2-2:旧实现硬编码 0x7D(125)系 FC03/04/23 语境数值的
+    误挪,实测 123~125 在任何路径不可达;现由响应 PDU 聚合容量收口,
+    单条上限 121(2 + 2 + 2×121 = 246 ≤ 0xF5 + 2 = 247)。
+    """
+    codec.build_read_file_record_pdu([(1, 0, 121)])  # 顶格合法
     with pytest.raises(ValueError):
-        codec.build_read_file_record_pdu([(1, 0, 126)])
+        codec.build_read_file_record_pdu([(1, 0, 122)])
+
+
+def test_fc21_record_length_aggregate_bound() -> None:
+    """FC21 单条记录长度由 data length 上限(0xFB)收口:122 过 / 123 拒。"""
+    codec.build_write_file_record_pdu([(1, 0, [0] * 122)])  # 7 + 244 = 0xFB 顶格
+    with pytest.raises(ValueError):
+        codec.build_write_file_record_pdu([(1, 0, [0] * 123)])
 
 
 def test_fc08_response_rejects_trailing_bytes() -> None:
@@ -315,3 +328,69 @@ def test_fc07_read_exception_status() -> None:
         codec.parse_read_exception_status_response(bytes([0x07]))
     with pytest.raises(ProtocolFrameError):
         codec.parse_read_exception_status_response(bytes([0x08, 0x5A]))
+
+
+# ----------------------------------------------------------------------
+# review-1023 契约修补回归:异常分流 / FC08 N 字 / RTU 守卫 / FC20-21 边界
+# ----------------------------------------------------------------------
+
+
+class TestReview1023CodecFixes:
+    """review-1023 §8.2 修补回归:七解析器异常响应改判设备错误等。"""
+
+    def test_exception_response_routes_to_device_error(self) -> None:
+        """7 个此前漏接 check_response_exception 的解析器:异常响应(FC|0x80)
+        现抛 DeviceError(设备错误,不断线),不再误报坏帧(§8.2-1)。"""
+        from omniplc.core.errors import DeviceError
+
+        cases = [
+            (codec.parse_read_exception_status_response, (bytes([0x87, 0x01]),)),
+            (codec.parse_diagnostics_response, (bytes([0x88, 0x01]), 0)),
+            (codec.parse_comm_event_counter_pdu, (bytes([0x8B, 0x01]),)),
+            (codec.parse_comm_event_log_pdu, (bytes([0x8C, 0x01]),)),
+            (codec.parse_report_server_id_response, (bytes([0x91, 0x01]),)),
+            (
+                codec.parse_read_file_record_response,
+                (bytes([0x94, 0x01]), [(1, 0, 1)]),
+            ),
+            (
+                codec.parse_write_file_record_response,
+                (bytes([0x95, 0x01]), bytes([0x15])),
+            ),
+        ]
+        for parse, args in cases:
+            with pytest.raises(DeviceError) as exc_info:
+                parse(*args)
+            assert exc_info.value.code == 1  # ILLEGAL FUNCTION
+
+    def test_fc08_accepts_multi_word_data_echo(self) -> None:
+        """FC08 数据域为 N×2 字节(规范 §6.8 印刷页 21~22):N=2 回显此前
+        被按坏帧拒绝,现返回全部数据字(§8.2-3)。"""
+        pdu = bytes([0x08, 0x00, 0x00, 0x00, 0x2A, 0x00, 0x2B])
+        assert codec.parse_diagnostics_response(pdu, 0x0000) == [0x2A, 0x2B]
+        # 单字回显:返回单元素列表(客户端取首字,契约不变)
+        assert codec.parse_diagnostics_response(
+            bytes.fromhex("0800000042"), 0x0000
+        ) == [0x42]
+
+    def test_fc08_rejects_odd_data_length(self) -> None:
+        """数据域非整字数(6 字节 PDU = 数据 3 字节)仍按坏帧拒绝。"""
+        with pytest.raises(ProtocolFrameError):
+            codec.parse_diagnostics_response(
+                bytes([0x08, 0x00, 0x00, 0x00, 0x01, 0x00]), 0x0000
+            )
+
+    def test_rtu_station_reserved_rejected(self) -> None:
+        """RTU 站号 248~255 为规范保留地址(串口链路 §2.2 印刷页 8),
+        build_rtu_frame 收口 0~247(§8.2-7)。"""
+        pdu = bytes([0x03, 0x00, 0x00, 0x00, 0x01])
+        codec.build_rtu_frame(247, pdu)  # 顶格合法
+        for bad in (248, 255):
+            with pytest.raises(ValueError, match="RTU 站号"):
+                codec.build_rtu_frame(bad, pdu)
+
+    def test_rtu_adu_upper_bound(self) -> None:
+        """RTU 帧上限 256 字节(串口链路 §2.5.1 印刷页 13):PDU ≤ 253。"""
+        assert len(codec.build_rtu_frame(1, bytes(253))) == 256
+        with pytest.raises(ValueError, match="RTU 帧超出最大"):
+            codec.build_rtu_frame(1, bytes(254))

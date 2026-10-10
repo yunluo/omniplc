@@ -1004,7 +1004,17 @@ class ModbusBaseClient(BaseClient):
             )
             if not response:
                 return 0  # 广播清计数器:无响应,数据域无意义
-            return codec.parse_diagnostics_response(response, int(sub_function))
+            words = codec.parse_diagnostics_response(response, int(sub_function))
+            if len(words) != 1:
+                # 本库请求恒为单字数据域(build_diagnostics_pdu),设备对
+                # 单字请求的合法回显/计数应答数据域恒 1 字;N 字数据域仅
+                # 对 N 字自定义请求成立(review-1023 §8.2-3)
+                raise ProtocolFrameError(
+                    _("FC08 数据域字数与请求不符:请求 1 字,收到 {} 字").format(
+                        len(words)
+                    )
+                )
+            return words[0]
 
         # 仅 0x000A(清计数器与诊断寄存器)是写语义;其余子功能为只读查询
         return self._execute(operation, is_write=int(sub_function) == 0x000A)
@@ -1021,9 +1031,14 @@ class ModbusBaseClient(BaseClient):
         review-1002 P1-2)。
         """
         self._reject_broadcast_read()
-        return codec.parse_diagnostics_response(
+        words = codec.parse_diagnostics_response(
             self._transact(codec.build_diagnostics_pdu(0x0000, 0x0000)), 0x0000
         )
+        if len(words) != 1:
+            raise ProtocolFrameError(
+                _("FC08 数据域字数与请求不符:请求 1 字,收到 {} 字").format(len(words))
+            )
+        return words[0]
 
     def get_comm_event_counter(self) -> Tuple[bool, Optional[int]]:
         """取通信事件计数器(FC11,规范 §6.9):返回事件计数。

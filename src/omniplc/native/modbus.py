@@ -932,18 +932,31 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         pdu = codec.build_diagnostics_pdu(int(sub_function), int(data))
 
         async def operation() -> int:
-            return codec.parse_diagnostics_response(
+            words = codec.parse_diagnostics_response(
                 await self._transact(pdu), int(sub_function)
             )
+            if len(words) != 1:
+                # 本库请求恒为单字数据域,响应数据域恒 1 字(review-1023 §8.2-3)
+                raise ProtocolFrameError(
+                    _("FC08 数据域字数与请求不符:请求 1 字,收到 {} 字").format(
+                        len(words)
+                    )
+                )
+            return words[0]
 
         return await self._execute(operation, is_write=int(sub_function) == 0x000A)
 
     async def _ping_probe(self) -> int:
         """探活探测命令:FC08 子功能 0x0000 回显查询(内部方法,镜像同步侧)。"""
         self._reject_broadcast_read()
-        return codec.parse_diagnostics_response(
+        words = codec.parse_diagnostics_response(
             await self._transact(codec.build_diagnostics_pdu(0x0000, 0x0000)), 0x0000
         )
+        if len(words) != 1:
+            raise ProtocolFrameError(
+                _("FC08 数据域字数与请求不符:请求 1 字,收到 {} 字").format(len(words))
+            )
+        return words[0]
 
     async def get_comm_event_counter(self) -> Tuple[bool, Optional[int]]:
         """取通信事件计数器(FC11,规范 §6.9)。
