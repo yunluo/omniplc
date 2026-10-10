@@ -45,6 +45,24 @@
   只有重建门禁环境时才允许在项目目录跑 `uv sync --extra dev`。
 - **COM 依赖一律 comtypes**,不用 pywin32/win32com(用户明确纠正过)。
 
+## 本机可用 CLI 工具(2026-10-10 实测;版本漂移须复核再引)
+
+| 工具 | 实测版本 | 用途与注意 |
+| --- | --- | --- |
+| git | 2.50.1 | 远程走 SSH 443(本机 22 被代理拦);多行中文提交用 `-F <独占名>.txt` |
+| pwsh | 7.6.6 | 实际终端;Bash 工具走 cmd——长管道 / 中文查找 / 多行脚本一律 `pwsh -NoLogo -Command`;cmd 无 grep·head·tail,`python -c` 多行会断,中文 findstr 不可靠 |
+| rg(ripgrep) | 15.2.0 | 代码检索首选(2026-10-04 用户裁决:rg 结果照常采信) |
+| uv / uvx | 0.11.24 | 环境与工具运行;ruff / mypy / ty 经 uvx(门禁五件套);临时 3.12 按上节走项目外环境 |
+| python(项目) | 3.7.9 | 门禁环境 `.venv\Scripts\python.exe`,勿在项目目录用其他版本重建 |
+| pdfplumber | uv 临时装 | PDF **文本抽取唯一口径**:`uv run --directory "$env:TEMP" --no-project --python 3.12 --with pdfplumber …`(见下节) |
+| pdfcpu | 0.16.0 | `D:\bin\pdfcpu.exe`:PDF 图片提取 / 拆并 / 校验;**无文本模式**,文本仍走 pdfplumber |
+| xh | 0.26.2 | HTTP 直连核查(api.github.com 可用);GitHub 目录 / 事实类信息**必须 xh 直核**——WebFetch 小模型会编造目录列表 |
+| curl | 8.13.0 | 系统自带,备用 HTTP 客户端 |
+| LibreOffice | 管理映像 | PPT 渲染链(python-pptx + LibreOffice + pymupdf 出页图);不在 PATH,用 `%LOCALAPPDATA%\LO_admin\program\soffice.exe`(另装 `C:\Program Files\LibreOffice\program\soffice.exe`);pymupdf 只用于出页图,PDF 文本抽取仍按铁律走 pdfplumber |
+
+- `gh` CLI **未安装**:GitHub 操作走 git(SSH 443)+ xh;Release 资产下载走
+  签名资产地址(shell 直连 github.com 443 挂)。
+
 ## PDF 文本抽取
 
 - **统一用 pdfplumber(不要用 pymupdf/fitz、pypdf)**:
