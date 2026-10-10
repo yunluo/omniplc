@@ -27,7 +27,7 @@ from omniplc.core.debug import (
     clear_recorded_frames,
     log_frame,
 )
-from omniplc.core.errors import DeviceError
+from omniplc.core.errors import DeviceError, ProtocolFrameError
 from omniplc.core.tag import Tag, TagTable
 from omniplc.core.types import DataType, PrimitiveValue
 from omniplc.native import AsyncModbusTcpClient
@@ -380,6 +380,24 @@ class TestIncidentFrames:
         assert exported == text
         assert SEND_MARK in target.read_text(encoding="utf-8")
 
+    def test_incident_frames_returns_snapshot_copy(self) -> None:
+        """返回快照拷贝(review-1022 P2-1):调用方原地修改不污染库内现场。"""
+        set_frame_recorder(True, capacity=16)
+        client = _ScriptedClient()
+        client.read("hr0", "ushort")
+        client.script_failure(DeviceError("PLC 拒绝", 2))
+        client.read("hr0", "ushort")
+        snapshot = client.incident_frames
+        assert len(snapshot) >= 2
+        snapshot.clear()  # 模拟调用方误改
+        assert len(client.incident_frames) >= 2  # 库内现场未被改写
+        # native 镜像同口径
+        native_client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+        native_client._incident_frames = list(recorded_frames())
+        native_snapshot = native_client.incident_frames
+        native_snapshot.clear()
+        assert len(native_client.incident_frames) >= 2
+
 
 # ----------------------------------------------------------------------
 # 丙2:read_many_strict 一致性批量读(整批成功才交付)
@@ -424,6 +442,37 @@ class TestReadManyStrict:
         async def scenario() -> None:
             ok, values = await client.read_many_strict(["hr0", "hr1"], "ushort")
             assert ok is True and values == [5, 5]
+
+        asyncio.run(scenario())
+
+    def test_short_driver_result_raises_not_fake_success(self) -> None:
+        """驱动少返条目 → ProtocolFrameError,不再 (True, 短列表) 假成功。
+
+        review-1022 P1-1:该 API 的全部存在理由是"整批成功才交付",少返时
+        既不失败也不报错会交付静默缺项的快照。
+        """
+        client = _ScriptedClient()
+        client.read_many = lambda addresses, data_type: (
+            [(True, 1)] * (len(addresses) - 1)
+        )  # type: ignore[method-assign]
+
+        with pytest.raises(ProtocolFrameError, match="条目数与请求不符"):
+            client.read_many_strict(["hr0", "hr1", "hr2"], "ushort")
+
+    def test_native_short_driver_result_raises(self) -> None:
+        """native 镜像同守卫(review-1022 P1-1)。"""
+        client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+
+        async def _short_read_many(
+            addresses: Sequence[str], data_type: object
+        ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
+            return [(True, 1)]
+
+        client.read_many = _short_read_many  # type: ignore[method-assign]
+
+        async def scenario() -> None:
+            with pytest.raises(ProtocolFrameError, match="条目数与请求不符"):
+                await client.read_many_strict(["hr0", "hr1"], "ushort")
 
         asyncio.run(scenario())
 

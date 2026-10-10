@@ -954,6 +954,36 @@ def test_monitor_quality_members_frozen() -> None:
     assert {q.name for q in MonitorQuality} == {"INITIAL", "GOOD", "STALE"}
 
 
+def test_monitor_short_group_result_degrades_whole_group_with_warning(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """组读取少返条目:升格为组异常(review-1022 P1-2)。
+
+    旧实现 ``zip()`` 静默截断,被截点位当普通读失败降质且不计失败——
+    "数据看起来正常但不再更新"。现口径:WARNING + 整组降质 + 累计组异常。
+    """
+    import logging
+
+    client = _client()
+    # 组内 2 点但只返 1 条
+    monkeypatch.setattr(client, "read_many", lambda a, t: [(True, 1)])
+    monitor = Monitor(
+        client,
+        {"a": ("hr0", "ushort"), "b": ("hr1", "ushort")},
+        interval=1.0,
+        on_change=None,
+        on_disconnect=None,
+    )
+    with caplog.at_level(logging.WARNING, logger="omniplc.debug"):
+        monitor._cycle()
+    warns = [r for r in caplog.records if "组读取异常" in r.getMessage()]
+    assert len(warns) == 1
+    assert "条目数与请求不符" in warns[0].getMessage()
+    # 整组不被信任:两点均无新值(初值态)
+    assert monitor.get("a").quality is MonitorQuality.INITIAL
+    assert monitor.get("b").quality is MonitorQuality.INITIAL
+
+
 def test_monitor_sees_transport_timeout_as_stale_but_link_kept(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -974,6 +1004,7 @@ def test_monitor_sees_transport_timeout_as_stale_but_link_kept(
             self.sent = bytearray()
             self.timeout_mode = False
             self._pending = bytearray()
+            self._last_tid = 0
 
         def connect(self) -> None:
             pass
@@ -982,16 +1013,20 @@ def test_monitor_sees_transport_timeout_as_stale_but_link_kept(
             pass
 
         def send(self, data: bytes) -> None:
+            # 记录**本次请求**的事务号:tid 是逐事务递增的,若沿用首条
+            # 请求的 tid,第二轮询起与客户端回显校验(modbus.py 事务号
+            # 不匹配 → ProtocolFrameError 拆连)必然错配,用例靠 50ms
+            # 轮询间隔与置位时机的时序侥幸(机器卡顿即翻车)
             self.sent.extend(data)
+            self._last_tid = int.from_bytes(bytes(data)[:2], "big")
 
         def recv(self, size: int) -> bytes:
             if self.timeout_mode:
                 raise TransportTimeoutError("读取超时", 0)
-            # size 感知应答:FC03 单寄存器回 0x0007,tid 回显自请求
+            # size 感知应答:FC03 单寄存器回 0x0007,回显最近一次请求的 tid
             while len(self._pending) < size:
-                tid = int.from_bytes(bytes(self.sent)[:2], "big")
                 self._pending.extend(
-                    modbus_codec.build_mbap(tid, 1, b"\x03\x02\x00\x07")
+                    modbus_codec.build_mbap(self._last_tid, 1, b"\x03\x02\x00\x07")
                 )
             out = bytes(self._pending[:size])
             del self._pending[:size]

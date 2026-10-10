@@ -813,8 +813,18 @@ class BaseClient(ABC):
         :param data_type: 数据类型,推荐用 :class:`omniplc.types.DataType` 枚举
         :return: ``(是否全部成功, 与地址顺序对应的值列表)``;任一点失败
             为 ``(False, None)``
+        :raises ValueError: 地址/类型参数非法(经 :meth:`read_many` 抛出)
+        :raises ProtocolFrameError: 驱动 ``read_many`` 返回条目数与请求
+            不符(库内缺陷信号,review-1022 P1-1——静默截断会让本方法的
+            "快照门"假成功,显式抛出使之无法被忽略)
         """
         pairs = self.read_many(addresses, data_type)
+        if len(pairs) != len(addresses):
+            raise ProtocolFrameError(
+                _(
+                    "read_many 返回条目数与请求不符:请求 {} 条,实返 {} 条(驱动实现缺陷)"
+                ).format(len(addresses), len(pairs))
+            )
         values: List[PrimitiveValue] = []
         for _address, (ok, value) in zip(addresses, pairs):
             if not ok or value is None:
@@ -1217,8 +1227,12 @@ class BaseClient(ABC):
         留存拷贝到本快照(心跳失败不覆盖)——现场复现窗口常只有几秒,
         事后 :func:`omniplc.core.debug.export_recorded_frames` 全量导出
         之前,这里是事故时点的切片;黑匣子未开启或事故时点无留存时空列表。
+
+        返回**快照拷贝**(review-1022 P2-1):调用方对返回列表的原地
+        修改不会改写库内事故现场,与 :func:`~omniplc.core.debug.recorded_frames`
+        同口径。
         """
-        return self._incident_frames
+        return list(self._incident_frames)
 
     def _capture_incident(self) -> None:
         """拆连/设备错误现场快照:复制黑匣子当前留存(内部方法)。"""

@@ -106,6 +106,7 @@ from typing import (
 )
 
 from .debug import log_warning
+from .errors import ProtocolFrameError
 from .i18n import _
 from .tag import TagTable
 from .types import DataType, PrimitiveValue
@@ -600,6 +601,10 @@ class Monitor:
         走失败降质),其余组照常读取(组间隔离);全部组都失败才计整周期
         失败。异常文本入 ``omniplc.debug`` 日志(WARNING)供排障。
 
+        ``read_many`` 返回条目数与组内点数不符时按同款组异常处理
+        (review-1022 P1-2:原先 ``zip()`` 静默截断,被截点位当普通读失败
+        降质且不计失败,属"数据看起来正常但不再更新"的最难查形态)。
+
         测试直接调用本方法驱动单周期(无线程、无真实等待)。
         """
         client = self._client
@@ -614,6 +619,15 @@ class Monitor:
         for data_type, group in self._groups:
             try:
                 pairs = client.read_many([p.address for p in group], data_type)
+                if len(pairs) != len(group):
+                    # 与 read_many_strict 同一形状守卫(review-1022):驱动
+                    # 返回形状错误是库内缺陷信号,升格为组异常使 WARNING 与
+                    # 失败记账可见,而非静默截断
+                    raise ProtocolFrameError(
+                        _(
+                            "read_many 返回条目数与请求不符:请求 {} 条,实返 {} 条(驱动实现缺陷)"
+                        ).format(len(group), len(pairs))
+                    )
             except Exception as exc:
                 # 组间隔离(review-1006 P2):单组参数类错误(如坏地址)只废
                 # 本组(组内点走下方失败降质),其余组照常读取——一个配置

@@ -1388,6 +1388,8 @@ _TRANSLATIONS: Dict[str, str] = {
     "S7 SZL 参数级错误码 0x{:04X}(USERDATA 应答被拒)": "S7 SZL parameter-level error code 0x{0:04X} (USERDATA response rejected)",
     "S7 String 写入值超出声明长字段上限 255,收到:{} 字符": "The S7 String write value exceeds the 255-character declared-length field limit, got: {0} characters",
     "S7 WString 写入值超出声明长字段上限 65535,收到:{} 字符": "The S7 WString write value exceeds the 65535-character declared-length field limit, got: {0} characters",
+    # ---- review-1022 修复批(core:批量形状守卫/超时守卫) ----
+    "read_many 返回条目数与请求不符:请求 {} 条,实返 {} 条(驱动实现缺陷)": "read_many returned a different number of items than requested: requested {0}, got {1} (driver implementation defect)",
 }
 # <<<I18N_END>>>
 

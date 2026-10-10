@@ -403,6 +403,14 @@ stateDiagram-v2
   字符串原语缺省实现、`read_range` 缺省实现等在调用期同步抛 `ValueError`,
   不静默 `(False, None)`(静默会让调用方误判为设备侧不支持)。
 
+  **「驱动返回形状不符」的口径(review-1022 P1-1/P1-2)**:`read_many_strict`
+  与 `Monitor._cycle` 校验 `read_many` 返回条目数与请求等长,不符即抛
+  `ProtocolFrameError`(strict 直接上抛;monitor 按组异常降质 + WARNING,
+  不死线程)。此为「库内缺陷信号」——与"参数非法抛 `ValueError`"同一例外面:
+  静默截断会让 strict 的快照门**假成功**、让监视器点位**看似正常但不再更新**。
+  内置驱动经 `_pack_read_results` 等构造保证等长,不受影响;自定义驱动
+  违背"与地址等长"契约时由本守卫显式暴露。
+
   **超时的两种走线语义**:TCP 接收超时抛 `socket.timeout`(OSError 语义),
   按"连接可能已死 + 迟到响应残留在 socket 缓冲"**拆连**重连;串口/UDP 抛
   `TransportTimeoutError`(**0 字节已读**,链路无残渣;串口帧截断另有

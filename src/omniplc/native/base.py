@@ -83,6 +83,7 @@ from ..core.errors import (
     DeviceError,
     ErrorCategory,
     OmniPLCInternalError,
+    ProtocolFrameError,
     TransportClosedError,
     TransportTimeoutError,
     _CANCELLED_ERRORS,
@@ -690,8 +691,19 @@ class AsyncBaseClient(ABC):
         self, addresses: Sequence[str], data_type: Union[DataType, str]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """一致性批量读:「全部成功才交付」(与同步
-        :meth:`~omniplc.core.BaseClient.read_many_strict` 同契约,语义见彼处)。"""
+        :meth:`~omniplc.core.BaseClient.read_many_strict` 同契约,语义见彼处)。
+
+        :raises ValueError: 地址/类型参数非法
+        :raises ProtocolFrameError: 驱动 ``read_many`` 返回条目数与请求
+            不符(库内缺陷信号,review-1022 P1-1)
+        """
         pairs = await self.read_many(addresses, data_type)
+        if len(pairs) != len(addresses):
+            raise ProtocolFrameError(
+                _(
+                    "read_many 返回条目数与请求不符:请求 {} 条,实返 {} 条(驱动实现缺陷)"
+                ).format(len(addresses), len(pairs))
+            )
         values: List[PrimitiveValue] = []
         for _address, (ok, value) in zip(addresses, pairs):
             if not ok or value is None:
@@ -1062,8 +1074,9 @@ class AsyncBaseClient(ABC):
 
     @property
     def incident_frames(self) -> List[FrameRecord]:
-        """最近一次拆连/设备错误的现场报文快照(语义同同步 :attr:`incident_frames`)。"""
-        return self._incident_frames
+        """最近一次拆连/设备错误的现场报文快照(语义同同步 :attr:`incident_frames`,
+        返回快照拷贝,review-1022 P2-1)。"""
+        return list(self._incident_frames)
 
     def _capture_incident(self) -> None:
         """拆连/设备错误现场快照:复制黑匣子当前留存(内部方法)。"""
