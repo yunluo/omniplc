@@ -18,7 +18,7 @@ import pytest
 from omniplc import ModbusTcpClient, Monitor, MonitorQuality, PointSnapshot
 from omniplc.core import monitor as monitor_mod
 from omniplc.core.tag import Tag, TagTable
-from scripted import ScriptedTransport
+from scripted import ScriptedTransport, wait_until
 
 
 def _client() -> ModbusTcpClient:
@@ -947,3 +947,65 @@ def test_group_error_warning_merge(
         monkeypatch.setattr(client, "read_many", boom)
         monitor._cycle()
         assert warn_count() == 3
+
+
+def test_monitor_quality_members_frozen() -> None:
+    """MonitorQuality 恰好三态(P2-8):新增第四态会静默改变下游判断面。"""
+    assert {q.name for q in MonitorQuality} == {"INITIAL", "GOOD", "STALE"}
+
+
+def test_monitor_sees_transport_timeout_as_stale_but_link_kept(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """真客户端走线:传输超时把 GOOD 降 STALE,且不断线(P2-7)。
+
+    Monitor 与真实客户端失败面(拆连/超时/分类)的联动此前仅打桩覆盖。
+    注意质量语义:**从未成功过的监视器停在 INITIAL**(STALE = 失败期保留
+    旧值,无旧值可保留),故用例先让首轮正常应答到 GOOD,再注入收包超时
+    走完整 _execute 失败口径。
+    """
+    from omniplc.core.errors import TransportTimeoutError
+    from omniplc.plc.modbus import codec as modbus_codec
+
+    class _FlakyTransport:
+        """先正常应答(首轮 GOOD),置位后收包超时(链路保持)。"""
+
+        def __init__(self) -> None:
+            self.sent = bytearray()
+            self.timeout_mode = False
+            self._pending = bytearray()
+
+        def connect(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+        def send(self, data: bytes) -> None:
+            self.sent.extend(data)
+
+        def recv(self, size: int) -> bytes:
+            if self.timeout_mode:
+                raise TransportTimeoutError("读取超时", 0)
+            # size 感知应答:FC03 单寄存器回 0x0007,tid 回显自请求
+            while len(self._pending) < size:
+                tid = int.from_bytes(bytes(self.sent)[:2], "big")
+                self._pending.extend(
+                    modbus_codec.build_mbap(tid, 1, b"\x03\x02\x00\x07")
+                )
+            out = bytes(self._pending[:size])
+            del self._pending[:size]
+            return out
+
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    transport = _FlakyTransport()
+    monkeypatch.setattr(client, "_create_transport", lambda: transport)
+    monitor = client.create_monitor({"a": ("hr0", "ushort")}, interval=0.05)
+    monitor.start()
+    try:
+        assert wait_until(lambda: monitor.get("a").quality is MonitorQuality.GOOD)
+        transport.timeout_mode = True
+        assert wait_until(lambda: monitor.get("a").quality is MonitorQuality.STALE)
+        assert client.connected is True  # 超时 0 字节已读,不拆连
+    finally:
+        monitor.stop()

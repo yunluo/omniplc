@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import time
 from typing import List, Optional
 
 from omniplc.transport import TcpTransport
@@ -108,3 +109,16 @@ def mount_real_tcp(
     client._transport = transport  # type: ignore[attr-defined]
     client._connected = True  # type: ignore[attr-defined]
     return transport
+
+
+def wait_until(condition, timeout: float = 2.0, interval: float = 0.005) -> bool:
+    """轮询等待条件成立(零固定裕量,review-1021 P2-7:替代裕量型 sleep)。
+
+    :return: 超时前条件是否成真(超时时对条件做末次判定)
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(interval)
+    return condition()

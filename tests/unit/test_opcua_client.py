@@ -34,6 +34,9 @@ from omniplc.plc.opcua.client import (
 )
 from omniplc.core.types import DataType
 
+# 真 asyncua 服务端/慢用例放宽 120s 硬顶(review-1021 P1-11,脚本化用例不受影响)
+pytestmark = [pytest.mark.timeout(300)]
+
 
 class FakeSession(_OpcUaSession):
     """内存版会话:按 NodeId 文本存值,可注入指定节点的读取异常。"""
@@ -108,6 +111,8 @@ def test_parse_nodeid_errors() -> None:
 
 def test_build_data_change_filter() -> None:
     """死区过滤器:不传/None→None;传 deadband_value→DataChangeFilter(默认 Absolute)。"""
+    if not _HAVE_ASYNCUA:
+        pytest.skip("asyncua 未安装(review-1021 P1-10:与全文件 skipif 口径一致)")
     import asyncua.ua
 
     from omniplc.plc.opcua.client import _build_data_change_filter

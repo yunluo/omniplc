@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import socket
 import threading
-import time
 from typing import List
 
 import pytest
@@ -21,6 +20,7 @@ from omniplc.core.errors import (
 )
 from omniplc.transport import BaseTransport
 from omniplc.core.types import DataType, PrimitiveValue
+from scripted import wait_until
 
 
 class _ScriptedTransport(BaseTransport):
@@ -254,7 +254,8 @@ class TestReconnectBackoff:
         client = _ScriptedClient(fail_connect_times=1)
         ok, _ = client.read("hr0", "short")
         assert ok is False
-        time.sleep(0.08)  # 门控窗口 0.05s 过期(裕量 30ms)
+        # 门控窗口 0.05s 过期:轮询等待,不押固定裕量(review-1021 P2-7)
+        assert wait_until(lambda: client.next_connect_in is None)
         ok, value = client.read("hr0", "short")
         assert ok is True
         assert value == 3.14
@@ -309,7 +310,7 @@ class TestAioCloseCancellation:
         monkeypatch.setattr(base_client_mod.random, "uniform", lambda a, b: 0.05)
         client = _ScriptedClient(fail_connect_times=1)
         client.read("hr0", "short")
-        time.sleep(0.08)
+        assert wait_until(lambda: client.next_connect_in is None)
         client.read("hr0", "short")  # 重连成功
         assert client._connect_fail_count == 0
         assert client._next_connect_at == 0.0

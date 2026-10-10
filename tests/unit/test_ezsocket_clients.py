@@ -1,5 +1,8 @@
 """三菱 CNC EZSocket(GIOP)客户端测试:黄金帧 + 脚本化传输全链路。
 
+黄金帧来源:开源参考实现 C 库帧面(GIOP 线上格式单源,档案
+docs/protocol/mitsubishi/m70-ezsocket/;真机核证待做,review-1021 P2-9)。
+
 覆盖:
 
 - GIOP 请求帧编码黄金样本(mochaGetData/AlarmMsg/PrgBlock 三操作)

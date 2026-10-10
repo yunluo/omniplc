@@ -50,7 +50,7 @@
 本仓库门禁五件套,**任一挂下即不通过**:
 
 ```bash
-uv run python -m pytest tests -q         # 全量(当前 1699 例,随批次增长;无平台跳过;超 120s 由 pytest-timeout 判失败)
+uv run python -m pytest tests -q         # 全量(例数随批次增长,以门禁输出为准;无平台跳过;超 120s 由 pytest-timeout 判失败)
 uvx ruff format --check src tests        # 格式零漂移(ruff 默认配置,与 同类参考实现 对齐;改动后先 uvx ruff format src tests)
 uvx ruff check src tests                 # 0 告警(规则集显式固定,target-version 由 requires-python 推导为 py37)
 uvx --python 3.12 mypy src/omniplc       # 0 问题(81 源文件,目标 python_version=3.10;mypy 已不支持 <3.10,3.7 兼容由 ruff + 3.7.9 测试腿兜底)

@@ -16,6 +16,7 @@ omniplc 实现的各品牌 / 协议族对应的**厂商手册与公开规范**,�
 
 ```
 docs/protocol/
+├── beckhoff/      倍福 — TwinCAT ADS 手册归档(TX1000/TE1000;ADS 驱动已随 v0.52.0 移除、索引随批删,物料留存备重启立项,review-1021 P2-2)
 ├── hikrobot/      海康机器人 — 智能读码器工业协议操作手册(五种从站模式)+ 通信指令手册 + ID2000/ID3000 用户手册 + MvCodeReaderSDK C 指南(Development 开发包)+ 固件版本要求
 ├── inovance/      汇川 — H3U/H3S + H5U/Easy 编程手册
 ├── keyence/       基恩士 — SR-2000 1D/2D 扫码枪用户手册(中文)

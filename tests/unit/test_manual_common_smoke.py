@@ -2,7 +2,7 @@
 
 背景(第六/八轮连续命中同一盲区):门禁四件套只覆盖 ``src tests``,
 tools/ 构造传参漂移无守卫——S7 位序错位曾潜伏五个版本(v0.32.0 起联机
-脚本 S7 驱动完全不可用,review-0929-2 P1)。本测试把 27 个驱动的
+脚本 S7 驱动完全不可用,review-0929-2 P1)。本测试把 26 个驱动的
 build_client 构造全部冒烟一遍:构造成功即证明**位序/参数名/缺省值**
 与现行库签名一致;再对关键字段的传递做抽查。
 """
@@ -20,7 +20,7 @@ if str(TOOLS_DIR) not in sys.path:
 
 import manual_common  # noqa: E402
 
-# 27 驱动与 manual_test.json 同步(构造型参数全部给合法值)
+# 26 驱动与 manual_test.json 同步(构造型参数全部给合法值)
 _CONN_BASE = {"ip": "192.0.2.10", "port": None}
 
 
@@ -49,6 +49,7 @@ def _connections() -> list:
         {"driver": "toyopuc_tcp"},
         {"driver": "toyopuc_udp"},
         {"driver": "opcua"},
+        {"driver": "ab_eip"},
         {"driver": "mtconnect"},
         {"driver": "siemens_s7"},
     ]

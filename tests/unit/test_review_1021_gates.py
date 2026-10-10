@@ -484,3 +484,22 @@ class TestWriteMethodRegistry:
         for cls in _client_classes():
             assert hasattr(cls, "read_only"), cls.__name__
             assert hasattr(cls, "write_whitelist"), cls.__name__
+
+
+class TestNegativeCodeNotCounted:
+    def test_negative_code_not_counted_as_device_error(self) -> None:
+        """负码诊断不计 device_error_count(P1-6:code >= 0 门是唯一防线)。
+
+        若该门被改成 ``code is not None``,现场设备错误率虚高而全量测试
+        仍绿——本用例把不变式锁死。
+        """
+        client = _ScriptedClient()
+        client.script_failure(DeviceError("UDP 报文超长", -10040))
+        ok, _value = client.read("hr0", "ushort")
+        assert ok is False
+        stats = client.stats
+        assert stats["device_error_count"] == 0
+        assert stats["error_count"] == 1
+        assert client.last_error_code == -10040
+        assert client.last_error_category is ErrorCategory.DEVICE
+        assert client.connected is True  # DeviceError 不断线

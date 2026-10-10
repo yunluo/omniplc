@@ -49,6 +49,9 @@ from omniplc import (
 from omniplc.plc.melsec.melsec import McFrame
 from omniplc.plc.siemens.client import S7Model
 
+# 外部模拟器走线慢于门禁均值,放宽 120s 硬顶(review-1021 P1-11)
+pytestmark = [pytest.mark.timeout(300)]
+
 GATEWAY_HOST = "127.0.0.1"
 GATEWAY_PORT = 8731
 
