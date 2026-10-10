@@ -450,9 +450,29 @@ docstring 各加一句空表语义(现状未提),并把该不对称在
 
 ---
 
-> **登记与排期**:本报告不落地任何修改;§六 第 1 批(超时守卫 + FD 清理)
-> 建议随本轮审查确认后登记 `docs/todo.md`。修复批完成后按维护惯例回写状态,
-> 并将本文件按"存活至发版后删除"的惯例处理。
-> **真机核验**:本报告结论为**库内静态 + 本地动态**结论(镜像往返、对抗响应、
-> 异常面喂入、真实回环 socket),未上真机;P1-1 的修复不改变任何协议帧面,
-> 无需真机核证。
+## 十、实施批注(2026-10-10 修复批,主会话落地)
+
+> 修复批 `ac7af9d`(§六第 1 批)/ `63905d4`(第 2~3 批)/ 第 4 批测试
+> `test_review_1023_gaps.py`(随第 5 批提交);与 review-1022 修复批同日,
+> 门禁 3.7.9 全量 1978 passed。逐项状态:
+
+| 项 | 状态 | 落点 |
+| --- | --- | --- |
+| P1-1(§二)超时 NaN/inf FD 泄漏 | ✅ 已修(`ac7af9d`) | 双层:客户端/传输 setter isfinite 收口(sync+native 四处 + S7 两处覆写)+ tcp/udp/native-transport connect 清理改 `except BaseException`;P3-2 inter_frame_delay/broadcast_turnaround 同批 |
+| P1-1(§8.1)codec 零页码依据 | ✅ 已修(`63905d4`) | 模块 docstring 三手册章节页码总表(印刷页=PDF 页,页脚 N/50·N/46·N/44 抽样直证)+ 32 函数就近标注;第三方链接换手册编号;modbus.py ping_probe 页码同批 |
+| §8.2-1 七解析器异常分流 | ✅ 已修(`63905d4`) | FC07/08/11/12/17/20/21 补 `check_response_exception`;**行为变更**:异常响应 PROTOCOL → DEVICE,随下批发版 CHANGELOG 披露 |
+| §8.2-2 0x7D 常量 | ✅ 已修(`63905d4`) | 删 `MODBUS_MAX_FILE_RECORD_LENGTH` 与字段闸(FC03/04/23 语境误挪);聚合 byte count(0xF5/0xFB)收口;边界用例 121/122、122/123 顶格锁定 |
+| §8.2-3 FC08 数据域 N 字 | ✅ 已修(`63905d4`) | parse 按 §6.8(Data N×2)接受整字数并返回全部数据字;客户端按"请求恒单字"校验字数取首字——N=2 回显不再误报坏帧,单字路径零破坏 |
+| §8.2-4 FC17 Server ID | ✅ 标待核 + 登记(`63905d4`) | 代码 docstring 待核口径 + 真机清单「review-1023 修复批随批核证两项」① |
+| §8.2-5 FC22 little | ✅ 标待核 + 登记(`63905d4`) | 代码 docstring 待核 + 真机清单同上② |
+| §8.2-6/7 RTU 守卫 | ✅ 已修(`63905d4`) | build_rtu_frame 站号 0~247(§2.2 印刷页 8)+ ADU ≤ 256(§2.5.1 印刷页 13) |
+| §8.2-8 parse_mbap 尾部静默 | ⏳ 未动(TCP 走线按长度精确收包不受影响,公共函数收口属行为变更) | 登记 todo |
+| §8.2-9 推导标注/TCP-UDP 措辞 | ✅ 已修(`63905d4`) | build_mbap 措辞订正(全库无 Modbus UDP 客户端);`MODBUS_SERVER_ID_MIN_BYTE_COUNT` 推导标注随 FC17 待核批处理 |
+| §9.1 五项测试缺口 | ✅ 已补(第 5 批) | FC02 全链路三连 / 翻页三守卫 / native station+word_order / 1968 切片 / FC20 35 条边界 |
+| §9.3 再生成门禁 | ✅ 已补(第 5 批) | runpy 重跑独立生成器逐字节比对;23 处同源断言与夹具去重**未动**(重构类,登记 todo) |
+| §9.4 弱断言补强 | ⏳ 未动(对拍框架改造) | 登记 todo |
+| P3-1/3/4/5 | ✅ 部分 | 空表语义入 docstring(P3-1 文档半)、read_range 分页差异入 protocol-features(P3-3)、_expects_response/_check_span 抽助手(P3-4/5)未动登记 todo |
+
+**§五待人工裁决的采择**:P1-1 修法采**双层**(报告倾向:传输层 `except BaseException`
+属结构性收口);P3-2 inf 语义采**收紧**(sleep(inf) 每事务必失败,"永不发帧"
+无合法表达);P3-1 空表语义**维持现状只补文档**(报告倾向,破坏性变更不做)。

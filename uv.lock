@@ -774,7 +774,7 @@ serial = [
 
 [package.metadata]
 requires-dist = [
-    { name = "asyncua", marker = "extra == 'all'", specifier = "==1.1.5" },
+    { name = "asyncua", marker = "extra == 'all'", specifier = ">=1.1.5,<2" },
     { name = "asyncua", marker = "extra == 'dev'", specifier = "==1.1.5" },
     { name = "asyncua", marker = "extra == 'opcua'", specifier = ">=1.1.5,<2" },
     { name = "comtypes", marker = "sys_platform == 'win32' and extra == 'all'", specifier = "==1.4.6" },

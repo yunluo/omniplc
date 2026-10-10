@@ -71,11 +71,13 @@ dev = [
 ]
 # all = 全部可选运行时依赖(serial/mx/opcua 三件),一键安装全套扩展
 # 驱动;与 dev 的差异仅在于不含 pytest 测试工具。显式罗列而非自引用 extras
-# (omniplc[...]),兼容老版本 pip/uv 的元数据解析。
+# (omniplc[...]),兼容老版本 pip/uv 的元数据解析。asyncua 与 opcua extra
+# 同区间钉版(>=1.1.5,<2):精确 == 与下游 OPC-UA 工具冲突(review-1021
+# P2-6);dev 保持精确 == + uv.lock 保证门禁复现。
 all = [
     "pyserial==3.5",
     "comtypes==1.4.6; platform_system == 'Windows'",
-    "asyncua==1.1.5",
+    "asyncua>=1.1.5,<2",
 ]
 
 [build-system]

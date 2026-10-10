@@ -786,6 +786,10 @@ class BaseClient(ABC):
     ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
         """批量读取,逐点独立容错:单点失败不影响其他点。
 
+        空列表返回 ``[]``(与 :meth:`write_many` 一致;注意 ``read_batch``/
+        ``write_batch`` 的空入参是同步 ``ValueError``——"整批"契约,
+        两种批量入口的不对称属契约选择,review-1023 §四 P3-1)。
+
         基类实现为逐点独立事务;驱动可覆写为协议级批量合并(接口不变):
         MC 3E/4E(0406)、FINS(0104)、AB 0x0A 多服务包、OPC-UA UA Read、
         MX Component ReadDeviceRandom 均已覆写为单事务
@@ -875,6 +879,10 @@ class BaseClient(ABC):
         self, items: Sequence[Tuple[str, Union[DataType, str], PrimitiveValue]]
     ) -> List[bool]:
         """批量写入,逐点独立容错。
+
+        空列表返回 ``[]``(与 :meth:`read_many` 一致;``read_batch``/
+        ``write_batch`` 的空入参是同步 ``ValueError``——"整批"契约,
+        两种批量入口的不对称属契约选择,review-1023 §四 P3-1)。
 
         入参先全量前置校验(类型 coerce + 写安全闸逐地址),任一非法在
         零发送期同步抛出——避免"前面的点已写、调用方却拿不到部分结果"

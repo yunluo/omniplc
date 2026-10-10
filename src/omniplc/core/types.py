@@ -77,7 +77,8 @@ class DataType(Enum):
 
     @property
     def register_size(self) -> int:
-        """该类型占用的 16 位寄存器个数(BOOL 按 1 个寄存器/位计)。"""
+        """该类型占用的 16 位寄存器个数(BOOL 返回 1 占位;实际访问宽度由
+        协议位寻址决定,如 Modbus 线圈 1 位、批量打包按 ⌈数量/8⌉ 字节)。"""
         return max(1, self.byte_size // 2)
 
 
