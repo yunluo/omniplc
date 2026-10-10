@@ -366,7 +366,7 @@ stateDiagram-v2
 | --------------------------------- | ---------------------- | -------------------- |
 | `read_*` / `read` / `read_tag`    | `(True, 值)`           | `(False, None)`      |
 | `write_*` / `write` / `write_tag` | `True`                 | `False`              |
-| `read_many` / `write_many`        | 逐点独立容错的结果列表 | 单点失败不影响其他点 |
+| `read_many` / `write_many`        | 逐点独立容错的结果列表 | 单点失败不影响其他点;入参非法(地址/类型/白名单)同步抛 `ValueError`、零写入(review-1021 P1-4) |
 | `connect` / `disconnect`          | `True`                 | `False`              |
 
 - 失败原因一律记录在 `last_error` 属性(含 PLC 原始错误码,如 Modbus 异常码、
@@ -384,12 +384,24 @@ stateDiagram-v2
 | `ProtocolFrameError`                                                        | PROTOCOL  | None                                                   |
 | `DeviceError`(其余)                                                         | DEVICE    | `exc.code`(协议原始码;`code=0` = 无具体错误码,归 None) |
 | `OSError`(含 `ConnectionRefused/Reset`、`gaierror`)、`TransportClosedError` | TRANSPORT | `errno` 或 None                                        |
-| 其他(含裸内部异常)                                                          | UNKNOWN   | None                                                   |
+| `OmniPLCInternalError` 其余子类                                              | UNKNOWN   | None(仅 `connect()`/`_after_connect` 宽 `except` 可达) |
 
   写入统一经 `_set_error`/`_clear_error`(与 `_last_error` 同锁同步),
   驱动直写点(SR 扫码枪、AB 解码)已全部迁移。**新增异常类型时必须同步规则表**。
   `device_error_count` 只计"PLC 明确返回错误码"的次数:`code=0` 的无码失败
-  (能力缺失、设备侧条件)与接收超时都不计入,但仍计入 `error_count`。
+  (能力缺失、设备侧条件)与接收超时都不计入,但仍计入 `error_count`;
+  `code=0` 归 `None` 由 `_set_error` 单点收口(review-1021 §3.2,直写 0 亦然)。
+
+  **分类表的可达范围(review-1021 P1-3 订正)**:`_execute` 只对三类异常调
+  `_categorize`——`TransportTimeoutError`、`DeviceError`、
+  `(OSError, OmniPLCInternalError)`;**参数校验错误(`ValueError`)与
+  只读门控(`RuntimeError`)直接穿透抛给调用方,不进分类表**——参数非法
+  抛 `ValueError` 是有意设计,不设 `except Exception` 兜底(会把编码错误
+  也吞成 UNKNOWN)。`UNKNOWN` 兜底实际只经 `connect()` 的宽 `except` 可达。
+
+  **「驱动不支持该能力」的口径(review-1021 P1-5)**:与参数校验同类——
+  字符串原语缺省实现、`read_range` 缺省实现等在调用期同步抛 `ValueError`,
+  不静默 `(False, None)`(静默会让调用方误判为设备侧不支持)。
 
   **超时的两种走线语义**:TCP 接收超时抛 `socket.timeout`(OSError 语义),
   按"连接可能已死 + 迟到响应残留在 socket 缓冲"**拆连**重连;串口/UDP 抛

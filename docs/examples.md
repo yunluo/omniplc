@@ -402,8 +402,8 @@ from omniplc import HikrobotIdModbusClient
 reader = HikrobotIdModbusClient("192.168.0.10", 502, station=0)
 reader.connect()
 ok, code = reader.scan()          # 完整握手;OK→(True, 条码文本),NG→(False, None)
-status = reader.read_status()     # Trigger Ready / Acquiring / Decoding / OK / NG / Fault
-reader.clear_error()              # General Fault 清除
+ok, status = reader.read_status() # (True, Trigger Ready/Acquiring/Decoding/OK/NG/Fault)
+reader.clear_error()              # General Fault 清除(写操作,受 read_only 管辖)
 # 结果串内容 = 读码器 IDMVS「数据处理」配置的输出(质量/码制等可配置并入)
 ```
 

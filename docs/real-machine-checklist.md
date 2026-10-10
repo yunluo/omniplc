@@ -67,6 +67,7 @@
 |  海康 ID 读码器 RS-232 串口       |  HikrobotIdSerialClient                     |  按 ID2000/ID3000 用户手册 + 通信指令手册实现(文本触发 + 结果行,SR 同型),待真机核证(要点见核验记录表该行备注)                                                                                                                                                                                                                                                      |
 |  心跳探测命令 ping/0601           |  FINS / KV MC / 松下 MC / S7                |  ①FINS 0601 状态读应答布局(Status/Mode 两字节分立 + 26 字节总数)按 W342 §5-3-17 印刷页 194-196 解码,Mode 高半字节合位的变体待真机抓包排除;②KV MC / 松下 MC 对 0101 CPU 型号读的支持面待真机(不支持则 ping 恒 False,心跳失败计数增长但不断线);③S7 `get_cpu_state` 走自研 SZL 0x0424(状态字节 = 记录区[3] bzu_id,C 源+Wireshark 双源,pcap 复核保留),随真机联测核证   |
 |  review-1020 修复批随批核证五项   |  MC 1E / FOCAS / FINS / SR / MX             |  ①MC 1E 256 点 `00 00` 编码 E71 实际接受度(P1-6 修复后验证);②FOCAS `cnc_settimeout` 毫秒单位实测(P1-3 修复后验证,建连后暂停网络收发观察超时是否为配置秒数);③FINS DA1=0 首调接受度(P2-4 修复后顺带核严格 PLC 的拒绝形态);④基恩士 SR「裸 OK=无读出」判据 + 对比模式下条码内容恰为 "OK" 的输出形态(P2-5 待核证暂不修);⑤MX `GetErrorMessage` 零参返回形态(P3-16,并入既有 MX 真机批)  |
+|  review-1021 修复批随批核证三项   |  全驱动 / 海康 ID Modbus / AB·ID-TCP         |  ①`read_only=True` 只读观察期现场走一遍:批量/随机/掩码/字符串写 13 入口零发送拒绝(`58ceb9e` 修复后验证);②海康 ID Modbus 握手契约收口后真机走查:`scan` NG/General Fault 返 `(False, None)`+`last_error`、`read_status` 新元组签名、`clear_error` 只读拒;③`generic_message`(0x4D/0x4E 判写)与 `command`(Set/Exec)只读拒 + Set/Exec 重试取 `write_retries`   |
 
 ---
 
