@@ -7,7 +7,7 @@
   复核批注①;用例把 13 处入口逐个锁死,防回归)与白名单逐地址过闸
 - **C 形态收口**:AB ``generic_message`` 按服务码判写(0x4D/0x4E)+ 显式
   覆盖;读码器 TCP ``command`` 按 Get/Set/Exec 分流
-- **契约批**:\ ``_set_error``\ code=0 归 None 单点收口、TIMEOUT ⇒ code=None
+- **契约批**:``_set_error`` code=0 归 None 单点收口、TIMEOUT ⇒ code=None
   类型级保证(P1-2)、心跳不覆盖事故快照(P1-1)、基类 ``write_many`` 入参
   前置校验(P1-4)、aio ``write_whitelist`` 转发在位(§七条目 1 反证锁定)
 - **写方法登记表守卫**:全库客户端 ``write*``/``*write``/``set_*`` 命名面
