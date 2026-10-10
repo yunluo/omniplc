@@ -981,7 +981,9 @@ class MelsecMxClient(BaseClient):
         :param items: ``(地址, 值)`` 序列;bool → 位软元件,int → 字软元件
         :return: 是否成功;任一地址非法、值越界或控件返回出错代码则整批失败
             (原因见 :attr:`last_error`)
-        :raises ValueError: 列表为空/值类型不支持/条数超限
+        :raises RuntimeError: 只读模式(:attr:`read_only`)下拒绝一切写
+        :raises ValueError: 列表为空/值类型不支持/条数超限,或写白名单开启时
+            软元件地址不在已绑定点位表内(逐软元件前置校验,零发送)
         """
         if not items:
             raise ValueError(_("write_batch 至少需要一个 (地址, 值) 项"))

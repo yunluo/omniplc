@@ -488,6 +488,9 @@ class ModbusBaseClient(BaseClient):
 
         :param items: ``(地址, 数据类型, 值)`` 三元组序列
         :return: 与 items 顺序对应的 ``bool`` 列表;成功 ``True``
+        :raises RuntimeError: 只读模式(:attr:`read_only`)下拒绝一切写
+        :raises ValueError: 任一地址/类型非法,或写白名单开启时地址不在
+            已绑定点位表内(逐 item 前置校验,零字节发送)
         """
         # 1) 入参合法性前置校验:任一非法即同步抛出,不进事务(含写区域收口:
         #    ir/di 只读,批量写不再"锁内才抛");写安全闸逐地址过闸
@@ -532,7 +535,9 @@ class ModbusBaseClient(BaseClient):
 
         :param items: ``(地址, 数据类型, 值)`` 三元组序列
         :return: ``(是否成功, 与 items 顺序对应的 ok 列表)``
-        :raises ValueError: 列表为空 / 地址 / 类型 / 值非法
+        :raises RuntimeError: 只读模式(:attr:`read_only`)下拒绝一切写
+        :raises ValueError: 列表为空 / 地址 / 类型 / 值非法,或写白名单
+            开启时地址不在已绑定点位表内(逐 item 前置校验,零字节发送)
         """
         if not items:
             raise ValueError(_("write_batch 至少需要一个 (地址, 数据类型, 值) 项"))
@@ -798,7 +803,9 @@ class ModbusBaseClient(BaseClient):
             :class:`~omniplc.types.ByteOrder`);规范为 big,部分施耐德机型
             按 little 解释掩码,需现场核对
         :return: 是否成功
-        :raises ValueError: 地址/掩码/字节序非法
+        :raises RuntimeError: 只读模式(:attr:`read_only`)下拒绝一切写
+        :raises ValueError: 地址/掩码/字节序非法,或写白名单开启时地址不在
+            已绑定点位表内(前置校验,零字节发送)
         """
         parsed = parse_address(address)
         if parsed.area != ModbusArea.HOLDING_REGISTER:
@@ -854,7 +861,9 @@ class ModbusBaseClient(BaseClient):
         :param write_address: 写起始地址,如 ``"hr100"``
         :param values: 写入的寄存器原始值序列(1~121 个,每个 0~65535)
         :return: ``(是否成功, 读到的寄存器原始值列表)``;失败为 ``(False, None)``
-        :raises ValueError: 地址非保持寄存器 / 带位号后缀 / 数量或值非法
+        :raises RuntimeError: 只读模式(:attr:`read_only`)下拒绝一切写
+        :raises ValueError: 地址非保持寄存器 / 带位号后缀 / 数量或值非法,
+            或写白名单开启时**写地址**不在已绑定点位表内(前置校验,零字节发送)
         """
         read_parsed = _check_holding_register(read_address, "FC23 读地址")
         write_parsed = _check_holding_register(write_address, "FC23 写地址")

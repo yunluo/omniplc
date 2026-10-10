@@ -578,7 +578,9 @@ class AsyncModbusTcpClient(AsyncBaseClient):
 
         :param items: ``(地址, 数据类型, 值)`` 三元组序列
         :return: 与 items 顺序对应的 ``bool`` 列表
-        :raises ValueError: 地址 / 类型 / 值非法(零字节发送)
+        :raises RuntimeError: 只读模式(:attr:`read_only`)下拒绝一切写
+        :raises ValueError: 地址 / 类型 / 值非法,或写白名单开启时地址不在
+            已绑定点位表内(逐 item 前置校验,零字节发送)
         """
         parsed_items: List[Tuple[ModbusAddress, DataType, PrimitiveValue]] = []
         for address, dtype, value in items:
@@ -608,7 +610,9 @@ class AsyncModbusTcpClient(AsyncBaseClient):
 
         :param items: ``(地址, 数据类型, 值)`` 三元组序列
         :return: ``(是否成功, 与 items 顺序对应的 ok 列表)``
-        :raises ValueError: 列表为空 / 地址 / 类型 / 值非法
+        :raises RuntimeError: 只读模式(:attr:`read_only`)下拒绝一切写
+        :raises ValueError: 列表为空 / 地址 / 类型 / 值非法,或写白名单
+            开启时地址不在已绑定点位表内(逐 item 前置校验,零字节发送)
         """
         if not items:
             raise ValueError(_("write_batch 至少需要一个 (地址, 数据类型, 值) 项"))
@@ -775,7 +779,9 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         :param byte_order: 掩码字节序(``"big"``/``"little"`` 或
             :class:`~omniplc.types.ByteOrder`)
         :return: 是否成功
-        :raises ValueError: 地址/掩码/字节序非法
+        :raises RuntimeError: 只读模式(:attr:`read_only`)下拒绝一切写
+        :raises ValueError: 地址/掩码/字节序非法,或写白名单开启时地址不在
+            已绑定点位表内(前置校验,零字节发送)
         """
         parsed = parse_address(address)
         if parsed.area != ModbusArea.HOLDING_REGISTER:
@@ -816,7 +822,9 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         :param write_address: 写起始地址,如 ``"hr100"``
         :param values: 写入的寄存器原始值序列(1~121 个,每个 0~65535)
         :return: ``(是否成功, 读到的寄存器原始值列表)``
-        :raises ValueError: 地址非保持寄存器 / 带位号后缀 / 数量或值非法
+        :raises RuntimeError: 只读模式(:attr:`read_only`)下拒绝一切写
+        :raises ValueError: 地址非保持寄存器 / 带位号后缀 / 数量或值非法,
+            或写白名单开启时**写地址**不在已绑定点位表内(前置校验,零字节发送)
         """
         read_parsed = _check_holding_register(read_address, "FC23 读地址")
         write_parsed = _check_holding_register(write_address, "FC23 写地址")

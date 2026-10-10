@@ -684,7 +684,9 @@ class _MelsecMcBase(BaseClient):
         :param double_word_items: 双字访问 ``(地址, 值)`` 序列(32 位:
             0~0xFFFFFFFF)
         :return: 是否成功
-        :raises ValueError: 两列表均空/帧型不支持/地址或数值非法
+        :raises RuntimeError: 只读模式(:attr:`read_only`)下拒绝一切写
+        :raises ValueError: 两列表均空/帧型不支持/地址或数值非法,或写白名单
+            开启时软元件地址不在已绑定点位表内(逐软元件前置校验,零字节发送)
         """
         if not word_items and not double_word_items:
             raise ValueError(_("随机写至少需要一个字访问或双字访问软元件"))
