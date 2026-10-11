@@ -31,20 +31,27 @@
 | 40xx 命令编解码 | 0401/0403/0406 **broker 与解析器对表一致**(手写字节回灌) | — |
 | 帧型 × 走线白名单 | TCP/UDP = 3E/4E/1E、串口 = 3C/4C/1C,**互斥且零漏** | — |
 | 错误面 | 参数错误**全部 `ValueError` 且零发送**;未知软元件/位号/位软元件字访问均有明确拒绝 | — |
-| **MX COM 层** | 待子代理回报(§九) | — |
+| **MX COM 层**(1217 行 + 49 例) | **四处高层包装仍吞"高位 0 出错码" → 静默错值**(子代理探针端到端复现);`S_FALSE` 被误判为失败 | **P1**(§9.2-1) |
 
-**本轮 1 项 P1(帧面常量层)+ 4 项 P2(帧面/串口层)+ 若干 P3**;
-**客户端层与实证部分未发现 P0/P1 缺陷**(§一~§七)。
+**本轮 2 项 P1 + 7 项 P2 + 20 余项 P3**;**客户端层与实证部分未发现 P0**。
 
-**P1 的性质值得强调**:P1(§8.1,1E 字单位上限 64 vs 手册 256)不是"实现写错",
-而是**依据引用了错误的表**——常量注释引「Appendix 5 印刷页 466」,而自印 466 是
-**4C/3C/4E/3E** 的命令表;1E 自己的表在**自印 470**。这正是本项目"引用必须指向
-正确文档/表"那条硬约束所针对的失败形态:**引用看起来完整(有文档号 + 页 + 章节),
-但指向了另一张表**。同类问题在本轮出现 7 处页码错误(§8.2-5),值得作为
-"引用可回溯性"的专项整改。
+**两条 P1 的性质截然不同,都值得强调**:
 
-**另一处自相矛盾**:1E 码表注释(`constants.py:374-378`)自称「M/L/S 归为同一码 4D20H」,
-而表里**只有 M 与 S、没有 L**(§8.2-1)——注释与数据不一致本身就是"依据先行"的漏洞。
+- **P1-A(§8.1,1E 字单位上限 64 vs 手册 256)**:不是"实现写错",而是**依据引用了错误的表**
+  ——常量注释引「Appendix 5 印刷页 466」,而自印 466 是 **4C/3C/4E/3E** 的命令表;
+  1E 自己的表在**自印 470**。这正是本项目"引用必须指向正确文档/表"那条硬约束
+  所针对的失败形态:**引用看起来完整(文档号 + 页 + 章节),却指向了另一张表**。
+  同类问题本轮共 **7 处页码错误**(§8.2-5),值得作为"引用可回溯性"专项整改。
+- **P1-B(§9.2-1,MX 四处吞出错码)**:这是**已披露但未修**的存量盲区,而代码注释把
+  "未修"的理由写成"raw 参数布局须真机核证"——**该理由不成立**:子代理从**本机已安装的
+  MX Component 类型库**静态 dump 出四个方法的完整签名(与手册自定义 I/F 逐项吻合),
+  并用假 vtable 探针证明原始通道对这四个方法**同样可绑可用**。
+  即:**这件事现在就能做**;真机只需确认"业务出错时 HRESULT 是否始终为 S_OK"这一条**行为**。
+
+**两处"注释与数据/台账不一致"**(本身就是"依据先行"的漏洞):
+① 1E 码表注释(`constants.py:374-378`)自称「M/L/S 归为同一码 4D20H」,而表里**只有 M 与 S、没有 L**(§8.2-1);
+② `docs/real-machine-checklist.md:87` 写"三处盲区**修复**",而 CHANGELOG、`docs/todo.md`
+与代码 docstring **三处均标"未修/待真机"**(§9.2-13)。
 
 **一处虚警已撤销**(§七),记入台账避免下轮重复:未连接时"参数错误"返回
 `(False, None)` —— 实为先撞连接失败,连上后全部正确抛 `ValueError`。
@@ -169,13 +176,16 @@
 | **2** | `fix(串口路由字段)` | §8.2-2 站号放行 `0xFF`(全局功能);§8.2-3 PC 号补 `7D/7E/FE` 并复核 `0` 的依据;§8.2-4 3E/4E 暴露模块 I/O 参数(多 CPU/冗余) | §八 | 半天(需查手册 51/52-53/487) |
 | **3** | `docs(引用订正)` | §8.2-5 的 **7 处页码错误**(含两处同文件自相矛盾)+ §8.1 的表号订正 —— 属引用铁律项,建议**独立提交**便于回溯 | §八 | 1 小时 |
 | **4** | `fix(帧面健壮性)` | §8.2-6 四处:NAK 长度判据 `!=`、两处 `.decode("ascii")` 收口为 `ProtocolFrameError`、`build_read_cpu_model` 补 `_check_frame`、评估 3E 路由回显校验;§8.2-7 的 1E 位软元件按字上限分口 | §八 | 半天 |
-| **5** | 依 §九 MX 切片结论 | 待回报(COM 出参口径 / 错误码高位 / 生命周期) | §九 | 待定 |
-| **6** | `docs(三菱披露)` | P3-1 未连接时错误优先级入 troubleshooting;P3-2 加互锚注释;P3-3 品牌子类语义入注释 | §三 | 1 小时 |
+| **5** | `fix(MX P1+P2 批)` | §9.2:①四处高层包装改 `_raw_com_method` + 自备出参缓冲(布局有类型库+手册双依据)、②`S_FALSE` 改 FAILED 位判定(`hresult < 0`)、③`MX_BIT_DEVICES` 按手册 §2.3 三张表补齐(FX/FY/SS/SC/MF/LTS·LTC·LCS·LCC·LSS·LSC)+ 表驱动测试、④`get_error_message` 不经 `_execute`(离线可查)、⑤MX 覆写 `create_monitor` 拒绝(防 STA 事故) | §九 | 1~1.5 天 |
+| **6** | `fix(MX P3 批)` | §9.2-7~12:模块 docstring 口径订正、byref 死分支删除或重写、`ActSupportMsg` 无效赋值删除、示例码换成手册收录码、`_com_uninitialize` 断言订正、`_check_rc` 按码段分流(会话类拆线 / 其余 `DeviceError`) | §九 | 半天 |
+| **7** | `docs(三菱披露)` | P3-1 未连接时错误优先级入 troubleshooting;P3-2 加互锚注释;P3-3 品牌子类语义入注释;§9.2-13 订正真机清单「修复」措辞 | §三、§九 | 1 小时 |
+| **8** | 真机批 | §9.5 七项 + §8.4 未核实项(1E 字上限 256 实测、站号 FF/PC 7D 7E/多 CPU 03E0 可用性、S_FALSE 组合、监视器+MX 行为) | §8.4、§9.5 | 现场 |
 
-**顺序说明**:第 1~2 批**都需要查手册**(页码已由子代理核出,可直接照抄结论、
-但仍建议开 PDF 复核取值);第 3 批纯文档、零行为风险,可与任一批并行;
-第 4 批含**行为变更**(站号/PC 号放行新值、异常类型从 `UnicodeDecodeError`
-收口为 `ProtocolFrameError`),须按 CONTRIBUTING §六在 CHANGELOG 披露。
+**顺序说明**:第 1~2 批**都需要查手册**(页码已由子代理核出、可直接照抄结论,但仍建议开 PDF 复核取值);
+第 3 批纯文档、零行为风险;第 4 批含**行为变更**(站号/PC 号放行新值、异常类型从 `UnicodeDecodeError`
+收口为 `ProtocolFrameError`);**第 5 批(§九 P1)收益最大且可立即开工** ——
+参数布局已由类型库静态确定,不必等真机;第 6 批为死代码/文档清理。
+各批含行为变更者须按 CONTRIBUTING §六在 CHANGELOG 披露。
 
 **门禁要求**(修复批):五件套全绿(3.7.9 + 3.12 双腿)。
 
@@ -264,13 +274,96 @@
 
 ---
 
-## 九、待补切片(MX Component COM 层)
+## 九、MX Component COM 层切片
 
-> 子代理审查 `plc/melsec/mx.py`(1217 行,Windows COM/comtypes 会话型)与其
-> 假函数表测试(49 例),以 `MX Component Version 4编程手册.pdf` 为依据,
-> 核 COM 调用面、`_raw_com_method` 记忆化的类型安全性、出参缓冲与 lplRetCode、
-> 错误码→文案、CoInitialize/释放配对与 STA 假设、以及假函数表测试的强度边界。
-> **覆盖边界**:§九 到位前,本报告不对 MX 层作任何结论。
+> 子代理审查 `plc/melsec/mx.py`(1217 行)+ 假函数表测试(49 例 / 972 行)。
+> **页码口径已实锚定**:手册 564 PDF 页,**印刷页 = PDF 页 − 2**
+> (PDF 319 页脚 `317`+§5.2.3、PDF 531 页脚 `529`+§7.3、PDF 400 页脚 `398`+§5.2.26)。
+> 依据链三层:①代码通读;②手册 pdfplumber 抽取(§1.2.1/§2.3/§3.1/§5.1(5)/§5.2.x/§7.1-7.3);
+> ③**本机真实类型库元数据**(`C:\MELSEC\Act\Control\ActUtlType.dll` / `ActSupportMsg.dll`,
+> 经 comtypes 1.4.6 dump 出 vtable 逐参数 argtypes+paramflags,**未实例化控件、未连 PLC**)
+> + 本地假 vtable 探针(按 comtypes 真实机制搭同形 vtable 驱动本库助手函数)。
+> 主会话对 P1-1 / P2-1 / P2-2 **逐条亲验**。
+
+### 9.1 背景前提订正(重要:纠正了本报告的初始假设)
+
+| 背景陈述 | 现状核实 | 证据 |
+| --- | --- | --- |
+| 高位 0 出错码三处「**已改为** `_raw_com_method` 走原始 vtable」 | **不成立**:原始通道**只用在块/随机读写四个方法**(`_com_read_words`/`_com_write_words`/`_com_read_random`/`_com_write_random`);`GetDevice`/`GetCpuType`/`GetClockData`/`GetErrorMessage` **仍走 comtypes 高层包装**,盲区"未修"**只做披露** | 亲验:mx.py:241/256/275/295 有 `_raw_com_method`;`:179-200`(`_com_get_device`)只有 `try: com.GetDevice(...)` + `_first(result)`,注释自陈「已知盲区(第八轮 P1-2,**未修**)」 |
+| `GetErrorMessage` 单参/双参形态待核 | 现状 = 单参优先 + 双参 byref 回退;而**回退路径在本机 comtypes+类型库下不可达**(传 byref 直接 `TypeError`) | 探针 6 |
+| 块/随机读 16/32 位口径 | **口径正确**(LONG 每元素 1 字、高位存 0;32/64 位按 2/4 字小端合成;`ReadDeviceBlock2` 确为 SHORT 版) | §5.1(5)(a) 印刷 313;类型库 `LP_c_short` |
+| STA / CoInitialize / 生命周期 | 选型正确、配对基本齐、`_raw_com_method` 重连安全;**但监视器线程会破坏 STA**(P2-3) | mx.py:1-9/505-574/122-164 |
+
+### 9.2 确认问题
+
+| # | 现象 | 证据 | 亲验 | 严重度 |
+| --- | --- | --- | --- | --- |
+| 1 | **四处高层包装吞「高位 0 出错码」→ 静默错值**(项目已披露、未修) | `GetDevice`(:179)、`GetCpuType`(:305)、`GetClockData`(:350)、`GetErrorMessage`(:439)均只捕 `_com_error` 并把 `_first(result)`/`[:7]` 当数据。真类型库里 `lplReturnCode` 是**独立尾出参**(paramflags 10),`lplData` 才是数据 → **业务出错码被丢弃**。子代理**端到端复现**(假 vtable 供 retcode=0x010A42A0 即手册收录的"访问口令不符",印刷 355):`_com_get_device → 258`、`_com_get_cpu_type → ('Q06HCPU', 258)`、`_com_get_clock_data → 七字段全 2026`,**均无异常**;同探针里 `_com_read_words`(原始通道)对同一码**正确抛错** | ✔ 亲验代码路径 | **P1**(静默错值进数据链,`last_error=None`、`device_error_count` 不增 —— 与项目"错值静默收口"红线冲突) |
+| 2 | **`_check_com_call` 把 `S_FALSE`(0x00000001)判为 COM 失败** → 误报 + 丢真实码 + **拆健康会话** | mx.py:214-228 `if hresult != 0`;手册 §7.3(印刷 529)原文:「**S_FALSE 正常结束** —— 函数处理正常结束,但操作(至 PLC 的访问)失败」,真实码经 `lplRetCode` 传。子代理探针:raw 返回 1 时抛「COM 调用失败:HRESULT 0x00000001」,且经 `_execute` 走 `_mark_disconnected` **把健康会话拆掉** | 审读(探针实证) | **P2** |
+| 3 | **`MX_BIT_DEVICES` 位软元件表不完整 → 位/字门控有洞(可误写 16 点)** | 亲验:表仅 18 项(X/Y/M/L/S/F/V/B/SB/DX/DY/TS/TC/STS/STC/CS/CC/SM);手册 §2.3(印刷 46-48)位软元件**还含 FX、FY、SS/SC、MF(CC-Link)、LTS/LTC/LCS/LCC/LSS/LSC**。mx.py:1179-1181 表外"按字软元件处理",`:1192-1212` 的拒绝门控依赖该表 → `read_ushort("FX0")`/`write_int("FY0",5)` 不被拒 | ✔ 亲验表内容 | **P2**(读回 0/1 当字值=静默错值;写路径按 16 点/字写位软元件=一次改 16 点) |
+| 4 | **监视器线程破坏 `ActUtlType` 的 STA 假设** | aio 断言"所有 COM 调用在单工作线程中串行执行,天然满足 STA"(aio:1440-1445),但 `create_monitor`(aio:540-563)把监视器建在**同步孪生**上,`Monitor` **自建线程**(monitor.py:499-507)并直接驱动 `self._client`;`_com_initialize` 只在 connect 线程调用一次(mx.py:512),监视器线程既不 `CoInitialize` 也不封送。`docs/protocol-features.md:86` 恰好把"COM 套间亲和"列为 MX 不实现 ping 的理由 → **项目自知该约束,却未覆盖监视器** | 审读 | **P2**(真机风险:可能正常、可能崩/错值) |
+| 5 | **`get_error_message` 被 `_execute` 拖着建线** → 离线/退避期查不到码 | mx.py:1126 `self._execute(operation)`,而 operation 内只创建 `ActSupportMsg` 控件(:1119-1124);`_execute` 未连接时先 `connect()`(base_client.py:1473-1480),退避期直接失败。手册 §5.2.26(印刷 398)对"码→文本"只要求 ActSupportMsg,**不要求 Open** | 审读 | **P2**(现场最需要查码的"连不上"场景反而查不到;测试因假 Open 成功而掩盖) |
+| 6 | **页码/节号引用错**:mx.py:816 写「手册 5.2.5 ReadDeviceBlock」,而 5.2.5 是 ReadDeviceRandom(ReadDeviceBlock 为 **§5.2.3 印刷 317**);另 :834-841/:1192-1212/:14-18/:291 缺页码级依据 | 审读 | **P3** |
+| 7 | **模块 docstring 与真机口径不符**:mx.py:20-23 称"单参调用直接返回数据";实测(类型库+comtypes 1.4.6+CPython 3.7.9)`GetDevice` 返回 **(数据, 返回码) 二元组**、设备级码**不抛** COMError | 审读 | **P3** |
+| 8 | **byref 回退路径不可达 + 失败会以 `TypeError` 逃出公共 API**;`_return_code` 在元组形态下会取到**业务值/年份**并据此误判 | mx.py:322-331/366-373/470-478(真类型 `LP_BSTR/LP_c_long/LP_c_short`,代码传 `VARIANT`);回退分支只捕 `_com_error`,`TypeError` 不被 `_execute` 捕获 → 逃出;`_return_code`(:113-119)按"首个 int"取值 | 审读 | **P3** |
+| 9 | `ActSupportMsg` 站号属性赋值是**无效动作**(手册 §3.1 印刷 51 属性列为「-」,类型库无此属性) | mx.py:432-435 | 审读 | **P3** |
+| 10 | 示例出错码 `0xC0500100` **本手册无出处**(第 7 章只有 `0x0000xxxx`/`0x0101xxxx~0x010Fxxxx`/`0x0180xxxx` 段),且被测试复用 13 处 | mx.py:1114 | 审读 | **P3** |
+| 11 | `_com_uninitialize` 的「计数可正常归零」断言与 comtypes 1.4.6 实况不符(模块**导入时**即 `CoInitializeEx` + atexit) | mx.py:78-89 | 审读 | **P3** |
+| 12 | **`_check_rc` 一律抛 `InternalError` → 设备级码按传输失败处置**:每个确定性设备错误(如地址写错)都会**拆一次健康会话**并在下一笔重连,且 `last_error_code=None`、统计落 `error_count` | mx.py:167-176 + base_client.py:1502-1528 分支次序 | 审读 | **P3** |
+| 13 | **台账文档与代码冲突**:`docs/real-machine-checklist.md:87` 写"review-1005 补录:高层包装盲区三处 `_raw_com_method` **修复**",而 CHANGELOG v0.47.3 明示"完整修复…**留待真机批**"、`docs/todo.md:222-223` 列在待真机核证、代码 docstring 标"未修" | 三处对照 | 审读 | **P3**(该行会误导下一批审查,建议改"待修复/已披露") |
+
+### 9.3 该切片的关键更正与价值
+
+**P1-1 的"留待真机批"理由不成立**(本切片最有价值的结论):
+
+- 代码注释(:190-192)称 raw 通道"参数布局须真机逐方法核证(块读写通道的'勿外推'教训),留待真机批";
+- 但**参数布局可由类型库静态确定**,而本机**已安装 MX Component**——
+  子代理直接 dump 出 `IActUtlType` 的四个方法签名,与手册"自定义 I/F"
+  (印刷 320/328/332)**逐项吻合**,并用假 vtable 探针证明
+  **原始通道对这四个方法同样可绑可用**;
+- 即:**"改 raw 通道"这件事现在就能做**(布局有双重依据),
+  只有"真机业务出错时是否始终维持 HRESULT=S_OK"**才**需要真机确认。
+
+**测试强度的结构性缺口**(子代理逐类归纳后指出):fixture **直接替换了
+`_com_get_device`/`_com_get_cpu_type`/`_com_get_clock_data` 本身**,
+把 P1 盲区所在的**那一层整个抽掉** → 该盲区**无法被测出**;
+`test_device_error_marks_disconnected_then_lazy_reconnect` 用的是假 `GetDevice`
+内部**自己调 `_check_rc`**,于是"真机设备码根本到不了 `last_error`"这一事实被假件掩盖。
+另:`DeviceError(code=0)`"不拆健康会话"的**设计意图零覆盖**(现有用例抛的是普通
+`OmniPLCInternalError`,因 `DeviceError` 是其子类,两种实现都能通过断言 →
+若有人改回 InternalError,"文本查询失败拆掉线路"的回归不会被发现)。
+
+**假函数表的可信度已实证**:四个原始通道方法的**参数个数与类型与真 vtable 完全一致**
+(名字改写形态也与 comtypes 一致)→ "测的是假表"的风险在这四个方法上**不成立**;
+但包装**返回形态**上假件比真机宽松(真 `GetDevice` 二元组 / `GetCpuType` 三元组 /
+`GetClockData` 八元组,假件分别给单值/二元组/七元组)→ 两种形态都被
+`_first`/`[:7]` 兼容,**顺带证明这些启发式在当前形态下恰好正确**,但没有一例锁定"真形态"。
+
+### 9.4 该切片经核无问题
+
+原始 vtable 四方法与真类型库**逐参数吻合**且探针跑通(缓冲原地填充、`&0xFFFF` 取值、
+retcode 校验均正确);`_raw_com_method` **重连安全**(只缓存属性名、key 含类型、
+每次 `getattr` 重绑,实挂载名 `_IActUtlType__com_ReadDeviceBlock` 与 comtypes 机制一致);
+**16/32 位口径正确**;缓冲/结构体构造与真 vtable 一致;`Open`/`Close`/`SetDevice`/
+`SetClockData` 判码正确(`[out,retval]` 单出参 → 包装返回码 int);**生命周期配对齐全**
+(connect 三条失败路径均释放、重复 close 幂等、`disconnect` 先清引用再 Close);
+**COM 引用收口**(SupportMsg 代理在 helper 与调用方 `finally` 双双置空,测试用 weakref 锁定);
+**i18n 无漏洞**(用户可见文案全过 `_()`;`log_op` 不过 i18n 是全库统一约定);
+心跳不启动(无 `_ping_probe`);`receive_timeout`/`connect_timeout` 不作用于 COM 调用的
+披露与手册一致(§3.1 印刷 51:ActTimeOut 仅 ActProgType 有)。
+
+### 9.5 该切片未核实(需真机)
+
+真 DLL 是否真会"HRESULT=S_FALSE + lplRetCode=真实码"组合;真机业务出错时是否**始终**
+维持 HRESULT=S_OK(P1 是否 100% 静默);高位 0 码在真机下出参缓冲是否被写入;
+`GetClockData` 年份 2/4 位口径(§5.2.11(6) 印刷 352:R/Q(Q 模式)返回 4 位,其余低 2 位;
+代码只披露了 `day_of_week` 0~6);**监视器 + MX 的真机行为**(P2-3);
+`ActSupportMsg` 能否在 `ActUtlType` 未 Open 时独立查询(**P2-4 当前做不到**);
+comtypes 版本漂移(本切片结论基于 **comtypes 1.4.6 + CPython 3.7.9 32 位**)。
+
+**副作用披露**:comtypes 的 `GetModule` 在 `.venv\Lib\site-packages\comtypes\gen\`
+生成了 `ActUtlTypeLib.py`/`ActSupportMsgLib.py` 等文件 —— **属 .venv 内、git 忽略目录**,
+非仓库内容;仓库 `git status` 全程为空。
 
 ---
 
