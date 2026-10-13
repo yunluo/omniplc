@@ -29,10 +29,10 @@ except ImportError:
 
 from omniplc import MelsecMxClient
 from omniplc.aio import AMelsecMxClient
-from omniplc.core.errors import OmniPLCInternalError
+from omniplc.core.errors import DeviceError, OmniPLCInternalError
+from omniplc.core.types import DataType
 from omniplc.plc.melsec import mx as mx_module
 from omniplc.plc.melsec.melsec import _encode_32, _encode_64
-from omniplc.core.types import DataType
 
 _TEXT_RE = re.compile(r"^([A-Za-z]+)(\d+)(?:\.(\d+))?$")
 
@@ -434,20 +434,22 @@ def test_device_error_type() -> None:
 class ComtypesStyleActUtlType:
     """按 comtypes 真实挂载口径的假控件:
 
-    - GetDevice 出参被高层包装收进返回值:单参调用即回数据
-    - 块读写经 ``__com_*`` 原始 vtable 方法(类体内定义,Python 名字
-      改写后的挂载键与 comtypes 一致保留 ``__com_<方法名>`` 后缀)
+    - 块读写 + 4 个新方法都经 ``__com_*`` 原始 vtable 方法(类体内
+      定义,Python 名字改写后的挂载键与 comtypes 一致保留
+      ``__com_<方法名>`` 后缀);review-1024 §9.2-1 P1 后 GetDevice/
+      GetCpuType/GetClockData/GetErrorMessage 全部走 raw 通道,高位 0
+      出错码写入 ``lplRetCode`` 而**不抛** COMError 正是修复要验证的
+      关键路径。
     """
 
     def __init__(self) -> None:
         self.written: Any = None
         self.written_random: Any = None
         self.read_code = 0
-
-    def GetDevice(self, text: str) -> int:
-        if text == "BAD":
-            raise comtypes.COMError(-2147024894, "软元件不存在", None)
-        return 1234
+        self.get_device_code = 0  # lplRetCode for __com_GetDevice
+        self.get_cpu_type_code = 0
+        self.get_clock_data_code = 0
+        self.get_error_message_code = 0
 
     def __com_ReadDeviceBlock(
         self, text: str, count: int, buffer: Any, retcode: Any
@@ -479,20 +481,60 @@ class ComtypesStyleActUtlType:
         retcode.value = 0
         return 0
 
-    def GetCpuType(self) -> tuple:
-        return ("Q06HCPU", 0x0333)
+    def __com_GetDevice(self, text: str, lplData: Any, lplRetCode: Any) -> int:
+        # 高位 0 出错码路径(0x010A42A0 访问口令不符等):写入 lplRetCode
+        # 而不抛 COMError——这是 review-1024 §9.2-1 P1 修复要锁定的盲区。
+        # ctypes.byref(c_long) 在 Python 函数侧收 CArgObject 代理,
+        # 经 _obj 取回原 ctypes 实例再 .value 写入。
+        lplData._obj.value = 1234 if self.get_device_code == 0 else 0
+        lplRetCode._obj.value = self.get_device_code
+        return 0
 
-    def GetClockData(self) -> tuple:
-        return (2026, 9, 23, 3, 12, 30, 15)
+    def __com_GetCpuType(self, szCpuName: Any, lCpuType: Any, lplRetCode: Any) -> int:
+        szCpuName._obj.value = "Q06HCPU"
+        lCpuType._obj.value = 0x0333
+        lplRetCode._obj.value = self.get_cpu_type_code
+        return 0
 
-    def GetErrorMessage(self, code: int) -> str:
-        if code == 0xBAD:
+    def __com_GetClockData(
+        self,
+        iYear: Any,
+        iMonth: Any,
+        iDay: Any,
+        iDayOfWeek: Any,
+        iHour: Any,
+        iMinute: Any,
+        iSecond: Any,
+        lplRetCode: Any,
+    ) -> int:
+        iYear._obj.value = 2026
+        iMonth._obj.value = 9
+        iDay._obj.value = 23
+        iDayOfWeek._obj.value = 3
+        iHour._obj.value = 12
+        iMinute._obj.value = 30
+        iSecond._obj.value = 15
+        lplRetCode._obj.value = self.get_clock_data_code
+        return 0
+
+    def __com_GetErrorMessage(
+        self, lErrorCode: int, szErrorMessage: Any, lplRetCode: Any
+    ) -> int:
+        if lErrorCode == 0xBAD:
             raise comtypes.COMError(-2147024894, "未知出错代码", None)
-        return "出错文本"
+        szErrorMessage._obj.value = "出错文本 0x{:08X}".format(lErrorCode & 0xFFFFFFFF)
+        lplRetCode._obj.value = self.get_error_message_code
+        return 0
 
 
 def test_com_helpers_comtypes_out_param_convention() -> None:
-    """comtypes 口径:GetDevice 单参取出参;块读写走原始方法传自备缓冲。"""
+    """comtypes 口径:全部 8 个方法经 ``__com_*`` 原始 vtable 通道。
+
+    review-1024 §9.2-1 P1:4 个原高层包装(GetDevice/GetCpuType/
+    GetClockData/GetErrorMessage)改走 raw 通道,自备 ctypes 出参
+    缓冲 + ``lplRetCode`` 显式校验,高层包装形态(单参调用收进返回
+    值/byref 回退)已弃用——本测试验证新通道正确读写缓冲区与返回码。
+    """
     com = ComtypesStyleActUtlType()
     assert mx_module._com_get_device(com, "D100") == 1234
     assert mx_module._com_read_words(com, "D100", 2) == [1, 2]
@@ -512,11 +554,36 @@ def test_com_helpers_comtypes_out_param_convention() -> None:
         "minute": 30,
         "second": 15,
     }
-    assert mx_module._com_get_error_message(com, 0xC0500100) == "出错文本"
-    with pytest.raises(OmniPLCInternalError):
-        mx_module._com_get_device(com, "BAD")  # COMError → 内部异常(断线)
+    assert mx_module._com_get_error_message(com, 0xC0500100) == ("出错文本 0xC0500100")
+    # COMError 抛错路径仍走原始 vtable
     with pytest.raises(OmniPLCInternalError):
         mx_module._com_get_error_message(com, 0xBAD)
+
+
+def test_com_helpers_raw_retcode_propagates_high_bit_zero_error() -> None:
+    """review-1024 §9.2-1 P1 修复价值:raw 通道 lplRetCode 非 0 出错码
+    写入而不抛 COMError 时,``_com_get_device`` 等应感知并抛内部异常。
+
+    高位 0 错误码(如 0x010A42A0 访问口令不符)是 P1 修复的核心盲区:
+    旧高层包装路径下 PLC 写入 ``lplRetCode`` 但**不抛** COMError,本
+    函数会静默返回出参缓冲残留值——即静默错值。raw 通道显式校验
+    ``lplRetCode`` 后,该路径被收口。
+    """
+    com = ComtypesStyleActUtlType()
+    # 模拟"业务出错时 HRESULT=S_OK, lplRetCode 写入 0x010A42A0"
+    com.get_device_code = 0x010A42A0
+    with pytest.raises(OmniPLCInternalError):
+        mx_module._com_get_device(com, "D100")
+    com.get_cpu_type_code = 0x01800000
+    with pytest.raises(OmniPLCInternalError):
+        mx_module._com_get_cpu_type(com)
+    com.get_clock_data_code = 0x0001FFFF
+    with pytest.raises(OmniPLCInternalError):
+        mx_module._com_get_clock_data(com)
+    com.get_error_message_code = 0xC0500100
+    with pytest.raises(DeviceError):
+        # get_error_message 走 DeviceError(链路完好,文本查询失败)
+        mx_module._com_get_error_message(com, 0xC0500100)
 
 
 def test_com_helpers_raw_error_code() -> None:
@@ -554,16 +621,16 @@ def test_raw_com_attr_resolution_memoized_per_type() -> None:
 def test_com_get_error_message_releases_reference_on_error() -> None:
     """GetErrorMessage 失败路径不扣留 ActSupportMsg 代理引用(配对收口)。
 
-    回归:控件按调用新建后引用直丢,traceback 帧的本地 ``com`` 会把 STA
-    代理扣到 GC;现在 helper 退出(含异常)即置空引用——调用方持有异常
-    对象时也不再留代理(模拟 ``_execute`` 转文本前的真实形态)。
+    review-1024 §9.2-1 P1 后 ``_com_get_error_message`` 走 raw 通道,
+    不再有 TypeError 探测 + byref 回退形态——lplRetCode 非 0 直接
+    转 :class:`DeviceError`(链路完好,文本查询失败)。本测试断言
+    失败路径不扣留 STA 控件代理。
     """
 
     class RcFailMsg:
-        def GetErrorMessage(self, *args: Any) -> int:
-            if len(args) == 1:
-                raise TypeError("call takes exactly 3 arguments (2 given)")
-            return 0xC0500100  # byref 回退形态的非 0 返回码 → _check_rc 抛内部异常
+        def __com_GetErrorMessage(self, code: int, message: Any, retcode: Any) -> int:
+            retcode._obj.value = 0xC0500100  # 模拟文本查询失败
+            return 0
 
     obj = RcFailMsg()
     ref = weakref.ref(obj)
@@ -572,13 +639,13 @@ def test_com_get_error_message_releases_reference_on_error() -> None:
     def call(target: Any) -> None:
         try:
             mx_module._com_get_error_message(target, 0xBAD)
-        except OmniPLCInternalError as exc:
+        except DeviceError as exc:
             target = None  # 排除测试自身帧对代理的引用
             box.append(exc)
 
     call(obj)
     del obj  # 调用方用完即弃(排除本帧对代理的引用)
-    assert box, "非 0 返回码应抛内部异常"
+    assert box, "非 0 返回码应抛 DeviceError"
     assert ref() is None, "异常路径不得扣留控件代理引用"
 
 
@@ -593,8 +660,10 @@ def test_get_error_message_releases_support_msg_control(
     refs: list = []
 
     class TrackedMsg:
-        def GetErrorMessage(self, code: int) -> str:
-            return "出错文本 0x{:08X}".format(code & 0xFFFFFFFF)
+        def __com_GetErrorMessage(self, code: int, message: Any, retcode: Any) -> int:
+            message._obj.value = "出错文本 0x{:08X}".format(code & 0xFFFFFFFF)
+            retcode._obj.value = 0
+            return 0
 
     def new_com(station: int) -> TrackedMsg:
         obj = TrackedMsg()
@@ -628,53 +697,34 @@ def test_com_helpers_raw_method_missing() -> None:
         mx_module._raw_com_method(FakeActUtlType(), "ReadDeviceRandom")
 
 
-def test_com_helpers_byref_fallback() -> None:
-    """包装保留出参的版本(TypeError)→ 退回 byref VARIANT 形态。"""
+def test_com_helpers_byref_fallback_removed() -> None:
+    """review-1024 §9.3 测试强度结构性缺口(已修):旧 byref 回退形态
+    测试已删除,因 P1-B 修复后 ``_com_get_cpu_type/_com_get_clock_data/
+    _com_get_error_message`` 不再走「TypeError 探测 → byref VARIANT
+    回退」路径——直接走 raw vtable 通道(``__com_*``)。
 
-    class ByrefStyle:
-        def GetCpuType(self, *args):
-            if not args:
-                raise TypeError("call takes exactly 3 arguments (2 given)")
-            # byref() 传入的是 CArgObject,经 _obj 取回原 VARIANT
-            args[0]._obj.value = "Q06HCPU"
-            args[1]._obj.value = 0x0333
-            return 0
-
-        def GetClockData(self, *args):
-            if not args:
-                raise TypeError("call takes exactly 8 arguments (1 given)")
-            for arg, value in zip(args, [2026, 9, 23, 3, 12, 30, 15]):
-                arg._obj.value = value
-            return 0
-
-        def GetErrorMessage(self, *args):
-            if len(args) == 1:
-                raise TypeError("call takes exactly 3 arguments (2 given)")
-            args[1]._obj.value = "文本"
-            return 0
-
-    com = ByrefStyle()
-    assert mx_module._com_get_cpu_type(com) == ("Q06HCPU", 0x0333)
-    clock = mx_module._com_get_clock_data(com)
-    assert clock["year"] == 2026 and clock["day_of_week"] == 3
-    assert mx_module._com_get_error_message(com, 0xC0500100) == "文本"
+    旧测试断言「fixture 同时支持高层包装 + byref 回退」恰好绕开
+    P1 盲区,因两种实现都能返回相同结果。新实现强制走 raw 通道,
+    旧 fixture 类型无 ``__com_*`` 挂载即抛 OmniPLCInternalError,
+    业务无法绕过。占位测试保留以明示该路径已被消除。
+    """
+    with pytest.raises(OmniPLCInternalError):
+        mx_module._com_get_cpu_type(object())  # 任意无 __com_* 挂载对象
 
 
-def test_com_helpers_tuple_result_defensive() -> None:
-    """含出参方法回 (数据, 码) 元组时取首个业务值;写返回码在元组中仍可取。"""
+def test_com_helpers_tuple_result_defensive_removed() -> None:
+    """review-1024 §9.3 高层包装回 (数据, 码) 元组形态(已废):
+    P1-B 修复后 ``_com_get_device`` 不再依赖 comtypes 高层包装
+    「(数据, 码) 元组」回执——直接走 raw 通道,数据自 ctypes
+    LONG 缓冲取值。占位测试保留以明示该形态已废。
+    """
 
     class TupleFake:
-        def GetDevice(self, text: str):
+        def GetDevice(self, text: str):  # 高层包装回元组——已废路径
             return (1234, 0)
 
-        def __com_WriteDeviceBlock(
-            self, text: str, count: int, data: Any, retcode: Any
-        ):
-            return (data, 0)
-
-    com = TupleFake()
-    assert mx_module._com_get_device(com, "D100") == 1234
-    mx_module._com_write_words(com, "D100", [7])
+    with pytest.raises(OmniPLCInternalError):
+        mx_module._com_get_device(TupleFake(), "D100")  # 无 __com_GetDevice 挂载
 
 
 # ----------------------------------------------------------------------

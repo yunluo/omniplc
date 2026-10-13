@@ -34,7 +34,9 @@ comtypes 调用口径(真机联测核证,分两条路径):``GetDevice`` 的
 """
 
 from __future__ import annotations
+
 import ctypes
+from contextlib import suppress
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, Union, cast
 
@@ -52,13 +54,12 @@ from ...core.constants import (
 )
 from ...core.debug import log_op
 from ...core.errors import DeviceError, OmniPLCInternalError, TransportClosedError
+from ...core.i18n import _
+from ...core.types import DataType, PrimitiveValue
 from ...core.validation import check_int16, check_uint16, require_bool, require_count
 from ...transport import BaseTransport
-from ...core.types import DataType, PrimitiveValue
 from .address import McAddress, parse_mc_address
 from .melsec import _decode_32, _decode_64, _encode_32, _encode_64
-from ...core.i18n import _
-
 
 # ----------------------------------------------------------------------
 # COM 交互辅助(模块级,单测以假对象替换;依赖 comtypes 延迟导入)
@@ -81,12 +82,10 @@ def _com_uninitialize() -> None:
     线程未初始化过 COM 时 CoUninitialize 会报错,静默忽略——aio 单工作
     线程与同步主线程场景计数可正常归零,避免连接/关闭循环累积计数。
     """
-    try:
+    with suppress(Exception):
         import comtypes
 
         comtypes.CoUninitialize()
-    except Exception:
-        pass
 
 
 def _new_com_object(logical_station_number: int) -> Any:
@@ -179,25 +178,30 @@ def _check_rc(code: int, method: str) -> None:
 def _com_get_device(com: Any, device_text: str) -> int:
     """单点读(GetDevice),返回 0~65535 原始值。
 
-    comtypes 生成的包装把 ``[out]`` 参数收进返回值(真机核证):
-    ``GetDevice(软元件)`` 直接返回数据,传 byref 缓冲会报参数个数
-    TypeError;FAILED(HRESULT 高位 1)以 COMError 形态出现。
+    走 :func:`_raw_com_method` 原始 vtable 通道:参数布局
+    ``(szDevice, lplData, lplRetCode)``(本机 ActUtlType.dll dump
+    与手册 §5.2.4「GetDevice」自定义 I/F 吻合;子代理用假 vtable
+    探针证原始通道可绑可用)。``lplData`` 与 ``lplRetCode`` 同为
+    出参缓冲,自备 ctypes LONG 经原始 vtable 传入,业务出错码
+    (如 0x010A42A0 访问口令不符)写入 ``lplRetCode`` 而**不抛**
+    COMError——这是第八轮 P1-2 历史盲区,raw 通道凭
+    ``lplRetCode`` 显式校验可感知。
 
-    **已知盲区(第八轮 P1-2,未修)**:MX Component 的高位 0 出错码
-    (如 0x010A42A0 访问口令不符)经 comtypes **不抛 COMError**,本路径
-    无法拿到返回码——出错时静默返回出参缓冲残留值。彻底修法 = 三路径
-    改走 :func:`_raw_com_method` 原始 vtable 通道(自备出参缓冲 +
-    ``lplRetCode`` 显式校验),但 raw 参数布局须真机逐方法核证
-    (块读写通道的"勿外推"教训),留待真机批;设了访问口令等场景请
-    先用 :meth:`get_error_message` 或块读写路径交叉验证。
+    review-1024 §9.2-1 P1:参数布局已由类型库静态确定, raw 通道
+    现在可实现;真机行为"业务出错时 HRESULT 是否始终维持 S_OK"
+    仍是真机核证项(review-1024 §9.5)。
     """
+    buffer = ctypes.c_long()
+    retcode = ctypes.c_long()
+    raw = _raw_com_method(com, "GetDevice")
     try:
-        result = com.GetDevice(device_text)
+        result = raw(device_text, ctypes.byref(buffer), ctypes.byref(retcode))
     except _com_error() as exc:
         raise OmniPLCInternalError(
             _("MX Component GetDevice 失败:{}").format(exc)
         ) from exc
-    return int(_first(result)) & 0xFFFF
+    _check_com_call(result, retcode.value, "GetDevice")
+    return int(buffer.value) & 0xFFFF
 
 
 def _com_set_device(com: Any, device_text: str, value: int) -> None:
@@ -305,85 +309,75 @@ def _com_write_random(
 def _com_get_cpu_type(com: Any) -> Tuple[str, int]:
     """读 CPU 型号(GetCpuType),返回 (型号字符串, 型号代码)。
 
-    双出参方法,comtypes 口径真机待核证(方法级差异已被 GetDevice/块读
-    证明):先按"出参收进返回值"零参调用(同 GetDevice);包装保留出参
-    时报参数个数 TypeError,退回 byref VARIANT 形态(手册 5.2.13:
-    szCpuName、lCpuType 均 Output)。
+    走 :func:`_raw_com_method` 原始 vtable 通道:参数布局
+    ``(szCpuName, lCpuType, lplRetCode)``(本机类型库 dump 与手册
+    §5.2.13 自定义 I/F 吻合)。``szCpuName`` 是 BSTR 出参,
+    自备 32 字节 ctypes 缓冲;``lCpuType`` 是 16 位出参;
+    ``lplRetCode`` 是返回码出参。
 
-    **已知盲区(第八轮 P1-2,未修)**:零参路径同 GetDevice——高位 0
-    出错码不抛 COMError、无法感知返回码(byref 退回路径有
-    :func:`_check_rc` 校验);处置见 :func:`_com_get_device` docstring。
+    review-1024 §9.2-1 P1:与 _com_get_device 同批改 raw 通道,
+    凭 ``lplRetCode`` 显式校验可感知高位 0 出错码。
     """
-    from comtypes.automation import VARIANT
-
+    name_buffer = ctypes.create_unicode_buffer(32)
+    code = ctypes.c_long()
+    retcode = ctypes.c_long()
+    raw = _raw_com_method(com, "GetCpuType")
     try:
-        result = com.GetCpuType()
-    except TypeError:
-        name = VARIANT()
-        code = VARIANT()
-        try:
-            raw = com.GetCpuType(ctypes.byref(name), ctypes.byref(code))
-        except _com_error() as exc:
-            raise OmniPLCInternalError(
-                _("MX Component GetCpuType 失败:{}").format(exc)
-            ) from exc
-        _check_rc(_return_code(raw), "GetCpuType")
-        return str(name.value), int(code.value)
+        # name_buffer / message 也需 byref:BSTR 出参写入需指针语义
+        result = raw(
+            ctypes.byref(name_buffer), ctypes.byref(code), ctypes.byref(retcode)
+        )
     except _com_error() as exc:
         raise OmniPLCInternalError(
             _("MX Component GetCpuType 失败:{}").format(exc)
         ) from exc
-    values = result if isinstance(result, tuple) else (result,)
-    texts = [value for value in values if isinstance(value, str)]
-    codes = [
-        value
-        for value in values
-        if isinstance(value, int) and not isinstance(value, bool)
-    ]
-    if not texts:
-        raise OmniPLCInternalError(
-            _("MX Component GetCpuType 返回形态未识别:{!r}").format(result)
-        )
-    return texts[0], codes[0] if codes else 0
+    _check_com_call(result, retcode.value, "GetCpuType")
+    return str(name_buffer.value), int(code.value) & 0xFFFF
 
 
 def _com_get_clock_data(com: Any) -> Dict[str, int]:
     """读 CPU 时钟(GetClockData),返回七字段字典。
 
-    手册 5.2.11:七字段全出参,顺序为年/月/日/星期/时/分/秒。
-    comtypes 口径真机待核证:零参调用(出参收进返回值)优先,
-    TypeError 时退回 byref VARIANT×7 形态。
+    走 :func:`_raw_com_method` 原始 vtable 通道:参数布局
+    ``(iYear, iMonth, iDay, iDayOfWeek, iHour, iMinute, iSecond,
+    lplRetCode)``(本机类型库 dump 与手册 §5.2.11 吻合)。七个
+    字段全为出参,自备 7 个 ctypes.c_short 缓冲(手册仅描述
+    范围 0~9999/1~12/1~31/0~6/0~23/0~59/0~59,实际类型按类型
+    库 dump = SHORT)。
 
-    **已知盲区(第八轮 P1-2,未修)**:零参路径同 GetDevice——高位 0
-    出错码不抛 COMError、无法感知返回码(byref 退回路径有
-    :func:`_check_rc` 校验);处置见 :func:`_com_get_device` docstring。
+    review-1024 §9.2-1 P1:与 GetDevice/GetCpuType 同批改 raw 通道。
+    真机核证项:年份 2/4 位口径(手册 §5.2.11(6) 印刷 352:R/Q
+    (Q 模式) 返回 4 位, 其余低 2 位; 本库若仅披露 0~6 day_of_week
+    则暂未校验年份位宽, 留 review-1024 §9.5 真机批核证)。
     """
-    from comtypes.automation import VARIANT
-
+    # 7 个出参缓冲:ctypes 数组 ``(c_short * 7)()`` 索引返回 int 而非
+    # ctypes 实例,byref 失败;用 7 个独立 c_short 实例,byref 每个指针
+    year, month, day, day_of_week, hour, minute, second = (
+        ctypes.c_short() for _ in range(7)
+    )
+    retcode = ctypes.c_long()
+    raw = _raw_com_method(com, "GetClockData")
     try:
-        result = com.GetClockData()
-    except TypeError:
-        variants = [VARIANT() for _ in _CLOCK_FIELDS]
-        try:
-            raw = com.GetClockData(*[ctypes.byref(variant) for variant in variants])
-        except _com_error() as exc:
-            raise OmniPLCInternalError(
-                _("MX Component GetClockData 失败:{}").format(exc)
-            ) from exc
-        _check_rc(_return_code(raw), "GetClockData")
-        values = [variant.value for variant in variants]
+        result = raw(
+            ctypes.byref(year),
+            ctypes.byref(month),
+            ctypes.byref(day),
+            ctypes.byref(day_of_week),
+            ctypes.byref(hour),
+            ctypes.byref(minute),
+            ctypes.byref(second),
+            ctypes.byref(retcode),
+        )
     except _com_error() as exc:
         raise OmniPLCInternalError(
             _("MX Component GetClockData 失败:{}").format(exc)
         ) from exc
-    else:
-        listed = list(result if isinstance(result, tuple) else (result,))
-        if len(listed) < len(_CLOCK_FIELDS):
-            raise OmniPLCInternalError(
-                _("MX Component GetClockData 返回形态未识别:{!r}").format(result)
-            )
-        values = listed[: len(_CLOCK_FIELDS)]
-    return {name: int(value) for name, value in zip(_CLOCK_FIELDS, values)}
+    _check_com_call(result, retcode.value, "GetClockData")
+    values = [
+        int(field.value)
+        for field in (year, month, day, day_of_week, hour, minute, second)
+    ]
+    return dict(zip(_CLOCK_FIELDS, values))
 
 
 def _com_set_clock_data(
@@ -429,59 +423,50 @@ def _new_support_msg_com(logical_station_number: int) -> Any:
             ).format(exc),
             0,
         ) from exc
-    try:
+    with suppress(Exception):
         com.ActLogicalStationNumber = logical_station_number
-    except Exception:
-        pass  # SupportMsg 的站号属性依版本而异,设置失败不阻断文本查询
     return com
 
 
 def _com_get_error_message(com: Any, code: int) -> str:
     """出错代码转官方文本(GetErrorMessage,经 ActSupportMsg 控件)。
 
-    (lErrorCode 入参、szErrorMessage 出参):先按"出参收进返回值"
-    单参调用;该形态不可用(TypeError)时退回 byref VARIANT 形态。
-    byref 路径在探测异常**处理块之外**执行——探测期的 TypeError 只是
-    形态判断,不应作为后续异常的 ``__context__`` 挂在链上(那会把
-    控件代理引用经 traceback 扣到 GC)。
+    走 :func:`_raw_com_method` 原始 vtable 通道:参数布局
+    ``(lErrorCode, szErrorMessage, lplRetCode)``(本机类型库 dump
+    与手册 §5.2.26 印刷 398 吻合;review-1024 §9.2-1 P1)。SupportMsg
+    控件独立于 ActUtlType(手册:「碼→文本只要求 ActSupportMsg,
+    不要求 Open」),与 _com_get_device 解耦——本函数不需要 ActUtlType
+    已 Open(review-1024 §9.2-5 P2 揭露的「get_error_message 不经
+    _execute」已隐式满足,因 4C 路径外、链路不感知)。
+
+    返回码非 0 = 文本查询失败(设备侧条件,链路完好),
+    转 :class:`DeviceError`(code=0) 不拆线——避免上层轮询预翻译
+    时反复重连抖动。
 
     退出时(**含异常路径**)置空本地 ``com`` 引用:STA 控件代理随引用
     计数立即释放,不留待 traceback 帧。
     """
-    from comtypes.automation import VARIANT
-
+    message = ctypes.create_unicode_buffer(256)
+    retcode = ctypes.c_long()
+    raw = _raw_com_method(com, "GetErrorMessage")
     try:
-        probe_failed = False
-        try:
-            result = com.GetErrorMessage(int(code))
-        except TypeError:
-            probe_failed = True  # 形态探测:单参形态不成立,走 byref 回退
-        except _com_error() as exc:
-            # DeviceError(code=0):能力/文本查询失败属"设备侧条件",链路
-            # (ActUtlType 会话)完好——按 OmniPLCInternalError 抛会被基类
-            # 按传输级失败拆线,上层轮询预翻译时反复重连抖动
-            raise DeviceError(
-                _("MX Component GetErrorMessage 失败:{}").format(exc), 0
-            ) from exc
-        if not probe_failed:
-            # 零参路径的返回码形态未校验(GetDevice 族同类盲区,第八轮
-            # P1-2 已披露);真机核证项随 review-1020 P3-16 入真机清单
-            return str(_first(result))
-        message = VARIANT()
-        try:
-            raw = com.GetErrorMessage(int(code), ctypes.byref(message))
-        except _com_error() as exc:
-            raise DeviceError(
-                _("MX Component GetErrorMessage 失败:{}").format(exc), 0
-            ) from exc
-        try:
-            _check_rc(_return_code(raw), "GetErrorMessage")
-        except OmniPLCInternalError as exc:
-            # SupportMsg 返回码非 0 同为文本查询失败(不断线),转码口径同上
-            raise DeviceError(str(exc), 0) from exc
-        return str(message.value)
+        # message 也需 byref:BSTR 出参写入需指针语义
+        result = raw(int(code), ctypes.byref(message), ctypes.byref(retcode))
+    except _com_error() as exc:
+        raise DeviceError(
+            _("MX Component GetErrorMessage 失败:{}").format(exc), 0
+        ) from exc
+    try:
+        _check_com_call(result, retcode.value, "GetErrorMessage")
+    except OmniPLCInternalError as exc:
+        # SupportMsg 返回码非 0 同为文本查询失败(不断线),转码口径同上
+        raise DeviceError(str(exc), 0) from exc
     finally:
+        # raw = getattr(com, ...) 是 bound method, 持 self 引用——
+        # 不置空, 控件代理随 GC 延迟释放可能扣到 traceback 帧。
+        raw = None
         com = None
+    return str(message.value)
 
 
 class _MxComLink(BaseTransport):
@@ -516,7 +501,7 @@ class _MxComLink(BaseTransport):
                     "MX Component COM 初始化失败:{}(请确认已安装 MX Component 运行时,"
                     "并执行 pip install omniplc[mx])"
                 ).format(exc)
-            )
+            ) from exc
         try:
             com = _new_com_object(self._logical_station_number)
         except Exception as exc:
@@ -528,7 +513,7 @@ class _MxComLink(BaseTransport):
                     "MX Component 控件创建失败:{}(请确认已安装 MX Component 运行时,"
                     "并执行 pip install omniplc[mx])"
                 ).format(exc)
-            )
+            ) from exc
         try:
             code = int(com.Open())
         except _com_error() as exc:
@@ -880,7 +865,7 @@ class MelsecMxClient(BaseClient):
         调用 :meth:`read`。
         """
         data_type_enum = DataType.coerce(data_type)
-        ok, values = self.read_batch(
+        _ok, values = self.read_batch(
             [(address, data_type_enum) for address in addresses]
         )
         return self._pack_read_results(addresses, values)
