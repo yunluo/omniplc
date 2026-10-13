@@ -295,7 +295,62 @@ OPC-UA/MTCONNECT(只有概览层文档)。
 
 ---
 
-## 七、经核无问题(亲验)
+## 七、★ 跨族契约破口:`read_many([])` 在 **15/30** 个客户端上抛异常(主会话全库实测)
+
+### 7.1 契约原文(亲验)
+
+`core/base_client.py` 的 `read_many` / `write_many` docstring **明确区分了两种契约**:
+
+> 空列表返回 ``[]``(与 `write_many` 一样;**注意 `read_batch`/`write_batch` 的空表语义不同 ——
+> 它们抛 `ValueError`**)
+
+即:**`read_many`/`write_many` 空表 → 返回 `[]`**;`read_batch`/`write_batch` 空表 → `ValueError`。
+两者是**有意的不同契约**。
+
+### 7.2 实测(全库 30 个可构造客户端)
+
+```
+read_many([], "ushort")   ->  合规 15 / 违规 15
+write_many([])            ->  合规 30 / 违规  0
+```
+
+**违规的 15 个**(错误文案一致暴露根因 —— 它们**委托给了 `read_batch`**):
+
+| 客户端 | 实测错误 |
+| --- | --- |
+| `MelsecMcTcpClient` / `MelsecMcUdpClient` / `MelsecMxClient` | `ValueError: read_batch 至少需要一个 (地址, 数据类型) 项` |
+| `KeyenceMcTcpClient` / `KeyenceMcUdpClient` | 同上 |
+| `PanasonicMcTcpClient` / `InovanceMcTcpClient` | 同上 |
+| `OmronFinsTcpClient` / `OmronFinsUdpClient` | 同上 |
+| `SiemensS7Client` | 同上 |
+| `OpcUaClient` | `ValueError: read_batch 至少需要一个 (NodeId, 数据类型) 项` |
+| `AllenBradleyEthIpClient` | `ValueError: read_batch 至少需要一个 (标签, 数据类型) 项` |
+| `InovanceRtuClient` / `ModbusRtuClient` | `ValueError: 请先调用 configure_serial() 配置串口参数`(**串口路径在入参校验前就断言**) |
+
+**合规的 15 个**(含 `ModbusTcpClient`、`ToyopucTcpClient/UdpClient`、
+`KeyenceHostLinkTcpClient/UdpClient`、`PanasonicMewtocol*`、海康四族、`MTConnectClient`、
+`MitsubishiEzSocketClient`、`KeyenceSrClient` 等)。
+
+### 7.3 判定
+
+- **定级 P2(全库系统性契约破口)**:①**一半客户端**违反**自己基类**写明的契约;
+  ②`write_many` **完全合规** ⇒ **读写不对称**(同族里"写空表正常、读空表炸");
+  ③现场影响真实 —— 按"空点表即空结果"写的上层循环(如"本周期没有要采的点")会**拿到异常**;
+- **根因统一**:违规者都把 `read_many` 实现为**委托 `read_batch`**,于是继承了后者的
+  "空表抛错"语义 ⇒ **在实现合并批量读时把两种不同契约混为一谈**;
+- **已由各族独立发现、本表归并并补全**:`review-1034 §五 P3-3`(S7)、
+  `review-1037 §三 P2-4`(OPC-UA)—— 本表**补全了另外 13 个客户端**。
+
+### 7.4 修法(零行为风险、成本极低)
+
+在每个违规客户端的 `read_many` 覆写**首行**加 `if not addresses: return []`;
+串口两族应把该早返回放在 `configure_serial()` 断言**之前**(空表查询不该要求先配置串口)。
+**并补一条跨族契约用例**:参数化遍历全部客户端断言 `read_many([], t) == []` ——
+将来新增驱动若再"委托 read_batch"会被直接拦下。
+
+---
+
+## 八、经核无问题(亲验)
 
 | 项 | 核法 | 结论 |
 | --- | --- | --- |
@@ -308,7 +363,7 @@ OPC-UA/MTCONNECT(只有概览层文档)。
 
 ---
 
-## 八、待补切片(覆盖边界)
+## 九、待补切片(覆盖边界)
 
 > 本族只做了**覆盖矩阵与对拍机制**两项;以下**尚未展开**:
 > 1. **native 传输层**:`native/transport.py`(652 行)的 asyncio 读写、超时、
@@ -318,7 +373,7 @@ OPC-UA/MTCONNECT(只有概览层文档)。
 > 3. **aio 层**:`aio/__init__.py`(2825 行)的线程池边界、`wait_for` 与真取消的差异、
 >    事件循环亲和、`sync_client` 包装的异常传递;
 > 4. **并发与取消语义**:两层在"取消/超时/重入"下的可观察差异。
-> **覆盖边界声明**:§一~§七 的结论(覆盖矩阵、对拍覆盖面、镜像完整性)**独立成立**,
+> **覆盖边界声明**:§一~§八 的结论(覆盖矩阵、对拍覆盖面、镜像完整性)**独立成立**,
 > 不依赖上述切片。
 
 ---
