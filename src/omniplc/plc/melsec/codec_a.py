@@ -18,8 +18,6 @@ from __future__ import annotations
 import struct
 from typing import List, Optional, Tuple
 
-from .address import McAddress
-from .codec_qna import reject_bit_suffix_on_bit_device
 from ...core.constants import (
     MC_1E_DEVICE_CODES,
     MC_1E_ERROR_EXTRA,
@@ -34,6 +32,8 @@ from ...core.constants import (
 from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
 from ...core.i18n import _
+from .address import McAddress
+from .codec_qna import reject_bit_suffix_on_bit_device
 
 
 def device_info(device: str) -> Tuple[int, bool, int]:
@@ -44,12 +44,12 @@ def device_info(device: str) -> Tuple[int, bool, int]:
     """
     try:
         code, is_bit, base = MC_1E_DEVICE_CODES[device]
-    except KeyError:
+    except KeyError as _exc:
         raise ValueError(
             _("1E 帧不支持的软元件:{!r},支持:{}").format(
                 device, "/".join(sorted(MC_1E_DEVICE_CODES))
             )
-        )
+        ) from _exc
     return code, bool(is_bit), base
 
 
@@ -60,10 +60,10 @@ def device_number(device: str, number: str, base: int) -> int:
     """
     try:
         value = int(number, base)
-    except ValueError:
+    except ValueError as _exc:
         raise ValueError(
             _("软元件 {} 编号按 {} 进制解析失败:{!r}").format(device, base, number)
-        )
+        ) from _exc
     if value > 0xFFFF:
         raise ValueError(_("1E 软元件编号超出 2 字节范围:{}").format(value))
     return value

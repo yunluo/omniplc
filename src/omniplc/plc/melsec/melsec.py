@@ -770,7 +770,7 @@ class _MelsecMcBase(BaseClient):
         return ok
 
     def get_cpu_type(self) -> Tuple[bool, Optional[Tuple[str, int]]]:
-        """读 CPU 型号(0101,SH-080008 §11.2 印刷页 176-178;仅 3E/4E 帧)。
+        """读 CPU 型号(0101,SH-080008 §11.2 印刷页 178-179;仅 3E/4E 帧;review-1024 §8.2-5:旧文「176-178」实为 178,订正)。
 
         返回 ``(是否成功, (模型名, 模型代码))``;模型名去尾部空格
         (通信例:Q02UCPU → ``("Q02UCPU", 0x0263)``);模型代码对照
@@ -787,7 +787,7 @@ class _MelsecMcBase(BaseClient):
     def _ping_probe(self) -> Tuple[str, int]:
         """探活探测命令:0101 CPU 型号读(内部方法;仅 3E/4E 帧启用)。
 
-        依据:SH-080008 §11.2 印刷页 176-178——只读系统信息,零副作用。
+        依据:SH-080008 §11.2 印刷页 178-179——只读系统信息,零副作用。
         KV MC 兼容(KeyenceMc*)与松下 MC 兼容(PanasonicMc*)继承本探针,
         两家对 0101 的支持面待真机核证(docs/real-machine-checklist.md)。
         """

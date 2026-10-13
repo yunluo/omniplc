@@ -12,8 +12,9 @@
   + 字块×m + 位块数(1 字节) + 位块×n;每块 = 起始编号(3,小端)
   + 软元件码(1) + 点数(2,小端);**位块 1 点 = 16 位软元件,响应点内
   首软元件在 bit0**(SH-080008 §8.4 印刷页 113-114 位图,总块数上限
-  120;命令级块数域为 1 字节——印刷页 115-116 0406 通信例
-  「06H 04H | 00H 00H | 02H | 03H | …」,review-1009 P0 订正)
+  120;命令级块数域为 1 字节——印刷页 113-114 0406 通信例
+  「06H 04H | 00H 00H | 02H | 03H | …」,review-1009 P0 订正;
+  review-1024 §8.2-5:旧文「印刷页 115-116」实为 1406 通信例页,订正)
 - 数据:字单位逐字小端;位单位每字节 2 位,**高位在前**(点 0 在高半字节)
 - 3E 响应 = 副头部 ``D0 00`` + 网络(1) + PC(1) + 模块I/O(2) + 局号(1)
   + 应答数据长(2,小端) + 结束代码(2,小端,0=成功) + 数据
@@ -128,7 +129,8 @@ def build_core(
     """构造 QnA 兼容核心命令(命令+子命令+软元件+点数+写数据)。
 
     3E/4E(以太网)与 4C 格式 5(串口二进制)的请求核心完全一致
-    (SH-080008 手册 8.2 节:软元件码/编号/点数三帧同格式),供两处复用。
+    (SH-080008 手册 §8.1 印刷页 65-69 Devices 表 + 编号/进制规则,
+    三帧同格式;review-1024 §8.2-5:旧文「8.2 节」实为 §8.1,订正),供两处复用。
 
     :param address: 软元件地址
     :param points: 访问点数
@@ -283,9 +285,10 @@ def build_random_read(
         )
     core = bytearray(MC_COMMAND_BATCH_READ_BLOCKS.to_bytes(2, "big"))
     core += MC_SUBCOMMAND_WORD_UNITS.to_bytes(2, "little")
-    # 字块数/位块数:命令级计数域为 1 字节(依据:SH-080008 印刷页 115-116
+    # 字块数/位块数:命令级计数域为 1 字节(依据:SH-080008 印刷页 113-114
     # 0406 通信例「06H 04H | 00H 00H | 02H | 03H | …」——块数各 1 字节;
-    # 对比块内「每块点数」才是 2 字节如 04H 00H;同类开源参考实现 type3e 同 byte 模式)
+    # 对比块内「每块点数」才是 2 字节如 04H 00H;同类开源参考实现 type3e 同 byte 模式;
+    # review-1024 §8.2-5:旧文「印刷页 115-116」实为 1406 通信例页,订正)
     core += len(word_blocks).to_bytes(1, "little")
     for code, number, points in word_blocks:
         core += _random_block(code, number, points)
@@ -545,8 +548,9 @@ def build_random_write_devices(
     core = bytearray(MC_COMMAND_RANDOM_WRITE.to_bytes(2, "big"))
     core += MC_SUBCOMMAND_WORD_UNITS.to_bytes(2, "little")
     # 字访问点数/双字访问点数:命令级计数域为 1 字节(依据:SH-080008 印刷页
-    # 109 1402 通信例「02H 14H | 00H 00H | 04H | 03H | …」——各 1 字节;
-    # 同类开源参考实现 type3e 同)
+    # 107 1402 通信例「02H 14H | 00H 00H | 04H | 03H | …」——各 1 字节;
+    # 同类开源参考实现 type3e 同;review-1024 §8.2-5:旧文「印刷页 109」实为
+    # PDF 页(自印 109 = PDF 111 = 1402 算例),订正为自印 107)
     core += len(word_items).to_bytes(1, "little")
     core += len(double_word_items).to_bytes(1, "little")
     for code, number, value in word_items:
@@ -567,7 +571,7 @@ def build_read_cpu_model(
     pc_number: int = MC_DEFAULT_PC_NUMBER,
     monitoring_timer: int = MC_DEFAULT_MONITOR_TIMER,
 ) -> bytes:
-    """构造 3E/4E 帧 CPU 型号请求(命令 0101,SH-080008 §11.2 印刷页 176)。
+    """构造 3E/4E 帧 CPU 型号请求(命令 0101,SH-080008 §11.2 印刷页 178;review-1024 §8.2-5:旧文「印刷页 176」实为 178,订正)。
 
     请求核心 = 命令(2) + 子命令 0000(2),无附加数据;响应核心 =
     模型名 16 字节(不足补空格)+ 模型代码(2 字节)。
