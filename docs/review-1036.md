@@ -1,0 +1,195 @@
+# review-1036 海康机器人读码器族专项审查报告(只差不做)
+
+> 2026-10-11 · 基线:master `64fe2c3` 附近(review-1035 后;工作区另有维护者未提交批)
+> 范围:`reader/hikrobot.py`(478)+ `hikrobot_tcp.py`(646)+ `hikrobot_serial.py`(443)
+> + `hikrobot_sdk.py`(1344)= **2911 行**;`core/constants.py` 海康段;
+> 测试 `test_hikrobot{,_tcp,_serial,_sdk}.py`;手册 `docs/protocol/hikrobot/`(5 份)。
+> **本轮只检查与差距分析,不落地任何修改**。
+>
+> **页码口径(子代理逐份锚定,页脚数字校准)**:工业协议手册 **PDF−6**、通信指令 **PDF−5**、
+> ID2000 **PDF−8**、ID3000 **PDF−9**、SDK 指南 **PDF−7**(全程一致);
+> **SDK 指南末页 = 自印 113**(直接决定附录 D 的页域判定)。
+> **性质声明**:只读审查台账,不含代码改动,不代表修复承诺(review-1019~1035 同款)。
+
+## 〇、执行摘要
+
+| 切片 | 结论 | 最严重项 |
+| --- | --- | --- |
+| **页码引用逐条核** | 核 **52 处 → 错 10 处**(19%),且**已扩散进 `protocol-features.md`** | **P3 批量**(§二) |
+| **Set/Exec 假成功** | `<Set,Acq,NOK>` 报 **True**、`last_error=None`;被 `invalid` 拒绝的命令同样报成功 | **P2**(§三) |
+| **空结果当成功** | 实测 `b"\r\n"` → **`(True,'')`**;`b"   \r\n"` → **(True,'   ')**;Modbus `length=0` → (True,'') | **P2**(§三) |
+| **站号 255 结论与实现相反** | 文档说"钉 0~247,255 超上限需改";**亲验** `station=255` **构造成功**(256 才拒) | **P2**(§三) |
+| 协议面 | Modbus 寄存器逐位、握手 6 步、3/5 交替算例、FC03 拆笔、附录 D 三段链路码、6 个结构体 **全部对得上** | — |
+| 测试面 | 无 skip;但 MBAP 期望**自产**、SDK 假 DLL **复刻被测语义**、**四族均无真机黄金帧** | — |
+
+---
+
+## 一、审查范围与实证清单
+
+| # | 实证项 | 结果 |
+| --- | --- | --- |
+| 1 | 5 份手册页码偏移 | 全部锁定且**全程一致**(−6/−5/−8/−9/−7)✔ |
+| 2 | 页码引用 | **52 处核出 10 处错**(§二)❌ |
+| 3 | Modbus 寄存器模型 | 控制字 4 位 + 状态字 7 位与手册 p.40-41 **逐位一致** ✔ |
+| 4 | 握手 6 步 | 代码 5 条编号项 ↔ 手册 6 步(含"等 OK/NG 清零")**无缺** ✔ |
+| 5 | 控制字交替算例 | p.34「写 3 和 5 交替」→ 实测序列 `[1,3,5]`/`[1,3,1,5]` ✔ |
+| 6 | FC03 拆笔 | `result_words` 124→1 笔、125→2 笔、500→4 笔 ⇒ docstring「>124 不再同快照」**准确** ✔ |
+| 7 | `byte_swap` | 仅数据寄存器对调(实测 `ABC123`→`BA1C32`)✔ |
+| 8 | SDK 链路码三段 | GigE/USB/网络段与手册分组标题**逐段一致**;实跑三段→OSError 拆连,其余→DeviceError 不断线 ✔ |
+| 9 | SDK 结构体 | `CODE_INFO`(31 字段 + `nReserved[18]`)、`POINT_I`、`INTVALUE_EX`、`ENUMVALUE`、`FLOATVALUE`、`STRINGVALUE` **逐字段一致** ✔ |
+| 10 | **Set/Exec 假成功** | 实跑复现(`<Set,Acq,NOK>`→True)❌ |
+| 11 | **空结果当成功** | 实跑复现(`b"\r\n"`→`(True,'')`)❌ |
+| 12 | **站号 255** | **亲验**:255 构造成功、256 拒 ⇒ 文档结论**与实现相反**❌ |
+| 13 | scan 失败语义 | 实测三条路径**均** `(False,None)`+分类 ⇒ 文档"抛异常"**自相矛盾** ❌ |
+
+---
+
+## 二、P3 批量:页码/出处错 **10 处**(已扩散进文档)
+
+| # | 代码所引 | 实核正确页 | 位置 |
+| --- | --- | --- | --- |
+| 1 | `<Exec,TriSoft>` 软件触发 **p.9** | **p.10**(p.9 末行是 `<Set,TriSeriStart,start>`) | `hikrobot_tcp.py` |
+| 2 | §4.6.2 串口停止触发 **p.47** | **p.48**(p.47 是「**TCP** 服务端停止触发」) | `hikrobot_serial.py` |
+| 3 | `TriSeriBaud` **p.8** | **p.9**(**2 处**) | `hikrobot_serial.py` + `constants.py` |
+| 4 | §4.1 **p.51-79** | **p.51-75**(§4.2 起于 p.75) | `hikrobot_sdk.py` |
+| 5 | 附录 D **p.108-119** | **p.108-113**(末页 113;**2 处**) | `hikrobot_sdk.py` |
+| 6 | NoRead 标记类型 1000/1001/1002 注「指南附录 C.1」 | **出处错**:附录 C.1(p.88-94)是**主动轮询样例代码**,**指南全文无 NoRead 字样**;三值只能出自 V2.0.0 **头文件枚举(未归档)** | `hikrobot_sdk.py` |
+| 7 | §3.2 **p.31** 数据处理配置输出字符串 | **p.32**(p.31 只到工作模式) | `hikrobot.py` |
+| 8 | E_NODATA 数值出处 | 应补 **附录 D p.108**(§3.3.3 只说"会返回错误码",不点名 NODATA) | `hikrobot_sdk.py` |
+| 9 | 极小型手册 **p.122**「串口开始触发文本…同」 | **p.124**(p.122 是「**TCP** 开始触发文本」) | `constants.py` |
+
+**正确且经算例回灌的关键项**(对照组):`hikrobot_tcp.py` §1.3 p.1-2 / §2.1 p.3 / §3 p.7-12 /
+错误码表 p.12-13 / 极小型 p.122 双端口 / **p.150 恰 16 项标志符表**(点名的 5 个全命中)/
+超小型 p.45-47 默认 2001;`hikrobot_serial.py` ID2000 p.45 `start`、**p.48 出厂默认 9600 原文命中**、
+p.52 §4.7.3、ID3000 p.135 §8.6.3、p.151 换行符、工业协议 p.29 单串口;
+`hikrobot_sdk.py` §2 p.9-11、§3.3.3 p.27-28、§3.5.1/2/4/12 = p.37/38/39/44、样例 C.1 p.91;
+`hikrobot.py` **11 条中 10 条对**。
+
+> **⚠ 扩散**:同批错误**已扩散进 `docs/protocol-features.md`**(§14A/§14B/§14D 多处)
+> ⇒ 修时必须**一并订正文档**,否则代码改了文档还在传错误页。
+
+---
+
+## 三、P2:四条(均有实测)
+
+### 3.1 P2-1 **Set/Exec 假成功**(最严重)
+
+- **现象**:`_command_exchange` 的 `except ValueError: return reply_payload` 分支
+  **未按 `cmd_type` 收口**;
+- **实测(子代理)**:
+  ① `<Set,Acq,NOK>` → `set_acquisition(True)` **返回 True** 且 `last_error=None`;
+  ② 构造"invalid 后缀迟到"的假 socket → `<Get,Acq,0> invalid` 的 Get 返回 **`(True,'0')`**
+     且 `last_error=None`,**残留使下一条命令** `ProtocolFrameError` + 拆连;
+- **影响**:被设备**明确 `invalid` 拒绝**的 Set/Exec(如 `<Set,Acq,1>` 开始采集、
+  `<Exec,Reboot>`)**上报成功且事故无痕** —— 属**静默假成功**;
+- **披露现状**:docstring 只披露了"下一条解析失败",**未披露本条的假成功**;
+- **修法**:非数字分支收进 `if cmd_type == "Get"`;Set/Exec 遇非 OK/非 errno → `ProtocolFrameError`;
+  PEEK 消费循环移出 `settimeout(0)` 区。
+
+### 3.2 P2-2 **空结果当成功**
+
+- **实测**:TCP 只 `rstrip("\r\n")` 后全等比较 ⇒ `b"\r\n"` → **`(True,'')`**、
+  `b"   \r\n"` → **`(True,'   ')`**;Modbus `length=0` → **`(True,'')`**;
+- **对照**:基恩士 SR 的 `not text` → `(False,None)`(review-1028 §五);SDK 空 codes → `(False,None)`;
+- **另有口径矛盾**:Modbus 路径**完全不识别 NoRead 文本** ⇒ 会把 `"NoRead"` 当**成功条码**返回
+  (`(True,"NoRead")`),而同族 TCP/串口都使用 `HIKROBOT_NOREAD_TEXT`;
+- **修法**:三实现统一"**空/纯空白 ⇒ 无读出**";Modbus 增 noread 文本处理。
+
+### 3.3 P2-3 **站号 255 的结论与实现相反**(亲验)
+
+- **文档说**(`hikrobot.py` docstring + `constants.py`):"本库站号按 Modbus 规范**钉 0~247**,
+  **255 超出上限**故取双默认之一的 0,现场若配了 255 **需改**到 0~247";
+- **亲验实测**:
+
+  ```
+  station=0/247/248/254/255 -> 构造成功
+  station=256                -> ValueError: TCP/UDP Unit ID 必须在 0~255 之间
+  ```
+
+- **根因**:`ModbusTcpClient` 的校验实为 **0~255**(其 docstring 明写"审查 1001 R9-1:
+  原实现共用串口线 0~247,0xFF 被误拒" —— **串口线是 0~247,TCP 不是**);
+- **影响**:手册 p.31 说**仅 V3.2.2.R+ 固件可配从机地址** ⇒ **旧固件站号 255 不可改**时,
+  用户按文档会误判"**库不支持**"从而放弃(实际库**支持**);
+- **文档也错**:`docs/protocol-features.md` 同错;
+- **修法**:订正 docstring 与文档为"**TCP Unit ID 0~255**(串口线才是 0~247)"。
+
+### 3.4 P2-4 **scan 失败语义文档自相矛盾**
+
+- 文档(`hikrobot.py`)称"超时与故障**抛异常**",而**同文件** scan 的 docstring 与**实现**
+  (`_execute` 收口)都是 `(False,None)` + 分类;
+- **实测**:General Fault / 超时 / Ack 未消费**三条路径均** `(False,None)` + `last_error` 分类;
+- ⇒ **与基恩士 SR 事实上已同契约**(review-1028 §五的"不一致"项可消),差异只剩
+  `last_error_category`(DEVICE/TIMEOUT);`protocol-features.md` 同错。
+
+---
+
+## 四、P3(9 条,择要)
+
+| # | 现象 | 影响 | 修法 |
+| --- | --- | --- | --- |
+| 1 | **超长帧异常族内不一致**:命令面用 `ProtocolFrameError`(→PROTOCOL,更合理),结果面/串口/SR 用 `OmniPLCInternalError`(**`_categorize` 未列该类 → UNKNOWN**) | 分类不准 | 四处统一 `ProtocolFrameError` |
+| 2 | `_parse_frame` **不裁 `nCodeNum`**:实测 301 → **`IndexError` 直穿 `scan()` 公共契约**(`_execute` 不捕 `IndexError`),`last_error` 不写 | 布局失配时失败形态恶劣 | `min(nCodeNum, 300)` + 超界抛 `ProtocolFrameError` |
+| 3 | **漏判码制 0**(指南 p.79 `MV_CODEREADER_CODE_NONE 0` 无可识别条码):实测仅 type=0 的帧 → `noread=False` **当成功** | 无码被当有效 | 补该码制 |
+| 4 | **`close()` 三个客户端都不存在**(实测 `hasattr` 全 False;`BaseClient` 只有 `disconnect`),而示例都写 `client.close()`;SDK 独有 `close()` 且注释"与 TCP/串口命名一致"**理由不成立**(SR 同病) | 文档承诺的 API 不存在 | 示例改 `disconnect()` 或补 `close()` 别名 |
+| 5 | `GetEnumValue` **已绑定但无入口** ⇒ 能设 `TriggerSource=7` 却**读不回**(死绑定) | 能力缺口 | 补入口或删绑定 |
+| 6 | 被动读只读闸不一致:TCP/serial 的 `read_result` 走 `is_write=True`,SDK 的 `read_frame` 走 `is_write=False`(**SDK 更合理**) | 重试策略不同 | 统一 |
+| 7 | **负 errno 不入 `device_error_count`**:实测 `<Exec,TriSoft,-4>` → code=−4 但计数为 0(根因:`base_client` 只计 `code>=0`)⇒ 海康命令面**全部 errno 在统计面消失** | 统计缺口 | 按品牌/码域调整计数口径 |
+| 8 | SDK **仅按 IP 匹配**(`nTLayerType==GIGE_DEVICE` + `nCurrentIp`),**USB 设备必然枚举不中**,错误文案还把人引向网口;ID2000 p.47 明确存在 U 口型号 | USB 型号不可用 | 支持 USB 匹配 |
+
+---
+
+## 五、经核无问题(该族相当扎实的一面)
+
+**协议面**:寄存器模型逐位、握手 6 步无缺、3/5 交替算例、FC03 125 字拆笔(实测)、
+结果长度语义、`byte_swap` 实态、命令错误码表 −1~−7 **逐字一致**、
+**16 项标志符表**(p.150)、**附录 D 三段链路码逐段一致**、**6 个结构体逐字段一致**、
+`EX2` 与指南差异**已核实为头文件新增且尺寸中性**(现尺寸 192 = win32 期望)、
+`TriggerSource=7` 由**指南 p.81 + 指令手册 p.8 双手册互证**。
+
+**行为面**:`ping` 零副作用、触发不双拍(默认 `retries=0`)、串口截断路径**不可达**、
+坏帧带原始帧 + 拆连重同步、`Get` 的 `0` 值为合法参数(有 review-1001 P1-3 修复痕迹)、
+`byte_swap` 双通道、串口文本 1~31 且**长度不可相等**构造期强制、
+结果在窗内流出⇒**先读后停**。
+
+---
+
+## 六、与基恩士 SR 的一致性(结论)
+
+- **已一致**(文档未跟上):契约、失败收口、`(False,None)` 口径;
+- **不一致处**:① 超长帧异常类型(海康命令面更合理);② **空结果**(SR/SDK 更合理);
+  ③ NoRead 口径(**Modbus 侧最弱**);④ 被动读只读闸(SDK 更合理);
+  ⑤ 探活(海康 Modbus/TCP 有,SR/串口/SDK 无 —— 各有理由);
+  ⑥ **时序差异属有意设计且手册支持**(ID2000 p.45/p.48)。
+
+---
+
+## 七、测试面缺口
+
+Modbus 20 / TCP 25 / 串口 15 / SDK 17 例,**无 skip/xfail** ✓。协议字节多为**手写字面量**(好);
+但:
+1. `test_hikrobot.py` 的 **MBAP 期望用库内 `codec.build_*` 自产校验自产**
+   ⇒ **MBAP 层系统性错误测不到**(与 review-1033 §四的跨族统计一致);
+2. **SDK 假 DLL 复刻被测语义** ⇒ 序列断言强、**字段语义弱**;
+3. **四族均无真机黄金帧**;
+4. 建议补:125 字拆笔、**空/空白结果**、`<Set,Acq,NOK>` / **invalid 分段**、
+   边界 4 与 500 成功路径、`byte_swap` 长度字、结果面 `max_frame`/串口 `RECV_MAX` 超限、
+   命令应答 >1024、USB / `nCodeNum>300` / 另两段链路码、**`station=255` 连通**。
+
+---
+
+## 八、未核实 / 需真机
+
+1. **`MvCodeReaderParams.h` / `MvCodeReaderErrorDefine.h` 未归档**(README 已自登记)
+   ⇒ 全部头文件"行号"引用**无从对拍**;子代理只能证"与指南一致"部分与"尺寸中性"必要条件,
+   **不能证明字段名/类型/顺序**;
+2. 手册未载而代码有行为:`<Get,Acq>` = 2 的含义(docstring 写"触发等待",p.7 只定义 0/1)、
+   **TCP 命令通道默认端口**(五份手册**全文无 9989/9988**)、结果帧界;
+3. **`byte_swap` 是否整区交换**(已证"若整区交换则**静默**返回 NUL 填充串")—— 真机核证要点成立;
+4. NoRead 三型取值/触发条件;⑤ 从站 255 与 V3.2.2.R 以下固件的出厂值;
+5. TCP 双通道实际默认端口。
+
+---
+
+> **登记与排期**:本报告不落地任何修改。§二(10 处页码)与 §3.3/§3.4 的文档订正为**零行为风险**;
+> §3.1(假成功)与 §3.2(空结果)属**行为变更**,须补测试并按 CONTRIBUTING §六披露。
+> **真机核验**:本报告结论为**手册逐页对拍 + 注入假 socket/假寄存器/假 SDK 实跑**,**未上真机**。
