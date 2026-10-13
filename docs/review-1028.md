@@ -152,8 +152,16 @@ def _scan_once(self, bank, read_timeout):
   (而 `_read`/`_write`/批量三路径都调了);
 - **后果**:写 1 个继电器 → **静默整字覆盖 16 点**(写字符串的首字);读回 16 点合并值当字符串。
   属静默错值,且**触发极容易**(KV 的 `R` 是五设备里唯一的位软元件);
-- **影响面**:**MC 全族** —— 三菱(`M/X/Y`)、KV(`R`)、松下(`R/X/Y/L`)、汇川(`X/Y/M/S/B`)
-  的 MC 兼容子类**都继承**该基类方法;
+- **影响面**:原写「**MC 全族**」,**经对抗验证后需收窄为两类**:
+  - **真缺口**:三菱(`M/X/Y`)、**KV(`R`/`B`)**、汇川(`M/B`)—— 实测 `write_string("M100","AB")`
+    照发字单位帧,而同址 `read_ushort` 被门控拒;
+  - **继承但无后果**:**松下**(`R/X/Y/L`)—— 其 `panasonic/mc.py` 把
+    `_bit_device_word_access_allowed=True`(**有意**允许位软元件字访问,见 review-1025 §五#4),
+    实测 `read_ushort("R100")` → `(True, 1)` ⇒ 门控放开是**设计意图**,不构成缺陷;
+  - ★ **原报告遗漏的一面**:**native/async MC 同缺口**,且是**独立实现而非继承** ——
+    `native/melsec.py:231-254` 的 `_read_string`/`_write_string` 同样未调门控
+    ⇒ 修法须**两侧同改**(与 review-1034 §4.2 的 native/同步分叉同型);
+- **定级**:对"真缺口"三族维持 **P1**(静默整字覆盖);对松下**撤销**该条;
 - **修法**:在 `_read_string`/`_write_string` 补 `self._check_bit_device_word_access(parsed)`
   (Host Link 侧的 `_require_word` 已有同款防线,可对齐文案);补 KV/三菱两侧用例。
 - **交叉引用**:与 review-1025 §五(P2,松下的 `R1.15` 在 `read_range` 被拒而单点放行)属**同一族缺陷**

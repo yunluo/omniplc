@@ -18,7 +18,7 @@
 | **BOOL 写数据段** | **少 1 字节**:发 `b"\x01"`,而手册要求 Status + Forced **2 字节** | **P1**(§二) |
 | **STRING 类型码** | 手册 STRING=**0xD0**、0xA0=**Abbreviated STRUCT**;读路径只接受 0xA0 | **P1 候选**(§三) |
 | **0x4E 读-改-写** | W506 全文**零命中**(§7-6 只列 4C/4D);文档却标「位写 ✅」 | **P1 候选**(§三) |
-| **BOOL 应答元素数域** | `parse_tag_read_payload` 只剥 2 字节 → 若固件带 `Num of Element`,**Status 被错位,FALSE 可能读成 TRUE** | **P1 候选**(§3.0) |
+| ~~**BOOL 应答元素数域**~~ | ~~`parse_tag_read_payload` 只剥 2 字节 → 若固件带 `Num of Element`,**Status 被错位**~~ | **已撤回**:W506 §7-7-2 原文「**该域只存在于写服务参数中**」⇒ 应答侧不含该域(§3.0) |
 | 手册算例回灌 | `VarAA.MemB[1.2]` 路径 **18 字节逐字节一致**;应答头/状态码/Forward Open/CPF 全一致 | — |
 | 文档误导 | W627 明说「NX EtherNet/IP Unit **没有**变量读写 server 功能」,而 `protocol-features` 标题并列 W506/W627 | **P2**(§四) |
 
@@ -75,16 +75,30 @@ if cip_type == codec_cip.CIP_TYPE_BOOL:
 
 ---
 
-## 三、P1 候选(3.0~3.2)+ P2/P3 补(3.3~3.4)
+## 三、P1 候选(3.1~3.2)+ 撤回项(3.0)+ P2/P3 补(3.3~3.4)
 
-### 3.0 ★ P1 候选:BOOL 应答的 `Num of Element` 域未处理 → **FALSE 可能读成 TRUE**(子代理指出,主会话亲验代码路径)
+### 3.0 ~~P1 候选~~ **【前提被手册原文推翻 → 本条撤回】**:BOOL 应答的 `Num of Element` 域
+
+> **⚠ 2026-10-11 对抗验证 + 主会话复核:本节前提不成立**
+>
+> **W506 自印 7-90 §7-7-2 原文**:
+> 「`UINT Num of Element (L)(H)` … **This field exists only in the parameters for the
+> variable write service.**」
+> ⇒ **该域只存在于写服务参数中,应答侧不含**;
+> "含 `Num of Element`"的格式出现在 §7-7-4 讲**写侧指定元素数**的例外段。
+>
+> **结论**:**"读回应带该域"这一前提与手册原文冲突** ⇒ **P1 候选撤回**。
+> 保留价值仅在于:`parse_tag_read_payload` 中"值域以元素数据开头"这一假设
+> **值得在 docstring 写明** —— 因为它现在**有手册依据**(§7-7-2),不再是待核假设。
+>
+> 下列原始分析**保留备查**:其**代码路径亲验无误**,错的只是"固件会回该域"这一前提。
 
 - **代码**(亲验):`parse_tag_read_payload`(`codec_cip.py:1271-1284`)对原子类型**只剥 2 字节**
   (`cip_type + 0x00`),返回 `payload[2:]` 作为"值字节",**不做任何元素数字段处理**;
   随后 `decode_values(data, cip_type, count)`(`:1501` 起)**按定长表**解码
   (BOOL 的 `size` 为 1)⇒ **把值域首字节当第一个元素**。
-- **手册**:W506 §7-7-4 自印 **p.7-92**(PDF 388)的 BOOL **数组元素**应答图示**含 `Num of Element`**;
-  而 `decode_values` 假设值域以元素数据开头。
+- ~~**手册**:W506 §7-7-4 自印 **p.7-92**(PDF 388)的 BOOL **数组元素**应答图示**含 `Num of Element`**~~
+  **← 该条已被 §7-7-2 原文推翻(见上方警告框)**
 - **后果**:若固件确实回 `… Status + Num of Element + 数据`,
   则代码会把 **`Num of Element` 的低字节当作 Status** 解码 ——
   **元素数 ≥ 1 时低字节为 0x01 ⇒ 恒判 TRUE** ⇒ **FALSE 读成 TRUE(静默假值)**;
