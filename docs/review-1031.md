@@ -18,6 +18,7 @@
 | **BOOL 写数据段** | **少 1 字节**:发 `b"\x01"`,而手册要求 Status + Forced **2 字节** | **P1**(§二) |
 | **STRING 类型码** | 手册 STRING=**0xD0**、0xA0=**Abbreviated STRUCT**;读路径只接受 0xA0 | **P1 候选**(§三) |
 | **0x4E 读-改-写** | W506 全文**零命中**(§7-6 只列 4C/4D);文档却标「位写 ✅」 | **P1 候选**(§三) |
+| **BOOL 应答元素数域** | `parse_tag_read_payload` 只剥 2 字节 → 若固件带 `Num of Element`,**Status 被错位,FALSE 可能读成 TRUE** | **P1 候选**(§3.0) |
 | 手册算例回灌 | `VarAA.MemB[1.2]` 路径 **18 字节逐字节一致**;应答头/状态码/Forward Open/CPF 全一致 | — |
 | 文档误导 | W627 明说「NX EtherNet/IP Unit **没有**变量读写 server 功能」,而 `protocol-features` 标题并列 W506/W627 | **P2**(§四) |
 
@@ -74,7 +75,26 @@ if cip_type == codec_cip.CIP_TYPE_BOOL:
 
 ---
 
-## 三、P1 候选两条
+## 三、P1 候选(3.0~3.2)+ P2/P3 补(3.3~3.4)
+
+### 3.0 ★ P1 候选:BOOL 应答的 `Num of Element` 域未处理 → **FALSE 可能读成 TRUE**(子代理指出,主会话亲验代码路径)
+
+- **代码**(亲验):`parse_tag_read_payload`(`codec_cip.py:1271-1284`)对原子类型**只剥 2 字节**
+  (`cip_type + 0x00`),返回 `payload[2:]` 作为"值字节",**不做任何元素数字段处理**;
+  随后 `decode_values(data, cip_type, count)`(`:1501` 起)**按定长表**解码
+  (BOOL 的 `size` 为 1)⇒ **把值域首字节当第一个元素**。
+- **手册**:W506 §7-7-4 自印 **p.7-92**(PDF 388)的 BOOL **数组元素**应答图示**含 `Num of Element`**;
+  而 `decode_values` 假设值域以元素数据开头。
+- **后果**:若固件确实回 `… Status + Num of Element + 数据`,
+  则代码会把 **`Num of Element` 的低字节当作 Status** 解码 ——
+  **元素数 ≥ 1 时低字节为 0x01 ⇒ 恒判 TRUE** ⇒ **FALSE 读成 TRUE(静默假值)**;
+  且 `len(data) >= size*count` 的校验**不会拦住**(多出的字节不触发不足判定)。
+- **定级**:按"静默假值"形态本应 P1,但**触发取决于固件是否回该域**(手册图示与实际固件可能有别),
+  故列为 **P1 候选 + 真机前置**(子代理已给出判据:抓一次 BOOL 数组元素读的应答,
+  看值域是否带 `01 00` 前缀)。
+- **修法**:`parse_tag_read_payload` 对 BOOL 增加"可选元素数域"的探测/按 `count` 交叉校验,
+  或在 `decode_values` 前按 `len(data)` 与 `size*count` 的**关系**判定是否含前缀
+  (`len(data) == size*count` → 无前缀;`> ` → 有前缀并校验元素数)。
 
 ### 3.1 STRING 类型码:手册 STRING=**0xD0**,而代码只认 0xA0
 
@@ -96,6 +116,24 @@ if cip_type == codec_cip.CIP_TYPE_BOOL:
 - **修法**:文档补「0x4E 为库内扩展/Logix 口径,欧姆龙侧待真机」;或在拿到正典前降级标注。
 
 ---
+
+### 3.3 P2-6 补:代码断言「NJ/NX 没有 FINS/CIP」与 W506 矛盾
+
+- `cip.py:6` 写「NJ/NX(Sysmac)系列**没有** FINS/TCP-UDP」;
+- 而 W506 自印 **5-15/5-16**(PDF 179/180)的端口表**列出 FINS/UDP 9600 与 FINS/TCP 9600**
+  且为内置默认开启(NJ/NX102/NX1P2/NX701/NX502);
+- `docs/architecture.md` 同错;
+- **修法**:订正该断言(它会影响用户对"该机型该用哪个驱动"的判断)。
+
+### 3.4 P3 补(子代理逐条)
+
+`_write_string` 中命名为 `template_id` 的 2 字节在 W506 §7-7-4 自印 **7-93** 实为
+「**结构的 CRC 值**」→ 数值口径一致、**命名误导**;
+发起方厂商号 `0x1337` 的注释称"目标设备不校验"**无任何引用**;
+`SendUnitData` 的 CPF timeout 填 `1`,而 Rockwell **p.20** 要求 SendUnitData 用 **0x0000**;
+`architecture.md` 仍写"v1 显式拒绝字符串读写"与已实现的 NJ STRING 路径不符;
+`protocol-features.md` 把批量读写成"继承 `Get_Attribute_List` 打包"(实为 `0x0A` Multiple Service Packet);
+`VarAA.MemB[1][2]` 写法被拒,而 W506 §6-2-4 自印 **6-28** 明确 `array [2][3]` **或** `array [2,3]` 等价。
 
 ## 四、P2(子代理,择要)
 
