@@ -580,11 +580,15 @@ def build_read_cpu_model(
     :param network_number: 目标网络号(跨网访问他站时按客户端配置)
     :param pc_number: 目标 PC 号(默认 0xFF = 本局 CPU 直连约定)
     :param monitoring_timer: CPU 监视定时器
+    :raises ValueError: 帧型非法(非 3E/4E)
     """
+    frame_name = _check_frame(
+        frame
+    )  # review-1024 §8.2-6 P3:旧无帧型校验, 传 "4e" 静默退化为 3E
     core = MC_COMMAND_READ_CPU_MODEL.to_bytes(2, "big")
     core += MC_SUBCOMMAND_WORD_UNITS.to_bytes(2, "little")
     return _wrap_request(
-        frame, serial, network_number, pc_number, monitoring_timer, core
+        frame_name, serial, network_number, pc_number, monitoring_timer, core
     )
 
 

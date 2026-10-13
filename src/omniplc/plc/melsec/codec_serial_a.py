@@ -33,20 +33,19 @@ from __future__ import annotations
 
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
-from . import codec_qna
-from . import codec_serial
-from .address import McAddress
 from ...core.constants import (
-    MC_1C_MAX_BITDEV_WORD_READ,
-    MC_1C_MAX_BITDEV_WORD_WRITE,
     MC_1C_MAX_BIT_READ_POINTS,
     MC_1C_MAX_BIT_WRITE_POINTS,
+    MC_1C_MAX_BITDEV_WORD_READ,
+    MC_1C_MAX_BITDEV_WORD_WRITE,
     MC_1C_MAX_MESSAGE_WAIT,
     MC_1C_MAX_WORD_POINTS,
 )
 from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
 from ...core.i18n import _
+from . import codec_qna, codec_serial
+from .address import McAddress
 
 _COMMAND_READ_BIT = "BR"
 """位单位成批读命令原文(ACPU 共通命令,SH-080008 17.2 节)。"""
@@ -162,13 +161,17 @@ def build_1c_request(
         raise ValueError(
             _("1C 帧 {} 点数超出范围 1~{}:{}").format(command, limit, points)
         )
-    if not is_bit and spec.is_bit_device and not spec.is_timer_counter:
-        if number % 16 != 0:
-            raise ValueError(
-                _("位软元件 {} 按字单位访问时起始编号必须是 16 的倍数:{}").format(
-                    address.device, number
-                )
+    if (
+        not is_bit
+        and spec.is_bit_device
+        and not spec.is_timer_counter
+        and number % 16 != 0
+    ):
+        raise ValueError(
+            _("位软元件 {} 按字单位访问时起始编号必须是 16 的倍数:{}").format(
+                address.device, number
             )
+        )
     head = code_text + _number_text(spec, number)
     points_text = (
         "00" if points == MC_1C_MAX_BIT_READ_POINTS else "{:02X}".format(points)
@@ -270,7 +273,15 @@ def parse_1c_response(
         )
     if not is_read:
         return []
-    data_text = response[5 : 5 + expected].decode("ascii")
+    try:
+        data_text = response[5 : 5 + expected].decode("ascii")
+    except UnicodeDecodeError as exc:
+        # review-1024 §8.2-6 P3:旧 .decode("ascii") 漏 UnicodeDecodeError, 收口为 ProtocolFrameError
+        raise ProtocolFrameError(
+            _("1C 数据段含非 ASCII 字节:{}(收到的原始帧:{})").format(
+                exc, format_hex(response)
+            )
+        ) from exc
     if is_bit:
         if not set(data_text) <= {"0", "1"}:
             raise ProtocolFrameError(

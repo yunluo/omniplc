@@ -24,12 +24,12 @@ _READ_CASES: List[Tuple[str, str, int, int, int, str, int, bool, List[int]]] = [
     ("mc_3e_batch_read_001", "3E", 0, 0, 0xFF, "D100", 2, False, [20, 10]),
     ("mc_3e_bit_read_001", "3E", 0, 0, 0xFF, "M10", 3, True, [1, 0, 1]),
     ("mc_4e_batch_read_001", "4E", 1, 0, 0xFF, "D100", 2, False, [20, 10]),
-    ("mc_1e_batch_read_001", "1E", 0, 0, 0x00, "D100", 2, False, [20, 10]),
+    ("mc_1e_batch_read_001", "1E", 0, 0, 0xFF, "D100", 2, False, [20, 10]),
 ]
 # (文件名, 帧型, 序列号, 网络, PC, 地址, 写入值, 位单位?)
 _WRITE_CASES: List[Tuple[str, str, int, int, int, str, List[int], bool]] = [
     ("mc_3e_batch_write_001", "3E", 0, 0, 0xFF, "D100", [10, 258], False),
-    ("mc_1e_batch_write_001", "1E", 0, 0, 0x00, "D100", [1234], False),
+    ("mc_1e_batch_write_001", "1E", 0, 0, 0xFF, "D100", [1234], False),
 ]
 # (文件名, 帧型, 期望结束代码)
 _ERROR_CASES: List[Tuple[str, str, int]] = [
@@ -228,13 +228,13 @@ def test_1e_256_points_encode_as_zero_plus_fixed_zero() -> None:
     一致」盲区)——旧 2 字节小端在 256 点发 ``00 01`` 与手册相悖。
     """
     frame = codec_a.build_request(
-        0x00, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("M0"), 256, True, False
+        0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("M0"), 256, True, False
     )
     # 尾两字节 = 点数(00)+ 恒零(00);旧实现发 00 01
     assert frame[-2:] == b"\x00\x00"
     # 12 点对照手册算例尾域 0C 00
     frame12 = codec_a.build_request(
-        0x00, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("M100"), 12, True, False
+        0xFF, MC_DEFAULT_MONITOR_TIMER, parse_mc_address("M100"), 12, True, False
     )
     assert frame12[-2:] == b"\x0c\x00"
     assert frame12.endswith(b"\x64\x00\x00\x00\x20\x4d\x0c\x00")

@@ -177,18 +177,18 @@ def main() -> None:
     add(
         "mc_1e_batch_read_001",
         "1E 成批读(字):D100 起 2 字,值 20/10",
-        one_e_request(0x00, 10, 0x01, 100, 0x4420, 2),
+        one_e_request(0xFF, 10, 0x01, 100, 0x4420, 2),
         one_e_response(0x01, 0x00, words_le([20, 10])),
         {"values": [20, 10]},
-        {"frame": "1E", "station": 0, "monitoring_timer": 10},
+        {"frame": "1E", "station": 255, "monitoring_timer": 10},
     )
     add(
         "mc_1e_batch_write_001",
         "1E 成批写(字):D100 1 字,值 1234",
-        one_e_request(0x00, 10, 0x03, 100, 0x4420, 1, words_le([1234])),
+        one_e_request(0xFF, 10, 0x03, 100, 0x4420, 1, words_le([1234])),
         one_e_response(0x03, 0x00),
         {"echo": True},
-        {"frame": "1E", "station": 0, "monitoring_timer": 10},
+        {"frame": "1E", "station": 255, "monitoring_timer": 10},
     )
 
     for sample in samples:

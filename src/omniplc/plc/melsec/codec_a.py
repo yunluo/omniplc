@@ -1,7 +1,8 @@
 """三菱 MC 协议 A 兼容 1E 帧编解码(纯函数)。
 
-1E 帧用于 A 系列及以太网单元,帧结构比 3E/4E 更短(无网络号/PC 号
-路由字段),软元件码表也不同。帧布局(按 MELSEC 手册 1E 帧格式口径):
+1E 帧用于 A 系列及以太网单元,帧结构比 3E/4E 更短(无网络号/模块
+I/O/本站号路由字段;**保留 PC 号**,SH-080008 §6.1 自印 49),软
+元件码表也不同。帧布局(按 MELSEC 手册 1E 帧格式口径):
 
 - 请求 = 副头部(1) + PLC号/站号(1) + 监视定时器(2,小端) + 设备编号(4,小端;
   本库支持 ≤0xFFFF,高 2 字节恒 0) + 软元件码(2,小端) + 点数(1 字节,
@@ -11,6 +12,10 @@
   位数据每字节 2 位、高位在前;字数据逐字小端
 - 结束代码 0x5B 的响应后跟 1 字节异常细分码(SH-080008 §18.2 印刷页 395
   算例 ``5BH 10H``;TCP 接收需多读,防止字节流错位)
+
+review-1024 §8.2-8 P3:旧文「无网络号/PC 号路由字段」与同文件帧
+布局(列了 PLC号/站号 1 字节)自相矛盾且与手册 §6.1 不符——1E 帧
+确实保留 PC 号一列,仅去掉网络号/模块 I/O/本站号,订正。
 """
 
 from __future__ import annotations
@@ -89,6 +94,15 @@ def build_request(
     :param data: 写数据(字单位逐字 0~65535;位单位 0/1 序列,长度 = points)
     :raises ValueError: 软元件/点数/数据非法
     """
+    # 依据 SH-080008 §18.2 自印 393:PC No. = FFH(本局) 或 01H~40H(1~64)
+    # review-1024 §8.2-8 P3:旧无入参校验, 0x00/0x41~0xFE 静默组帧为手册
+    # 未定义帧——按手册合法集加守卫。
+    if pc_number != 0xFF and not 1 <= int(pc_number) <= 0x40:
+        raise ValueError(
+            _("1E 帧 PC 号非法:{} 须为 0xFF(本局) 或 0x01~0x40(1~64)").format(
+                hex(pc_number) if isinstance(pc_number, int) else pc_number
+            )
+        )
     code, is_bit_device, base = device_info(address.device)
     if is_bit and not is_bit_device:
         raise ValueError(

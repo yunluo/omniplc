@@ -207,9 +207,9 @@ def parse_3c_response(
     ).encode("ascii")
     head = response[0]
     if head == NAK:
-        if len(response) < 17:
+        if len(response) != 17:
             raise ProtocolFrameError(
-                _("3C 异常响应不完整:期望 17 字节,实际 {}(收到的原始帧:{})").format(
+                _("3C 异常响应长度不符:期望 17 字节,实际 {}(收到的原始帧:{})").format(
                     len(response), format_hex(response)
                 )
             )
@@ -264,7 +264,15 @@ def parse_3c_response(
         )
     if not is_read:
         return []
-    data_text = response[11 : 11 + expected].decode("ascii")
+    try:
+        data_text = response[11 : 11 + expected].decode("ascii")
+    except UnicodeDecodeError as exc:
+        # review-1024 §8.2-6 P3:旧 .decode("ascii") 漏 UnicodeDecodeError, 收口为 ProtocolFrameError
+        raise ProtocolFrameError(
+            _("3C 数据段含非 ASCII 字节:{}(收到的原始帧:{})").format(
+                exc, format_hex(response)
+            )
+        ) from exc
     if is_bit:
         if not set(data_text) <= {"0", "1"}:
             raise ProtocolFrameError(

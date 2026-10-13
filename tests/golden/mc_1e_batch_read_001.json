@@ -1,6 +1,6 @@
 {
     "name": "1E 成批读(字):D100 起 2 字,值 20/10",
-    "request_hex": "01000a006400000020440200",
+    "request_hex": "01ff0a006400000020440200",
     "response_hex": "810014000a00",
     "expect": {
         "values": [
@@ -10,7 +10,7 @@
     },
     "setup": {
         "frame": "1E",
-        "station": 0,
+        "station": 255,
         "monitoring_timer": 10
     }
 }
