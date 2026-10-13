@@ -10,16 +10,6 @@ import asyncio
 from typing import Any, Dict, NamedTuple, Optional, Sequence, Tuple
 
 import pytest
-
-from omniplc import MelsecMcTcpClient, MelsecMcUdpClient
-from omniplc.core.constants import MC_DEFAULT_MONITOR_TIMER
-from omniplc.core.errors import ErrorCategory
-from omniplc.native import AsyncMelsecMcTcpClient, AsyncMelsecMcUdpClient
-from omniplc.plc.melsec import codec_qna
-from omniplc.plc.melsec.address import parse_mc_address
-from omniplc.plc.melsec.melsec import _encode_32, _encode_64
-from omniplc.core.tag import Tag, TagTable
-from omniplc.core.types import DataType, PrimitiveValue
 from scripted import ScriptedTransport
 from scripted_async import (
     RawTcpServer,
@@ -29,6 +19,15 @@ from scripted_async import (
     make_loop,
 )
 
+from omniplc import MelsecMcTcpClient, MelsecMcUdpClient
+from omniplc.core.constants import MC_DEFAULT_MONITOR_TIMER
+from omniplc.core.errors import ErrorCategory
+from omniplc.core.tag import Tag, TagTable
+from omniplc.core.types import DataType, PrimitiveValue
+from omniplc.native import AsyncMelsecMcTcpClient, AsyncMelsecMcUdpClient
+from omniplc.plc.melsec import codec_qna
+from omniplc.plc.melsec.address import parse_mc_address
+from omniplc.plc.melsec.melsec import _encode_32, _encode_64
 
 # ----------------------------------------------------------------------
 # 响应构造脚手架(与同步侧 test_mc_clients.py 同口径)
@@ -837,7 +836,7 @@ _EXT_CASES = [
         False,
         "read_batch",
         ((("D100", "ushort"), ("D101", "float"), ("M10", "bool"), ("M11", "bool")),),
-        _split_3e(_qna_batch_read_response([7] + list(_F32_1_5), [0x8000])),
+        _split_3e(_qna_batch_read_response([7, *list(_F32_1_5)], [0x8000])),
         ("0604",),
     ),
     ExtCase(
@@ -1181,10 +1180,12 @@ def test_read_range_1e_and_rejects(monkeypatch: pytest.MonkeyPatch, loop: Any) -
             await plain.read_range("D100", 901, DataType.SHORT)
         with pytest.raises(ValueError):
             await plain.read_range("D100", 2, DataType.STRING)
-        # 1E 位/字分口(review-1009 P2-1,与同步层同口径):位 256/字 64
+        # 1E 位/字分口(review-1009 P2-1,与同步层同口径):位 256/字 256
+        # 字上限 review-1024 §8.1 P1 由 64 改为 256(SH-080008 自印 470)
         one_e = AsyncMelsecMcTcpClient("127.0.0.1", 2000, "1E")
         with pytest.raises(ValueError, match="字数超上限"):
-            await one_e.read_range("D100", 65, DataType.SHORT)
+            # INT 宽 2 字:129 元素 × 2 = 258 > 256 字上限,但 129 < 256 点位上限
+            await one_e.read_range("D100", 129, DataType.INT)
         with pytest.raises(ValueError, match="点数超上限"):
             await one_e.read_range("M0", 257, DataType.BOOL)
 

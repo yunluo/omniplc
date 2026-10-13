@@ -240,6 +240,23 @@ def test_1e_256_points_encode_as_zero_plus_fixed_zero() -> None:
     assert frame12.endswith(b"\x64\x00\x00\x00\x20\x4d\x0c\x00")
 
 
+def test_1e_word_read_max_points_constant_matches_manual() -> None:
+    """1E 字单位成批读上限 = 256(SH-080008 Appendix 5 自印 470:
+    Commands for 1E frame,Batch read Word units 01H Word device = 256 points)。
+
+    review-1024 §8.1 P1:历史常量值 64 注释引「印刷页 466」系用错表——
+    该页是 4C/3C/4E/3E 命令表(A 列 = A 系列模块经该帧访问)而非 1E 命令表。
+    修正后 driver 层 65~256 字的合法成批读不再被入参期拒绝。
+    """
+    from omniplc.core.constants import (
+        MC_1E_MAX_POINTS,
+        MC_1E_MAX_WORD_READ_POINTS,
+    )
+
+    assert MC_1E_MAX_WORD_READ_POINTS == 256
+    assert MC_1E_MAX_POINTS == 256  # 位单位上限(成批读 00H = 256 points)
+
+
 def test_build_random_read_response_budget() -> None:
     """0406 响应总量超 MC_MAX_RESPONSE_CONTENT → 入参期 ValueError(不发请求)。"""
     # 每块 900 点(≤单块上限),5 块 = 4500 点 → 9000 字节 > 8192 上限

@@ -10,15 +10,15 @@ import asyncio
 import struct
 
 import pytest
+from scripted import ScriptedTransport, mount_real_tcp
 
 from omniplc import MelsecMcSerialClient, MelsecMcTcpClient, MelsecMcUdpClient
 from omniplc.aio import AMelsecMcTcpClient
 from omniplc.core.constants import MC_DEFAULT_MONITOR_TIMER, MC_DEFAULT_PC_NUMBER
+from omniplc.core.types import DataType
 from omniplc.plc.melsec import codec_a, codec_qna
 from omniplc.plc.melsec.address import parse_mc_address
 from omniplc.plc.melsec.melsec import _MC_DEVICE_CODES_FX5U_XY
-from omniplc.core.types import DataType
-from scripted import ScriptedTransport, mount_real_tcp
 
 
 def _qna_read_response(
@@ -642,7 +642,8 @@ def test_read_range_frame_specific_limits(monkeypatch: pytest.MonkeyPatch) -> No
     """
     one_e = MelsecMcTcpClient("127.0.0.1", 2000, frame="1E")
     with pytest.raises(ValueError, match="字数超上限"):
-        one_e.read_range("D100", 65, "short")  # 1E 字读上限 64 字
+        # INT 宽 2 字:129 元素 × 2 = 258 > 256 字上限,但 129 < 256 点位上限
+        one_e.read_range("D100", 129, "int")  # 1E 字读上限 256(review-1024 §8.1 P1)
     with pytest.raises(ValueError, match="点数超上限"):
         one_e.read_range("M0", 257, "bool")  # 1E 位读上限 256
     serial_1c = MelsecMcSerialClient(frame="1C")
@@ -654,7 +655,7 @@ def test_read_range_frame_specific_limits(monkeypatch: pytest.MonkeyPatch) -> No
     boundary = MelsecMcTcpClient("127.0.0.1", 2000, frame="1E")
     _mount(monkeypatch, boundary, ScriptedTransport([]))
     boundary.connect()
-    assert boundary.read_range("D100", 64, "short") == (False, None)  # 字侧恰在上限
+    assert boundary.read_range("D100", 256, "short") == (False, None)  # 字侧恰在上限
     assert boundary.read_range("M0", 256, "bool") == (False, None)  # 位侧恰在上限
 
 

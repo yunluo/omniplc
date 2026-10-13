@@ -25,13 +25,13 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
-from .base import AsyncBaseClient
-from .transport import AsyncBaseTransport, AsyncTcpTransport, AsyncUdpTransport
 from ..core import convert
 from ..core.base_client import validate_endpoint
 from ..core.constants import (
     MC_1E_ERROR_EXTRA,
     MC_1E_ERROR_EXTRA_SIZE,
+    MC_1E_MAX_POINTS,
+    MC_1E_MAX_WORD_READ_POINTS,
     MC_1E_RESPONSE_HEAD_SIZE,
     MC_4E_RESPONSE_HEAD_SIZE,
     MC_DEFAULT_MONITOR_TIMER,
@@ -39,11 +39,11 @@ from ..core.constants import (
     MC_DEFAULT_PC_NUMBER,
     MC_DEFAULT_PORT,
     MC_MAX_DATAGRAM,
-    MC_1E_MAX_POINTS,
-    MC_1E_MAX_WORD_READ_POINTS,
     MC_MAX_TRANSFER_POINTS,
     MC_RESPONSE_HEAD_SIZE,
 )
+from ..core.i18n import _
+from ..core.types import DataType, McFrame, PrimitiveValue
 from ..core.validation import (
     check_byte_field,
     check_int16,
@@ -64,8 +64,8 @@ from ..plc.melsec.melsec import (
     _encode_64,
     _merge_bit_blocks,
 )
-from ..core.types import DataType, McFrame, PrimitiveValue
-from ..core.i18n import _
+from .base import AsyncBaseClient
+from .transport import AsyncBaseTransport, AsyncTcpTransport, AsyncUdpTransport
 
 
 class AsyncMelsecMcBase(AsyncBaseClient):
@@ -281,8 +281,10 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         if data_type_enum is DataType.STRING:
             raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
         # 帧型上限分流(与同步层同口径,review-1002 P2;review-1009 P2-1:
-        # 1E 位/字分口 = 位 256/字 64,Appendix 5 印刷页 466)——入口统一
-        # 900 会放行超限帧让 codec ValueError 在锁内穿透
+        # 1E 位/字分口 = 位 256/字 256,Appendix 5 印刷页 470「Commands
+        # for 1E frame」01H 字软元件成批读 = 256 points;review-1024 §8.1
+        # P1:旧值 64 注释引自印 466 系用错表,该页非 1E 命令表)——
+        # 入口统一 900 会放行超限帧让 codec ValueError 在锁内穿透
         bit_limit = (
             MC_1E_MAX_POINTS
             if self._frame is McFrame.FRAME_1E
@@ -377,7 +379,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         if self._frame not in (McFrame.FRAME_3E, McFrame.FRAME_4E):
             return await super().read_many(addresses, data_type)
         data_type_enum = DataType.coerce(data_type)
-        ok, values = await self.read_batch(
+        _ok, values = await self.read_batch(
             [(address, data_type_enum) for address in addresses]
         )
         return self._pack_read_results(addresses, values)

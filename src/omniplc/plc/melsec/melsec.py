@@ -16,28 +16,27 @@
 
 from __future__ import annotations
 
-from abc import abstractmethod
 import time
+from abc import abstractmethod
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
-from . import codec_a, codec_qna, codec_serial, codec_serial_a
-from .address import McAddress, parse_mc_address
 from ...core import convert
 from ...core.base_client import BaseClient, validate_endpoint
 from ...core.constants import (
     MC_1C_DEFAULT_MESSAGE_WAIT,
+    MC_1C_MAX_BIT_READ_POINTS,
+    MC_1C_MAX_WORD_POINTS,
     MC_1E_ERROR_EXTRA,
     MC_1E_ERROR_EXTRA_SIZE,
+    MC_1E_MAX_POINTS,
+    MC_1E_MAX_WORD_READ_POINTS,
     MC_1E_RESPONSE_HEAD_SIZE,
     MC_4E_RESPONSE_HEAD_SIZE,
     MC_DEFAULT_MONITOR_TIMER,
     MC_DEFAULT_NETWORK_NUMBER,
     MC_DEFAULT_PC_NUMBER,
     MC_DEFAULT_PORT,
-    MC_1C_MAX_BIT_READ_POINTS,
-    MC_1C_MAX_WORD_POINTS,
-    MC_1E_MAX_POINTS,
-    MC_1E_MAX_WORD_READ_POINTS,
+    MC_DEVICE_CODES,
     MC_MAX_DATAGRAM,
     MC_MAX_TRANSFER_POINTS,
     MC_MODULE_IO_MAX,
@@ -49,7 +48,6 @@ from ...core.constants import (
     MC_SERIAL_DEFAULT_SELF_STATION,
     MC_SERIAL_DEFAULT_STATION,
     MC_SERIAL_FRAME_ID_4C,
-    MC_DEVICE_CODES,
     MC_SERIAL_MAX_FRAME,
     SERIAL_DEFAULT_BAUD_RATE,
     SERIAL_DEFAULT_DATA_BITS,
@@ -58,6 +56,8 @@ from ...core.constants import (
 )
 from ...core.debug import format_hex
 from ...core.errors import ProtocolFrameError, TransportClosedError
+from ...core.i18n import _
+from ...core.types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity
 from ...core.validation import (
     check_byte_field,
     check_int16,
@@ -73,8 +73,8 @@ from ...transport import (
     TcpTransport,
     UdpTransport,
 )
-from ...core.types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity
-from ...core.i18n import _
+from . import codec_a, codec_qna, codec_serial, codec_serial_a
+from .address import McAddress, parse_mc_address
 
 # iQ-F(FX5U)X/Y 八进制口径码表(其余软元件与 Q/L/R 同):xy_octal=True 时
 # 经 :meth:`_MelsecMcBase._effective_codes` 生效(组帧与校验共用,见 SH-080008)
@@ -314,8 +314,10 @@ class _MelsecMcBase(BaseClient):
         if data_type_enum is DataType.STRING:
             raise ValueError(_("read_range 不支持 STRING,请用 read_string"))
         # 帧型上限分流(review-1002 P2;review-1009 P2-1:1E 位/字分口——
-        # Appendix 5 印刷页 466 位单位 256/字单位 64,原共用 255 会把 65~255
-        # 字超限帧放行给 PLC 拒)——入口统一 900 会放行 1E/1C 超限帧——
+        # Appendix 5 印刷页 470 位单位 256/字单位 256,原共用 255 会把 65~255
+        # 字超限帧放行给 PLC 拒;review-1024 §8.1 P1:字单位 64→256,
+        # 旧注释引印刷页 466 系用错表,该页是 4C/3C/4E/3E 命令表
+        # A 列含义为「A 系列模块经该帧访问」的限制)——入口统一 900 会放行 1E/1C 超限帧——
         # codec ValueError 在事务锁内抛出穿透 _execute(其不捕 ValueError),
         # 违反整批 (False, None) 契约,故按帧型在入参期拒绝
         if self._frame is McFrame.FRAME_1E:
@@ -420,7 +422,7 @@ class _MelsecMcBase(BaseClient):
         if self._frame not in (McFrame.FRAME_3E, McFrame.FRAME_4E):
             return super().read_many(addresses, data_type)
         data_type_enum = DataType.coerce(data_type)
-        ok, values = self.read_batch(
+        _ok, values = self.read_batch(
             [(address, data_type_enum) for address in addresses]
         )
         return self._pack_read_results(addresses, values)
@@ -1485,9 +1487,11 @@ def _coerce_frame(value: Union[McFrame, str]) -> McFrame:
         return value
     try:
         return McFrame(str(value).strip().upper())
-    except ValueError:
+    except ValueError as _exc:
         supported = "/".join(member.value for member in McFrame)
-        raise ValueError(_("不支持的 MC 帧型:{!r},支持:{}").format(value, supported))
+        raise ValueError(
+            _("不支持的 MC 帧型:{!r},支持:{}").format(value, supported)
+        ) from _exc
 
 
 def _decode_32(data: Sequence[int], data_type: DataType) -> PrimitiveValue:

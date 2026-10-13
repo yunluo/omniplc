@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Dict, NamedTuple, Optional, Tuple
 
-from .types import SerialParity, S7Model
+from .types import S7Model, SerialParity
 
 # ---------------------------------------------------------------- 默认超时(秒)
 DEFAULT_CONNECT_TIMEOUT: float = 5.0
@@ -298,10 +298,15 @@ MC_1E_MAX_POINTS: int = 256
 非 2 字节小端 00 01(review-1020 P1-6 订正 review-1009「00 01 可编码」
 误口径)。字单位上限另行分口,见 :data:`MC_1E_MAX_WORD_READ_POINTS`
 (字单位 A 列 = 64 点)。"""
-MC_1E_MAX_WORD_READ_POINTS: int = 64
-"""1E 字单位成批读字数上限(SH-080008 Appendix 5 印刷页 466:0401 成批读
-字单位按帧型/模块分列,字单位 960(iQ-R/L)/480(QnA)/**64(1E,A 列)**;
-review-1009 P2-1:原与位侧共用 255,65~255 字超限放行被 PLC 拒帧)。"""
+MC_1E_MAX_WORD_READ_POINTS: int = 256
+"""1E 字单位成批读字数上限(SH-080008 Appendix 5 印刷页 470:Commands for
+1E frame,Batch read Word units 01H Word device = 256 points;位软元件按字
+单位读上限 128 字单列,见 :data:`MC_1E_MAX_BIT_WORD_READ_POINTS`)。
+
+review-1024 §8.1 P1:历史注释引「印刷页 466」系用错表——自印 466 是 4C/3C/
+4E/3E 命令表(A 列 = A 系列模块经**该帧**访问的限制,经 1E 帧的字成批读
+就显示 64),1E 自己的命令表在自印 470,01H 字软元件成批读 = 256 点。原值 64
+把 65~256 的合法成批读在入参期直接拒绝,review-1024 P1-A 修。"""
 MC_1E_ERROR_EXTRA: int = 0x5B
 """1E 该结束码的响应后跟**1 字节**异常细分码(SH-080008 §18.2 印刷页 395:
 二进制结束代码为 1 字节,算例 ``5BH 10H`` = 5B 后跟 PC 号错 10H;
