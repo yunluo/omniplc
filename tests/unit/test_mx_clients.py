@@ -944,6 +944,85 @@ def test_bit_device_table_excludes_invalid_st() -> None:
     assert "STS" in MX_BIT_DEVICES and "STC" in MX_BIT_DEVICES
 
 
+def test_bit_device_table_includes_cc_link_and_long_timers(
+    fake: FakeActUtlType,
+) -> None:
+    """review-1024 §9.2-3 P2:补 11 类位软元件(CC-Link + 长定时/计数
+    继电器),按 MX Component 手册 §2.3 印刷 46-48 软元件表。
+
+    旧表仅 18 项,真机访问 ``FX0`` / ``FY0`` / ``MF0`` / ``LTS0`` 等
+    会落入"按字软元件处理",位/字门控(``_is_bit_device``)漏——
+    ``read_ushort("FX0")`` 静默按字通道读 16 点位值,``write_int``
+    按 16 点/字写位软元件,均静默错值。
+    """
+    from omniplc.core.constants import MX_BIT_DEVICES
+
+    for device in (
+        "FX",
+        "FY",
+        "MF",
+        "SS",
+        "SC",
+        "LTS",
+        "LTC",
+        "LCS",
+        "LCC",
+        "LSS",
+        "LSC",
+    ):
+        assert device in MX_BIT_DEVICES, (
+            "MX_BIT_DEVICES 缺 {!r}(review-1024 §9.2-3 P2)".format(device)
+        )
+
+
+def test_check_com_call_accepts_s_false() -> None:
+    """review-1024 §9.2-2 P2:HRESULT = S_FALSE(0x00000001)不再误判失败。
+
+    手册 §7.3 印刷 529:「S_FALSE 正常结束——函数处理正常结束,
+    但操作(至 PLC 的访问)失败」,真实码经 ``lplRetCode`` 传。
+    旧判据 ``hresult != 0`` 把 S_FALSE 误抛 COM 失败 + 拆健康会话。
+    """
+    mx_module._check_com_call(0x00000001, 0, "SFalseTest")  # S_FALSE
+    mx_module._check_com_call(0, 0, "SOkTest")  # S_OK
+
+
+def test_check_com_call_rejects_failed_hresult() -> None:
+    """HRESULT 失败位(E_FAIL=0x80004005 等)→ 内部异常。
+
+    HRESULT 是 32 位有符号整数,失败位在最高位;Python int 无 32 位
+    上限,需先 ``& 0xFFFFFFFF`` 转无符号再按有符号比较。
+    """
+    with pytest.raises(OmniPLCInternalError):
+        mx_module._check_com_call(0x80004005, 0, "EFailTest")  # E_FAIL
+    with pytest.raises(OmniPLCInternalError):
+        mx_module._check_com_call(0x80004002, 0, "ENoInterfaceTest")
+
+
+def test_create_monitor_rejected_for_sta_conflict() -> None:
+    """review-1024 §9.2-4 P2:MX 不支持 create_monitor(STA 假设冲突)。
+
+    监视器自建线程驱动 ``self._client._execute``,但 MX 仅在 connect
+    线程 :func:`_com_initialize` 一次——监视器线程既不 ``CoInitialize``
+    也不封送,真机行为未核证。明示拒绝优于静默风险。
+    """
+    client = _client()
+    with pytest.raises(NotImplementedError):
+        client.create_monitor({})
+
+
+def test_get_error_message_works_without_connect(
+    fake: FakeActUtlType,
+) -> None:
+    """review-1024 §9.2-5 P2:get_error_message 不依赖 ActUtlType 链路
+    (用独立 ActSupportMsg 控件 + 构造期固定 logical_station_number)——
+    链路未连时仍可查码,现场"连不上"场景可立即拿到出错文本。
+    """
+    client = _client()  # 不 connect
+    ok, text = client.get_error_message(0xC0500100)
+    assert ok is True
+    assert text == "出错信息文本 0xC0500100"
+
+
 def test_bit_device_rejects_non_bool(fake: FakeActUtlType) -> None:
     """位软元件非 BOOL:GetDevice(位)与块读(16 点/字)口径不一,入参期拒绝。"""
     client = _client()

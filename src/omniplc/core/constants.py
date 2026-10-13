@@ -915,6 +915,19 @@ MX_BIT_DEVICES: Tuple[str, ...] = (
     "CS",
     "CC",
     "SM",
+    # review-1024 §9.2-3 P2:手册 §2.3 印刷 46-48 位软元件
+    # 还含 CC-Link 与长定时/计数继电器接点线圈——
+    "FX",
+    "FY",
+    "MF",
+    "SS",
+    "SC",
+    "LTS",
+    "LTC",
+    "LCS",
+    "LCC",
+    "LSS",
+    "LSC",
 )
 """Q/R 系列常见位软元件表(用于区分位/字访问);表外软元件按字软元件处理。
 依据:MX Component 手册软元件表——定时器/计数器接点/线圈为 TS/TC/STS/STC/CS/CC,

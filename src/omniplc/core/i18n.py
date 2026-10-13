@@ -910,6 +910,13 @@ _TRANSLATIONS: Dict[str, str] = {
     "MX Component {} COM 调用失败:HRESULT 0x{:08X}": "MX Component {0} COM call failed: HRESULT 0x{1:08X}",
     "MX Component GetCpuType 返回形态未识别:{!r}": "Unrecognized MX Component GetCpuType return shape: {!r}",
     "MX Component 不支持的数据类型:{}": "Unsupported MX Component data type: {}",
+    "MX Component 不支持 create_monitor——COM 通道在 connect 线程 初始化为 STA 假设,监视器自建线程会破坏该假设(真机未核证, 见 docs/real-machine-checklist.md §MX 监视器)。 用业务线程 sleep 轮询 + read_*() 替代。": (
+        "MX Component does not support create_monitor: the COM channel is"
+        " initialised as STA in the connect thread, and the monitor's own"
+        " thread would break that assumption (not validated on real hardware;"
+        " see docs/real-machine-checklist.md §MX monitor). Use a business-thread"
+        " sleep loop with read_*() instead."
+    ),
     "位软元件不支持位号后缀:{!r}(示例:M10 或 D100.3)": "Bit devices do not support a bit-index suffix: {0!r} (examples: M10 or D100.3)",
     "位软元件 {}{} 只支持 BOOL,字/数值请改用字软元件(如 D)": "Bit device {0}{1} only supports BOOL; for words/numbers use a word device (e.g. D)",
     "MX Component GetDevice 失败:{}": "MX Component GetDevice failed: {}",

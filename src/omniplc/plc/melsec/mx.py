@@ -38,7 +38,20 @@ from __future__ import annotations
 import ctypes
 from contextlib import suppress
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, Union, cast
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Mapping,
+    NoReturn,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    Union,
+    cast,
+)
 
 from ...core import convert
 from ...core.base_client import BaseClient
@@ -55,6 +68,8 @@ from ...core.constants import (
 from ...core.debug import log_op
 from ...core.errors import DeviceError, OmniPLCInternalError, TransportClosedError
 from ...core.i18n import _
+from ...core.monitor import MonitorEvent
+from ...core.tag import TagTable
 from ...core.types import DataType, PrimitiveValue
 from ...core.validation import check_int16, check_uint16, require_bool, require_count
 from ...transport import BaseTransport
@@ -218,16 +233,22 @@ def _com_set_device(com: Any, device_text: str, value: int) -> None:
 def _check_com_call(result: Any, retcode: int, method: str) -> None:
     """校验块读写原始调用:COM 层 HRESULT + 通信函数返回值(lplRetCode)。
 
-    原始 vtable 方法返回 HRESULT(COM 层调用结果),业务出错码在尾参
+    原始 vtable 方法返回 HRESULT(COM 层结果),业务出错码在尾参
     ``lplRetCode`` 出参缓冲中(手册"自定义 I/F"格式)——HRESULT 失败
     是 COM 层问题,通信函数返回值非 0 是 PLC 出错代码(第 7 章)。
+
+    review-1024 §9.2-2 P2:旧用 ``hresult != 0`` 把 ``S_FALSE``(0x00000001)
+    判为 COM 失败——手册 §7.3(印刷 529)原文:「S_FALSE 正常结束——
+    函数处理正常结束,但操作(至 PLC 的访问)失败」,真实码经 ``lplRetCode``
+    传。修法:HRESULT 失败位仅在 32 位有符号下判断,Python int 无 32 位
+    上限,先 ``& 0xFFFFFFFF`` 转无符号再按有符号比较——
+    ``(hresult & 0xFFFFFFFF) >= 0x80000000`` 即 FAILED(E_FAIL/E_NOTIMPL/
+    自定义错误段),S_OK=0 与 S_FALSE=1 视为 COM 层成功。
     """
-    hresult = _return_code(result)  # tuple 防御:取首个 int
-    if hresult != 0:
+    hresult = _return_code(result) & 0xFFFFFFFF  # 32 位无符号 HRESULT
+    if hresult >= 0x80000000:
         raise OmniPLCInternalError(
-            _("MX Component {} COM 调用失败:HRESULT 0x{:08X}").format(
-                method, hresult & 0xFFFFFFFF
-            )
+            _("MX Component {} COM 调用失败:HRESULT 0x{:08X}").format(method, hresult)
         )
     _check_rc(retcode, method)
 
@@ -1096,20 +1117,53 @@ class MelsecMxClient(BaseClient):
         不可用),ProgID 见
         :data:`omniplc.core.constants.MX_SUPPORT_MSG_PROG_ID`(依据手册 §1.2.1)。
 
+        review-1024 §9.2-5 P2:本方法不依赖 ActUtlType 会话(仅读
+        构造期固定的 :attr:`_logical_station_number`),不**经**
+        :meth:`_execute` 包装——免触发 ActUtlType 链路 lazy 重连
+        (现场最需要查码的"连不上"场景反而能查)与重连抖动。
+
         :param code: 出错代码(手册第 7 章,如 ``0xC0500100``)
         :return: ``(是否成功, 出错文本)``(文本含出错内容及处理方法);
             失败为 ``(False, None)``
         """
-
-        def operation() -> str:
+        try:
             com = _new_support_msg_com(self._logical_station_number)
-            try:
-                return _com_get_error_message(com, int(code))
-            finally:
-                com = None  # 与 CreateObject 配对:失败路径也不留代理引用
+        except OmniPLCInternalError:
+            # 控件创建失败(如 COM 不可用)——按公共 API 契约返 (False, None)
+            return False, None
+        try:
+            text = _com_get_error_message(com, int(code))
+            return True, text
+        except DeviceError:
+            return False, None
+        finally:
+            com = None  # 与 CreateObject 配对:失败路径也不留代理引用
 
-        ok, value = self._execute(operation)
-        return ok, (value if ok else None)
+    def create_monitor(  # type: ignore[override]
+        self,
+        points: Union[Mapping[str, Sequence[str]], TagTable],
+        interval: float = 1.0,
+        on_change: Optional[Callable[[MonitorEvent], None]] = None,
+        on_disconnect: Optional[Callable[[], None]] = None,
+        deadband: Union[float, int, Mapping[str, float]] = 0.0,
+        jitter: float = 0.0,
+    ) -> NoReturn:
+        """MX Component 不支持周期监视器(STA 假设冲突)。
+
+        review-1024 §9.2-4 P2 揭露:监视器自建线程驱动 ``self._client``
+        的 ``_execute``,但 MX 仅在 connect 线程 :func:`_com_initialize`
+        一次——监视器线程既不 ``CoInitialize`` 也不封送,真机可能
+        正常也可能崩/错值(S_FALSE/高位 0 出错码跨线程传递
+        未定义)。明示拒绝优于静默风险。
+        """
+        raise NotImplementedError(
+            _(
+                "MX Component 不支持 create_monitor——COM 通道在 connect 线程"
+                " 初始化为 STA 假设,监视器自建线程会破坏该假设(真机未核证,"
+                " 见 docs/real-machine-checklist.md §MX 监视器)。"
+                " 用业务线程 sleep 轮询 + read_*() 替代。"
+            )
+        )
 
     def _read_bool_impl(self, parsed: McAddress) -> bool:
         """读取一个布尔量:位软元件单点读;字软元件读字后提位。"""
