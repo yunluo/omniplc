@@ -258,6 +258,51 @@ _BIT_SEGMENTS:  C ((0,511),)   T ((0,511),)     ← 段也相同
 
 ---
 
+## 八、横切层顺带发现:串口参数校验的 NaN/inf 缺口(亲验)
+
+> 本族无串口走线,但主会话在推进横切层(传输层)审查时发现一处**与已修 P1 同型**的缺口;
+> 尚未到传输层台账,先记于此,后续归入横切层报告。
+
+### 8.1 现象(亲验)
+
+`transport/serial.py` 的 `SerialConfig.validate()` 用 `if self.baud_rate <= 0` 判非法 ——
+**`nan <= 0` 恒为 False**,故 NaN(与 inf)**穿透校验**:
+
+```
+SerialConfig(port_name="COM3", baud_rate=float("nan")).validate()          -> 通过
+SerialTransport(SerialConfig(port_name="COM_NOPE", baud_rate=float("nan"))) -> 构造成功
+  t.connect() -> ValueError: cannot convert float NaN to integer   ← CPython 文案,非库内 i18n 文案
+```
+
+- **可达性**:`baud_rate` 是**公共参数**(公开 dataclass 字段),且 `SerialTransport.__init__` 会调
+  `config.validate()` —— 用户可从公共 API 直达;
+- **函数内不一致**:同函数里 `data_bits`(`not 5 <= x <= 8`)与 `stop_bits`(`not in (1,1.5,2)`)
+  **都能拒绝 NaN**,唯独 `baud_rate` 的 `<= 0` 不能;
+- **同型已修先例**:review-1023 P1 即"`connect_timeout`/`receive_timeout` 的 `<= 0` 让 NaN/inf 穿透
+  → 流入 `socket.settimeout`";该处已由 `ac7af9d` 用 `math.isfinite` 收口。
+
+### 8.2 定级与修法
+
+- **定级 P3(非 P1)** —— 与 review-1023 P1 的关键差别:**此处不泄漏 FD**。
+  实测 `_serial` 保持 `None`:异常发生在 `port.baudrate = nan`(pyserial 内部转换阶段,
+  在 `port.open()` **之前**),端口从未打开;
+- **但仍是真实缺口**:①违反 `validate()` 的「:raises ValueError: 参数非法」契约(抛 CPython 文案,
+  现场不可读);②同形态若将来出现在"先 open 后配置"的顺序里就会变成泄漏;
+- **修法(一行,同先例)**:`if not math.isfinite(self.baud_rate) or self.baud_rate <= 0:`,
+  并可顺带要求 `int` 类型。
+
+### 8.3 附:顺带核实的横切层项(已通过)
+
+| 项 | 核法 | 结论 |
+| --- | --- | --- |
+| `drain()` 调用契约 | 全库 8 处调用点 | **7 处均有 `transport.datagram` 守卫**;第 8 处是 asyncio 的 `writer.drain()`,同名不同物 ✔ |
+| TCP 配置失败收 FD | 读 `transport/tcp.py` | 已用 `except BaseException` + `sock.close()`(review-1023 修法)✔ |
+| 两个超时 setter | 读 `transport/base.py` | 均含 `not math.isfinite(value) or value <= 0` ✔ |
+| FINS identity 回显校验 | **实跑** | SID / ICF / 命令码三项不符**全部 `ProtocolFrameError`**;20 组短帧(0/1/5/9/11 字节 × 4 解析器)**全部抛契约内异常,无 `IndexError` 逃逸** ✔ |
+| 基类 docstring 称"FINS SID 回显校验会按坏帧报错拆连" | 对照实现 | **成立**:`_check_identity` 确实校验 SID,且 5 个解析器全部经它(或经 `parse_response` 复用)✔ |
+
+---
+
 > **登记与排期**:本报告不落地任何修改;§二/§三 两条 P2 的**文档披露部分**建议随审查确认后
 > 登记 `docs/todo.md`(纯文档、零行为风险);分离基址与零填充约束属行为变更,**须待真机/手册裁决**。
 > **真机核验**:本报告结论为**库内静态 + 本地动态**结论(基址/段表读取、编码实测、隐式偏差扫描),
