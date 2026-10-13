@@ -257,6 +257,68 @@ def test_1e_word_read_max_points_constant_matches_manual() -> None:
     assert MC_1E_MAX_POINTS == 256  # 位单位上限(成批读 00H = 256 points)
 
 
+def test_1e_device_codes_match_manual_section_18_4() -> None:
+    """1E 软元件码表按 SH-080008 §18.4 自印 398 全表查。
+
+    表内 14 类(原始)== MC_1E_DEVICE_CODES 集合:
+    X/Y/M/S/B/F/TN/TS/TC/CN/CS/CC/D/W/R;
+    ``M/L/S`` 同码 4D20H,故 ``S``/``M`` 同项(``L`` 经 ``M`` 访问,§18.4
+    自印 399/400 明示「For L and S, perform accessing by specifying 'M'」)。
+
+    review-1024 §8.2-1 P2:补 F/TN/TS/TC/CN/CS/CC 7 类软元件。
+    """
+    from omniplc.core.constants import MC_1E_DEVICE_CODES
+
+    expected_codes = {
+        "X": (0x5820, 1, 16),
+        "Y": (0x5920, 1, 16),
+        "M": (0x4D20, 1, 10),
+        "S": (0x4D20, 1, 10),
+        "F": (0x4620, 1, 10),
+        "B": (0x4220, 1, 16),
+        "TS": (0x5453, 1, 10),
+        "TC": (0x5443, 1, 10),
+        "TN": (0x544E, 0, 10),
+        "CS": (0x4353, 1, 10),
+        "CC": (0x4343, 1, 10),
+        "CN": (0x434E, 0, 10),
+        "D": (0x4420, 0, 10),
+        "W": (0x5720, 0, 16),
+        "R": (0x5220, 0, 10),
+    }
+    assert expected_codes == MC_1E_DEVICE_CODES
+    # S 与 M 同码
+    assert MC_1E_DEVICE_CODES["S"][0] == MC_1E_DEVICE_CODES["M"][0]
+    # 3E/4E 扩展项不应在 1E 表
+    for sm in ("SM", "SD", "SB", "SW", "DX", "DY", "Z", "ZR", "V"):
+        assert sm not in MC_1E_DEVICE_CODES
+
+
+def test_1e_device_info_accepts_newly_added_devices() -> None:
+    """补录后 codec_a.device_info 对新增 F/TN/TS/TC/CN/CS/CC 返回手册码。"""
+    from omniplc.plc.melsec.codec_a import device_info
+
+    assert device_info("F") == (0x4620, True, 10)
+    assert device_info("TS") == (0x5453, True, 10)
+    assert device_info("TC") == (0x5443, True, 10)
+    assert device_info("TN") == (0x544E, False, 10)
+    assert device_info("CS") == (0x4353, True, 10)
+    assert device_info("CC") == (0x4343, True, 10)
+    assert device_info("CN") == (0x434E, False, 10)
+
+
+def test_1e_device_info_rejects_still_unsupported() -> None:
+    """3E/4E 扩展软元件在 1E 表外,仍报 ValueError + 支持集包含新增项。"""
+    from omniplc.plc.melsec.codec_a import device_info
+
+    with pytest.raises(ValueError) as exc:
+        device_info("SM")
+    message = str(exc.value)
+    # 支持集提示需含新加的 7 类(便于用户查错)
+    for token in ("F", "TS", "TC", "TN", "CS", "CC", "CN"):
+        assert token in message, "支持集提示缺 {!r}: {}".format(token, message)
+
+
 def test_build_random_read_response_budget() -> None:
     """0406 响应总量超 MC_MAX_RESPONSE_CONTENT → 入参期 ValueError(不发请求)。"""
     # 每块 900 点(≤单块上限),5 块 = 4500 点 → 9000 字节 > 8192 上限
