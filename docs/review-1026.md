@@ -295,7 +295,7 @@ SerialTransport(SerialConfig(port_name="COM_NOPE", baud_rate=float("nan"))) -> �
 
 | 项 | 核法 | 结论 |
 | --- | --- | --- |
-| `drain()` 调用契约 | 全库 8 处调用点 | **7 处均有 `transport.datagram` 守卫**;第 8 处是 asyncio 的 `writer.drain()`,同名不同物 ✔ |
+| `drain()` 调用契约 | 全库 **7 处**调用点(订正) | **5 处有 `datagram` 守卫 + 2 处在 UDP-only 类内**;与 7 个 UDP 实例化点一一对应 ⇒ 零缺口 ✔ |
 | TCP 配置失败收 FD | 读 `transport/tcp.py` | 已用 `except BaseException` + `sock.close()`(review-1023 修法)✔ |
 | 两个超时 setter | 读 `transport/base.py` | 均含 `not math.isfinite(value) or value <= 0` ✔ |
 | FINS identity 回显校验 | **实跑** | SID / ICF / 命令码三项不符**全部 `ProtocolFrameError`**;20 组短帧(0/1/5/9/11 字节 × 4 解析器)**全部抛契约内异常,无 `IndexError` 逃逸** ✔ |

@@ -204,7 +204,7 @@ build_area_read(..., FinsAddress("C", 10, None), 1, False) -> 800002000200000000
 | --- | --- | --- |
 | FINS identity 回显(SID/ICF/命令码) | **实跑** | 三项不符全部 `ProtocolFrameError` ✔ |
 | 短帧健壮性 | **实跑** 20 组(0/1/5/9/11 字节 × 4 解析器) | **全部抛契约内异常,无 `IndexError` 逃逸** ✔ |
-| `drain()` 调用契约 | 全库 8 处调用点 | 7 处有 `transport.datagram` 守卫;第 8 处是 asyncio 的 `writer.drain()`(同名不同物)✔ |
+| `drain()` 调用契约 | 全库 **7 处**调用点(订正) | **5 处有 `datagram` 守卫 + 2 处在 UDP-only 类内**(`OmronFinsUdpClient`/`AsyncOmronFinsUdpClient` 的 `_create_transport` 恒返回 UDP 传输)⇒ 等价安全;且 **7 处调用与全库 7 个 UDP 实例化点一一对应** ⇒ 零缺口 ✔ |
 | **串口参数 NaN 缺口** | **实跑** | `SerialConfig.validate()` 的 `baud_rate <= 0` 让 NaN/inf 穿透 → `connect()` 抛 CPython `ValueError`;**不泄漏 FD**(端口未 open 即失败)—— **P3**,详见 review-1026 §八 |
 
 ---

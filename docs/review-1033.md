@@ -65,6 +65,19 @@
 
 **结论**:6 个 UDP 客户端**全部有陈旧帧防护**,零缺口 ✔
 
+**★ 更精确的口径(子代理深挖 + 主会话亲验,订正我此前的"8 处/7 处有守卫")**:
+src 内 `transport.drain()` 共 **7 处**调用点 ——
+**5 处有 `datagram` 守卫**(`melsec.py:979`、`toyopuc.py:107`、`hostlink.py:101`、
+`mewtocol.py:336`、`native/melsec.py:884`)
+\+ **2 处无守卫但在 UDP-only 类内**(`omron.py:847` ∈ `OmronFinsUdpClient._transact`、
+`native/omron.py:826` ∈ `AsyncOmronFinsUdpClient._transact`;二者 `_create_transport`
+**恒返回 UDP 传输**,故直调等价安全)。
+且 **7 处调用与全库 7 个 `UdpTransport` 实例化点一一对应**
+(`melsec.py:1067`、`omron.py:852`、`toyopuc.py:417`、`hostlink.py:412`、`mewtocol.py:410`、
+`native/melsec.py:967`、`native/omron.py:799`)⇒ **零缺口,且覆盖面可证**;
+流式走线(MC 串口 `_transact`、FINS/TCP 握手)有意不调,符合契约。
+(我此前记作"8 处、7 处有守卫"—— 那是把**测试侧**的 `writer.drain()` 也计入了,已订正。)
+
 ### 2.2 ★ 但机理验证揭示了"为何这条防护不可替代"(亲验)
 
 **实测**:向两个 MC UDP 客户端投喂一个**形状合法**的数据报(3E 头 + 长度 + 结束码 0 + 数据),
