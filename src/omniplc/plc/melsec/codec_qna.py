@@ -30,7 +30,6 @@ from __future__ import annotations
 import struct
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from .address import McAddress
 from ...core.constants import (
     MC_4E_RESPONSE_HEAD_SIZE,
     MC_COMMAND_BATCH_READ,
@@ -42,9 +41,9 @@ from ...core.constants import (
     MC_CPU_MODEL_RESPONSE_SIZE,
     MC_DEFAULT_MONITOR_TIMER,
     MC_DEFAULT_PC_NUMBER,
-    MC_DEVICE_CODES,
     MC_DEST_MODULE_IO,
     MC_DEST_MODULE_STATION,
+    MC_DEVICE_CODES,
     MC_MAX_RANDOM_BLOCKS,
     MC_MAX_RESPONSE_CONTENT,
     MC_MAX_RESPONSE_CONTENT_DATAGRAM,
@@ -62,6 +61,7 @@ from ...core.constants import (
 from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
 from ...core.i18n import _
+from .address import McAddress
 
 _FRAME_NAMES = ("3E", "4E")
 
@@ -80,10 +80,10 @@ def device_info(
     table = MC_DEVICE_CODES if codes is None else codes
     try:
         code, is_bit, base = table[device]
-    except KeyError:
+    except KeyError as _exc:
         raise ValueError(
             _("不支持的 MC 软元件:{!r},支持:{}").format(device, "/".join(sorted(table)))
-        )
+        ) from _exc
     return code, bool(is_bit), base
 
 
@@ -94,10 +94,10 @@ def device_number(device: str, number: str, base: int) -> int:
     """
     try:
         return int(number, base)
-    except ValueError:
+    except ValueError as _exc:
         raise ValueError(
             _("软元件 {} 编号按 {} 进制解析失败:{!r}").format(device, base, number)
-        )
+        ) from _exc
 
 
 def reject_bit_suffix_on_bit_device(address: McAddress) -> None:
@@ -194,6 +194,8 @@ def build_request(
     is_write: bool,
     data: Optional[List[int]] = None,
     codes: Optional[Dict[str, Tuple[int, int, int]]] = None,
+    module_io: int = MC_DEST_MODULE_IO,
+    module_station: int = MC_DEST_MODULE_STATION,
 ) -> bytes:
     """构造 3E/4E 帧请求(成批读 0104 / 成批写 0114)。
 
@@ -208,12 +210,21 @@ def build_request(
     :param is_write: 是否写操作
     :param data: 写数据(字单位为逐字 0~65535;位单位为 0/1 序列,长度 = points)
     :param codes: 软元件码表(缺省三菱;基恩士 SLMP 兼容传自有码表)
+    :param module_io: 模块 I/O 编号(默认 0x03FF,多 CPU 站点可改 0x03E0)
+    :param module_station: 模块局号(默认 0)
     :raises ValueError: 帧型/软元件/点数/数据非法
     """
     frame_name = _check_frame(frame)
     core = build_core(address, points, is_bit, is_write, data, codes)
     return _wrap_request(
-        frame_name, serial, network_number, pc_number, monitoring_timer, core
+        frame_name,
+        serial,
+        network_number,
+        pc_number,
+        monitoring_timer,
+        core,
+        module_io,
+        module_station,
     )
 
 
@@ -225,6 +236,8 @@ def build_random_read(
     monitoring_timer: int,
     word_blocks: Sequence[Tuple[int, int, int]],
     bit_blocks: Sequence[Tuple[int, int, int]],
+    module_io: int = MC_DEST_MODULE_IO,
+    module_station: int = MC_DEST_MODULE_STATION,
 ) -> bytes:
     """构造 3E/4E 多块批量读请求(命令 0406,SH-080008 §8.4)。
 
@@ -235,7 +248,7 @@ def build_random_read(
 
     本函数用**子命令 0000**(标准软元件寻址,上限 120 块)。SH-080008
     的子命令 **0002(iQ-R)/0080(iQ-L·Q/L)** 是「设备扩展指定」(链接直接
-    ``Jn\\…``、模块访问 ``Un\\G``、CPU 缓冲 ``U3En\\G``,上限 60 块),块内
+    ``Jn...``、模块访问 ``Un/G``、CPU 缓冲 ``U3En/G``,上限 60 块),块内
     设备为扩展格式,需另一套地址语法,本库未实现。
 
     :raises ValueError: 帧型非法、无块、总块数超限或块参数非法
@@ -280,7 +293,14 @@ def build_random_read(
     for code, number, points in bit_blocks:
         core += _random_block(code, number, points)
     return _wrap_request(
-        frame_name, serial, network_number, pc_number, monitoring_timer, bytes(core)
+        frame_name,
+        serial,
+        network_number,
+        pc_number,
+        monitoring_timer,
+        bytes(core),
+        module_io,
+        module_station,
     )
 
 
@@ -672,13 +692,19 @@ def _wrap_request(
     pc_number: int,
     monitoring_timer: int,
     core: bytes,
+    module_io: int = MC_DEST_MODULE_IO,
+    module_station: int = MC_DEST_MODULE_STATION,
 ) -> bytes:
-    """核心命令 → 完整 3E/4E 请求帧(路由 + 定时器 + 副头部,内部函数)。"""
+    """核心命令 → 完整 3E/4E 请求帧(路由 + 定时器 + 副头部,内部函数)。
+
+    review-1024 §8.2-4 P2:模块 I/O / 局号自印 487 支持多 CPU 03E0H /
+    冗余 03D0H,原硬编码 0x03FF 改可配,默认 CPU 直连(向后兼容)。
+    """
     routing = bytearray()
     routing.append(network_number & 0xFF)
     routing.append(pc_number & 0xFF)
-    routing += MC_DEST_MODULE_IO.to_bytes(2, "little")
-    routing.append(MC_DEST_MODULE_STATION & 0xFF)
+    routing += (module_io & 0xFFFF).to_bytes(2, "little")
+    routing.append(module_station & 0xFF)
     _check_timer(monitoring_timer)
     body = (
         bytes(routing)

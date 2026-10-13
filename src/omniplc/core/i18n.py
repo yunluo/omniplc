@@ -846,7 +846,13 @@ _TRANSLATIONS: Dict[str, str] = {
     "MC 序列号不匹配:期望 {},收到 {}(收到的原始帧:{})": "MC serial number mismatch: expected {0}, got {1} (raw frame received: {2})",
     "3C 响应为空(未收到任何字节)": "The 3C response is empty (no bytes received)",
     "站号必须在 0~{} 之间,收到:{}": "The station number must be between 0 and {}, got: {}",
+    "站号必须在 0~{} 或 0xFF 之间,收到:{}": (
+        "The station number must be in 0~{} or 0xFF (global function), got: {}"
+    ),
     "PC 编号必须是 0~120 或 0xFF,收到:{}": "The PC number must be 0~120 or 0xFF, got: {}",
+    "PC 编号必须是 1~120 或 {{0xFF,0xFE,0x7D,0x7E}},收到:{}": (
+        "The PC number must be 1~120 or one of 0xFF, 0xFE, 0x7D, 0x7E, got: {}"
+    ),
     "MC 错误代码 0x{:04X},详见 MELSEC 手册": "MC error code 0x{:04X}; see the MELSEC manual",
     "3C 响应控制码非法:0x{:02X}(收到的原始帧:{})": "Invalid 3C response control code: 0x{:02X} (raw frame received: {})",
     "3C 读响应长度不符:期望 {} 字节,实际 {}(收到的原始帧:{})": "3C read response length mismatch: expected {0} bytes, got {1} (raw frame received: {2})",

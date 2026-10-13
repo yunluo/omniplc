@@ -723,3 +723,122 @@ def test_read_cpu_model_bad_name() -> None:
     )
     with pytest.raises(ProtocolFrameError):
         codec_qna.parse_read_cpu_model_response(frame, "3E")
+
+
+# ---------------------------------------------------------------- §8.2-2/3/4 路由字段
+
+
+def test_check_station_number_accepts_ff_for_global() -> None:
+    """站号 0xFF = 全站广播(review-1024 §8.2-2 P2)放行。
+
+    依据 SH-080008 §6.2 自印 50 PDF P52 Station No. 表:
+    0~31(00H~1FH)= 多点连接访问目标;FFH = global function 全局功能。
+    """
+    from omniplc.plc.melsec.codec_serial import check_station_number
+
+    assert check_station_number(0xFF) == 0xFF
+    # 边界 0 / 31 仍放行
+    assert check_station_number(0) == 0
+    assert check_station_number(0x1F) == 0x1F
+    # 0x20 仍拒绝
+    with pytest.raises(ValueError, match="站号必须在"):
+        check_station_number(0x20)
+
+
+def test_check_pc_number_accepts_special_7d_7e_fe() -> None:
+    """PC 号 7DH/7EH/FEH 放行;0 拒绝(review-1024 §8.2-3 P2)。
+
+    依据 SH-080008 §6.2 自印 52 PDF P54 Network No., PC No. 表:
+    - 7DH = 指定控制站/主站
+    - 7EH = 当前控制站/主站
+    - FEH = on-demand 功能
+    - 01H~78H = 1~120 经网络访问他站
+    - FFH = 访问连接站
+    手册合法集不含 0。
+    """
+    from omniplc.plc.melsec.codec_serial import check_pc_number
+
+    assert check_pc_number(0x7D) == 0x7D
+    assert check_pc_number(0x7E) == 0x7E
+    assert check_pc_number(0xFE) == 0xFE
+    assert check_pc_number(0xFF) == 0xFF
+    # 边界 1 / 120 仍放行
+    assert check_pc_number(1) == 1
+    assert check_pc_number(120) == 120
+    # 0 无手册依据,拒绝
+    with pytest.raises(ValueError, match="PC 编号必须是"):
+        check_pc_number(0)
+    # 121 仍拒绝
+    with pytest.raises(ValueError, match="PC 编号必须是"):
+        check_pc_number(121)
+
+
+def test_build_request_module_io_and_station_propagated() -> None:
+    """3E/4E build_request 的 module_io / module_station 透传(review-1024 §8.2-4 P2)。
+
+    自印 487 给出多 CPU 03E0H / 冗余 03D0H,原硬编码 0x03FF 改可配。
+    帧布局:副头(2 字节)+ 路由(5 字节:网络 + PC + 模块 I/O LE 2 + 局号)
+    + 数据长(2 字节)+ 监视定时器(2 字节)+ 命令(2 字节)...
+    路由索引 = [2:7]。
+    """
+    # 默认 0x03FF
+    default_req = codec_qna.build_request(
+        "3E",
+        0,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("D100"),
+        1,
+        False,
+        False,
+    )
+    # 路由 = [网络, PC, 模块 I/O LE 2, 局号] = 5 字节,在副头 [0:2] 之后
+    assert default_req[2:7] == bytes([0x00, 0xFF, 0xFF, 0x03, 0x00])
+    # 多 CPU 0x03E0
+    multi_cpu = codec_qna.build_request(
+        "3E",
+        0,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("D100"),
+        1,
+        False,
+        False,
+        module_io=0x03E0,
+        module_station=0,
+    )
+    assert multi_cpu[2:7] == bytes([0x00, 0xFF, 0xE0, 0x03, 0x00])
+    # 冗余 0x03D0
+    redundant = codec_qna.build_request(
+        "3E",
+        0,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        parse_mc_address("D100"),
+        1,
+        False,
+        False,
+        module_io=0x03D0,
+        module_station=1,
+    )
+    assert redundant[2:7] == bytes([0x00, 0xFF, 0xD0, 0x03, 0x01])
+
+
+def test_build_random_read_module_io_propagated() -> None:
+    """3E/4E build_random_read 的 module_io / module_station 透传。"""
+    request = codec_qna.build_random_read(
+        "3E",
+        0,
+        0,
+        0xFF,
+        MC_DEFAULT_MONITOR_TIMER,
+        [(0xA8, 100, 1)],
+        [],
+        module_io=0x03E0,
+        module_station=2,
+    )
+    # 路由 5 字节,副头 [0:2] 之后:[2:7]
+    assert request[2:7] == bytes([0x00, 0xFF, 0xE0, 0x03, 0x02])

@@ -36,6 +36,8 @@ from ...core.constants import (
     MC_DEFAULT_NETWORK_NUMBER,
     MC_DEFAULT_PC_NUMBER,
     MC_DEFAULT_PORT,
+    MC_DEST_MODULE_IO,
+    MC_DEST_MODULE_STATION,
     MC_DEVICE_CODES,
     MC_MAX_DATAGRAM,
     MC_MAX_TRANSFER_POINTS,
@@ -114,6 +116,8 @@ class _MelsecMcBase(BaseClient):
         network_number: int = MC_DEFAULT_NETWORK_NUMBER,
         pc_number: int = MC_DEFAULT_PC_NUMBER,
         xy_octal: bool = False,
+        module_io: int = MC_DEST_MODULE_IO,
+        module_station: int = MC_DEST_MODULE_STATION,
     ) -> None:
         """初始化 MC 客户端公共参数。
 
@@ -126,12 +130,21 @@ class _MelsecMcBase(BaseClient):
         :param pc_number: PC 编号(仅 3E/4E 使用;1E 帧语义为站号)
         :param xy_octal: X/Y 编号按八进制解释(iQ-F/FX5U 口径;
             默认 False = Q/L/R 十六进制口径)。仅 3E/4E 帧生效
+        :param module_io: 请求目标模块 I/O 编号(3E/4E 使用,默认 0x03FF;
+            多 CPU 站点可改 0x03E0 / 冗余系统 0x03D0,
+            SH-080008 §11.2 自印 487)
+        :param module_station: 请求目标模块局号(3E/4E 使用,默认 0)
         :raises ValueError: 参数非法
         """
         validate_endpoint(ip_address, port)
         super().__init__(ip_address, port)
         self._xy_octal = bool(xy_octal)
         self._init_frame(frame, network_number, pc_number)
+        # review-1024 §8.2-4 P2:3E/4E 原硬编码 0x03FF,补可配入口
+        self._module_io = check_byte_field(
+            "目标模块 I/O 编号", module_io, MC_MODULE_IO_MAX
+        )
+        self._module_station = check_byte_field("目标模块局号", module_station)
 
     def _init_frame(
         self,
@@ -515,6 +528,8 @@ class _MelsecMcBase(BaseClient):
                 MC_DEFAULT_MONITOR_TIMER,
                 word_blocks,
                 bit_blocks,
+                self._module_io,
+                self._module_station,
             )
             words, bits = codec_qna.parse_random_read_response(
                 self._transact(request),
@@ -909,6 +924,8 @@ class _MelsecMcBase(BaseClient):
             is_write,
             data,
             self._effective_codes(),
+            self._module_io,
+            self._module_station,
         )
 
     def _parse_read(self, response: bytes, points: int, is_bit: bool) -> List[int]:

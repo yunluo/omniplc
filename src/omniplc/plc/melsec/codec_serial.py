@@ -34,8 +34,6 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 
-from .address import McAddress
-from . import codec_qna
 from ...core.constants import (
     MC_MAX_TRANSFER_POINTS,
     MC_SERIAL_DEFAULT_MODULE_IO,
@@ -47,8 +45,10 @@ from ...core.constants import (
 )
 from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
-from ...core.validation import check_byte_field
 from ...core.i18n import _
+from ...core.validation import check_byte_field
+from . import codec_qna
+from .address import McAddress
 
 ENQ: int = 0x05
 """控制码:ENQ(询问,请求帧起始)。"""
@@ -79,24 +79,60 @@ def checksum(payload: bytes) -> int:
 
 
 def check_station_number(station: int) -> int:
-    """校验站号(0~31),非法抛 :class:`ValueError`。"""
-    if not 0 <= int(station) <= MC_SERIAL_STATION_MAX:
+    """校验站号(0~31 或广播 FFH),非法抛 :class:`ValueError`。
+
+    依据 SH-080008 §6.2 自印 50(PDF P52) Station No. 表:
+    - 0 = 连接站(主机站)
+    - 0~31(00H~1FH)= 多点连接访问目标站
+    - FFH = 全站广播(全局功能,global function)
+
+    review-1024 §8.2-2 P2:历史限 0~31 把广播站号 FFH 直接拒,导致
+    多点连接全局功能无法组帧,补 FFH 放行。
+    """
+    value = int(station)
+    if value != 0xFF and not 0 <= value <= MC_SERIAL_STATION_MAX:
         raise ValueError(
-            _("站号必须在 0~{} 之间,收到:{}").format(MC_SERIAL_STATION_MAX, station)
+            _("站号必须在 0~{} 或 0xFF 之间,收到:{}").format(
+                MC_SERIAL_STATION_MAX, station
+            )
         )
-    return int(station)
+    return value
+
+
+# PC 编号合法集(SH-080008 §6.2 自印 52 PDF P54 表)
+_MC_PC_NUMBER_BROADCAST_LIKE = (0xFF, 0xFE, 0x7D, 0x7E)
+"""广播/单播类特殊 PC 编号:
+- FFH = 访问连接站(本局)/多点连接目标
+- FEH = on-demand 功能
+- 7DH = 指定控制站/主站
+- 7EH = 当前控制站/主站
+"""
 
 
 def check_pc_number(pc_number: int) -> int:
-    """校验 PC 编号(0~120 或 0xFF),非法抛 :class:`ValueError`。
+    """校验 PC 编号(1~120 或 {0xFF,0xFE,0x7D,0x7E}),非法抛 :class:`ValueError`。
 
-    依 SH-080008 §6.2 印刷页 54:经网络访问他站时 PC 编号为 01H~78H(1~120);
-    0xFF 为本局 CPU 直连约定值;0~3 保留 A 系列串口直连旧口径。
-    原实现限死 0~3/FF,串口多站(经网桥访问他站)在入参期即被拒。
+    依据 SH-080008 §6.2 自印 52(PDF P54) Network No., PC No. 表:
+    - 访问连接站 / 多点连接站:PC No. = FFH
+    - on-demand 功能:PC No. = FEH
+    - 访问他站经网络(站号 1~239):PC No. = 01H~78H (1~120)
+    - 指定控制站/主站:PC No. = 7DH
+    - 当前控制站/主站:PC No. = 7EH
+
+    review-1024 §8.2-3 P2:历史限 0~120/FFH 漏 7DH/7EH/FEH;且「0」无
+    手册依据——手册 §6.2 自印 52 合法集不含 00H,本函数拒绝 0。
+    适用帧:3C/4C/1C/2C(均走本函数,§6.2 自印 50 PC No. 列对 4C/3C/2C/1C
+    全部标「必要」)。
     """
     value = int(pc_number)
-    if value != 0xFF and not 0 <= value <= 120:
-        raise ValueError(_("PC 编号必须是 0~120 或 0xFF,收到:{}").format(pc_number))
+    if value in _MC_PC_NUMBER_BROADCAST_LIKE:
+        return value
+    if not 1 <= value <= 120:
+        raise ValueError(
+            _("PC 编号必须是 1~120 或 {{0xFF,0xFE,0x7D,0x7E}},收到:{}").format(
+                hex(pc_number) if isinstance(pc_number, int) else pc_number
+            )
+        )
     return value
 
 
@@ -499,11 +535,11 @@ def _hex_int(raw: bytes, whole: bytes = b"") -> int:
     """
     try:
         return int(raw.decode("ascii"), 16)
-    except (UnicodeDecodeError, ValueError):
+    except (UnicodeDecodeError, ValueError) as _exc:
         detail = "(收到的原始帧:{})".format(format_hex(whole)) if whole else ""
         raise ProtocolFrameError(
             _("十六进制域非法:{!r}{}").format(raw.decode("ascii", "replace"), detail)
-        )
+        ) from _exc
 
 
 def _ascii_core(
@@ -519,7 +555,7 @@ def _ascii_core(
     宽度为串口规格:命令 4 + 子命令 4 + 软元件码 2(``*`` 补位)
     + 起始编号 6(按码表进制)+ 点数 4 + 写数据。
     """
-    code, is_bit_device, base = codec_qna.device_info(address.device, codes)
+    _code, is_bit_device, base = codec_qna.device_info(address.device, codes)
     if is_bit and not is_bit_device:
         raise ValueError(
             _("字软元件 {} 不支持位单位成批访问,请按字访问后提取位").format(
@@ -533,7 +569,7 @@ def _ascii_core(
             _("MC 访问点数超出范围 1~{}:{}").format(MC_MAX_TRANSFER_POINTS, points)
         )
     number = codec_qna.device_number(address.device, address.number, base)
-    if base == 16 and number > 0xFFFFFF or base == 10 and number > _MAX_DEC_NUMBER:
+    if (base == 16 and number > 0xFFFFFF) or (base == 10 and number > _MAX_DEC_NUMBER):
         raise ValueError(
             _("MC 软元件 {} 编号超出 6 位表示范围:{}").format(address.device, number)
         )
