@@ -461,6 +461,8 @@ class AsyncOmronFinsBase(AsyncBaseClient):
         :param data_type: 统一数据类型
         :return: 与地址顺序对应的 ``[(是否成功, 值)]`` 列表
         """
+        if not addresses:
+            return []
         data_type_enum = DataType.coerce(data_type)
         _, values = await self.read_batch(
             [(address, data_type_enum) for address in addresses]

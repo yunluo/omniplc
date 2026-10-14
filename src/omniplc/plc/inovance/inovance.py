@@ -85,7 +85,13 @@ class _InovanceBase(ModbusBaseClient):
         addresses: Sequence[str],
         data_type: Union[DataType, str],
     ) -> List[Tuple[bool, Optional[PrimitiveValue]]]:
-        """批量读(双记号):汇川记号翻译后走 Modbus 合并读。"""
+        """批量读(双记号):汇川记号翻译后走 Modbus 合并读。
+
+        空列表返回 ``[]``(基类契约,review-1033 §七:RTU 侧的
+        ``configure_serial`` 前置断言会先于参数校验抛出)。
+        """
+        if not addresses:
+            return []
         data_type_enum = DataType.coerce(data_type)
         return super().read_many(
             [translate_batch_address(addr, data_type_enum) for addr in addresses],

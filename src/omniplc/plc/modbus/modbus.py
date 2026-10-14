@@ -242,6 +242,10 @@ class ModbusBaseClient(BaseClient):
             ``(False, None)``
         :raises ValueError: ``data_type`` 非法 / 任一地址无法解析
         """
+        if not addresses:
+            # 空列表返回 [](基类契约,review-1033 §七):不触传输——
+            # RTU 侧 configure_serial 前置断言会先于参数校验抛出
+            return []
         data_type_enum = DataType.coerce(data_type)
         # 入参合法性前置校验:任一地址非法即同步抛出,不进事务
         parsed = [

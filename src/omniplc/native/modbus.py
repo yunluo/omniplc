@@ -342,6 +342,9 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         :return: 与地址顺序对应的 ``[(是否成功, 值)]`` 列表
         :raises ValueError: ``data_type`` 非法 / 任一地址无法解析
         """
+        if not addresses:
+            # 空列表返回 [](基类契约,review-1033 §七):不触传输
+            return []
         data_type_enum = DataType.coerce(data_type)
         parsed = [
             (_check_address(addr, data_type_enum), data_type_enum) for addr in addresses

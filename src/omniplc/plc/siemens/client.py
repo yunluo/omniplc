@@ -943,7 +943,10 @@ class SiemensS7Client(BaseClient):
         与基类逐点独立容错不同:任一地址非法或 PLC 拒绝则**整批失败**
         (原因见 :attr:`last_error`);需要逐点容错请逐点调用 :meth:`read`。
         条目上限 20(:data:`.codec.MAX_VARS`;S7 ReadMultiVars 每请求 20 项)。
+        空列表返回 ``[]``(基类契约,review-1033 §七)。
         """
+        if not addresses:
+            return []
         data_type_enum = DataType.coerce(data_type)
         ok, values = self.read_batch(
             [(address, data_type_enum) for address in addresses]

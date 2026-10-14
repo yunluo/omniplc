@@ -388,6 +388,9 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         """
         if self._frame not in (McFrame.FRAME_3E, McFrame.FRAME_4E):
             return await super().read_many(addresses, data_type)
+        if not addresses:
+            # 空列表返回 [](基类契约,review-1033 §七)
+            return []
         data_type_enum = DataType.coerce(data_type)
         _ok, values = await self.read_batch(
             [(address, data_type_enum) for address in addresses]

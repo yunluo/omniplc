@@ -883,8 +883,10 @@ class MelsecMxClient(BaseClient):
 
         与基类逐点独立容错不同:任一地址非法或控件返回出错代码则
         **整批失败**(原因见 :attr:`last_error`);需要逐点容错请逐点
-        调用 :meth:`read`。
+        调用 :meth:`read`。空列表返回 ``[]``(基类契约,review-1033 §七)。
         """
+        if not addresses:
+            return []
         data_type_enum = DataType.coerce(data_type)
         _ok, values = self.read_batch(
             [(address, data_type_enum) for address in addresses]

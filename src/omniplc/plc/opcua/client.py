@@ -745,7 +745,10 @@ class OpcUaClient(BaseClient):
 
         与基类逐点独立容错不同:任一节点非法或服务端拒绝则**整批失败**
         (原因见 :attr:`last_error`);需要逐点容错请逐点调用 :meth:`read`。
+        空列表返回 ``[]``(基类契约,review-1033 §七 / review-1037 §三 P2-4)。
         """
+        if not addresses:
+            return []
         data_type_enum = DataType.coerce(data_type)
         ok, values = self.read_batch(
             [(address, data_type_enum) for address in addresses]

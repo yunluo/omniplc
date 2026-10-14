@@ -446,6 +446,10 @@ class _MelsecMcBase(BaseClient):
         """
         if self._frame not in (McFrame.FRAME_3E, McFrame.FRAME_4E):
             return super().read_many(addresses, data_type)
+        if not addresses:
+            # 空列表返回 [](基类契约;read_batch 的空入参是 ValueError,
+            # review-1033 §七:覆写委托 read_batch 会破该契约)
+            return []
         data_type_enum = DataType.coerce(data_type)
         _ok, values = self.read_batch(
             [(address, data_type_enum) for address in addresses]
