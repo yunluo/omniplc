@@ -426,6 +426,50 @@ def test_udp_read_batch_mixed(monkeypatch: pytest.MonkeyPatch) -> None:
     assert sent[12:] == bytes.fromhex("820064008200660082006700b0000000")
 
 
+@pytest.mark.parametrize(
+    ("address", "word_addr"),
+    [("T10", b"\x00\x0a"), ("C10", b"\x80\x0a")],
+)
+def test_timer_counter_area_high_bit(
+    monkeypatch: pytest.MonkeyPatch, address: str, word_addr: bytes
+) -> None:
+    """T/C 靠地址最高位区分(review-1027 §二 P1)。
+
+    依据:W342 §5-2-2 印刷页 165/166 地址表——TIM 行 ``T0000 to
+    0FFF00``、CNT 行 ``C0000 to C4095 = 800000 to 8FFF00``(起点字地址
+    ``0x8000 + n``);§5-3-2 印刷页 173 区码表把 TIM/CNT **合并为同一条**
+    (位 09 / 字 89)。原实现 T/C **逐字节同帧** ⇒ 读写计数器静默落到
+    定时器(返回仍是合法 16 位 PV,无异常可察)。本用例以**逐字节
+    字面量**锁定 C 区最高位置位、T 不置。
+    """
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport([_fins_read_response([150])])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort(address) == (True, 150)
+    sent = bytes(scripted.sent)
+    assert sent[12] == 0x89  # T/C 共用字操作码(区码本身不区分)
+    assert sent[13:15] == word_addr  # 地址:C 置最高位 / T 不置
+    assert sent[15] == 0x00
+
+
+def test_counter_area_in_read_batch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """0104 多区读条目同样带 C 区最高位(review-1027 §二 P1)。
+
+    批量路径的条目在**客户端层**组装(非 codec 的 ``_address_bytes``),
+    属另一处编码点——本用例逐字节锁定,防只改单点。
+    """
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    scripted = ScriptedTransport([_fins_multiple_read_response([(0x89, 150)])])
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    ok, values = client.read_batch([("C10", "ushort")])
+    assert ok is True and values == [150]
+    sent = bytes(scripted.sent)
+    assert sent[10:12] == b"\x01\x04"
+    assert sent[12:] == bytes.fromhex("89800a00")  # 区码 89 + 字地址 800A + 位 00
+
+
 def test_fins_multiword_value_word_order(monkeypatch: pytest.MonkeyPatch) -> None:
     """32/64 位多字值字序回归:字内大端、低字在前(第八轮 P0-1)。
 

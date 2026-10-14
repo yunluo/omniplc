@@ -868,11 +868,14 @@ FINS_MEMORY_CODES: Dict[str, Tuple[int, int]] = {
 """FINS 存储区码:区名 → (位操作码, 字操作码)。来源:手册 W342 §5-2-1/§5-2-2;EM 区按 bank 换算(位 0x20/字 0xA0 + bank,bank 0~15)。
 T/C(定时器/计数器)共享码表(按地址区分):位 = 完成标志(09,只读),
 字 = 当前值 PV(89,可读写)。
-**C 区地址前缀分歧(review-1018 P1-1,真机核证项)**:W342 §5-2-2 地址表
-CNT 行为 ``C0000 to C4095 = 800000 to 8FFF00``(字面带 0x8000 前缀),而
-C 语言参考实现(C)与 fins(Python)两大参考实现均只按码区分、**不加前缀**——
-本库跟随参考实现,真机读 C10 验 PV 落 Timer 还是 Counter 后终裁
-(docs/real-machine-checklist.md 欧姆龙行)。"""
+**C 区地址最高位(review-1018 P1-1 披露,review-1027 §二 P1 已按手册修)**:
+W342 §5-2-2 印刷页 165/166 地址表 TIM 行 ``T0000 to 0FFF00``、CNT 行
+``C0000 to C4095 = 800000 to 8FFF00`` —— T 与 C **靠地址最高位区分**
+(区码同一条,§5-3-2 印刷页 173);原实现 T/C 逐字节同帧 ⇒ 读写计数器
+静默落到定时器(两大开源参考实现亦不加前缀,本库原跟随之)。现由
+:func:`omniplc.plc.omron.codec.area_offset` 对 ``C`` 区补 ``0x8000``,
+**真机复核项**入 `docs/real-machine-checklist.md` 欧姆龙行(读 C10 PV
+落 Counter 还是 Timer)。"""
 FINS_TIMER_COUNTER_AREAS: Tuple[str, ...] = ("T", "C")
 """定时器/计数器区记号:位访问为完成标志(只读,地址不带位号),
 字访问为当前值 PV(可读写)。"""

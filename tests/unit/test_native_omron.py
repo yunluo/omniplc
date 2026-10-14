@@ -905,6 +905,49 @@ def test_d_area_bit_read_falls_back_on_1101(
     loop.run_until_complete(scenario())
 
 
+def test_native_counter_area_high_bit(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """原生侧 C 区地址最高位同置(review-1027 §二 P1)。
+
+    native 为**独立实现**(非继承同步层):0101 起始地址经共享
+    ``codec._address_bytes``、0104 条目在 native 客户端层单独组装——
+    两侧同改后同样逐字节锁定(与同步侧用例对称)。
+    """
+
+    async def scenario() -> None:
+        client = AsyncOmronFinsUdpClient(
+            "192.168.250.1", 9600, destination_node=_DEST_NODE, source_node=_SRC_NODE
+        )
+        scripted = ScriptedAsyncTransport(
+            [_fins_response(1, 0x0101, data=_words_be([150]))], datagram=True
+        )
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        assert await client.read_ushort("C10") == (True, 150)
+        sent = bytes(scripted.sent)
+        assert sent[12] == 0x89  # T/C 共用字操作码
+        assert sent[13:15] == b"\x80\x0a"  # C 区字地址 = 0x8000 + 10
+        await client.close()
+
+        # 0104 多区读条目(native 客户端层组装点)
+        client2 = AsyncOmronFinsUdpClient(
+            "192.168.250.1", 9600, destination_node=_DEST_NODE, source_node=_SRC_NODE
+        )
+        scripted2 = ScriptedAsyncTransport(
+            [_fins_response(1, 0x0104, data=b"\x89" + (150).to_bytes(2, "big"))],
+            datagram=True,
+        )
+        monkeypatch.setattr(client2, "_create_transport", lambda: scripted2)
+        assert await client2.connect() is True
+        ok, values = await client2.read_batch([("C10", "ushort")])
+        assert ok is True and values == [150]
+        assert bytes(scripted2.sent)[12:] == bytes.fromhex("89800a00")
+        await client2.close()
+
+    loop.run_until_complete(scenario())
+
+
 # ----------------------------------------------------------------------
 # CPU Unit Status Read(0601)与探活
 # ----------------------------------------------------------------------

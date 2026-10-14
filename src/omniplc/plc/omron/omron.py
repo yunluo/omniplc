@@ -522,7 +522,9 @@ class _OmronFinsBase(BaseClient):
                     )
                 _unused, word_code = codec.memory_codes(parsed.area, parsed.bank)
                 plan.append(("wordbit", len(entries), parsed.bit or 0, data_type_enum))
-                entries.append((word_code, parsed.offset))
+                entries.append(
+                    (word_code, codec.area_offset(parsed.area, parsed.offset))
+                )
                 continue
             if data_type_enum in (DataType.SHORT, DataType.USHORT):
                 words = 1
@@ -537,7 +539,9 @@ class _OmronFinsBase(BaseClient):
             _unused, word_code = codec.memory_codes(parsed.area, parsed.bank)
             plan.append(("word", len(entries), words, data_type_enum))
             for index in range(words):
-                entries.append((word_code, parsed.offset + index))
+                entries.append(
+                    (word_code, codec.area_offset(parsed.area, parsed.offset + index))
+                )
         codes = [code for code, _unused in entries]
 
         def operation() -> List[PrimitiveValue]:

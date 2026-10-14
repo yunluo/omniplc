@@ -844,12 +844,31 @@ def _area_code(address: FinsAddress, is_bit: bool) -> int:
     return bit_code if is_bit else word_code
 
 
+def area_offset(area: str, offset: int) -> int:
+    """区地址的线上编码:CNT(C)区补最高位 ``0x8000``(内部函数)。
+
+    依据:W342 §5-2-2 印刷页 165/166 地址表——TIM 行
+    ``T0000 to 0FFF00``、**CNT 行 ``C0000 to C4095 = 800000 to 8FFF00``**;
+    §5-3-2 印刷页 173 区码表把 TIM/CNT **合并为同一条**(位 ``09`` / 字
+    ``89``),即 **T 与 C 靠地址最高位区分**,区码本身不区分。
+
+    review-1027 §二 P1:原实现 T/C 逐字节同帧(`build_area_read(FinsAddress
+    ("C",10,None))` 与 `("T",10,None)` 完全相同)——读写计数器会静默落到
+    定时器,返回值仍是合法 16 位 PV、无任何异常可察觉。两大开源参考实现
+    均不加前缀(本库原跟随之),按引用铁律**以手册为准**修正,真机复核项
+    入 `docs/real-machine-checklist.md`。
+    """
+    if area == "C":
+        return offset | 0x8000
+    return offset
+
+
 def _address_bytes(address: FinsAddress) -> bytes:
     """起始地址 3 字节:字地址 2 字节大端 + 位号 1 字节(内部函数)。"""
     if not 0 <= address.offset <= 0xFFFF:
         raise ValueError(_("FINS 字地址超出范围 0~65535:{}").format(address.offset))
     bit = address.bit if address.bit is not None else 0
-    return address.offset.to_bytes(2, "big") + bytes([bit])
+    return area_offset(address.area, address.offset).to_bytes(2, "big") + bytes([bit])
 
 
 def _write_data(data: List[int], is_bit: bool) -> bytes:
