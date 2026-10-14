@@ -1139,7 +1139,7 @@ class MelsecMxClient(BaseClient):
         finally:
             com = None  # 与 CreateObject 配对:失败路径也不留代理引用
 
-    def create_monitor(  # type: ignore[override]
+    def create_monitor(
         self,
         points: Union[Mapping[str, Sequence[str]], TagTable],
         interval: float = 1.0,
