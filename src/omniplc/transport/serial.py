@@ -20,20 +20,31 @@ from ..core.constants import (
 )
 from ..core.debug import RECV_MARK, SEND_MARK, log_frame, log_op
 from ..core.errors import TransportClosedError, TransportTimeoutError
-from ..core.types import SerialParity
+from ..core.types import PrimitiveValue, SerialParity
 from ..core.i18n import _
+from ..core.validation import require_int
 
 
 @dataclass
 class SerialConfig:
     """串口参数配置。
 
+    构造即校验(:meth:`validate` 在 ``__post_init__`` 里调用):参数非法在
+    ``configure_serial()`` 调用点就抛 :class:`ValueError`,不必等第一次
+    收发才发现(客户端把 ``SerialConfig`` 构造在事务路径上,延迟校验会把
+    参数错误伪装成事务失败)。
+
     :param port_name: 串口名,如 ``"COM3"``(Windows)或 ``"/dev/ttyS0"``(Linux)
-    :param baud_rate: 波特率,默认 9600
-    :param data_bits: 数据位 5~8,默认 8
+    :param baud_rate: 波特率,默认 9600(必须是 >0 的整数)
+    :param data_bits: 数据位 5~8,默认 8(整数)
     :param stop_bits: 停止位 1/1.5/2,默认 1
     :param parity: 校验位,推荐 :class:`omniplc.types.SerialParity` 枚举,
         也兼容 ``"N"``/``"E"``/``"O"`` 字符串
+
+    :raises ValueError: 参数非法(review-1038 §7.2:原校验用裸比较,
+        ``baud_rate=nan/inf/True`` 通过后被 pyserial 静默收窄,
+        ``data_bits=6.5`` 通过后炸成 ``KeyError: 6.5``,字符串参数抛
+        ``TypeError`` 直穿公开 API——现统一走 :func:`require_int`)
     """
 
     port_name: str
@@ -42,6 +53,10 @@ class SerialConfig:
     stop_bits: float = SERIAL_DEFAULT_STOP_BITS
     parity: Union[SerialParity, str] = SERIAL_DEFAULT_PARITY
 
+    def __post_init__(self) -> None:
+        """构造即校验(见类 docstring)。"""
+        self.validate()
+
     def validate(self) -> None:
         """校验参数合法性。
 
@@ -49,9 +64,13 @@ class SerialConfig:
         """
         if not self.port_name or not self.port_name.strip():
             raise ValueError(_("串口名 port_name 不能为空"))
-        if self.baud_rate <= 0:
+        baud_rate = _require_int_field(_("波特率 baud_rate"), self.baud_rate)
+        if baud_rate <= 0:
             raise ValueError(_("波特率必须大于 0,收到:{}").format(self.baud_rate))
-        if not 5 <= self.data_bits <= 8:
+        # 数据位先按整数收口(排除 bool/float/str),再判 5~8:
+        # 原实现 ``5 <= 6.5 <= 8`` 判真,越到 connect 才 KeyError
+        data_bits = _require_int_field(_("数据位 data_bits"), self.data_bits)
+        if not 5 <= data_bits <= 8:
             raise ValueError(_("数据位必须在 5~8 之间,收到:{}").format(self.data_bits))
         if self.stop_bits not in (1, 1.5, 2):
             raise ValueError(_("停止位必须是 1/1.5/2,收到:{}").format(self.stop_bits))
@@ -193,6 +212,42 @@ class SerialTransport(BaseTransport):
         log_frame(self._debug_label, RECV_MARK, frame)
         return frame
 
+    def recv_some(self, max_bytes: int) -> bytes:
+        """读取一批当前到达的数据(1~``max_bytes`` 字节,有数据即返回)。
+
+        :meth:`recv` 是"读满恰好 size;部分字节超时即关串口"的**定长**口径,
+        不能当流式成帧的"有数据尽快返回"用——基类默认退化会把
+        ``recv_some(n)`` 变成"要么凑满 n 字节,要么关串口断线"(review-1038
+        §7.1:KV Host Link 的流式收行在串口走线上必然失败,每事务
+        "超时→关串口→重连→再超时")。本覆写按 pyserial 的 ``in_waiting``
+        探量:先等**首字节**(超时按 0 字节口径抛
+        :class:`omniplc.core.errors.TransportTimeoutError`,不断线),到达后
+        只读当前已可读的量,不足 ``max_bytes`` 不再等待。
+
+        :param max_bytes: 单批字节数上限(必须 ≥1)
+        :return: 收到的字节(非空)
+        :raises ValueError: ``max_bytes`` ≤ 0
+        :raises TransportClosedError: 串口未打开
+        :raises TransportTimeoutError: 超时内无任何数据到达(0 字节,不断线)
+        """
+        if max_bytes <= 0:
+            raise ValueError(_("max_bytes 必须大于 0,收到:{}").format(max_bytes))
+        port = self._require_serial()
+        port.timeout = self._receive_timeout
+        chunk = bytearray(port.read(1))
+        if not chunk:
+            # 0 字节已读:线上安静、无帧残渣,与 recv 同口径不断线
+            raise TransportTimeoutError(
+                _("串口读取超时(receive_timeout={})").format(self._receive_timeout),
+                0,
+            )
+        waiting = getattr(port, "in_waiting", 0) or 0
+        if waiting > 0 and len(chunk) < max_bytes:
+            chunk.extend(port.read(min(int(waiting), max_bytes - len(chunk))))
+        frame = bytes(chunk)
+        log_frame(self._debug_label, RECV_MARK, frame)
+        return frame
+
     def _timeout_exit(self, received: int, size: int) -> None:
         """超时收尾:按已读字节数选择不断线超时或断线重同步(内部方法)。"""
         if received == 0:
@@ -224,3 +279,16 @@ def _coerce_parity(value: Union[SerialParity, str]) -> SerialParity:
         raise ValueError(
             _("校验位必须是 SerialParity 枚举或 N/E/O,收到:{!r}").format(value)
         )
+
+
+def _require_int_field(name: str, value: PrimitiveValue) -> int:
+    """校验串口整数字段(内部函数,复用 :func:`require_int` 口径并带字段名)。
+
+    :raises ValueError: 非整数(bool/浮点/字符串均拒)
+    """
+    try:
+        return require_int(value)
+    except ValueError as exc:
+        raise ValueError(
+            _("{} 必须是整数(不接受 bool/浮点/字符串),收到:{!r}").format(name, value)
+        ) from exc

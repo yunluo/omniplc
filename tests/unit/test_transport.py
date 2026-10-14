@@ -440,6 +440,32 @@ class _FakeSerialPort:
         return chunk[:size]
 
 
+class _BufferedFakeSerialPort(_FakeSerialPort):
+    """带接收缓冲的假串口:``in_waiting`` 反映已到达字节数,``read`` 只消费所需。
+
+    ``_FakeSerialPort`` 的 ``read`` 整项弹出(适配"读满恰好 size"的 recv
+    用例),不适合 ``recv_some``——后者依赖"读走 1 字节后其余仍可读"的
+    真机语义。
+    """
+
+    def __init__(self, bursts: List[bytes]) -> None:
+        super().__init__(bursts)
+        self._buffer = bytearray()
+
+    @property
+    def in_waiting(self) -> int:
+        return len(self._buffer)
+
+    def read(self, size: int) -> bytes:
+        if not self._buffer:
+            if not self.script:
+                return b""  # 线静默:模拟超时
+            self._buffer.extend(self.script.pop(0))
+        chunk = bytes(self._buffer[:size])
+        del self._buffer[:size]
+        return chunk
+
+
 class TestSerialTransportRecv:
     """串口 recv 超时三分支(0 字节不断线 / 帧截断断线重同步 / 正常读满)。
 
@@ -543,3 +569,124 @@ class TestSerialConfig:
     def test_invalid(self, kwargs: dict) -> None:
         with pytest.raises(ValueError):
             SerialConfig(**kwargs).validate()
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            # review-1038 §7.2:原裸比较放过 nan/inf/bool/浮点,越到 connect
+            # 才炸成 CPython 文案 / KeyError;字符串参数更抛 TypeError 直穿
+            # read() 公开 API。现构造期即 ValueError。
+            {"port_name": "COM3", "baud_rate": float("nan")},
+            {"port_name": "COM3", "baud_rate": float("inf")},
+            {"port_name": "COM3", "baud_rate": True},
+            {"port_name": "COM3", "baud_rate": 9600.7},
+            {"port_name": "COM3", "baud_rate": "9600"},
+            {"port_name": "COM3", "data_bits": 6.5},
+            {"port_name": "COM3", "data_bits": True},
+            {"port_name": "COM3", "data_bits": "8"},
+        ],
+    )
+    def test_non_int_field_rejected_at_construction(self, kwargs: dict) -> None:
+        """非整数字段(含 bool/浮点/字符串)构造期 ValueError,不是 TypeError/KeyError。"""
+        with pytest.raises(ValueError, match="必须是整数"):
+            SerialConfig(**kwargs)
+
+    def test_construction_validates_eagerly(self) -> None:
+        """构造即校验:参数非法在 configure_serial() 调用点就暴露。"""
+        with pytest.raises(ValueError, match="波特率"):
+            SerialConfig(port_name="COM3", baud_rate=-1)
+
+
+class TestSerialTransportRecvSome:
+    """串口 recv_some:流式"有数据即返回"(review-1038 §7.1)。
+
+    原基类默认退化为 ``recv``(读满恰好 size;不足即关串口),使流式成帧
+    在串口走线上必然失败——本节用例挂带接收缓冲的假串口钉住新口径。
+    """
+
+    @staticmethod
+    def _make_transport(monkeypatch: pytest.MonkeyPatch, bursts: List[bytes]):
+        import sys
+        import types
+
+        port = _BufferedFakeSerialPort(bursts)
+        fake = types.ModuleType("serial")
+        fake.Serial = lambda: port  # type: ignore[attr-defined]
+        fake.PARITY_NONE = "N"  # type: ignore[attr-defined]
+        fake.PARITY_EVEN = "E"  # type: ignore[attr-defined]
+        fake.PARITY_ODD = "O"  # type: ignore[attr-defined]
+        fake.FIVEBITS = 5  # type: ignore[attr-defined]
+        fake.SIXBITS = 6  # type: ignore[attr-defined]
+        fake.SEVENBITS = 7  # type: ignore[attr-defined]
+        fake.EIGHTBITS = 8  # type: ignore[attr-defined]
+        fake.STOPBITS_ONE = 1  # type: ignore[attr-defined]
+        fake.STOPBITS_ONE_POINT_FIVE = 1.5  # type: ignore[attr-defined]
+        fake.STOPBITS_TWO = 2  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "serial", fake)
+
+        from omniplc.transport.serial import SerialTransport
+
+        transport = SerialTransport(SerialConfig(port_name="COM3"))
+        transport.receive_timeout = 0.1
+        transport.connect()
+        return transport, port
+
+    def test_returns_batch_without_filling_max_bytes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """有数据即返回:一批 2 字节不因 ``max_bytes=4098`` 而等待/凑满。"""
+        transport, port = self._make_transport(monkeypatch, [b"AB", b"CD"])
+        try:
+            assert transport.recv_some(4098) == b"AB"
+            assert transport.recv_some(4098) == b"CD"
+            assert port.closed is False
+        finally:
+            transport.close()
+
+    def test_respects_max_bytes_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """``max_bytes`` 是上限:一次突发超出即按上限切分,余量留缓冲。"""
+        transport, port = self._make_transport(monkeypatch, [b"ABCDEF"])
+        try:
+            assert transport.recv_some(3) == b"ABC"
+            assert transport.recv_some(3) == b"DEF"
+        finally:
+            transport.close()
+
+    def test_silence_timeout_keeps_port_open(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """无数据:0 字节口径 TransportTimeoutError,**不关串口**(与 recv 同)。
+
+        这正是原默认退化最恶劣处——``recv_some(KV_MAX_LINE)`` 在安静线上
+        会走"部分/零字节 → 关串口"路径,端到端表现为每事务"超时→关串口→
+        重连→再超时"永久失败。
+        """
+        from omniplc.core.errors import TransportTimeoutError
+
+        transport, port = self._make_transport(monkeypatch, [])
+        try:
+            with pytest.raises(TransportTimeoutError):
+                transport.recv_some(4098)
+            assert port.closed is False
+        finally:
+            transport.close()
+
+    def test_non_positive_max_bytes_rejected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``max_bytes`` ≤0 是调用方参数错误,参数期 ValueError。"""
+        transport, _port = self._make_transport(monkeypatch, [b"AB"])
+        try:
+            with pytest.raises(ValueError, match="max_bytes"):
+                transport.recv_some(0)
+        finally:
+            transport.close()
+
+    def test_closed_port_raises_closed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """串口未打开:与 recv 同,TransportClosedError。"""
+        from omniplc.core.errors import TransportClosedError
+
+        transport, _port = self._make_transport(monkeypatch, [b"AB"])
+        transport.close()
+        with pytest.raises(TransportClosedError):
+            transport.recv_some(8)
