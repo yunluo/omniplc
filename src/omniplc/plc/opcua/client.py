@@ -425,11 +425,16 @@ class OpcUaSubscription:
     """OPC-UA 订阅句柄(由 :meth:`OpcUaClient.subscribe_data_change` /
     :meth:`OpcUaClient.subscribe_event` 返回,v0.35 新增)。
 
-    唯一公开方法 :meth:`unsubscribe` —— **幂等**,线程安全,失败返回 False
-    (已断开 / 已取消)。订阅是 transient 状态:客户端断开后所有未显式
-    unsubscribe 的句柄自动失效;构造 ``auto_resubscribe=True`` 时重连成功
-    后按订阅意图自动重建——重订产生**新**句柄,旧句柄(含用户持有的引用)
-    恒失效,不要复用。
+    唯一公开方法 :meth:`unsubscribe` —— **幂等**,可从任意线程调用,
+    **但不得在数据变化/事件回调线程内调用**(review-1037 §二 P1:asyncua
+    的 ``sync.ThreadLoop.post`` 从 loop 线程自身投递会"自己等自己",
+    实测 20 s 未返回、期间整个会话停摆;本库显式抛
+    :class:`OmniPLCInternalError`,不静默挂死)。回调内需要退订时,请把
+    退订请求投给业务线程/队列再执行。失败返回 False(已断开 / 已取消)。
+
+    订阅是 transient 状态:客户端断开后所有未显式 unsubscribe 的句柄自动
+    失效;构造 ``auto_resubscribe=True`` 时重连成功后按订阅意图自动重建
+    ——重订产生**新**句柄,旧句柄(含用户持有的引用)恒失效,不要复用。
     """
 
     def __init__(
@@ -441,6 +446,7 @@ class OpcUaSubscription:
         _asyncua_subscription: Any,
         _monitored_items: List[Any],
         _release: Optional[Callable[[], bool]] = None,
+        _loop_thread: Any = None,
     ) -> None:
         self._node_id = node_id
         self._subscription_id = subscription_id
@@ -450,6 +456,9 @@ class OpcUaSubscription:
         # 断开联动释放通道(disconnect 用):只释放服务端资源 + 摘活跃索引,
         # **不动** auto_resubscribe 意图表——断开是链路操作,退订才是意图变更
         self._release = _release
+        # asyncua 的 sync.ThreadLoop 本体(Thread 子类):用于识别"当前
+        # 就在回调/loop 线程内"(review-1037 §二 P1 死锁守卫)
+        self._loop_thread = _loop_thread
         self._unsub_done = False
         self._unsub_lock = threading.Lock()
 
@@ -463,12 +472,35 @@ class OpcUaSubscription:
         """asyncua 内部 Subscription id(debug / trace 用)。"""
         return self._subscription_id
 
+    def _reject_if_in_loop_thread(self, action: str) -> None:
+        """回调线程内做服务端 I/O = 自锁,显式拒绝(内部方法)。
+
+        机理:``asyncua.sync.ThreadLoop.post`` 内部是
+        ``run_coroutine_threadsafe(coro, loop).result(timeout=120)``;若
+        发起点正是 loop 线程本身(数据变化/事件回调就运行在该线程),
+        该调用会等自己完成——实测 20 s 未返回且会话停摆(review-1037 §二
+        P1,真服务端复现)。
+        """
+        loop_thread = self._loop_thread
+        if loop_thread is not None and threading.current_thread() is loop_thread:
+            raise OmniPLCInternalError(
+                _(
+                    "OPC-UA 不可在数据变化/事件回调线程内{}:回调就运行在 asyncua "
+                    "事件循环线程上,直连调用会自锁(服务端 I/O 等待自身)。"
+                    "请把该操作转交业务线程/队列执行(例如在回调里入队,"
+                    "由主循环消费后调用)"
+                ).format(action)
+            )
+
     def unsubscribe(self) -> bool:
-        """取消订阅(幂等,线程安全)。
+        """取消订阅(幂等;不可在回调线程内调用,见类 docstring)。
 
         :return: ``True`` 此次调用真正执行了取消;``False`` 已取消 / 已断开。
             同时移除 ``auto_resubscribe`` 重订意图(退订 = 放弃订阅)。
+        :raises OmniPLCInternalError: 在数据变化/事件回调线程内调用
+            (review-1037 §二 P1 死锁守卫)
         """
+        self._reject_if_in_loop_thread("退订")
         with self._unsub_lock:
             if self._unsub_done:
                 return False
@@ -481,9 +513,12 @@ class OpcUaSubscription:
 
         与 :meth:`unsubscribe` 共享 ``_unsub_done`` 终态锁——先到者生效;
         未提供释放通道的句柄(旧构造)退化为 :meth:`unsubscribe`。
+        同样受回调线程守卫(``disconnect`` 亦不可在回调内调用)。
 
         :return: 服务端释放是否成功(语义同 :meth:`unsubscribe`)
+        :raises OmniPLCInternalError: 在数据变化/事件回调线程内调用
         """
+        self._reject_if_in_loop_thread("释放订阅")
         with self._unsub_lock:
             if self._unsub_done:
                 return False
@@ -1117,6 +1152,7 @@ class OpcUaClient(BaseClient):
             _asyncua_subscription=ua_sub,
             _monitored_items=monitored,
             _release=_do_release,
+            _loop_thread=getattr(ua_sub, "tloop", None),
         )
         with self._state_lock:
             self._active_subscriptions[sub_id] = handle
@@ -1236,6 +1272,7 @@ class OpcUaClient(BaseClient):
             _asyncua_subscription=ua_sub,
             _monitored_items=monitored,
             _release=_do_release,
+            _loop_thread=getattr(ua_sub, "tloop", None),
         )
         with self._state_lock:
             self._active_subscriptions[sub_id] = handle

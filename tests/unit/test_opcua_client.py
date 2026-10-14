@@ -1370,6 +1370,47 @@ def test_unsubscribe_is_thread_safe() -> None:
     assert results.count(True) == 1  # 仅一个线程拿到"真正取消"
 
 
+def test_unsubscribe_inside_callback_thread_rejected() -> None:
+    """回调线程内 unsubscribe/release 显式拒绝(不静默自锁)(review-1037 §二 P1)。
+
+    机理:asyncua ``sync.ThreadLoop`` 是 Thread 子类,数据变化/事件回调就
+    运行在它的 loop 线程上;``ThreadLoop.post`` 内部
+    ``run_coroutine_threadsafe(...).result(timeout=120)`` 从该线程发起 =
+    自己等自己(真服务端实测 20 s 未返回、期间会话停摆)。本库把该场景
+    变成**明确异常**,并把「线程安全」的无条件承诺从 docstring 去掉。
+    """
+    calls: list = []
+    handle = OpcUaSubscription(
+        node_id="ns=2;s=x",
+        subscription_id=1,
+        unsub=lambda: calls.append(1) or True,
+        _asyncua_subscription=None,
+        _monitored_items=[],
+        _release=lambda: calls.append(2) or True,
+        _loop_thread=_threading.current_thread(),  # 模拟"当前就在回调线程"
+    )
+    with pytest.raises(OmniPLCInternalError, match="回调线程"):
+        handle.unsubscribe()
+    with pytest.raises(OmniPLCInternalError, match="回调线程"):
+        handle.release()
+    assert calls == []  # 服务端 I/O 零发起(未进入 deadlock 路径)
+
+
+def test_unsubscribe_from_other_thread_allowed() -> None:
+    """非回调线程(业务线程)退订照常执行:守卫只拦 loop 线程本身。"""
+    calls: list = []
+    handle = OpcUaSubscription(
+        node_id="ns=2;s=x",
+        subscription_id=1,
+        unsub=lambda: calls.append(1) or True,
+        _asyncua_subscription=None,
+        _monitored_items=[],
+        _loop_thread=_threading.Thread(),  # 别的线程(未启动也无妨,只比身份)
+    )
+    assert handle.unsubscribe() is True
+    assert calls == [1]
+
+
 def test_set_error_counter_is_thread_safe() -> None:
     """订阅回调线程写状态:并发 _set_error 不丢 error_count 计数。"""
     client = OpcUaClient("127.0.0.1", _OPCUA_TEST_PORT)

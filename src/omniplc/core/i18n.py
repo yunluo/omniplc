@@ -667,6 +667,13 @@ _TRANSLATIONS: Dict[str, str] = {
     "OPC-UA DataChange 回调异常:{}:{}": "Exception in the OPC-UA DataChange callback: {0}: {1}",
     "OPC-UA Event 回调异常:{}:{}": "Exception in the OPC-UA Event callback: {0}: {1}",
     "OPC-UA 订阅被服务端拒绝:{}": "The OPC-UA subscription was rejected by the server: {}",
+    "OPC-UA 不可在数据变化/事件回调线程内{}:回调就运行在 asyncua 事件循环线程上,直连调用会自锁(服务端 I/O 等待自身)。请把该操作转交业务线程/队列执行(例如在回调里入队,由主循环消费后调用)": (
+        "OPC-UA cannot {0} from the data-change/event callback thread: the"
+        " callback runs on the asyncua event-loop thread, and calling this"
+        " directly would self-deadlock (server I/O waiting on itself). Hand"
+        " the operation to a worker thread/queue instead (for example enqueue"
+        " in the callback and let the main loop consume it)"
+    ),
     "Identity 属性值截断(UINT)": "Identity attribute value truncated (UINT)",
     "Identity 属性值截断(UDINT)": "Identity attribute value truncated (UDINT)",
     "Identity 属性值截断(Revision)": "Identity attribute value truncated (Revision)",
