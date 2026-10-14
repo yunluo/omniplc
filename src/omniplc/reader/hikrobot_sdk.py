@@ -13,16 +13,24 @@ Guide》V1.5.3(2024/01/10,``Doc/``)。指南印刷页码引用(下称「指南�
 - ``MV_CODEREADER_SetCommandValue``(指南 §3.5.12 印刷页 44):软触发经
   ``TriggerSoftware`` 命令(GenICam 命令节点)
 - ``MV_CODEREADER_EnumIDDevices``(指南 §3.1.4 印刷页 13):私有协议枚举
-  ID 系列设备;结构体定义见指南 §4.1(印刷页 51-79)与头文件
-  ``MvCodeReaderParams.h``(就近注释行号)、错误码 ``MvCodeReaderErrorDefine.h``
+  ID 系列设备;结构体定义见指南 §4.1(**印刷页 51-75**,§4.2 枚举自印刷页 75
+  起)与头文件 ``MvCodeReaderParams.h``(就近注释行号)、错误码
+  ``MvCodeReaderErrorDefine.h``
+
+**头文件引用待核**(review-1036 §八-1/§二-6):``MvCodeReaderParams.h`` /
+``MvCodeReaderErrorDefine.h`` **本地未归档**(V2.0.0 随 IDMVS Development
+包分发,登记在 `docs/protocol/README.md`「待补」表),故下方全部"头文件行号"
+就近引用**库内无从对拍**——拿到 Development 包摘录头文件片段归档后逐处复核;
+NoRead 标记类型 1000/1001/1002 亦出自该头文件的码制枚举(指南全文无 NoRead
+字样,原引「指南附录 C.1」有误:附录 C.1 印刷页 91 是主动轮询样例代码)。
 
 **无官方 Python 绑定**(SDK 提供 C/C++/C#/Java),本模块以 ctypes 按头文件
 直接绑定;动态库须现场安装(Runtime 安装包或指明 SDK 目录),核心零依赖。
 结构体为 MSVC 自然对齐,与头文件逐字段对应。**结构体布局以 V2.0.0 头文件
-为权威依据**(本地归档 ``docs/protocol/hikrobot/MvCodeReaderParams.h``,
-与其他厂商资料同口径不入库)——指南 V1.5.3 的 IMAGE_OUT_INFO_EX2 布局
-落后于 V2.0.0 头文件(头文件新增 UnparsedAgvInfo union 并把 nReserved
-25→23,见审查 1001 P1-2),差异以头文件为准;测试含 sizeof 解析对拍守卫。
+为权威依据**(头文件本地未归档,布局守卫以 win32 期望尺寸对拍)——指南
+V1.5.3 的 IMAGE_OUT_INFO_EX2 布局落后于 V2.0.0 头文件(头文件新增
+UnparsedAgvInfo union 并把 nReserved 25→23,见审查 1001 P1-2),差异以头文件
+为准;测试含 sizeof 解析对拍守卫。
 
 触发前置(读码器侧):TriggerMode=On + TriggerSource=Software(可经
 :meth:`set_enum_value` 设置或 IDMVS 配置),采集进行中(StartGrabbing)。
@@ -61,7 +69,9 @@ __all__ = [
 _MV_CODEREADER_OK = 0x00000000
 """成功(MvCodeReaderErrorDefine.h 行 6)。"""
 _MV_CODEREADER_E_NODATA = 0x80020006
-"""无数据:帧等待超时未取到图(MvCodeReaderErrorDefine.h 行 15)。"""
+"""无数据:帧等待超时未取到图(``MvCodeReaderErrorDefine.h`` 行 15,头文件
+未归档待核;**数值出处**=指南附录 D 错误码表印刷页 108——§3.3.3 印刷页 27-28
+只说"超时会返回错误码",不点名 NODATA)。"""
 _MV_CODEREADER_GIGE_DEVICE = 0x00000001
 """传输层类型:GigE 设备(MvCodeReaderParams.h 行 51 区)。"""
 _MV_CODEREADER_USB_DEVICE = 0x00000004
@@ -122,7 +132,9 @@ def _frame_is_noread(frame: "HikrobotSdkFrame") -> bool:
     """整帧无有效条码判定(内部方法):无码,或全部为 NoRead 标记类型。
 
     读码器开启 NoRead 输出时,未读到码的 ROI 会输出 NoRead 标记条码
-    (类型 1000/1001/1002,指南附录 C.1)——全帧皆标记 = 没读到码,
+    (类型 1000/1001/1002,出自 ``MvCodeReaderParams.h`` 的码制枚举
+    ``MV_CODEREADER_CODE_TYPE``;**头文件未归档,行号待核**;指南 V1.5.3
+    全文无 NoRead 字样,见模块头「头文件引用待核」)——全帧皆标记 = 没读到码,
     不得当作成功读码返回。
     """
     return (not frame.codes) or all(
@@ -707,7 +719,7 @@ _SDK_LINK_ERROR_RANGES = (
     (0x80020300, 0x800203FF),
     (0x80020500, 0x800205FF),
 )
-"""链路类错误码段(指南附录 D 印刷页 108-119):命中即断链,按 OSError
+"""链路类错误码段(指南附录 D 印刷页 108-113):命中即断链,按 OSError
 抛出触发基类惰性重连——GigE 状态 / USB 状态 / 网络组件三类。"""
 
 
@@ -715,7 +727,7 @@ def _check_rc(rc: int, action: str) -> None:
     """SDK 返回码校验(内部方法):非 OK 按错误类别分流抛出。
 
     - **链路类**(GigE 状态 0x800202xx / USB 状态 0x800203xx / 网络组件
-      0x800205xx,指南附录 D 印刷页 108-119 明确为连接状态错误)→
+      0x800205xx,指南附录 D 印刷页 108-113 明确为连接状态错误)→
       :class:`OSError`——触发基类惰性重连,网线拔掉/掉电后不再永驻
       "已连接"态;
     - 其余(语义类/参数类/超时)→ :class:`DeviceError` 不断线。

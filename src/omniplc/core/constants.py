@@ -1103,8 +1103,9 @@ HIKROBOT_NOREAD_TEXT: str = "NoRead"
 150 / 超小型手册印刷页 55);现场若改过该参数,构造时传 :attr:`noread_text`。"""
 HIKROBOT_SERIAL_TRIGGER_TEXT: str = "start"
 """串口开始触发文本默认值(超小型手册印刷页 45:「串口开始触发文本……默认
-为 start」;极小型手册印刷页 122 同)。可配 1~31 字符(通信指令手册
-TriSeriStart,印刷页 9),与停止文本**长度不可相等**(印刷页 9 备注)。"""
+为 start」;极小型手册**印刷页 124** 同——印刷页 122 是 TCP 开始触发文本)。可配
+1~31 字符(通信指令手册 TriSeriStart,印刷页 9),与停止文本**长度不可相等**
+(印刷页 9 备注)。"""
 HIKROBOT_SERIAL_STOP_TEXT: str = "stop"
 """串口停止触发文本默认值(超小型手册印刷页 47:「串口停止触发的命令字符串……
 默认为 stop」)。"""
@@ -1118,7 +1119,8 @@ HIKROBOT_SERIAL_DRAIN_TIMEOUT: float = 0.5
 HIKROBOT_SERIAL_BAUD_DEFAULT: int = 115200
 """串口默认波特率(本库取舍:常用现场值;**出厂默认 9600**,超小型手册
 §4.6.2 印刷页 48 原文「串口波特率:设置串口波特率,默认为9600」——审查
-1001 P3-⑩ 订正原"手册未载"表述;可选项 4800~115200,TriSeriBaud 印刷页 8)。"""
+1001 P3-⑩ 订正原"手册未载"表述;可选项 4800/9600/19200/38400/57600/115200
+= 枚举值 2~7,TriSeriBaud 印刷页 9)。"""
 HIKROBOT_ACK_SETTLE: float = 1.0
 """Results Ack 消费等待的独立收尾预算(秒,工业协议手册 §3.6 步骤 6)。
 
