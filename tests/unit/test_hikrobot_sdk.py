@@ -273,8 +273,13 @@ def _make_frame(
     *,
     is_get_code: bool = True,
     codes: Optional[List[dict]] = None,
+    code_num_override: Optional[int] = None,
 ) -> _MV_CODEREADER_IMAGE_OUT_INFO_EX2:
-    """构造一帧 EX2 信息(真实 ctypes 结构体)。"""
+    """构造一帧 EX2 信息(真实 ctypes 结构体)。
+
+    :param code_num_override: 强制改写 ``nCodeNum``(构造"帧自报条码数越界"
+        的病态帧用,review-1036 §四-2)
+    """
     info = _MV_CODEREADER_IMAGE_OUT_INFO_EX2()
     ctypes.memset(ctypes.byref(info), 0, ctypes.sizeof(info))
     info.nWidth = 1280
@@ -304,6 +309,8 @@ def _make_frame(
             item.nTriggerTimeUtvLow = 500000
         _HELD.append(bcr)
         info.UnparsedBcrList.pstCodeListEx2 = ctypes.pointer(bcr)
+        if code_num_override is not None:
+            bcr.nCodeNum = code_num_override
     return info
 
 
@@ -604,6 +611,57 @@ def test_scan_mixed_noread_and_real_code(
     ok, frame = client.scan(timeout=2.0)
     assert ok is True
     assert frame is not None and len(frame.codes) == 2
+
+
+def test_scan_code_none_frame_is_noread(monkeypatch: pytest.MonkeyPatch) -> None:
+    """码制 0(``MV_CODEREADER_CODE_NONE``「No recognizable bar code」)判无读出。
+
+    review-1036 §四-3:原集合只有 NoRead 标记类型(1000/1001/1002),仅含
+    type=0 的帧被当成功返回。依据:指南 §4.2.3 印刷页 79 码制枚举。
+    """
+    sdk = _FakeSdk()
+    sdk.add_gige_device(_IP)
+    sdk.frame = _make_frame(
+        codes=[
+            {
+                "content": "",
+                "bar_type": 0,
+                "points": [(0, 0)] * 4,
+                "angle_deg": 0,
+            }
+        ]
+    )
+    client, _sdk = _make_client(monkeypatch, sdk)
+    assert client.scan(timeout=2.0) == (False, None)
+    assert client.last_error is not None and "无条码" in client.last_error
+    assert client.connected is True
+
+
+def test_scan_code_count_over_capacity_is_frame_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """帧自报条码数超出结构体数组容量:按坏帧收口,IndexError 不得逃逸。
+
+    review-1036 §四-2:原实现直接 ``range(nCodeNum)`` 索引 ctypes 数组,
+    越界时 ``IndexError`` 直穿 :meth:`scan` 公共契约(``_execute`` 不捕该
+    类型,``last_error`` 也不写)。
+    """
+    sdk = _FakeSdk()
+    sdk.add_gige_device(_IP)
+    sdk.frame = _make_frame(
+        codes=[
+            {
+                "content": "ABC123",
+                "bar_type": 2,
+                "points": [(0, 0)] * 4,
+                "angle_deg": 0,
+            }
+        ],
+        code_num_override=301,  # 结构体容量 300
+    )
+    client, _sdk = _make_client(monkeypatch, sdk)
+    assert client.scan(timeout=2.0) == (False, None)
+    assert client.last_error is not None and "超出结构体数组容量" in client.last_error
 
 
 def test_link_error_disconnects(monkeypatch: pytest.MonkeyPatch) -> None:

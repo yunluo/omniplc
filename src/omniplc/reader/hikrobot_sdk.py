@@ -49,6 +49,7 @@ from ..core.errors import (
     DeviceError,
     ErrorCategory,
     OmniPLCInternalError,
+    ProtocolFrameError,
     TransportClosedError,
     TransportTimeoutError,
 )
@@ -125,21 +126,32 @@ _SDK_CODE_TYPE_NAMES = {
     1002: "NoReadSD",
 }
 """有码无读标记类型(1000/1001/1002)代表对应区无读出,判定为未读到码。"""
-_NOREAD_CODE_TYPES = frozenset({1000, 1001, 1002})
+_NOREAD_CODE_TYPES = frozenset({0, 1000, 1001, 1002})
+"""无读出码制集合:``MV_CODEREADER_CODE_NONE``(0,「No recognizable bar
+code」,指南 §4.2.3 印刷页 79)与三个 NoRead 标记类型(取自头文件码制枚举,
+未归档待核)。review-1036 §四-3:原集合漏了 0,只含 type=0 的帧被当成功条码。"""
 
 
 def _frame_is_noread(frame: "HikrobotSdkFrame") -> bool:
-    """整帧无有效条码判定(内部方法):无码,或全部为 NoRead 标记类型。
+    """整帧无有效条码判定(内部方法):无码,或全部为无读出码制。
 
     读码器开启 NoRead 输出时,未读到码的 ROI 会输出 NoRead 标记条码
     (类型 1000/1001/1002,出自 ``MvCodeReaderParams.h`` 的码制枚举
     ``MV_CODEREADER_CODE_TYPE``;**头文件未归档,行号待核**;指南 V1.5.3
-    全文无 NoRead 字样,见模块头「头文件引用待核」)——全帧皆标记 = 没读到码,
+    全文无 NoRead 字样,见模块头「头文件引用待核」),无可识别条码则报
+    码制 0(``CODE_NONE``,指南 §4.2.3 印刷页 79)——全帧皆此类 = 没读到码,
     不得当作成功读码返回。
     """
     return (not frame.codes) or all(
         code.code_type in _NOREAD_CODE_TYPES for code in frame.codes
     )
+
+
+def _noread_message(frame: "HikrobotSdkFrame") -> str:
+    """无读出文案(内部函数):区分"无可识别条码"与"NoRead 标记帧"。"""
+    if all(code.code_type == 0 for code in frame.codes):
+        return _("读码器无读出(无条码)")
+    return _("读码器无读出(NoRead 标记帧)")
 
 
 # --------------------------------------------------------------------------
@@ -1099,9 +1111,7 @@ class HikrobotIdSdkClient(BaseClient):
             return False, None
         if _frame_is_noread(frame):
             with self._lock:
-                self._set_error(
-                    _("读码器无读出(NoRead 标记帧)"), ErrorCategory.DEVICE, None
-                )
+                self._set_error(_noread_message(frame), ErrorCategory.DEVICE, None)
             return False, None
         return True, frame
 
@@ -1123,9 +1133,7 @@ class HikrobotIdSdkClient(BaseClient):
             return False, None
         if _frame_is_noread(frame):
             with self._lock:
-                self._set_error(
-                    _("读码器无读出(NoRead 标记帧)"), ErrorCategory.DEVICE, None
-                )
+                self._set_error(_noread_message(frame), ErrorCategory.DEVICE, None)
             return False, None
         return True, frame
 
@@ -1282,11 +1290,21 @@ def _parse_frame(
 
     条码列表取 ``UnparsedBcrList.pstCodeListEx2``(指南样例 C.1 印刷页 91:
     建议以扩展字符条码信息解析条码)。
+
+    :raises ProtocolFrameError: ``nCodeNum`` 超出结构体数组容量(review-1036
+        §四-2:原实现直接 ``range(nCodeNum)`` 索引,越界时 ctypes 抛
+        ``IndexError`` 直穿 :meth:`HikrobotIdSdkClient.scan` 公共契约)
     """
     codes: list = []
     bcr_list = info.UnparsedBcrList.pstCodeListEx2
     if bcr_list:
         result = bcr_list.contents
+        if result.nCodeNum > _MAX_CODEREADER_BCR_COUNT_EX:
+            raise ProtocolFrameError(
+                _("SDK 帧条码数 {} 超出结构体数组容量 {},帧布局失配").format(
+                    result.nCodeNum, _MAX_CODEREADER_BCR_COUNT_EX
+                )
+            )
         for index in range(result.nCodeNum):
             item = result.stBcrInfoEx2[index]
             raw = bytes(item.chCode)

@@ -1306,6 +1306,7 @@ _TRANSLATIONS: Dict[str, str] = {
     "读码器应答缺少参数值": "The reader reply is missing a parameter value",
     # ---- 审查 1001 修复批(海康读码器域) ----
     "读码器无读出(NoRead 标记帧)": "The reader produced no read (NoRead marker frame)",
+    "SDK 帧条码数 {} 超出结构体数组容量 {},帧布局失配": "The SDK frame reports {} bar codes, exceeding the struct array capacity of {} (frame layout mismatch)",
     "SDK 链路类错误({}):0x{:08X}": "SDK link-class error ({0}): 0x{1:08X}",
     "结果报文解码失败({}):{}": "Failed to decode the result payload ({0}): {1}",
     "{} 必须为 ASCII,收到:{!r}": "{0} must be ASCII, got: {1!r}",
