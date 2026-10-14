@@ -273,19 +273,31 @@ class _MelsecMcBase(BaseClient):
         raise ValueError(_("MC 不支持的数据类型:{}").format(data_type))
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
-        """从字软元件读字符串:逐字小端拼字节后解码(MC 字序约定)。"""
+        """从字软元件读字符串:逐字小端拼字节后解码(MC 字序约定)。
+
+        位软元件受字单位访问门控(review-1028 §6.1 P1:原仅 ``_read``/
+        ``_write``/批量三路径过闸,字符串两路径漏网——``read_string("M100", 2)``
+        会按字单位读回 16 点合并值当字符串,与 ``read_ushort("M100")`` 被拒
+        自相矛盾)。
+        """
         parsed = parse_mc_address(address)
         if parsed.bit is not None:
             raise ValueError(_("字符串地址不支持位号后缀:{!r}").format(address))
+        self._check_bit_device_word_access(parsed)
         words = self._read_words(parsed, (length + 1) // 2)
         data = convert.words_to_bytes(words)[:length]
         return convert.decode_string(data, encoding)
 
     def _write_string(self, address: str, value: str, encoding: str) -> PrimitiveValue:
-        """向字软元件写字符串:编码 → 补齐偶数字节 → 逐字小端。"""
+        """向字软元件写字符串:编码 → 补齐偶数字节 → 逐字小端。
+
+        位软元件受字单位访问门控(review-1028 §6.1 P1:原漏网,
+        ``write_string("M100", "AB")`` 会静默按 16 点/字覆盖整个字)。
+        """
         parsed = parse_mc_address(address)
         if parsed.bit is not None:
             raise ValueError(_("字符串地址不支持位号后缀:{!r}").format(address))
+        self._check_bit_device_word_access(parsed)
         raw = convert.encode_string(
             value, (len(value.encode(encoding)) + 1) // 2 * 2, encoding
         )

@@ -135,6 +135,26 @@ def test_read_bool_r5_bit(monkeypatch: pytest.MonkeyPatch) -> None:
     assert sent[13:15] == b"\x01\x00"
 
 
+def test_string_path_bit_device_word_access_gated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """KV MC 字符串路径同受位软元件字单位门控(review-1028 §6.1 P1)。
+
+    KV 的 ``R`` 在 ``KEYENCE_MC_DEVICE_CODES`` 记位软元件(0x90,位),
+    经继承基类获得门控:``read_string("R100", 2)``/``write_string("R100","AB")``
+    原会组字单位帧(写 1 字覆盖 R100~R115);``DM`` 字软元件不受影响。
+    """
+    client = KeyenceMcTcpClient("127.0.0.1", 5000)
+    scripted = ScriptedTransport([])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    with pytest.raises(ValueError, match="只支持 BOOL"):
+        client.read_string("R100", 2)
+    with pytest.raises(ValueError, match="只支持 BOOL"):
+        client.write_string("R100", "AB")
+    assert len(scripted.sent) == 0  # 参数错误不发报文
+
+
 def test_write_dm100(monkeypatch: pytest.MonkeyPatch) -> None:
     """DM100 写 int16:-5 编码 FFFB 小端,写回包仅校验结束码。"""
     client = KeyenceMcTcpClient("127.0.0.1", 5000)

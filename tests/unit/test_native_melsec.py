@@ -1057,6 +1057,31 @@ def test_bit_device_word_access_gated_single_point(
     loop.run_until_complete(scenario())
 
 
+def test_string_path_bit_device_word_access_gated(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """native 字符串两路径同受位软元件字单位门控(review-1028 §6.1 P1)。
+
+    native 侧为**独立实现**(非继承同步层),原与同步侧同源缺口:
+    ``read_string("M100", 2)``/``write_string("M100", "AB")`` 绕开门控组字
+    单位帧;现两侧同防线、入参期拒绝、不发报文。
+    """
+
+    async def scenario() -> None:
+        client = AsyncMelsecMcTcpClient("127.0.0.1", 2000, "3E")
+        scripted = ScriptedAsyncTransport([])
+        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        assert await client.connect() is True
+        with pytest.raises(ValueError, match="只支持 BOOL"):
+            await client.read_string("M100", 2)
+        with pytest.raises(ValueError, match="只支持 BOOL"):
+            await client.write_string("M100", "AB")
+        assert len(scripted.sent) == 0  # 参数错误不发报文
+        await client.close()
+
+    loop.run_until_complete(scenario())
+
+
 def test_random_write_bit_device_boundary(
     monkeypatch: pytest.MonkeyPatch, loop: Any
 ) -> None:

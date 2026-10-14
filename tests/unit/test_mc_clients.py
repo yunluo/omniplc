@@ -997,6 +997,27 @@ def test_string_rejects_bit_suffix(monkeypatch: pytest.MonkeyPatch) -> None:
         client.write_string("D100.3", "AB")
 
 
+def test_string_path_bit_device_word_access_gated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """字符串两路径同受位软元件字单位门控(review-1028 §6.1 P1)。
+
+    原仅 ``_read``/``_write``/批量三路径过闸,``read_string``/``write_string``
+    漏网:前者把 16 点合并值当字符串读回、后者静默按 16 点/字覆盖整个字
+    (``M100`` 写 1 字冲掉 M100~M115),而同址 ``read_ushort("M100")``
+    已被门控拒——同族路径的防线覆盖必须一致。字软元件(D)不受影响。
+    """
+    client = MelsecMcTcpClient("127.0.0.1", 2000)
+    scripted = ScriptedTransport([])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    with pytest.raises(ValueError, match="只支持 BOOL"):
+        client.read_string("M100", 2)
+    with pytest.raises(ValueError, match="只支持 BOOL"):
+        client.write_string("M100", "AB")
+    assert len(scripted.sent) == 0  # 参数错误不发报文
+
+
 def _qna_cpu_model_response(name: bytes = b"Q02UCPU", code: int = 0x0263) -> bytes:
     """构造 0101 CPU 型号读响应(测试脚手架;名 16B ASCII + 代码 2B 小端)。"""
     data = name.ljust(16, b"\x20") + code.to_bytes(2, "little")
