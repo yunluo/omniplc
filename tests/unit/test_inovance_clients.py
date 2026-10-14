@@ -411,6 +411,46 @@ def test_read_range_modbus_token_span_error_stays_modbus() -> None:
         client.read_range("hr65535", 2, "ushort")
 
 
+@pytest.mark.parametrize(
+    ("address", "count", "data_type"),
+    [
+        ("X1777", 2, "bool"),  # X 区末点 +1 → 越到 Y0
+        ("X1770", 10, "bool"),  # 末 2 点落 Y0/Y1
+        ("S4095", 2, "bool"),  # S 区末点 +1 → 越到 T0 接点
+        ("Y1777", 2, "bool"),
+        ("M8511", 2, "bool"),
+        ("B32767", 2, "bool"),
+        ("D8511", 2, "ushort"),
+        ("D8511", 2, "int"),  # 32 位:2 元素 × 2 字 = 4 字,更早越界
+    ],
+)
+def test_read_range_bounds_checked(address: str, count: int, data_type: str) -> None:
+    """区间读越界入参期拒绝(review-1029 §三 P1-2)。
+
+    原只校验**起始**编号:起点合法而终点越过该软元件上限时会静默读到
+    **另一只软元件**(实测 14 组 bool 组合全部放行,如 ``X1777``×2 读取
+    X1777 + Y0);单点路径有 ``_check_number``,区间路径缺同一道闸。
+    """
+    client = InovanceTcpClient("127.0.0.1", 502, 1)
+    with pytest.raises(ValueError, match="越界"):
+        client.read_range(address, count, data_type)
+
+
+def test_read_range_bounds_ok_at_edge() -> None:
+    """恰在上限内的区间读不受新闸影响(末点 = 上限编号)。
+
+    未连接时连接类失败返回 ``(False, None)``(不进参数校验路径)——
+    此处以此证明**未在入参期被新闸拒**;越界组则必在入参期抛。
+    """
+    client = InovanceTcpClient("127.0.0.1", 502, 1)
+    for address, count, data_type in (
+        ("X1777", 1, "bool"),  # X 区末点本身
+        ("D8511", 1, "ushort"),
+        ("D8508", 2, "int"),  # 32 位 2 元素 = 4 字,末字仍在上限内
+    ):
+        assert client.read_range(address, count, data_type) == (False, None)
+
+
 # ---------------------------------------------------------------- RTU
 
 

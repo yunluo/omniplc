@@ -33,6 +33,7 @@ from ...core.constants import (
 from ..modbus.modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from .address import (
     check_counter_word_type,
+    check_range_bounds,
     parse_inovance_address,
     to_modbus_address,
     translate_batch_address,
@@ -101,8 +102,11 @@ class _InovanceBase(ModbusBaseClient):
 
         BOOL 仅位软元件(翻译为线圈区,``M100`` → ``c100``);字软元件
         BOOL 区间读语义未定义,由 Modbus 层拒绝(同 Modbus 记号口径)。
+        入参期按软元件编号上限校验「起始 + 宽度」(review-1029 §三 P1-2:
+        原只校验起始,``X1777``×2 会静默越到 Y0)。
         """
         data_type_enum = DataType.coerce(data_type)
+        check_range_bounds(address, count, data_type_enum)
         return super().read_range(
             translate_batch_address(address, data_type_enum),
             count,

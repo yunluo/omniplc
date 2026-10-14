@@ -216,6 +216,63 @@ def _check_number(device: str, number: int, limit: int) -> None:
         )
 
 
+def _element_width(data_type: DataType) -> int:
+    """数据类型占用的 16 位寄存器数(BOOL 视作 1;内部函数)。"""
+    if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
+        return 4
+    if data_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
+        return 2
+    return 1
+
+
+def check_range_bounds(address: str, count: int, data_type: DataType) -> None:
+    """区间读入参期校验「起始编号 + 本次访问宽度」不越过该软元件上限。
+
+    review-1029 §三 P1-2 亲验:``read_range`` 原只校验**起始**编号——
+    起点合法而终点越界时会静默读到**另一只软元件**(实测 ``X1777``×2 的
+    第二点落 Y0、``X1770``×10 末两点落 Y0/Y1、``S4095``×2 落 T0 接点、
+    ``M8511``×2 落 SM 区……共 14 组 bool 形态组合全部放行);单点路径由
+    :func:`_check_number` 拦截,区间路径缺同一道闸。
+
+    Modbus 记号(``hr300``/``c10``)不在此校验——记号线由 Modbus 层按
+    全局地址上限管(记号优先口径,见 :func:`translate_batch_address`)。
+
+    :raises ValueError: 终点越过该软元件编号上限
+    """
+    if is_modbus_address(address):
+        return
+    parsed = parse_inovance_address(address)
+    width = _element_width(data_type)
+    if data_type is DataType.BOOL and parsed.device in INOVANCE_BIT_DEVICES:
+        limit = INOVANCE_BIT_DEVICES[parsed.device][1]
+        if parsed.number + count > limit:
+            raise ValueError(
+                _(
+                    "软元件 {} 区间读越界:起始 {} + {} 点 超出上限 {}(跨到相邻软元件)"
+                ).format(parsed.device, parsed.number, count, limit - 1)
+            )
+        return
+    if parsed.device in INOVANCE_WORD_DEVICES:
+        limit = INOVANCE_WORD_DEVICES[parsed.device][1]
+        if parsed.device == "C" and parsed.number >= INOVANCE_C32_FIRST:
+            # 32 位计数器段:C200 起每只占 2 个 16 位寄存器槽
+            used = 2 * (parsed.number - INOVANCE_C32_FIRST) + count * width
+            capacity = 2 * (limit - INOVANCE_C32_FIRST)
+            if used > capacity:
+                raise ValueError(
+                    _("软元件 C(32 位计数器)区间读越界:起始 {} + {} 个元素").format(
+                        parsed.number, count
+                    )
+                )
+            return
+        if parsed.number + count * width > limit:
+            raise ValueError(
+                _("软元件 {} 区间读越界:起始 {} + {} 个元素(×{} 字)超出上限 {}").format(
+                    parsed.device, parsed.number, count, width, limit - 1
+                )
+            )
+
+
 def _check_bitless(device: str, bit: Optional[int], address: str) -> None:
     """位软元件不允许位号后缀(内部函数)。"""
     if bit is not None:
