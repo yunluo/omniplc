@@ -284,8 +284,10 @@ class _ToyopucBase(BaseClient):
         无批量位读命令),BOOL 连续读不支持。16 位类型 1 字/元素、32 位
         2 字、64 位 4 字(多字数据小端、低字在前,TOYOPUC 原生序)。
 
-        :param address: 起始字软元件地址(如 ``"D0100"``;``L/H/W`` 后缀
-            访问不支持 range)
+        :param address: 起始**字访问**地址(如 ``"D0100"``)。``L``/``H`` 后缀是
+            **字节**访问,不支持 range;``W`` 后缀(位软元件打包字)属字访问,
+            **可用**(review-1026 §6.1-8 订正:原文书称 L/H/W 全不支持,实际
+            只拒 unit != "word" 即 L/H)
         :param count: 元素个数(按 ``data_type`` 计,FLOAT×10 = 20 字)
         :param data_type: 数据类型(数值类型)
         :return: ``(是否成功, 与地址升序对应的值列表)``
@@ -300,8 +302,9 @@ class _ToyopucBase(BaseClient):
         if data_type_enum is DataType.BOOL or parsed.unit != "word":
             raise ValueError(
                 _(
-                    "TOYOPUC read_range 仅支持字软元件数值类型连续读(位软元件无批量"
-                    "位读命令,L/H/W 后缀地址不支持),收到:{!r}"
+                    "TOYOPUC read_range 仅支持字访问地址的数值类型连续读(位软元件无批量"
+                    "位读命令;L/H 后缀是字节访问,不支持 range。W 后缀是位软元件打包字、"
+                    "属字访问,可用;起始地址:{!r})"
                 ).format(address)
             )
         width = 1

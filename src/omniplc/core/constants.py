@@ -1155,14 +1155,17 @@ TOYOPUC_CMD_BIT_READ: int = 0x20
 TOYOPUC_CMD_BIT_WRITE: int = 0x21
 """单位写命令(CMD=21)。"""
 TOYOPUC_MAX_WORD_COUNT: int = 0x0200
-"""单事务连续字读/写点数上限。"""
+"""单事务连续字读/写点数上限(512;属参考实现口径,官方手册未收录待核)。"""
 TOYOPUC_MAX_BYTE_COUNT: int = 0x0400
-"""单事务连续字节读/写点数上限。"""
+"""单事务连续字节读/写点数上限(1024;同上,待核)。"""
 TOYOPUC_BIT_DEVICES: Tuple[str, ...] = ("P", "K", "V", "T", "C", "L", "X", "Y", "M")
-"""位软元件(编号十六进制;L 为第二段起始 0x1000 的软元件)。"""
+"""位软元件(编号十六进制;L 与 **M** 均有第二段——位段表见
+`plc/toyopuc/address.py::_BIT_SEGMENTS`,本表仅列记号,段范围以那边为准)。"""
 TOYOPUC_WORD_DEVICES: Tuple[str, ...] = ("S", "N", "R", "D", "B")
-"""字软元件(编号十六进制)。"""
+"""字软元件(编号十六进制;**无编号范围表**——见 `address.py` 模块头待核段)。"""
 TOYOPUC_ERROR_TEXT: Dict[int, str] = {
+    # 全部条目:参考实现口径(官方手册未收录,27 条待核;见 docs/protocol/README.md
+    # 「待补」表与 `plc/toyopuc/codec.py` 模块头的依据状态声明)
     0x11: "CPU 模块硬件故障",
     0x20: "中继命令 ENQ 固定数据非 0x05",
     0x21: "中继命令传送号非法",

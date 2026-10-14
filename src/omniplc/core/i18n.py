@@ -1350,7 +1350,7 @@ _TRANSLATIONS: Dict[str, str] = {
     "MEWTOCOL read_range 编号域越界(0~{}):start={} 字数={}": "MEWTOCOL read_range number field out of range (0-{0}): start={1} words={2}",
     "S7 read_range 不支持的数据类型:{}": "S7 read_range does not support data type: {0}",
     "S7 read_range 不支持位地址:{!r}(位访问请逐点读)": "S7 read_range does not support bit addresses: {0!r} (read bits point by point)",
-    "TOYOPUC read_range 仅支持字软元件数值类型连续读(位软元件无批量位读命令,L/H/W 后缀地址不支持),收到:{!r}": "TOYOPUC read_range supports numeric word-device reads only (no batch bit-read command; L/H/W suffixed addresses are not supported), got: {0!r}",
+    "TOYOPUC read_range 仅支持字访问地址的数值类型连续读(位软元件无批量位读命令;L/H 后缀是字节访问,不支持 range。W 后缀是位软元件打包字、属字访问,可用;起始地址:{!r})": "TOYOPUC read_range supports numeric continuous reads on word-access addresses only (bit devices have no batch bit-read command; L/H suffixes are byte access and are not supported; the W suffix is packed-word access and works), start address: {0!r}",
     "TOYOPUC read_range 字数超上限 {}:{}×{}={}": "TOYOPUC read_range word count exceeds the limit of {0}: {1}x{2}={3}",
     # ---- 监视器(周期轮询采集,core/monitor.py) ----
     "points 不能为空": "points must not be empty",
