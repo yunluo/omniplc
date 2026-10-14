@@ -145,6 +145,22 @@ def test_custom_noread_text(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.scan(timeout=2.0) == (False, None)
 
 
+def test_scan_whitespace_only_line_is_noread(monkeypatch: pytest.MonkeyPatch) -> None:
+    """结果行只有空白:判无读出,不再报 ``(True, '   ')``(review-1036 §3.2)。"""
+    client = _make_client(monkeypatch, [b"   \r\n"])
+    assert client.scan(timeout=2.0) == (False, None)
+    assert client.last_error is not None and "结果为空" in client.last_error
+
+
+def test_read_result_whitespace_only_line_is_noread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """被动路径同口径:read_result 与 scan 共用结果行收口。"""
+    client = _make_client(monkeypatch, [b" \r\n"])
+    assert client.read_result(timeout=2.0) == (False, None)
+    assert client.last_error is not None and "结果为空" in client.last_error
+
+
 # ----------------------------------------------------------------------
 # 审查 1001 修复:超时收尾顺序 / read_result 不 drain / ASCII 构造期校验
 # ----------------------------------------------------------------------

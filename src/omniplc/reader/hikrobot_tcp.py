@@ -29,9 +29,11 @@
 **开始采集**(IDMVS 工具栏或 ``<Set,Acq,1>``)——未开始采集时触发无结果。
 
 公共 API 沿用扫码枪家族约定::meth:`scan` 返回 ``(是否读到条码, 条码文本)``,
-未读到(NoRead 文本)/超时/断线/命令出错都返回 ``(False, None)``,原因记入
-:attr:`last_error`——与 :class:`~omniplc.KeyenceSrClient` 同口径;结果文本为
-读码器格式化模板的原文(含元数据字段时由调用方按模板解析)。
+未读到(NoRead 文本**或空输出**)/超时/断线/命令出错都返回 ``(False, None)``,
+原因记入 :attr:`last_error`——与 :class:`~omniplc.KeyenceSrClient` 同口径;
+结果文本为读码器格式化模板的原文(含元数据字段时由调用方按模板解析)。
+命令面按手册应答面收口:Set/Exec 应答只认 OK/errno,出现第三种 payload 即
+按坏帧报错(不再静默当成功,review-1036 §3.1)。
 """
 
 from __future__ import annotations
@@ -198,22 +200,25 @@ class _HikrobotIdSession(BaseTransport):
             peeked = sock.recv(64, socket.MSG_PEEK)
         except (socket.timeout, BlockingIOError, OSError, ValueError):
             peeked = b""
-        else:
-            stripped = peeked.lstrip()
-            if stripped.startswith(b"invalid"):
-                # 逐字节消费前导空白 + 词身——缓冲里可能还有**下一条**应答
-                # (真 socket 上设备把 invalid 与后续应答接连发出),按探测
-                # 长度整段消费会把下一条一起吞掉
-                for _pad in range(len(peeked) - len(stripped)):
-                    sock.recv(1)
-                for _char in b"invalid":
-                    sock.recv(1)
-                chunks.append(b"invalid")
         finally:
             try:
                 sock.settimeout(previous_timeout)
             except OSError:
                 pass
+        stripped = peeked.lstrip()
+        if stripped.startswith(b"invalid"):
+            # 逐字节消费前导空白 + 词身——缓冲里可能还有**下一条**应答
+            # (真 socket 上设备把 invalid 与后续应答接连发出),按探测
+            # 长度整段消费会把下一条一起吞掉。
+            # 消费在**已恢复原超时**之后进行(review-1036 §3.1):原实现把
+            # 消费循环留在 settimeout(0) 区里,真 socket 上逐字节非阻塞读
+            # 一旦空池即抛 BlockingIOError 直穿本方法(以"链路异常"形态
+            # 逃逸),恢复超时后按预算读取更稳。
+            for _pad in range(len(peeked) - len(stripped)):
+                sock.recv(1)
+            for _char in b"invalid":
+                sock.recv(1)
+            chunks.append(b"invalid")
         return b"".join(chunks)
 
     def recv_result(self, timeout: float, settle: float, max_frame: int) -> bytes:
@@ -355,8 +360,8 @@ class HikrobotIdTcpClient(BaseClient):
             ``receive_timeout`` 约束,最坏总耗时 ≈ ``receive_timeout + timeout``
         :return: ``(是否读到条码, 结果文本)``。结果文本为读码器「输出格式化」
             模板原文(配置了元数据占位符时含元数据字段,由调用方按模板解析);
-            NoRead 文本/超时/断线/命令出错返回 ``(False, None)``,原因记入
-            :attr:`last_error`。NoRead 判定为**整帧输出恰等于 NoRead 文本**
+            NoRead 文本/空输出/超时/断线/命令出错返回 ``(False, None)``,原因
+            记入 :attr:`last_error`。NoRead 判定为**整帧输出恰等于 NoRead 文本**
             ——配置元数据模板后 NoRead 内嵌于输出串,由调用方按模板解析
         :raises ValueError: 结果通道未配置或参数非法
         """
@@ -365,19 +370,9 @@ class HikrobotIdTcpClient(BaseClient):
         if self._result_port is None:
             raise ValueError(_("结果通道未配置(result_port=None),无法接收读码结果"))
         ok, text = self._execute(lambda: self._scan_once(float(timeout)), is_write=True)
-        if not ok or text is None:
+        if not ok:
             return False, None
-        text = text.rstrip("\r\n")
-        if text == self._noread_text:
-            # 链路成功但未读到码:读码器正常应答,不算设备错误码
-            with self._lock:
-                self._set_error(
-                    _("读码器无读出({})").format(self._noread_text),
-                    ErrorCategory.DEVICE,
-                    None,
-                )
-            return False, None
-        return True, text
+        return self._finalize_result(text)
 
     def read_result(self, timeout: float = 10.0) -> Tuple[bool, Optional[str]]:
         """被动等待下一帧结果推送(不触发,供 IO 硬触发等外部触发场景)。
@@ -393,10 +388,31 @@ class HikrobotIdTcpClient(BaseClient):
         ok, text = self._execute(
             lambda: self._receive_once(float(timeout)), is_write=True
         )
-        if not ok or text is None:
+        if not ok:
             return False, None
-        text = text.rstrip("\r\n")
-        if text == self._noread_text:
+        return self._finalize_result(text)
+
+    def _finalize_result(self, text: Optional[str]) -> Tuple[bool, Optional[str]]:
+        """结果文本收口(内部方法):NoRead 文本与空输出都判为未读到码。
+
+        - 空/纯空白输出 ⇒ 无读出(review-1036 §3.2):原实现只与 NoRead
+          文本全等比较,``b"\\r\\n"`` 会报 ``(True, '')``——读码器输出格式化
+          模板配错或结果区为空时,空串被当成功条码返回;
+        - NoRead 文本(整帧恰等于 :attr:`noread_text`)⇒ 无读出。
+
+        两者都不算设备错误码(链路与设备都正常,只是没读到),记
+        :class:`ErrorCategory.DEVICE` 分类与文案后返回 ``(False, None)``。
+        """
+        if text is None:
+            return False, None
+        trimmed = text.rstrip("\r\n")
+        stripped = trimmed.strip()
+        if not stripped:
+            with self._lock:
+                self._set_error(_("读码器无读出(结果为空)"), ErrorCategory.DEVICE, None)
+            return False, None
+        if stripped == self._noread_text:
+            # 链路成功但未读到码:读码器正常应答,不算设备错误码
             with self._lock:
                 self._set_error(
                     _("读码器无读出({})").format(self._noread_text),
@@ -404,7 +420,7 @@ class HikrobotIdTcpClient(BaseClient):
                     None,
                 )
             return False, None
-        return True, text
+        return True, trimmed
 
     def trigger(self) -> bool:
         """仅发送软触发命令 ``<Exec,TriSoft>``,不等待结果(动作型命令)。
@@ -544,10 +560,14 @@ class HikrobotIdTcpClient(BaseClient):
         - **Get 的非负 payload(含 "0")是合法参数值**(指令表:
           ``0=停止采集`` 等),原样返回;
         - Set/Exec 的非负 payload = 执行成功(``EXT_CMD_ERR_OK=0``),
-          无参数返回。
+          无参数返回;
+        - **Get 的非数字 payload 是参数文本**(如触发文本),原样返回;
+          **Set/Exec 的非数字 payload 属回帧非法**(手册应答面只有
+          OK/errno 两态,review-1036 §3.1)→ :class:`ProtocolFrameError`。
 
         :return: Get 命令返回参数文本;Set/Exec 成功返回 ``None``
-        :raises ProtocolFrameError: 应答非 ``<...>`` 形式或回显不符(带原始帧)
+        :raises ProtocolFrameError: 应答非 ``<...>`` 形式、回显不符(带原始帧)
+            或 Set/Exec 应答非 OK/非 errno
         :raises DeviceError: 设备返回 errno / invalid
         :raises TransportTimeoutError: 命令应答超时(拆连重同步)
         """
@@ -608,8 +628,19 @@ class HikrobotIdTcpClient(BaseClient):
         try:
             errno = int(reply_payload)
         except ValueError:
-            # 非数字:Get 的参数文本(如触发文本)原样返回
-            return reply_payload
+            if cmd_type == "Get":
+                # 非数字:Get 的参数文本(如触发文本)原样返回
+                return reply_payload
+            # Set/Exec 应答面只有 OK/errno 两态(手册 §1.3 印刷页 1-2):
+            # 非数字即回帧非法。原实现把该文本当"成功无参数"静默返回
+            # (reply_payload 被当返回值丢弃),使**被设备明确拒绝**的
+            # Set/Exec(如 <Set,Acq,NOK>)上报成功且 last_error 为空
+            # ——静默假成功(review-1036 §3.1),按坏帧口径收口。
+            raise ProtocolFrameError(
+                _("{} 应答既非 OK 也非 errno:{!r}(原始帧:{})").format(
+                    cmd_type, reply_payload, format_hex(reply)
+                )
+            )
         if errno < 0:
             # 负数 = 错误码表(印刷页 12-13);Get 参数恰为负数文本的场景手册
             # 未给类型标注,按 errno 解读(极端场景,见 docstring 注意)

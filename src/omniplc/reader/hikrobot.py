@@ -50,12 +50,14 @@ PLC)同型。因此本实例**本身就是 Modbus 主站**:既可 :meth:`scan` �
 5. General Fault = 设备内部异常,经 :meth:`clear_error` 清除后可继续
 
 公共 API 沿用扫码枪家族约定::meth:`scan` 返回 ``(是否读到条码, 条码文本)``。
-与基恩士 :class:`~omniplc.KeyenceSrClient` 的差异:读码器以 OK/NG/超时
-三态显式区分"未读到码"与"链路/设备异常",故 NG 归 ``scan`` 正常返回
-``(False, None)``,超时与故障**抛异常**(细分自动化处置),不并入
-``(False, None)``。
+读码器以 OK/NG 两态区分结果,:meth:`scan` 的失败面**统一收口为
+``(False, None)`` + :attr:`last_error` 分类**(review-1036 §3.4:原文档称
+"超时与故障抛异常"与实现/同族 KeyenceSrClient 契约自相矛盾,已订正)——
+NG(未读到码)、超时、General Fault、Results Ack 未消费、Modbus 事务失败
+都是 ``(False, None)``,差异体现在 :attr:`last_error_category`
+(DEVICE/TIMEOUT)与文案上,细分处置由调用方按分类做。
 
-结果内容为读码器 IDMVS「数据处理」配置的输出字符串(§3.2 印刷页 31):
+结果内容为读码器 IDMVS「数据处理」配置的输出字符串(§3.2 印刷页 32):
 除条码内容外,质量/码制等元数据可经该配置并入输出串,随结果区原文透传;
 结构化元数据(多码列表/质量分/位置)需读码器原生 TCP 命令协议,另行驱动。
 """
@@ -73,6 +75,7 @@ from ..core.constants import (
     HIKROBOT_CTRL_TRIGGER,
     HIKROBOT_CTRL_TRIGGER_ENABLE,
     HIKROBOT_MODBUS_STATION_DEFAULT,
+    HIKROBOT_NOREAD_TEXT,
     HIKROBOT_RESULT_WORDS_DEFAULT,
     HIKROBOT_RESULT_WORDS_MAX,
     HIKROBOT_RESULT_WORDS_MIN,
@@ -86,7 +89,7 @@ from ..core.constants import (
     HIKROBOT_STATUS_TRIGGER_READY,
     MODBUS_DEFAULT_PORT,
 )
-from ..core.errors import DeviceError, TransportTimeoutError
+from ..core.errors import DeviceError, ErrorCategory, TransportTimeoutError
 from ..core.i18n import _
 from ..core.types import DataType
 from ..plc.modbus import ModbusTcpClient
@@ -139,6 +142,7 @@ class HikrobotIdModbusClient(ModbusTcpClient):
         byte_swap: bool = False,
         encoding: str = "utf-8",
         encoding_errors: str = "strict",
+        noread_text: str = HIKROBOT_NOREAD_TEXT,
     ) -> None:
         """初始化读码器客户端。
 
@@ -146,9 +150,11 @@ class HikrobotIdModbusClient(ModbusTcpClient):
             实际以 IDMVS 通信配置为准)
         :param port: Modbus TCP 端口,默认 502
         :param station: 从机地址,默认 0(§3.2 印刷页 31:读码器默认
-            255 或 0,V3.2.2.R 及以上固件可配;本库站号按 Modbus 规范钉
-            0~247,255 超出上限故取双默认之一的 0,现场若配了 255 需改
-            到 0~247;地址不一致将无法连通)
+            255 或 0,V3.2.2.R 及以上固件可配)。**TCP 的 Unit ID 是
+            路由字段,合法范围 0~255**(review-1036 §3.3:原文档称"本库
+            按 Modbus 规范钉 0~247、255 超出上限需改"与实现相反——串口
+            线才是 0~247),故现场读码器配 255 时直接传 ``station=255``
+            即可,不必去 IDMVS 改从站地址;地址不一致将无法连通
         :param result_words: 结果区大小(寄存器数,4~500 默认 100,§3.5
             印刷页 41)——**须与读码器 IDMVS「结果模块大小」配置一致**,
             偏小截断、偏大多读尾部填 0 字
@@ -160,6 +166,11 @@ class HikrobotIdModbusClient(ModbusTcpClient):
         :param encoding_errors: 解码失败策略,默认 ``strict``——非法序列
             抛错(不静默以 U+FFFD 乱码当条码成功返回);确需容错可显式传
             ``replace``
+        :param noread_text: 未读到码的输出文本,默认 ``NoRead``(读码器
+            「输出无读」参数默认值;现场改过该参数时同步修改)。读码器开启
+            NoRead 时未读到码反馈 OK + 该文本,按家族契约判为
+            ``(False, None)``(review-1036 §3.2:原实现原样透传,把
+            ``NoRead`` 当成功条码返回,与同族 TCP/串口口径不一致)
         :raises ValueError: 参数非法
         """
         super().__init__(ip_address, int(port), station)
@@ -181,6 +192,9 @@ class HikrobotIdModbusClient(ModbusTcpClient):
             raise ValueError(_("encoding 非法:{!r}").format(encoding)) from exc
         self._encoding = encoding
         self._encoding_errors = encoding_errors
+        if not noread_text:
+            raise ValueError(_("noread_text 不能为空"))
+        self._noread_text = str(noread_text)
         # 预生成结果区地址表(REG1 状态字 + REG2..REG2+N-1 结果区,USHORT):
         # 偏移连续,轮询时经 read_batch 合并为一笔 FC03(状态与结果同快照,
         # 防新旧结果错配)
@@ -204,12 +218,14 @@ class HikrobotIdModbusClient(ModbusTcpClient):
 
         :param timeout: 整个握手(含等待结果)的总超时(秒)
         :param poll_interval: 状态轮询间隔(秒),过小增加 Modbus 事务负载
-        :return: ``(是否读到条码, 条码文本)``。Results OK → ``(True, 文本)``
-            (读码器 NoRead 使能时未读到码反馈 OK + ``"NoRead"`` 字符,原样
-            返回);Results NG(未读到码,需读码器侧关闭 NoRead)、超时、
-            General Fault(设备内部异常,先 :meth:`clear_error` 再重试)、
-            Results Ack 未被设备消费、Modbus 事务失败 → ``(False, None)``,
-            原因记入 :attr:`last_error`(契约收口,review-1021 §三)
+        :return: ``(是否读到条码, 条码文本)``。Results OK → ``(True, 文本)``;
+            **结果区为空(长度字 0)或文本恰为 NoRead 输出(读码器 NoRead 使能
+            时未读到码反馈 OK + NoRead 文本)→ ``(False, None)``**(review-1036
+            §3.2:原实现把 ``"NoRead"``/空串当成功条码返回);Results NG(未读到码,
+            需读码器侧关闭 NoRead)、超时、General Fault(设备内部异常,先
+            :meth:`clear_error` 再重试)、Results Ack 未被设备消费、Modbus
+            事务失败 → ``(False, None)``,原因记入 :attr:`last_error`
+            (契约收口,review-1021 §三)
         :raises RuntimeError: 只读模式(:attr:`read_only`;触发属写操作)
         :raises ValueError: 参数非法
 
@@ -229,7 +245,34 @@ class HikrobotIdModbusClient(ModbusTcpClient):
         )
         if not ok or result is None:
             return False, None
-        return result
+        is_read, text = result
+        if not is_read or text is None:
+            return False, None
+        return self._finalize_result(text)
+
+    def _finalize_result(self, text: str) -> Tuple[bool, Optional[str]]:
+        """结果文本收口(内部方法):空输出与 NoRead 文本都判为未读到码。
+
+        同族三实现(TCP/串口/Modbus)共此口径(review-1036 §3.2):
+        结果长度字为 0(空输出)与「输出无读」文本都不是有效条码。
+
+        两者都不算设备错误码(链路与设备都正常,只是没读到),记
+        :class:`ErrorCategory.DEVICE` 分类与文案后返回 ``(False, None)``。
+        """
+        stripped = text.strip()
+        if not stripped:
+            with self._lock:
+                self._set_error(_("读码器无读出(结果为空)"), ErrorCategory.DEVICE, None)
+            return False, None
+        if stripped == self._noread_text:
+            with self._lock:
+                self._set_error(
+                    _("读码器无读出({})").format(self._noread_text),
+                    ErrorCategory.DEVICE,
+                    None,
+                )
+            return False, None
+        return True, text
 
     def _scan_locked(
         self, timeout: float, poll_interval: float

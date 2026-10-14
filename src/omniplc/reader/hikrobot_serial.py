@@ -22,8 +22,8 @@
 行再发停止文本,避免停窗截断解码。
 
 公共 API 沿用扫码枪家族约定::meth:`scan` 返回 ``(是否读到条码, 条码文本)``
-(文本为「输出格式化」模板原文,元数据占位符随文透传);NoRead 文本/超时/
-断线返回 ``(False, None)``,原因记入 :attr:`last_error`。多码场景用
+(文本为「输出格式化」模板原文,元数据占位符随文透传);NoRead 文本/**空输出**/
+超时/断线返回 ``(False, None)``,原因记入 :attr:`last_error`。多码场景用
 :meth:`trigger` → ``read_result``×N → :meth:`stop` 手工编排。
 
 串口命令协议(「通信命令控制」选 Serial,``<Exec,TriSoft>`` 等命令帧走
@@ -213,18 +213,9 @@ class HikrobotIdSerialClient(BaseClient):
             raise ValueError(_("timeout 必须大于 0,收到:{}").format(timeout))
         self._require_serial_config()
         ok, text = self._execute(lambda: self._scan_once(float(timeout)), is_write=True)
-        if not ok or text is None:
+        if not ok:
             return False, None
-        if text == self._noread_text:
-            # 链路成功但无读出:读码器正常应答,不算设备错误码
-            with self._lock:
-                self._set_error(
-                    _("读码器无读出({})").format(self._noread_text),
-                    ErrorCategory.DEVICE,
-                    None,
-                )
-            return False, None
-        return True, text
+        return self._finalize_result(text)
 
     def read_result(self, timeout: float = 10.0) -> Tuple[bool, Optional[str]]:
         """被动读取一行结果(不触发;多码编排/连续模式场景)。
@@ -239,9 +230,29 @@ class HikrobotIdSerialClient(BaseClient):
         ok, text = self._execute(
             lambda: self._read_result_once(float(timeout)), is_write=True
         )
-        if not ok or text is None:
+        if not ok:
             return False, None
-        if text == self._noread_text:
+        return self._finalize_result(text)
+
+    def _finalize_result(self, text: Optional[str]) -> Tuple[bool, Optional[str]]:
+        """结果行收口(内部方法):NoRead 文本与空输出都判为未读到码。
+
+        空/纯空白输出 ⇒ 无读出(review-1036 §3.2):原实现只与 NoRead 文本
+        全等比较,读码器输出格式化模板配错或结果行只有空白时会报
+        ``(True, '   ')``——空白被当成功条码返回;与 TCP/Modbus 两族收口一致。
+
+        两者都不算设备错误码(链路与设备都正常,只是没读到),记
+        :class:`ErrorCategory.DEVICE` 分类与文案后返回 ``(False, None)``。
+        """
+        if text is None:
+            return False, None
+        stripped = text.strip()
+        if not stripped:
+            with self._lock:
+                self._set_error(_("读码器无读出(结果为空)"), ErrorCategory.DEVICE, None)
+            return False, None
+        if stripped == self._noread_text:
+            # 链路成功但无读出:读码器正常应答,不算设备错误码
             with self._lock:
                 self._set_error(
                     _("读码器无读出({})").format(self._noread_text),

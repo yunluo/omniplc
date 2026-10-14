@@ -1026,9 +1026,11 @@ SR_RESP_ERROR: str = "ERROR"
 HIKROBOT_MODBUS_STATION_DEFAULT: int = 0
 """Modbus 从机地址默认值。手册 §3.2(印刷页 31):「从机地址默认为 255 或 0,
 如果不正确可能导致通讯异常无法连通」(V3.2.2.R 及以上固件支持配置)。
-本库 Modbus 站号按规范 V1.1b3 钉 0~247,255 超出上限,故默认取手册双默认
-之一 **0**(TCP 无广播概念,站号 0 照常收发);现场读码器若配了 255,
-需在 IDMVS 通信配置中改为 0~247 内的值。"""
+本库缺省取手册双默认之一 **0**(TCP 无广播概念,站号 0 照常收发)。
+**合法范围按走线区分**(review-1036 §3.3 订正):Modbus **TCP 的 Unit ID
+是路由字段,0~255**(:class:`~omniplc.ModbusTcpClient` 构造期校验),
+故现场读码器配了 255 时直接传 ``station=255`` 即可;**0~247 是串口线
+(Modbus RTU)的站号上限**,不适用于本类。"""
 HIKROBOT_CONTROL_OFFSET: int = 0
 """控制区保持寄存器偏移(§3.5 印刷页 39-40,REG0;服务端模式偏移地址固定)。"""
 HIKROBOT_STATUS_OFFSET: int = 1

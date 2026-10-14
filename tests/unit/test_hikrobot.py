@@ -136,8 +136,13 @@ def test_scan_ng_returns_false_without_result_read(
     assert client.scan(timeout=2.0, poll_interval=0.001) == (False, None)
 
 
-def test_scan_noread_passthrough(monkeypatch: pytest.MonkeyPatch) -> None:
-    """读码器 NoRead 使能时未读到码反馈 OK + "NoRead" 字符,原样透传。"""
+def test_scan_noread_text_is_not_a_barcode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """读码器 NoRead 使能时未读到码反馈 OK + NoRead 文本:判无读出,不当条码。
+
+    review-1036 §3.2:原实现原样透传 ``(True, "NoRead")``,与同族 TCP/串口
+    口径(TCP ``noread_text`` / 串口 ``noread_text``)不一致,调用方会把
+    ``NoRead`` 当有效条码入库。
+    """
     payload = b"NoRead"
     words: List[int] = [6]
     words += [
@@ -152,7 +157,74 @@ def test_scan_noread_passthrough(monkeypatch: pytest.MonkeyPatch) -> None:
         _fc03_response(6, [0x0000]),
     ]
     client, _scripted = _make_client(monkeypatch, frames)
-    assert client.scan(timeout=2.0, poll_interval=0.001) == (True, "NoRead")
+    assert client.scan(timeout=2.0, poll_interval=0.001) == (False, None)
+    assert client.last_error is not None and "无读出" in client.last_error
+
+
+def test_scan_empty_result_is_noread(monkeypatch: pytest.MonkeyPatch) -> None:
+    """结果长度字 0(空输出):判无读出,不再报 (True, "")。
+
+    review-1036 §3.2:原实现把空串当成功条码返回(结果区未写入/长度字错)。
+    """
+    frames = [
+        _fc06_response(1, 0, 0x0001),
+        _fc03_response(2, [0x0001]),
+        _fc06_response(3, 0, 0x0003),
+        _block_response(4, 0x0100, [0]),  # OK,长度字 0
+        _fc06_response(5, 0, 0x0005),
+        _fc03_response(6, [0x0000]),
+    ]
+    client, _scripted = _make_client(monkeypatch, frames)
+    assert client.scan(timeout=2.0, poll_interval=0.001) == (False, None)
+    assert client.last_error is not None and "结果为空" in client.last_error
+
+
+def test_custom_noread_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    """现场改过「输出无读」文本时,构造参数同步判定。"""
+    payload = b"NOREAD!"
+    padded = payload + b"\x00" * (len(payload) % 2)  # 奇数长度末字高位补 0
+    words: List[int] = [len(payload)]
+    words += [
+        int.from_bytes(padded[i : i + 2], "big") for i in range(0, len(padded), 2)
+    ]
+    frames = [
+        _fc06_response(1, 0, 0x0001),
+        _fc03_response(2, [0x0001]),
+        _fc06_response(3, 0, 0x0003),
+        _block_response(4, 0x0100, words),
+        _fc06_response(5, 0, 0x0005),
+        _fc03_response(6, [0x0000]),
+    ]
+    scripted = _ScriptedTransport(_chunks(frames))
+    client = HikrobotIdModbusClient(
+        "127.0.0.1", 502, _STATION, _RESULT_WORDS, noread_text="NOREAD!"
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.scan(timeout=2.0, poll_interval=0.001) == (False, None)
+    assert client.last_error is not None and "无读出" in client.last_error
+
+
+def test_constructor_noread_text_validation() -> None:
+    """构造期校验:noread_text 不能为空(review-1036 §3.2 新增参数)。"""
+    with pytest.raises(ValueError, match="noread_text"):
+        HikrobotIdModbusClient(
+            "127.0.0.1", 502, _STATION, _RESULT_WORDS, noread_text=""
+        )
+
+
+def test_station_255_accepted_tcp_unit_id_range() -> None:
+    """站号合法范围按走线区分:TCP Unit ID 0~255,255 可用于连通。
+
+    review-1036 §3.3:原 docstring/文档称"本库钉 0~247、255 超出上限需改"
+    与实现相反——``ModbusTcpClient`` 的 Unit ID 校验实为 0~255(0~247 是
+    串口线口径)。旧固件(< V3.2.2.R)站号 255 不可改时,按错文档会误判
+    "库不支持"而放弃。
+    """
+    client = HikrobotIdModbusClient("127.0.0.1", 502, 255)
+    assert client.station == 255
+    with pytest.raises(ValueError, match="255"):
+        HikrobotIdModbusClient("127.0.0.1", 502, 256)
 
 
 def test_scan_general_fault_returns_false(monkeypatch: pytest.MonkeyPatch) -> None:

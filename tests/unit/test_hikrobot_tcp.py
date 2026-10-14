@@ -344,3 +344,88 @@ def test_ping_get_acquisition(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert client.ping() is True
     assert bytes(cmd_sock.sent) == b"<Get,Acq>"
+
+
+# ---------------------------------------------------------------------------
+# review-1036 §3.1/§3.2:Set/Exec 假成功与"空结果当成功"收口
+# ---------------------------------------------------------------------------
+
+
+def test_set_acquisition_non_ok_payload_is_frame_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``<Set,Acq,NOK>``:Set 应答只有 OK/errno 两态,第三种 payload 按坏帧报错。
+
+    review-1036 §3.1:原实现把非数字 payload 当"成功无参数"静默返回(返回值
+    被丢弃),被设备明确拒绝的 Set/Exec 上报成功且 last_error 为空——静默假成功。
+    """
+    client, cmd_sock, _result = _make_client(
+        monkeypatch,
+        [b"<Set,Acq,NOK>"],
+        None,
+    )
+    assert client.set_acquisition(True) is False
+    assert client.last_error is not None and "既非 OK 也非 errno" in client.last_error
+    assert bytes(cmd_sock.sent) == b"<Set,Acq,1>"
+
+
+def test_exec_non_ok_payload_reports_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``<Exec,Reboot,NOK>``:Exec 同样收口(动作型命令不得静默报成功)。"""
+    client, _cmd, _result = _make_client(
+        monkeypatch,
+        [b"<Exec,Reboot,NOK>"],
+        None,
+    )
+    assert client.command("Exec", "Reboot") == (False, None)
+    assert client.last_error is not None and "NOK" in client.last_error
+
+
+def test_get_non_numeric_payload_still_returned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Get 的非数字 payload 仍是参数文本(收口只作用于 Set/Exec)。"""
+    client, _cmd, _result = _make_client(
+        monkeypatch,
+        [b"<Get,TriTcpStart,abc>"],
+        None,
+    )
+    assert client.command("Get", "TriTcpStart") == (True, "abc")
+
+
+def test_scan_empty_output_is_noread(monkeypatch: pytest.MonkeyPatch) -> None:
+    """结果推送只有换行(空输出):判无读出,不再报 ``(True, "")``。
+
+    review-1036 §3.2:原实现 rstrip 后只与 NoRead 文本全等比较,``b"\\r\\n"``
+    被当成功条码返回空串。
+    """
+    client, _cmd, _result = _make_client(
+        monkeypatch,
+        [b"<Exec,TriSoft,OK>"],
+        [b"\r\n"],
+    )
+    assert client.scan(timeout=2.0) == (False, None)
+    assert client.last_error is not None and "结果为空" in client.last_error
+
+
+def test_scan_whitespace_output_is_noread(monkeypatch: pytest.MonkeyPatch) -> None:
+    """结果推送为纯空白:同判无读出(原实现返回 ``(True, '   ')``)。"""
+    client, _cmd, _result = _make_client(
+        monkeypatch,
+        [b"<Exec,TriSoft,OK>"],
+        [b"   \r\n"],
+    )
+    assert client.scan(timeout=2.0) == (False, None)
+    assert client.last_error is not None and "结果为空" in client.last_error
+
+
+def test_read_result_empty_output_is_noread(monkeypatch: pytest.MonkeyPatch) -> None:
+    """被动路径同口径:read_result 与 scan 共用结果收口。"""
+    client, _cmd, _result = _make_client(
+        monkeypatch,
+        [],
+        [b" \r\n"],
+    )
+    assert client.read_result(timeout=2.0) == (False, None)
+    assert client.last_error is not None and "结果为空" in client.last_error

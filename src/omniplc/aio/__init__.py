@@ -88,8 +88,8 @@ from ..core.constants import (
     SR_DEFAULT_PORT,
     SR_DEFAULT_SCAN_DWELL,
     HIKROBOT_MODBUS_STATION_DEFAULT,
-    HIKROBOT_RESULT_WORDS_DEFAULT,
     HIKROBOT_NOREAD_TEXT,
+    HIKROBOT_RESULT_WORDS_DEFAULT,
     HIKROBOT_RESULT_MAX_FRAME,
     HIKROBOT_RESULT_SETTLE_INTERVAL,
     HIKROBOT_SERIAL_BAUD_DEFAULT,
@@ -1598,17 +1598,19 @@ class AHikrobotIdModbusClient(AModbusBaseClient):
         byte_swap: bool = False,
         encoding: str = "utf-8",
         encoding_errors: str = "strict",
+        noread_text: str = HIKROBOT_NOREAD_TEXT,
     ) -> None:
         """初始化读码器异步客户端(参数语义同同步版,见同步类 docstring)。
 
         :param ip_address: 读码器 IP 或主机名
         :param port: Modbus TCP 端口,默认 502
-        :param station: 从机地址,默认 0(读码器默认 255 或 0,本库按规范
-            钉 0~247 取 0)
+        :param station: 从机地址,默认 0(读码器默认 255 或 0;TCP 的
+            Unit ID 合法 0~255,现场配 255 直接传 255)
         :param result_words: 结果区大小(寄存器数,4~500 默认 100)
         :param byte_swap: 结果数据寄存器内字节交换(对应读码器侧开关)
         :param encoding: 条码内容解码编码,默认 utf-8
         :param encoding_errors: 解码失败策略,默认 ``strict``
+        :param noread_text: 未读到码的输出文本,默认 ``NoRead``
         :raises ValueError: 参数非法
         """
         super().__init__(
@@ -1620,6 +1622,7 @@ class AHikrobotIdModbusClient(AModbusBaseClient):
                 byte_swap,
                 encoding,
                 encoding_errors,
+                noread_text,
             )
         )
 
