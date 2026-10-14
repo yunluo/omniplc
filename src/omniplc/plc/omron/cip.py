@@ -18,10 +18,12 @@ NJ/NX(Sysmac)系列没有 FINS/TCP-UDP,变量经标准 CIP 显式报文访问;
   元素访问(NJ 不做 Logix 的 32 位打包,实际类型由自描述应答决定,
   元素应答存储字类型时按 Logix 口径回退);整型 ``.位号`` 写走 0x4E
   读-改-写,设备侧支持与否随固件,不支持时按 DeviceError 报告不断线。
-  **review-1018 P2-4/5 披露(真机核证项)**:W506 §7-6-2 字面要求 BOOL
-  数组元素写携带 2 数据字节(Forced 字节)且按 WORD(16 位)打包存储,
-  本库按元素 1 字节直写/固件自描述回退——两种固件行为均覆盖,但与
-  手册字面口径的分歧待 NJ 真机核验后归一
+  **BOOL 写载荷 = Status + Forced 两字节**(W506 §7-7-3 印刷页 7-91
+  (PDF 387)「Boolean Data / Data Format」:`USINT Status`(01=TRUE/
+  00=FALSE)+ `USINT Forced set/reset information`(写时**指定 0**);
+  review-1031 §二 P1-1 订正:原按 1 字节直发(旧注释引「§7-6-2」章节号
+  亦错),标量与数组元素写都会被设备按 0x13 NOT_ENOUGH_DATA 拒);
+  该问题**不是**数组专有(标量同受),旧注释口径一并订正
 - **NJ STRING**:布局 = 4 字节字符数(len u32)+ 字符(无 Logix 82
   字符上限、无 88 字节填充);写入前先读一次取模板实例号与声明尺寸,
   写入类型域回带实际模板号,值超声明尺寸拒绝(防溢出)。布局以
@@ -45,6 +47,17 @@ from ...core.constants import AB_EIP_DEFAULT_PORT
 from ...core.errors import DeviceError
 from ...core.types import PrimitiveValue
 from ...core.i18n import _
+
+
+def _bool_payload(flag: bool) -> bytes:
+    """NJ/NX BOOL 写数据载荷 = Status + Forced 两字节(内部函数)。
+
+    依据:W506 §7-7-3 印刷页 7-91(PDF 387)「Boolean Data / Data Format」
+    ——``USINT Status``(01 hex: TRUE / 00 hex: FALSE)+ ``USINT Forced
+    set/reset information``(**写时指定 0**);review-1031 §二 P1-1:
+    1 字节直发会被设备按 0x13 NOT_ENOUGH_DATA 拒。
+    """
+    return b"\x01\x00" if flag else b"\x00\x00"
 
 
 class OmronCipClient(AllenBradleyEthIpClient):
@@ -131,6 +144,12 @@ class OmronCipClient(AllenBradleyEthIpClient):
         类型发现对元素路径回存储字类型(DWORD)时,先按元素以 BOOL
         类型直写(类型不符会被 PLC 拒绝、无副作用),被拒再回退
         Logix ``下标//32`` 读-改-写口径。
+
+        写数据格式(依据:W506 §7-7-3 印刷页 7-91(PDF 387)「Boolean
+        Data / Data Format」):``USINT Status``(01=TRUE/00=FALSE)
+        + ``USINT Forced set/reset information``(**写时指定 0**)
+        共 **2 字节**——review-1031 §二 P1-1:原按 1 字节直发(标量与
+        数组元素写同受),设备会以 0x13 NOT_ENOUGH_DATA 拒。
         """
         if parsed.bit is not None:
             cip_type = self._ensure_type(parsed)
@@ -146,7 +165,7 @@ class OmronCipClient(AllenBradleyEthIpClient):
                 codec_cip.build_tag_write(
                     codec_cip.tag_type_path(parsed),
                     cip_type,
-                    b"\x01" if flag else b"\x00",
+                    _bool_payload(flag),
                 ),
                 codec_cip.CIP_SERVICE_WRITE_TAG,
             )
@@ -158,7 +177,7 @@ class OmronCipClient(AllenBradleyEthIpClient):
                     codec_cip.build_tag_write(
                         codec_cip.tag_type_path(parsed),
                         codec_cip.CIP_TYPE_BOOL,
-                        b"\x01" if flag else b"\x00",
+                        _bool_payload(flag),
                     ),
                     codec_cip.CIP_SERVICE_WRITE_TAG,
                 )

@@ -102,7 +102,12 @@ def test_read_bool_direct(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_write_bool_direct(monkeypatch: pytest.MonkeyPatch) -> None:
-    """标量 BOOL 写:类型发现 + 携带类型码的直写帧(0x4D)。"""
+    """标量 BOOL 写:类型发现 + 携带类型码的直写帧(0x4D)。
+
+    载荷 = Status + Forced 两字节(W506 §7-7-3 印刷页 7-91:Status 01=TRUE、
+    写时 Forced 指定 0)——review-1031 §二 P1-1:原 1 字节直发会被设备按
+    0x13 NOT_ENOUGH_DATA 拒。
+    """
     client = OmronCipClient("127.0.0.1", 44818)
     scripted = ScriptedTransport(
         _session_chunks()
@@ -113,7 +118,7 @@ def test_write_bool_direct(monkeypatch: pytest.MonkeyPatch) -> None:
     client.connect()
     assert client.write_bool("RunFlag", True) is True
     write_request = codec_cip.build_tag_write(
-        codec_cip.build_symbol_path(("RunFlag",), ((),)), 0xC1, b"\x01"
+        codec_cip.build_symbol_path(("RunFlag",), ((),)), 0xC1, b"\x01\x00"
     )
     assert bytes(scripted.sent).endswith(
         codec_cip.build_rr_data(_SESSION, write_request)
@@ -213,7 +218,11 @@ def test_bool_array_element_direct_read(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_bool_array_element_direct_write(monkeypatch: pytest.MonkeyPatch) -> None:
-    """BOOL 数组元素写:先按元素以 BOOL 类型直写(0x4D 携带 C1)。"""
+    """BOOL 数组元素写:先按元素以 BOOL 类型直写(0x4D 携带 C1)。
+
+    载荷同标量 = Status + Forced 两字节(review-1031 §二 P1-1:
+    数组元素与标量同受,旧注释把该问题误记作"数组专有")。
+    """
     client = OmronCipClient("127.0.0.1", 44818)
     scripted = ScriptedTransport(
         _session_chunks()
@@ -226,7 +235,7 @@ def test_bool_array_element_direct_write(monkeypatch: pytest.MonkeyPatch) -> Non
     client.connect()
     assert client.write_bool("Bits[5]", True) is True
     write_request = codec_cip.build_tag_write(
-        codec_cip.build_symbol_path(("Bits",), ((5,),)), 0xC1, b"\x01"
+        codec_cip.build_symbol_path(("Bits",), ((5,),)), 0xC1, b"\x01\x00"
     )
     assert bytes(scripted.sent).endswith(
         codec_cip.build_rr_data(_SESSION, write_request)
