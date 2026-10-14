@@ -88,16 +88,39 @@ def _expected(
 
 
 def test_table_codes() -> None:
-    """码表本身:S 用三菱 L 码 92h,X/Y 帧内十六进制,D/W 同三菱。"""
+    """码表本身:S 用三菱 L 码 92h,X/Y 帧内十六进制,B/W 十进制(review-1029 P1-1)。"""
     assert INOVANCE_MC_DEVICE_CODES["X"] == (0x9C, 1, 16)
     assert INOVANCE_MC_DEVICE_CODES["Y"] == (0x9D, 1, 16)
     assert INOVANCE_MC_DEVICE_CODES["M"] == (0x90, 1, 10)
     assert INOVANCE_MC_DEVICE_CODES["S"] == (0x92, 1, 10)
-    assert INOVANCE_MC_DEVICE_CODES["B"] == (0xA0, 1, 16)
+    assert INOVANCE_MC_DEVICE_CODES["B"] == (0xA0, 1, 10)
     assert INOVANCE_MC_DEVICE_CODES["D"] == (0xA8, 0, 10)
-    assert INOVANCE_MC_DEVICE_CODES["W"] == (0xB4, 0, 16)
+    assert INOVANCE_MC_DEVICE_CODES["W"] == (0xB4, 0, 10)
     assert INOVANCE_MC_R_BASE == 8000
     assert "R" not in INOVANCE_MC_DEVICE_CODES
+
+
+def test_b_w_decimal_numbering(monkeypatch: pytest.MonkeyPatch) -> None:
+    """B/W 按十进制编号入帧(review-1029 P1-1:原按十六进制静默错址)。
+
+    手册 16.4 与 §6.2.1/§6.2.2 全表仅 X/Y 标「8 进制编码」,B0~B32767 /
+    W0~W32767 为 32768 点十进制区间。原实现 B10 → 元件 16(与同库 Modbus
+    路径 B10 → 元件 10 自相矛盾,且无异常);修后 B10 → 元件 10、
+    W32 → 元件 32,进帧编号域可逐字节核对。
+    """
+    client = InovanceMcTcpClient("127.0.0.1", 2000)
+    scripted = ScriptedTransport(
+        [_bit_read_response([1])[:9], _bit_read_response([1])[9:]]
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_bool("B10") == (True, True)
+    sent = bytes(scripted.sent)
+    assert sent[15:18] == b"\x0a\x00\x00"  # 编号 10 = 0x000A(十进制口径)
+    assert sent[18] == 0xA0
+    # 十六进制写法(含 A~F)在十进制族被显式拒,不静默按另一进制解读
+    with pytest.raises(ValueError):
+        client.read_bool("B1F")
 
 
 def test_defaults_and_frame_fixed_3e() -> None:
