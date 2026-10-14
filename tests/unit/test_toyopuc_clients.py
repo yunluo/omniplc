@@ -103,6 +103,32 @@ def test_parse_address_errors() -> None:
             parse_toyopuc_address(bad)
 
 
+def test_parse_address_without_leading_zeros() -> None:
+    """省略前导零的高位地址不得被当"两字母软元件"拒收(review-1026 §6.1-1)。
+
+    编号是十六进制(手册/参考实现口径),故 ``DA00``(D 区 0xA00)的编号
+    首位同样是 A~F;贪婪切分把 ``[A-Z]{1,2}`` 先吃两字母,``DA00`` 被切成
+    "记号 DA + 编号 00" ⇒ 未知记号 ⇒ **合法地址全废**(字区受影响最大,
+    位区因段表上界 0x7FF 而少见)。正则改为最短切分后与零填充写法等价。
+    """
+    assert parse_toyopuc_address("DA00") == parse_toyopuc_address("D0A00")
+    assert parse_toyopuc_address("DA00").number == 0xA00
+    assert parse_toyopuc_address("DFFFF").number == 0xFFFF
+    assert encode_word_address(parse_toyopuc_address("DA00")) == 0x1A00
+    # 字区(R/N/S/B)同型,D 之外的省略前导零写法一并覆盖
+    assert parse_toyopuc_address("RA00").number == 0xA00
+    assert parse_toyopuc_address("NA00").number == 0xA00
+    assert parse_toyopuc_address("SA00").number == 0xA00
+    assert parse_toyopuc_address("BA00").number == 0xA00
+    # 位软元件:编号首位为 A~F 且落在段内同样放行
+    assert parse_toyopuc_address("XAB") == parse_toyopuc_address("X0AB")
+    assert parse_toyopuc_address("XAB").number == 0xAB
+    assert parse_toyopuc_address("C1F").number == 0x1F
+    # 未知两字母仍报"不支持的软元件"(回溯到两字母分支,不被误切为 1 字母)
+    with pytest.raises(ValueError, match="软元件"):
+        parse_toyopuc_address("ZZ00")
+
+
 # ----------------------------------------------------------------------
 # 帧编解码
 # ----------------------------------------------------------------------
