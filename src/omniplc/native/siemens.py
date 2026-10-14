@@ -100,8 +100,9 @@ class AsyncS7Session(AsyncBaseTransport):
         self._sequence = 0
         self.pdu_size = codec.MAX_PDU_REQUEST
         self._dst_ref = 0
-        """CC 应答回显的对端引用,close 发 COTP DR 时回填(connection.py
-        L431-450 用 CC 回给的 dst_ref;默认 0,DR 为尽力而为语义)。"""
+        """CC 应答回显的对端引用,close 发 COTP DR 时回填(档案
+        `docs/protocol/siemens/s7comm/README.md` §10:`_send_cotp_disconnect`
+        用 CC 回给的 dst_ref;默认 0,DR 为尽力而为语义)。"""
         self._debug_label = "s7://{}:{}(机架{}槽位{})".format(
             ip_address, port, rack, slot
         )
@@ -198,14 +199,15 @@ class AsyncS7Session(AsyncBaseTransport):
         """尽力发 COTP DR 断连请求(内部;client 断开钩子调用)。
 
         DR 语义尽力而为:对端半开/发送失败由调用方吞掉,不影响断开流程;
-        dst_ref = CC 应答回显值(同类开源封装 connection.py L431-450 同款)。
+        dst_ref = CC 应答回显值(依据:档案
+        `docs/protocol/siemens/s7comm/README.md` §2 DR 形态——ISO 8073 §13.3
+        `LI`+`0x80`+dst_ref(2)+src_ref(2)+reason(1) = **7 字节整帧**、LI=6;
+        + §10 断连语义)。
         """
         tcp = self._tcp
         if tcp is None:
             return
-        dr = struct.pack(
-            ">BBHHBB", 6, 0x80, self._dst_ref, codec.SRC_REFERENCE, 0x00, 0x00
-        )
+        dr = struct.pack(">BBHHB", 6, 0x80, self._dst_ref, codec.SRC_REFERENCE, 0x00)
         await tcp.send(codec.build_tpkt(dr))
 
     def _next_sequence(self) -> int:
@@ -244,8 +246,9 @@ class AsyncS7Session(AsyncBaseTransport):
         """读一块区域字节(会话调用;统一 BYTE 传输尺寸,与同步层口径一致)。
 
         跨度超过单请求 PDU 容量(协商值 - 18 字节读侧开销,至少 1)时
-        **自动分片**循环读回拼接(同类开源参考实现(3.2.0 快照) client.py L997-1063
-        `read_area` 同款行为,client_base.py L199-208 容量公式);任一片
+        **自动分片**循环读回拼接(依据:档案
+        `docs/protocol/siemens/s7comm/README.md` §10 分片容量公式
+        读侧 = PDU−18;旁证=参考实现 `read_area` 同款行为);任一片
         失败即整块失败(异常上抛,调用方按各自容错口径处理)。
         """
         chunks = []
@@ -289,9 +292,10 @@ class AsyncS7Session(AsyncBaseTransport):
         """写一块区域字节(会话调用)。
 
         跨度超过单请求 PDU 容量(协商值 - 35 字节写侧开销,至少 1)时
-        **自动分片**顺序写(同类开源参考实现(3.2.0 快照) `write_area` 同款行为,
-        client_base.py L210-219 容量公式);分片中途失败时前片已落盘
-        (部分写,协议无跨片原子性),调用方按整块异常感知。
+        **自动分片**顺序写(依据:档案
+        `docs/protocol/siemens/s7comm/README.md` §10 分片容量公式
+        写侧 = PDU−35;旁证=参考实现 `write_area` 同款行为);分片中途失败时
+        前片已落盘(部分写,协议无跨片原子性),调用方按整块异常感知。
         """
         data = bytes(data)
         offset = 0

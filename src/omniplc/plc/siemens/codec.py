@@ -5,10 +5,18 @@
 `docs/protocol/siemens/s7comm/README.md`(同类开源参考实现(3.2.0 快照) 为主源,
 交叉参考实现 交叉;同类开源库 C++ 源码 LGPL 只比对行为不抄码)。
 
-- TPKT(RFC 1006):4 字节头,版本 3 + 总长 u16 大端
-- COTP(ISO 8073):CR/CC/DT 三形态
-- S7:10/12 字节报头(Job/ACK/ACK_DATA/USERDATA)+ 协商 + 读/写变量 +
-  multi + SZL(USERDATA)
+**引用口径**(review-1034 §二 P1 订正):本模块的就近引用一律以该档案的
+小节号为锚(**下称「档案」,``§N`` = 档案 §N 条目,格式
+``依据:档案 §N(条目名)``),参考实现的文件/函数名作**旁证**跟在后面。
+原实现引的是库外参考实现源码的**行号**(`s7protocol.py`/`datatypes.py`/
+`connection.py`/`client_base.py` 均不在库内),库内无从复核且行号互相矛盾
+(同一函数三处行号不同);现统一按档案口径。
+
+- TPKT(RFC 1006):4 字节头,版本 3 + 总长 u16 大端(档案 §1)
+- COTP(ISO 8073):CR/CC/DT/DR 四形态(档案 §2)
+- S7:10/12 字节报头(Job/ACK/ACK_DATA/USERDATA,档案 §3)+ 协商(§4)+
+  地址规范(§5)+ 读/写变量(§6/§7)+ 返回码(§8)+ SZL(USERDATA,§9)
+- 会话级参数与分片容量 PDU−18/−35(档案 §10)
 
 真机 pcap 是黄金帧的唯一权威,落地前黄金帧以参考实现字节锁定。
 """
@@ -33,9 +41,9 @@ PDU_ACK_DATA: int = 0x03
 PDU_USERDATA: int = 0x07
 """S7 PDU 类型:Job 请求 / ACK 写应答 / ACK_DATA 读·协商应答 / USERDATA。
 
-依据:同类开源参考实现(3.2.0 快照) s7protocol.py `S7PDUType`;ACK/ACK_DATA 应答头
-12 字节(尾接 error_class+error_code),USERDATA 头 10 字节(无错误两字,
-`parse_response` L1536-1554)。"""
+依据:档案 §3(S7 报文头:PDU 类型值表);ACK/ACK_DATA 应答头
+12 字节(尾接 error_class+error_code),USERDATA 头 10 字节(无错误两字)
+——旁证=参考实现 s7protocol.py `S7PDUType`/`parse_response`。"""
 
 FUNC_READ: int = 0x04
 FUNC_WRITE: int = 0x05
@@ -48,19 +56,20 @@ COTP_DT: int = 0xF0
 COTP_PARAM_PDU_SIZE: int = 0xC0
 COTP_PARAM_CALLING_TSAP: int = 0xC1
 COTP_PARAM_CALLED_TSAP: int = 0xC2
-"""COTP PDU 类型与参数码(ISO 8073;connection.py L49-63)。"""
+"""COTP PDU 类型与参数码(ISO 8073;档案 §2:PDU 类型表 + TLV 参数码,
+旁证=参考实现 connection.py `_build_cotp_cr`/`_parse_cotp_cc`)。"""
 
 LOCAL_TSAP: int = 0x0100
-"""本端 TSAP(同类开源封装 默认,client.py L334)。"""
+"""本端 TSAP(档案 §10 会话级参数:local TSAP `0x0100`,旁证=参考实现 client.py)。"""
 
 CONNECTION_TYPE_PG: int = 1
-"""S7 连接资源类型:PG(编程设备);OP=2、S7 基本=3(同类开源封装 同款缺省)。"""
+"""S7 连接资源类型:PG(编程设备);OP=2、S7 基本=3(档案 §10 会话级参数)。"""
 
 TPDU_SIZE_CODE: int = 0x0A
-"""COTP 协商请求的 TPDU 尺寸指数(2^0x0A = 1024;connection.py 缺省)。"""
+"""COTP 协商请求的 TPDU 尺寸指数(2^0x0A = 1024;档案 §2 CC 段 C0 参数码)。"""
 
 SRC_REFERENCE: int = 0x0001
-"""COTP CR 源引用(同类开源封装 缺省 0x0001)。"""
+"""COTP CR 源引用(档案 §10 会话级参数:src_ref `0x0001`)。"""
 
 AREA_PE: int = 0x81
 AREA_PA: int = 0x82
@@ -68,7 +77,7 @@ AREA_MK: int = 0x83
 AREA_DB: int = 0x84
 AREA_CT: int = 0x1C
 AREA_TM: int = 0x1D
-"""S7 区域码(datatypes.py `S7Area`)。"""
+"""S7 区域码(档案 §5 地址规范:区域码表;旁证=参考实现 datatypes.py `S7Area`)。"""
 
 WORD_LEN_BIT: int = 0x01
 WORD_LEN_BYTE: int = 0x02
@@ -80,22 +89,23 @@ WORD_LEN_DINT: int = 0x07
 WORD_LEN_REAL: int = 0x08
 WORD_LEN_COUNTER: int = 0x1C
 WORD_LEN_TIMER: int = 0x1D
-"""地址规范传输尺寸码(datatypes.py `S7WordLen`)。"""
+"""地址规范传输尺寸码(档案 §5;旁证=参考实现 datatypes.py `S7WordLen`)。"""
 
 SZL_GROUP: int = 0x04
-"""USERDATA 功能组:SZL(group 4);时钟 7、安全 5(s7protocol.py L45-53)。"""
+"""USERDATA 功能组:SZL(group 4);时钟 7、安全 5(档案 §9:type|group)。"""
 
 SZL_READ_SUBFUNCTION: int = 0x01
-"""USERDATA SZL 读子功能(s7protocol.py L64-66)。"""
+"""USERDATA SZL 读子功能(档案 §9:子功能 SZL 读 = 0x01)。"""
 
 SZL_CPU_STATUS_ID: int = 0x0424
-"""CPU 状态 SZL ID(同类开源库 C 家族 `Cli_GetCpuStatus` 读 0x0424/0)。
+"""CPU 状态 SZL ID(档案 §9 CPU 状态段:同类开源库 C 家族 `opGetPlcStatus`
+读 0x0424/0,状态字节 = 记录区 [3])。
 
 同类开源参考实现(3.2.0 快照) 的 `build_cpu_state_request` 是纯 Python 服务端桩
 (恒返 Run),不可作依据;本表按 同类开源库 C 行为对照,**待真机核证**。"""
 
 RETURN_CODE_OK: int = 0xFF
-"""S7 数据段条目返回码:0xFF = 成功(s7protocol.py `S7_RETURN_CODES`)。"""
+"""S7 数据段条目返回码:0xFF = 成功(档案 §8:数据段返回码表)。"""
 
 RETURN_CODE_TEXT: Dict[int, str] = {
     0xFF: "成功",
@@ -111,11 +121,11 @@ RETURN_CODE_TEXT: Dict[int, str] = {
     0x20: "参数非法",
     0x21: "PG 资源耗尽(连接数已达上限)",
 }
-"""S7 数据段返回码 → 文本(常用子集;依据 s7protocol.py `S7_RETURN_CODES`
-L78-100,条目文本按中文口径意译)。"""
+"""S7 数据段返回码 → 文本(常用子集;档案 §8 数据段返回码表,
+旁证=参考实现 s7protocol.py `S7_RETURN_CODES`;条目文本按中文口径意译)。"""
 
 MAX_PDU_REQUEST: int = 480
-"""协商请求的 PDU 长度(同类开源封装 缺省 480;实际以对端确认为准)。"""
+"""协商请求的 PDU 长度(档案 §10:PDU 长度请求 480;实际以对端确认为准)。"""
 
 MAX_VARS: int = 20
 """multi read 单 PDU 项数上限(同类开源库 MAX_VARS 口径,与旧封装一致)。"""
@@ -144,7 +154,8 @@ def return_code_text(code: int) -> str:
 def build_tpkt(payload: bytes) -> bytes:
     """TPKT 封帧:版本 3 + 保留 0 + 总长 u16 大端(含头 4 字节)。
 
-    依据:同类开源参考实现(3.2.0 快照) connection.py `_build_tpkt`(L279-291)。
+    依据:档案 §1(TKPT 头 4 字节 `>BBH`,总长含头,合法 7~65535;
+    旁证=参考实现 connection.py `_build_tpkt`)。
     :raises S7ProtocolError: 总长越出 7~65535
     """
     length = len(payload) + 4
@@ -181,9 +192,10 @@ def build_cotp_cr(
     CPU 型号预设(S7-200 SMART 本端 0x1000、S7-200/CP243 TPDU 0x09,
     见 :data:`~omniplc.core.constants.S7_MODEL_PRESETS`)。
 
-    依据:同类开源参考实现(3.2.0 快照) connection.py `_build_cotp_cr`(L293-339);
-    TSAP 编码 `client.py::Client.connect`(L621);SMART/CP243 变体
-    商业参考实现 SiemensConstant.cs `Command1_200Smart`/`Command1_200`。
+    依据:档案 §2 CR 段(固定头 `>BBHHB` + TLV 参数序 Calling→Called→PDU
+    Size;Called TSAP = `(连接类型<<8)|(rack<<5)|slot`);SMART/CP243 变体按
+    §2 型号连接预设表(旁证=参考实现 connection.py `_build_cotp_cr`、
+    client.py `Client.connect`;商业参考实现 `SiemensConstant.cs`)。
     """
     body = struct.pack(
         ">BBHHB",
@@ -203,16 +215,16 @@ def build_cotp_cr(
 def parse_cotp_cc(payload: bytes, expected_remote_tsap: Optional[int] = None) -> int:
     """校验 COTP 连接确认(CC),返回对端引用 dst_ref(帧字节 [2:4])。
 
-    dst_ref 由调用方保存,close 发 COTP DR 时回填
-    (connection.py L431-450/`_parse_cotp_cc` 同款取法)。
+    dst_ref 由调用方保存,close 发 COTP DR 时回填(档案 §10:DR 帧 dst_ref =
+    CC 应答回显值;旁证=参考实现 connection.py `_send_cotp_disconnect`/
+    `_parse_cotp_cc` 同款取法)。
 
     CC 参数区回显请求的 Called TSAP(0xC2,TLV 变长;itpub 真机抓包
     `11 D0 00 01 00 xx 00 C0 01 09 C1 02 01 00 C2 02 01 01`——CC 侧
     参数顺序 PDU Size 在前,不按序扫描会漏)——``expected_remote_tsap``
     给出时逐 TLV 找 0xC2 并比对(陈旧串扰/错口应答在此拦截;漏参数的
-    老 CPU 宽容跳过)。依据:同类开源参考实现(3.2.0 快照) `_parse_cotp_cc`
-    (L431-450 只取 dst_ref;回显校验为本库加固,同
-    FINS 应答身份回显校验统一模式)。
+    老 CPU 宽容跳过)。依据:档案 §2 CC 段(类型校验 + dst_ref 取法;
+    TSAP 回显校验为本库加固,同 FINS 应答身份回显校验统一模式)。
 
     :raises S7ProtocolError: 类型非 0xD0、帧过短或 TSAP 回显不符
     """
@@ -252,7 +264,8 @@ def parse_cotp_cc(payload: bytes, expected_remote_tsap: Optional[int] = None) ->
 def build_cotp_dt(data: bytes) -> bytes:
     """COTP 数据帧:头 3 字节 `02 F0 80`(EOT 位 + 序号 0)+ S7 PDU。
 
-    依据:connection.py `_build_cotp_dt`(L399-410)。
+    依据:档案 §2 DT 段(头 3 字节 `>BBB`:`0x02`、`0xF0`、`0x80`;
+    旁证=参考实现 connection.py `_build_cotp_dt`)。
     """
     return struct.pack(">BBB", 2, COTP_DT, 0x80) + data
 
@@ -285,8 +298,8 @@ def build_s7_request(
     """构造 S7 请求(Job/USERDATA)报文:10 字节头 + 参数 + 数据。
 
     头 `>BBHHHH`:协议 ID 0x32、PDU 类型、冗余 0x0000、PDU 引用 u16、
-    参数长 u16、数据长 u16。依据:s7protocol.py `build_read_request`
-    (L165-188)/`build_setup_communication_request`(L379-398)。
+    参数长 u16、数据长 u16。依据:档案 §3(Job/USERDATA 头 10 字节
+    `>BBHHHH`;旁证=参考实现 s7protocol.py 组帧函数)。
     """
     header = struct.pack(
         ">BBHHHH",
@@ -306,8 +319,8 @@ def parse_s7_response(
     """解析 S7 应答报文,返回 ``(功能码, error_class, error_code, 参数, 数据)``。
 
     ACK/ACK_DATA 头 12 字节(尾接 error_class/error_code),USERDATA 头
-    10 字节;PDU 引用须与请求一致。依据:同类开源参考实现(3.2.0 快照)
-    `parse_response`(L1523-1606)。
+    10 字节;PDU 引用须与请求一致。依据:档案 §3(S7 报文头表 + 头字段
+    说明;旁证=参考实现 s7protocol.py `parse_response`)。
 
     :raises S7ProtocolError: 协议 ID/类型/序列号/分段长度不符
     """
@@ -374,7 +387,9 @@ def parse_s7_response(
 def build_setup_comm(pdu_length: int, sequence: int) -> bytes:
     """构造通信协商请求(功能 0xF0):参数 8 字节 + 请求数据长 0。
 
-    依据:同类开源参考实现(3.2.0 快照) `build_setup_communication_request`(L373-398)。
+    依据:档案 §4 协商(参数 8 字节 `>BBHHH`:`0xF0`、`0x00`、max AMQ
+    caller/callee 各 1、PDU 长度;旁证=参考实现
+    `build_setup_communication_request`)。
     """
     parameters = struct.pack(">BBHHH", FUNC_SETUP_COMM, 0x00, 1, 1, pdu_length)
     return build_s7_request(PDU_REQUEST, sequence, parameters)
@@ -404,8 +419,9 @@ def build_address_spec(
     """构造 12 字节 S7-Any 地址规范。
 
     地址 = BIT 形态(字节地址 ×8 + 位号);字类访问由调用方传入已 ×8 的
-    位地址。依据:同类开源参考实现(3.2.0 快照) datatypes.py `encode_address`
-    (L55-96):`>BBBBHHB3s` = 0x12 / 0x0A / 0x10(S7-Any)/ 传输尺寸 /
+    位地址。依据:档案 §5 地址规范(12 字节 Any 指针 `>BBBBHHB3s` 偏移表 +
+    区域码/WordLen 表,旁证=参考实现 datatypes.py `encode_address`):
+    = 0x12 / 0x0A / 0x10(S7-Any)/ 传输尺寸 /
     count u16 / DB 号 u16(DB 区外 0)/ 区域码 / 地址 3 字节大端。
 
     :param byte_index: BIT 形态位地址(字类 = 字节地址 ×8;TM/CT = 元素号)
@@ -444,8 +460,8 @@ def build_read(
 ) -> bytes:
     """构造单变量读请求(功能 0x04,单 Item)。
 
-    依据:同类开源参考实现(3.2.0 快照) `build_read_request`(L151-188)——参数 =
-    功能 + 项数 + 地址规范,头数据长 0。
+    依据:档案 §6 读变量(参数 = `0x04` + 项数 1B + 地址规范 12 字节,
+    头数据长 0;旁证=参考实现 `build_read_request`)。
 
     :raises ValueError: count 超出 u16(分片在会话层完成,单事务到不了
         该上限,此为防御校验防裸 struct.error 穿透)
@@ -469,7 +485,8 @@ def build_multi_read(
     同类开源库 read_multi_vars 的 WORDLen=BYTE 口径一致。
 
     :param items: ``(区域码, DB 号, 字节起点, 字节数)`` 列表(≤ :data:`MAX_VARS`)
-    依据:同类开源参考实现(3.2.0 快照) `build_multi_read_request`(L190-226)。
+    依据:档案 §6(multi 时 word_len 统一取 BYTE、count = 字节长;
+    旁证=参考实现 `build_multi_read_request`)。
     """
     if not 1 <= len(items) <= MAX_VARS:
         raise ValueError(
@@ -491,7 +508,7 @@ def parse_read_response(
 
     数据段逐项 = 返回码 1B + 传输尺寸 1B + 位长 u16 + 数据;传输尺寸
     0x04(BIT)按位长/8 计字节数,其余按字节;奇数长非末项后随 1 字节
-    填充。依据:同类开源参考实现(3.2.0 快照) `extract_multi_read_data`(L228-285)。
+    填充。依据:档案 §6 读应答段(旁证=参考实现 `extract_multi_read_data`)。
 
     :param byte_lengths: 单项读时给 None(按位长/8 推);multi 时给逐项
         期望字节数(与 build_multi_read 的 count 一致)
@@ -499,8 +516,9 @@ def parse_read_response(
     :raises DeviceError: 条目返回码非 0xFF(地址非法等)
     """
     function, _eclass, _ecode, parameters, data = parse_s7_response(pdu, sequence)
-    # 功能码 + 条目数强校验(同类开源参考实现(3.2.0 快照) `_validate_area_response`
-    # L1768-1774 同款;review-1008 P1:跨功能/串帧旧应答曾被误收)
+    # 功能码 + 条目数强校验(档案 §3 头字段语义 + 本库加固:应答身份回显
+    # 校验统一模式;旁证=参考实现 `_validate_area_response`;
+    # review-1008 P1:跨功能/串帧旧应答曾被误收)
     if function != FUNC_READ or len(parameters) < 2 or parameters[1] != item_count:
         raise S7ProtocolError(
             _("S7 读应答非法:功能码 0x{:02X}/条目数 {}(期望功能 0x04、条目 {})").format(
@@ -571,8 +589,9 @@ _WRITE_TRANSPORT_SIZES: Dict[int, int] = {
 }
 """写数据段传输尺寸映射(与地址规范 WordLen 不同码)。
 
-依据:同类开源参考实现(3.2.0 快照) `build_write_request`(L336-355):BIT→0x03、
-BYTE/WORD/DWORD→0x04、INT/DINT→0x05、REAL→0x07、CHAR/CT/TM→0x09。"""
+依据:档案 §7 写变量(传输尺寸映射表:BIT→0x03、BYTE/WORD/DWORD→0x04、
+INT/DINT→0x05、REAL→0x07、CHAR/CT/TM→0x09;旁证=参考实现
+`build_write_request`)。"""
 
 _WORD_LEN_ITEM_SIZES: Dict[int, int] = {
     WORD_LEN_BIT: 1,
@@ -588,9 +607,9 @@ _WORD_LEN_ITEM_SIZES: Dict[int, int] = {
 }
 """地址规范 WordLen 的元素字节数:count = 数据长 // 元素宽。
 
-依据:同类开源参考实现(3.2.0 快照) `build_write_request` L301-305
-(`count = len(data) // item_size`)与 `S7DataTypes.get_size_bytes`
-(BIT 公开口径 1 字节/位)。count 与数据段长度必须自洽,否则真机按
+依据:档案 §7(地址规范 count = 数据长 // 元素宽;旁证=参考实现
+`build_write_request` 与 `S7DataTypes.get_size_bytes`,BIT 公开口径
+1 字节/位)。count 与数据段长度必须自洽,否则真机按
 条目返回码拒绝(0x07 类型不一致)或按 1 元素截写。"""
 
 
@@ -608,7 +627,8 @@ def build_write(
     STRING 类数据长 = 字节数,BYTE/WORD/DWORD/INT/DINT 数据长 = **位数**。
     地址规范 count = 数据长 // 元素宽(与数据段长度自洽,review-1008 P0-1:
     曾恒写 1,多字节写真机必拒绝)。
-    依据:同类开源参考实现(3.2.0 快照) `build_write_request`(L287-371)。
+    依据:档案 §7(参数 = `0x05` + 项数 + 地址规范;数据段 `>BBH` + 数据;
+    旁证=参考实现 `build_write_request`)。
 
     :raises ValueError: 数据长非元素宽整数倍 / 元素数超出 u16
     """
@@ -639,9 +659,8 @@ def build_write(
 def parse_write_response(pdu: bytes, sequence: int, item_count: int) -> None:
     """解析写应答(ACK,数据段 = 逐项返回码)。
 
-    功能码/条目数/数据段长度强校验(同类开源参考实现(3.2.0 快照)
-    `_validate_area_response` L1768-1774 与 `check_write_response`
-    L1776-1794 同款:单条目应答恰 1 字节)。
+    功能码/条目数/数据段长度强校验(档案 §7 写应答段:ACK + 逐项返回码
+    1 字节;旁证=参考实现 `_validate_area_response`/`check_write_response`)。
 
     :raises S7ProtocolError: 帧结构/截断/功能码或条目数或长度不符
     :raises DeviceError: 条目返回码非 0xFF
@@ -678,7 +697,9 @@ def build_read_szl(szl_id: int, szl_index: int, sequence: int) -> bytes:
 
     参数 8 字节 `>BBBBBBBB`(0x00/0x01/0x12/0x04/0x11/type|group/子功能/
     DataRef)+ 数据段 `>BBHHH`(0x0A/0x00/4/ID/Index)。
-    依据:同类开源参考实现(3.2.0 快照) `build_read_szl_request`(L1075-1120)。
+    依据:档案 §9 USERDATA(参数 8 字节字段表 + 数据段 `>BBHHH`;**前缀
+    两字节 `0x0A/0x00` 属四源分歧字段,真机被拒先改 `FF/09`**;
+    旁证=参考实现 `build_read_szl_request`)。
     """
     parameters = struct.pack(
         ">BBBBBBBB",
@@ -708,12 +729,13 @@ def parse_szl_response(
     返回值为 AddLen/AddCount 之后的记录区;通用 SZL 消费者如需记录步长
     与条数,拿不到当前返回值(真机核证 AddLen/AddCount 布局后按需扩展
     返回形态)。
-    USERDATA 应答参数区 12 字节(同类开源参考实现(3.2.0 快照)
-    `_parse_userdata_response_params` L1663-1678):[3]=0x08(响应长)、
+    USERDATA 应答参数区 12 字节(档案 §9 应答段:[3]=0x08(响应长)、
     [4]=0x12(method)、[5]=type<<4|group(响应位 0x8|SZL 组=0x84)、
-    [6]=子功能、[10:12]=**参数级错误码**(`check_userdata_response`
-    L1460-1476 单独校验,与数据段返回码是两条通道)。
-    依据:同类开源参考实现(3.2.0 快照) `parse_read_szl_response`(L1168-1201)。
+    [6]=子功能、[10:12]=**参数级错误码**——与数据段返回码是两条通道,
+    分别校验;旁证=参考实现 `_parse_userdata_response_params`/
+    `check_userdata_response`)。
+    依据:档案 §9(应答数据段 = 返回码 1B + 传输尺寸 1B + 长 u16 + 载荷;
+    旁证=参考实现 `parse_read_szl_response`)。
 
     :param szl_id: 期望的 SZL ID(提供时校验应答回显,不符按坏帧)
     :param szl_index: 期望的 SZL Index(提供时校验,同上)

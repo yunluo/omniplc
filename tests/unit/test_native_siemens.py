@@ -103,7 +103,11 @@ def _async_parity(
             "transactions": client.stats["transactions"],
         }
         await client.close()
-        holder["dr_sent"] = b"\x06\x80\x00\x0a\x00\x01\x00\x00" in bytes(fake.sent)
+        # COTP DR = 7 字节(LI 6 + 0x80 + dst_ref 2 + src_ref 2 + reason 1),
+        # TPKT 包裹后总长 11;旧 8 字节形态(rg 前)不在此列
+        holder["dr_sent"] = b"\x03\x00\x00\x0b\x06\x80\x00\x0a\x00\x01\x00" in bytes(
+            fake.sent
+        )
 
     loop.run_until_complete(scenario())
     return holder
@@ -352,9 +356,9 @@ def test_native_disconnect_sends_dr(monkeypatch: pytest.MonkeyPatch, loop: Any) 
         holder["closed"] = fake.closed
 
     loop.run_until_complete(scenario())
-    # DR 帧(8 字节):LI 6 + 0x80 + dst_ref 0x000A + src_ref 0x0001 + class 0,
-    # TPKT 包裹后总长 12
-    assert b"\x06\x80\x00\x0a\x00\x01\x00\x00" in holder["sent"]
+    # DR 帧(7 字节,ISO 8073 §13.3):LI 6 + 0x80 + dst_ref 0x000A +
+    # src_ref 0x0001 + reason 0;TPKT 包裹后总长 11(旧 8 字节形态不在此列)
+    assert b"\x03\x00\x00\x0b\x06\x80\x00\x0a\x00\x01\x00" in holder["sent"]
     assert holder["closed"] is True
 
 

@@ -98,9 +98,10 @@ _CPU_STATUS_NAMES: Dict[int, str] = {
     0x03: "S7CpuStatusStop",
 }
 """SZL 0x0424 状态值(bzu_id)→ 枚举名:0x08 Run / 0x04 Stop / 0x03 Stop
-(老 CPU 兼容,同类开源库 C `opGetPlcStatus` L2044-2048 注「STOP 有时编为 0x03」;
-其余 Unknown 兜底——**有意不照搬 C 的「未知一律按 STOP」**:把坏帧/新值
-误报成停机比 Unknown 更危险,分歧点已记帧面档案;**偏移待真机核证**)。"""
+(老 CPU 兼容;依据:档案 `docs/protocol/siemens/s7comm/README.md` §9 CPU 状态段
+——同类开源库 C `opGetPlcStatus` 注「STOP 有时编为 0x03」;其余 Unknown 兜底
+——**有意不照搬 C 的「未知一律按 STOP」**:把坏帧/新值误报成停机比 Unknown
+更危险,分歧点已记帧面档案;**偏移待真机核证**)。"""
 
 
 def resolve_s7_connection(
@@ -196,8 +197,9 @@ class _S7Session(BaseTransport):
         self._sequence = 0
         self.pdu_size = codec.MAX_PDU_REQUEST
         self._dst_ref = 0
-        """CC 应答回显的对端引用,close 发 COTP DR 时回填(connection.py
-        L431-450 用 CC 回给的 dst_ref;默认 0,DR 为尽力而为语义)。"""
+        """CC 应答回显的对端引用,close 发 COTP DR 时回填(档案
+        `docs/protocol/siemens/s7comm/README.md` §10:`_send_cotp_disconnect`
+        用 CC 回给的 dst_ref;默认 0,DR 为尽力而为语义)。"""
         self._debug_label = "s7://{}:{}(机架{}槽位{})".format(
             ip_address, port, rack, slot
         )
@@ -276,10 +278,12 @@ class _S7Session(BaseTransport):
         if tcp is None:
             return
         try:
-            # COTP DR(断连请求,同类开源封装 connection.py L431-450 同款;
-            # dst_ref = CC 应答回显的对端引用,src_ref 恒本端缺省)
+            # COTP DR(断连请求;依据:档案
+            # `docs/protocol/siemens/s7comm/README.md` §2 DR 形态
+            # (ISO 8073 §13.3:`LI`+`0x80`+dst_ref(2)+src_ref(2)+reason(1)
+            # = **7 字节整帧**,LI=6)+ §10 断连语义 dst_ref = CC 应答回显值)
             dr = struct.pack(
-                ">BBHHBB", 6, 0x80, self._dst_ref, codec.SRC_REFERENCE, 0x00, 0x00
+                ">BBHHB", 6, 0x80, self._dst_ref, codec.SRC_REFERENCE, 0x00
             )
             tcp.send(codec.build_tpkt(dr))
         except OSError:
@@ -324,8 +328,9 @@ class _S7Session(BaseTransport):
         """读一块区域字节(会话调用;统一 BYTE 传输尺寸,与旧封装口径一致)。
 
         跨度超过单请求 PDU 容量(协商值 - 18 字节读侧开销,至少 1)时
-        **自动分片**循环读回拼接(同类开源参考实现(3.2.0 快照) client.py L997-1063
-        `read_area` 同款行为,client_base.py L199-208 容量公式);任一片
+        **自动分片**循环读回拼接(依据:档案
+        `docs/protocol/siemens/s7comm/README.md` §10 分片容量公式
+        读侧 = PDU−18;旁证=参考实现 `read_area` 同款行为);任一片
         失败即整块失败(异常上抛,调用方按各自容错口径处理)。
         """
         chunks = []
@@ -365,9 +370,10 @@ class _S7Session(BaseTransport):
         """写一块区域字节(会话调用)。
 
         跨度超过单请求 PDU 容量(协商值 - 35 字节写侧开销,至少 1)时
-        **自动分片**顺序写(同类开源参考实现(3.2.0 快照) `write_area` 同款行为,
-        client_base.py L210-219 容量公式);分片中途失败时前片已落盘
-        (部分写,协议无跨片原子性),调用方按整块异常感知。
+        **自动分片**顺序写(依据:档案
+        `docs/protocol/siemens/s7comm/README.md` §10 分片容量公式
+        写侧 = PDU−35;旁证=参考实现 `write_area` 同款行为);分片中途失败时
+        前片已落盘(部分写,协议无跨片原子性),调用方按整块异常感知。
         """
         data = bytes(data)
         offset = 0
@@ -421,8 +427,10 @@ class _S7Session(BaseTransport):
 
         返回状态枚举名(``"S7CpuStatusRun"``/``"S7CpuStatusStop"``/
         ``"S7CpuStatusUnknown"``)。状态取记录区第 4 字节 bzu_id——
-        同类开源库 C `opGetPlcStatus` L2038 读 ``opData[7]``,opData =
+        依据:档案 `docs/protocol/siemens/s7comm/README.md` §9 CPU 状态段
+        (同类开源库 C `opGetPlcStatus` 读 ``opData[7]``,opData =
         AddLen/AddCount + 记录区,即记录区 [3](ereig 2B + ae 1B 之后);
+        Wireshark SZL dissector 交叉一致);
         review-1008 P1:曾取记录区 [0](ereig 首字节,与状态字段错位,
         真机近乎必错)。**偏移仍待真机核证**(C 源 + 参考桩双源,pcap
         落地后回填帧面档案)。

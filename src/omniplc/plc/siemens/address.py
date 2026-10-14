@@ -136,10 +136,12 @@ def parse_s7_address(address: str) -> S7Address:
 def translate_v_address(address: str) -> str:
     """V 区记号 → DB1 记号(纯函数;调用方负责按型号放行)。
 
-    S7-200/200 SMART 的 V 存储器在 S7comm 线上就是 DB1(商业参考实现
-    SiemensClient.cs ``ConvertArg`` L1473-1476:``'V' → TypeCode 0x84、
-    DbBlock=1``;同类开源参考实现(3.2.0 快照) ppi.py L36-45 注「V memory is
-    addressed as DB1 on the wire」双源交叉)。映射:``V10.3`` →
+    S7-200/200 SMART 的 V 存储器在 S7comm 线上就是 DB1(依据:档案
+    `docs/protocol/siemens/s7comm/README.md` §2 型号连接预设注「V 区映射
+    商业参考实现 不分型号,本库限 200/200SMART,防 1200+ 的 DB1 静默别名」;
+    双源旁证=商业参考实现 `SiemensClient.cs::ConvertArg`(`'V' → TypeCode
+    0x84、DbBlock=1`)与参考实现 ppi.py 注「V memory is addressed as DB1
+    on the wire」)。映射:``V10.3`` →
     ``DB1.DBX10.3``;``V10`` → ``DB1.DBB10``;``VB/VW/VD/VS`` →
     ``DB1.DBB/DBW/DBD/DBS``。
 

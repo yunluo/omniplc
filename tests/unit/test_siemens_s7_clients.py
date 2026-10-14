@@ -628,12 +628,17 @@ def test_connect_timeout_flows_to_tcp(s7: Any) -> None:
 
 
 def test_close_dr_carries_dst_ref(s7: Any) -> None:
-    """COTP DR 的 dst_ref = CC 应答回显值(_cotp_cc 固定 0x000A)。"""
+    """COTP DR 的 dst_ref = CC 应答回显值(_cotp_cc 固定 0x000A)。
+
+    帧长按 ISO 8073 §13.3 = **7 字节**(LI 6 + 0x80 + dst_ref 2 + src_ref 2
+    + reason 1);review-1034 §三 P2:原实现按 `>BBHHBB` 多发 1 字节。
+    """
     client, fake = s7
     _connect_ready(client, fake)
     assert client.disconnect() is True
-    # DR 帧:LI 6 + 0x80 + dst_ref 0x000A + src_ref 0x0001 + class 0
-    assert b"\x06\x80\x00\x0a\x00\x01\x00\x00" in fake.sent
+    # DR 帧:LI 6 + 0x80 + dst_ref 0x000A + src_ref 0x0001 + reason 0
+    assert b"\x06\x80\x00\x0a\x00\x01\x00" in fake.sent
+    assert b"\x06\x80\x00\x0a\x00\x01\x00\x00" not in fake.sent
 
 
 def test_read_area_auto_split(s7: Any) -> None:
