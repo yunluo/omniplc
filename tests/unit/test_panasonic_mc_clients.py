@@ -88,7 +88,12 @@ def _expected(
 
 
 def test_table_codes() -> None:
-    """码表本身:与三菱 Q/L 同码;SM/SD 分界常量。"""
+    """码表本身:与三菱 Q/L 同码;SM/SD 分界常量。
+
+    **本用例锁实现现值、非手册值**(review-1025 §8.3:该表零手册依据,
+    「与三菱 Q/L 同码」已被库内三菱表实测证伪——松下 L=0xA0 是三菱 B、
+    R=0x90 是三菱 M;同码表查重由 `test_mc_codec` 的表驱动守卫承担)。
+    """
     assert PANASONIC_MC_DEVICE_CODES["X"] == (0x9C, 1, 10)
     assert PANASONIC_MC_DEVICE_CODES["Y"] == (0x9D, 1, 10)
     assert PANASONIC_MC_DEVICE_CODES["L"] == (0xA0, 1, 10)

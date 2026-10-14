@@ -87,7 +87,12 @@ def _expected(
 
 
 def test_table_codes() -> None:
-    """码表本身:五个软元件的码/位属性/进制。"""
+    """码表本身:五个软元件的码/位属性/进制。
+
+    **本用例锁实现现值、非手册值**(review-1028 §6.2 P1-B:KV MC 的
+    记号↔码映射零手册依据——SLMP 手册全文零命中,真机只验过三菱记号);
+    同码表查重由 `test_mc_codec` 的表驱动守卫承担。
+    """
     assert KEYENCE_MC_DEVICE_CODES["R"] == (0x90, 1, 10)
     assert KEYENCE_MC_DEVICE_CODES["B"] == (0xA0, 1, 16)
     assert KEYENCE_MC_DEVICE_CODES["W"] == (0xB4, 0, 16)

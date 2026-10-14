@@ -480,6 +480,57 @@ def test_mc_device_code_table_l_is_92_and_no_collisions() -> None:
     assert not collisions, "MC 设备码重码:{}".format(collisions)
 
 
+# 跨表重码守卫白名单:同码=**手册明确的别名/共享码**,非缺陷
+# (review-1025 §8.3 P1:全库 6 张码表原只有 MC_DEVICE_CODES 一张有守卫,
+#  其余表的"值快照"用例在实现被改错时会跟着一起绿——P0 防线只覆盖 1/6)
+_CODE_TABLE_ALIASES = {
+    # SH-080008 §18.4 自印 398:内部继电器 M/L/S 归同一码 4D20H,L/S 经 M 访问
+    ("MC_1E_DEVICE_CODES", 0x4D20): {"M", "S"},
+    # W342 §5-2-1/§5-2-2:T/C 共享码表,按地址区分(位=完成标志 09,字=PV 89)
+    ("FINS_MEMORY_CODES", 0x09): {"T", "C"},
+    ("FINS_MEMORY_CODES", 0x89): {"T", "C"},
+}
+
+
+def _code_table_cases() -> list:
+    """(表名, 表) 对——全部协议面软元件码表(review-1025 §8.3 P1)。"""
+    from omniplc.core import constants
+
+    names = (
+        "MC_DEVICE_CODES",
+        "MC_1E_DEVICE_CODES",
+        "KEYENCE_MC_DEVICE_CODES",
+        "INOVANCE_MC_DEVICE_CODES",
+        "PANASONIC_MC_DEVICE_CODES",
+        "FINS_MEMORY_CODES",
+    )
+    return [(name, getattr(constants, name)) for name in names]
+
+
+@pytest.mark.parametrize(
+    "name,table",
+    _code_table_cases(),
+    ids=[name for name, _table in _code_table_cases()],
+)
+def test_all_device_code_tables_have_no_duplicate_codes(name: str, table: dict) -> None:
+    """全部软元件码表逐表查重码(白名单外的同码 = 静默错址,P0 形态)。
+
+    review-1025 §8.3 P1:守卫改为表驱动覆盖全部码表;别名类重码
+    (``MC_1E`` 的 M/S、FINS 的 T/C)走显式白名单并注明手册依据。
+    本用例锁**表内一致性**——各族"值快照"用例在实现被改错时会跟着
+    一起绿,覆盖不到该形态。
+    """
+    by_code: dict = {}
+    for device, value in table.items():
+        by_code.setdefault(value[0], []).append(device)
+    bad = {
+        hex(code): devices
+        for code, devices in by_code.items()
+        if len(devices) > 1 and _CODE_TABLE_ALIASES.get((name, code)) != set(devices)
+    }
+    assert not bad, "{} 设备码重码(非已登记别名):{}".format(name, bad)
+
+
 def test_mc_timer_counter_device_codes_match_manual() -> None:
     """MC 定时器/计数器设备码按 SH080008 §8.1:TS=C1H/TC=C0H/TN=C2H,CS=C4H/CC=C3H/CN=C5H。
 
