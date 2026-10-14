@@ -9,13 +9,12 @@
 - 版本:architecture 抬头版本 == ``omniplc.__version__``
 - examples 的 python 代码块可 AST 解析,构造的 *Client 类 ∈ 公开导出
 - docs/protocol/ 子目录都在 protocol README 目录结构中出现(P2-2 防孤儿目录)
-- tools/manual_test.json 驱动集 ⊆ 冒烟清单驱动集(P2-3)
+- 构造冒烟清单驱动集覆盖预期驱动集(自填;原 tools/manual_test.json 口径)
 """
 
 from __future__ import annotations
 
 import ast
-import json
 import re
 from pathlib import Path
 from typing import Tuple
@@ -107,23 +106,43 @@ def test_protocol_dirs_all_indexed() -> None:
         assert name in readme, "protocol 子目录未在 README 索引:{}".format(name)
 
 
-def test_manual_test_json_drivers_covered_by_smoke() -> None:
-    """manual_test.json 的驱动集 ⊆ 构造冒烟清单(P2-3:漏项即回到无守卫)。"""
-    data = json.loads(_text("tools/manual_test.json"))
-    drivers: set = set()
+_EXPECTED_DRIVERS = (
+    "modbus_tcp",
+    "modbus_rtu",
+    "melsec_mc_tcp",
+    "melsec_mc_udp",
+    "melsec_mc_serial",
+    "melsec_mx",
+    "omron_fins_tcp",
+    "omron_fins_udp",
+    "omron_cip",
+    "keyence_hostlink_tcp",
+    "keyence_hostlink_udp",
+    "keyence_mc_tcp",
+    "keyence_mc_udp",
+    "keyence_sr",
+    "inovance_tcp",
+    "inovance_rtu",
+    "inovance_mc_tcp",
+    "panasonic_mc_tcp",
+    "panasonic_mewtocol_tcp",
+    "panasonic_mewtocol_udp",
+    "toyopuc_tcp",
+    "toyopuc_udp",
+    "opcua",
+    "ab_eip",
+    "mtconnect",
+    "siemens_s7",
+)
+"""预期驱动集(自填)。原取自 ``tools/manual_test.json``——该文件随联机脚本
+按「永不入库」红线撤出仓库(2026-10-14),故改由本测试自填锁定;构造冒烟
+清单漏项即失败(回到无守卫)。"""
 
-    def walk(node: object) -> None:
-        if isinstance(node, dict):
-            for key, value in node.items():
-                if key == "driver" and isinstance(value, str):
-                    drivers.add(value)
-                walk(value)
-        elif isinstance(node, list):
-            for item in node:
-                walk(item)
 
-    walk(data)
-    assert drivers, "manual_test.json 未解析出驱动"
+def test_expected_drivers_all_smoked() -> None:
+    """预期驱动集 ⊆ 构造冒烟清单(P2-3 口径:漏项即回到无守卫)。"""
     smoke = _text("tests/unit/test_manual_common_smoke.py")
     listed = set(re.findall(r'"driver": "(\w+)"', smoke))
-    assert drivers <= listed, "冒烟清单缺驱动:{}".format(sorted(drivers - listed))
+    assert listed, "冒烟清单未解析出驱动"
+    missing = set(_EXPECTED_DRIVERS) - listed
+    assert not missing, "冒烟清单缺驱动:{}".format(sorted(missing))

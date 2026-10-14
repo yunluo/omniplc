@@ -42,7 +42,7 @@
 ## 自检清单
 
 - [ ] 未引入新核心依赖(否则先开 issue 讨论)
-- [ ] 未提交 `tools/manual_test.*` / `tools/_ref_*/` / `.idea/` / `__pycache__` / `.venv/`
+- [ ] 未提交 `tools/manual_*.py` / `tools/manual_test.*` / `tools/_ref_*/` / `.idea/` / `__pycache__` / `.venv/`
 - [ ] 未引入库内模拟器(Virtual PLC / Fake PLC)
 - [ ] 公共 API 失败语义保持 `(False, None)` / `False`,原因进 `client.last_error`
 - [ ] 阶段 commit,每个 commit 单一目的

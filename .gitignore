@@ -158,8 +158,10 @@ docs/review-*.md
 
 # 参考项目源码仅本地留档(tools/_ref_*)
 tools/_ref_*/
-# 手动联测草稿不入库(正式联测走每协议 manual_*.py 脚本)
-tools/manual_test.py
+# 联机脚本一律不入库(AGENTS.md「真机核证人工完成;联机脚本 tools/manual_*.py
+# 永不入库」;2026-10-14 撤跟踪,本地保留供真机联测)
+tools/manual_*.py
+tools/manual_test.*
 
 # 会话临时文件(命令输出/临时脚本,根目录锚定不误伤包内 __init__.py)
 /_*.txt

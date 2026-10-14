@@ -37,7 +37,7 @@
   `mypy` 与 `ty` 双检查器必过(配置见 `pyproject.toml [tool.mypy]` 与 `[tool.ty.src]`)。
 - **注释**:全库中文注释;公开 API docstring 必须有(中文,与 README 一致)。
 - **不可入库**:
-  - `tools/manual_test.*`(手工测试脚本)
+  - `tools/manual_*.py` / `tools/manual_test.*`(联机脚本与配置,本地保留)
   - `tools/_ref_*/`(第三方参考项目源码,如 `tools/_ref_edge/`)
   - `.idea/`、`__pycache__/`、`.venv/`(本地环境)
 - **不要库内模拟器**:不引入 Virtual PLC / Fake PLC 之类代码;协议真机核证由人工完成

@@ -31,7 +31,7 @@
    门禁永不依赖模拟器状态。
 3. **TLS/SSL 永不考虑**:内网部署口径,任何协议的安全栈(TLS/X.509/加密)不做,
    相关提案直接驳回。
-4. **不可入库**:`tools/manual_test.*`、`tools/_ref_*/`(第三方参考源码)、
+4. **不可入库**:`tools/manual_*.py`、`tools/manual_test.*`、`tools/_ref_*/`(第三方参考源码)、
    `.idea/`、`__pycache__/`、`.venv/`;`docs/**/*.pdf|pptx|ppt` 仅本地留存
    (git 只跟踪对应 README)。
 5. **竞品名纪律**:同类库 / 参考实现 / 作者仓库名一律中性表述(依赖名、厂商协议
