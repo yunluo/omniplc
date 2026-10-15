@@ -702,8 +702,12 @@ O->T 连接 ID 由目标分配(请求传 0),T->O 连接 ID 由发起方指定。
 单位为 16 位字**(数据域自 `4 + 2×N` 起)。两处按 CIP Vol 1 §5-4 章节号 + OpENer 一致性栈
 / 同类开源参考实现 参考实现对照裁决。
 
-欧姆龙 NJ/NX CIP 说明(2026-09):NJ/NX(Sysmac)系列没有 FINS/TCP-UDP,
-变量经标准 CIP 显式报文访问——与 AB 同属 ODVA EtherNet/IP,故
+欧姆龙 NJ/NX CIP 说明(2026-09;**2026-10-15 review-1031 §3.3 订正**):
+NJ/NX(Sysmac)**并非没有 FINS**——N 系列 CPU 的 EtherNet/IP 口**默认开放
+FINS/TCP 与 FINS/UDP(端口均 9600)**(W506 自印 5-15/5-16 = PDF 179/180
+的服务/端口表逐行列出)。选 CIP 的理由是**变量访问走标准 CIP 显式报文**,
+而不是"该机型不提供 FINS";需要数据区访问时 NJ/NX 同样可用本库 FINS 驱动。
+CIP 侧与 AB 同属 ODVA EtherNet/IP,故
 ``OmronCipClient`` **继承 ``AllenBradleyEthIpClient``**,仅覆写三个钩子:
 `_route_path()` 返回空(NJ/NX 内置口 CPU 即目标,无背板路由段,连接路径
 只剩消息路由对象 20 02 24 01)、`_wrap_unconnected()` 直发不包 UC Send
