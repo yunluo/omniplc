@@ -57,11 +57,16 @@ class OpcUaNodeId(NamedTuple):
 
 
 def _bad_nodeid(address: str) -> str:
-    """构造非法 NodeId 的统一错误文本(内部函数)。"""
-    return (
-        "无法解析 OPC-UA NodeId:{!r}"
-        "(示例:ns=2;s=Device.Tag / ns=4;i=100 / i=2258)".format(address)
-    )
+    """构造非法 NodeId 的统一错误文本(内部函数)。
+
+    文本经 :func:`~omniplc.core.i18n._` 取词(review-1043 戊-7):原为硬编码
+    中文字面量,**13 处** ``raise`` 直接用它 ⇒ en 模式下这些错误恒中文
+    (i18n AST 守卫只扫 ``_("字面量")`` 实参,``raise X(helper(...))`` 形态
+    被跳过,故漏网)。
+    """
+    return _(
+        "无法解析 OPC-UA NodeId:{!r}(示例:ns=2;s=Device.Tag / ns=4;i=100 / i=2258)"
+    ).format(address)
 
 
 # 地址串 → 解析结果缓存(结果类型不可变):高频轮询同址免重复正则解析

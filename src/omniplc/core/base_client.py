@@ -54,6 +54,7 @@ from .constants import (
 from .debug import (
     FrameRecord,
     frame_recorder_enabled,
+    log_event,
     log_warning,
     recorded_frames,
 )
@@ -266,6 +267,7 @@ class BaseClient(ABC):
                     None,
                     record=False,
                 )
+                log_event(self._log_label(), "连接退避中:{:.1f} 秒".format(delay))
                 return False
             # 传输对象创建独立于 try:参数类错误(如未配置串口参数)照常上抛
             transport = self._create_transport()
@@ -277,12 +279,23 @@ class BaseClient(ABC):
                 # 建连失败:任何异常都清理为"未连接"(防脏 socket/传输逃逸)
                 self._connected = False
                 self._register_connect_failure()
+                # 文案过 `_describe`(review-1043 戊-10):原实现直接 str(exc),
+                # 于是 zh/en 模式下混入 OS 本地化文本且**缺异常类名**——现场按
+                # `gaierror` / `ConnectionRefusedError` 检索日志查不到
                 self._set_error(
                     _("连接 {}:{} 失败:{}").format(
-                        self._ip_address or "-", self._port or "-", exc
+                        self._ip_address or "-", self._port or "-", _describe(exc)
                     ),
                     _categorize(exc),
                     _extract_code(exc),
+                )
+                # 连接生命周期事件(review-1043 戊-1):不受 set_debug 门控;
+                # 连接失败按 WARNING 走(异常级事件默认可见)
+                log_warning(
+                    self._log_label(),
+                    "连接失败(第 %d 次):%s",
+                    self._connect_fail_count,
+                    _describe(exc),
                 )
                 try:
                     transport.close()
@@ -312,9 +325,16 @@ class BaseClient(ABC):
                 self._transport = None
                 self._connected = False
                 return False
+            failures = self._connect_fail_count
             self._connected = True
             self._clear_error()
             self._reset_backoff()
+            # 连接生命周期事件(review-1043 戊-1):不受 set_debug 门控,
+            # "何时连上 / 失败几次才连上"在应用日志体系里总能查到
+            if failures:
+                log_event(self._log_label(), "重连成功({} 次失败后)".format(failures))
+            else:
+                log_event(self._log_label(), "已连接")
             with self._state_lock:
                 # 计数器口径统一:与 stats 快照同锁,避免快照读到跨锁序中间态
                 self._counters["connect_count"] += 1
@@ -352,6 +372,8 @@ class BaseClient(ABC):
             self._transport = None
             self._connected = False
             self._reset_backoff()
+            # 连接生命周期事件(review-1043 戊-1,不受 set_debug 门控)
+            log_event(self._log_label(), "已断开(调用方 disconnect)")
             if transport is None:
                 return True
             try:
@@ -546,16 +568,26 @@ class BaseClient(ABC):
             if self._reconnect_backoff and time.monotonic() < self._next_connect_at:
                 # 退避门控激活:本 tick 不发包,是「未尝试」而非「尝试失败」
                 # ——不计 heartbeat_fail、不刷 last_heartbeat_at,整体静默
-                # (review-1002 P3);门控解除后的下一 tick 照常探测
+                # (review-1002 P3);门控解除后的下一 tick 照常探测;
+                # 也不打日志(退避期间每 tick 一条会刷屏)
                 return
             try:
                 ok = self.ping(heartbeat=True)
             except Exception:
                 # ping 的参数类错误(如广播站号)也不终止心跳:计为失败后继续
                 ok = False
+            in_backoff = (
+                self._reconnect_backoff and time.monotonic() < self._next_connect_at
+            )
         with self._state_lock:
             self._timestamps["last_heartbeat_at"] = time.monotonic()
             self._counters["heartbeat_ok" if ok else "heartbeat_fail"] += 1
+            fails = self._counters["heartbeat_fail"]
+        if not ok and not in_backoff:
+            # 心跳失败事件(review-1043 戊-1):不受 set_debug 门控——
+            # "链路在掉"是无人值守现场最需要实时看到的信号之一
+            # (退避期间不打:那是"未尝试"而非"失败",避免刷屏)
+            log_warning(self._log_label(), "心跳失败(累计 %d 次)", fails)
 
     # ------------------------------------------------------------------
     # 可配置属性(超时/重试)
@@ -816,7 +848,37 @@ class BaseClient(ABC):
         :param data_type: 数据类型,推荐用 :class:`omniplc.types.DataType` 枚举
         :return: 与地址顺序对应的 ``[(是否成功, 值)]`` 列表
         """
-        return [self.read(address, data_type) for address in addresses]
+        results = [self.read(address, data_type) for address in addresses]
+        failed = [
+            address for address, (ok, _value) in zip(addresses, results) if not ok
+        ]
+        if failed:
+            self._annotate_error_context("read_many", failed)
+        return results
+
+    def _annotate_error_context(self, api: str, addresses: Sequence[str]) -> None:
+        """批量入口失败时把**地址上下文**追加进 ``last_error``(内部方法)。
+
+        review-1043 戊-2:现场"一个地址配错"(最常见工单)→ 整批降质,而
+        ``last_error`` 与单点读同一句话、不含任何地址,工程师只能二分法手工
+        试。批量入口在失败后调本方法,把该笔覆盖的失败点位列进错误文本
+        (最多 3 个 + "等 N 点");已带同款标注时不重复追加。
+
+        :param api: 入口名(如 ``read_many``)
+        :param addresses: 本次失败的点位地址
+        """
+        if not addresses:
+            return
+        with self._state_lock:
+            if self._last_error is None:
+                return
+            shown = [str(address) for address in addresses[:3]]
+            text = ", ".join(shown)
+            if len(addresses) > len(shown):
+                text = _("{} 等 {} 点").format(text, len(addresses))
+            marker = _("({} 失败点位:{})").format(api, text)
+            if marker not in self._last_error:
+                self._last_error = "{} {}".format(self._last_error, marker)
 
     def read_many_strict(
         self, addresses: Sequence[str], data_type: Union[DataType, str]
@@ -917,9 +979,13 @@ class BaseClient(ABC):
             data_type_enum = DataType.coerce(data_type)
             self._validate_value(data_type_enum, value)
             self._check_write_allowed(address, data_type_enum)
-        return [
+        results = [
             self.write(address, data_type, value) for address, data_type, value in items
         ]
+        failed = [address for (address, _dt, _v), ok in zip(items, results) if not ok]
+        if failed:
+            self._annotate_error_context("write_many", failed)
+        return results
 
     def _validate_value(self, data_type: DataType, value: PrimitiveValue) -> None:
         """值可编码性前置校验钩子(内部方法,默认只做类型/范围的基础检查)。
@@ -1159,12 +1225,24 @@ class BaseClient(ABC):
             # not isinstance(value, bool) 在此恒真(bool 已在上方直通)——与
             # monitor._apply_scale 同构,有意保留(review-1006 §九 D1)
             log_warning(
-                getattr(self, "_debug_label", "omniplc"),
+                self._log_label(),
                 "read_tag 点位 %s 为 64 位整数且 |值|>2^53,非恒等缩放将丢精度:%d",
                 resolved.tag_id,
                 value,
             )
         return True, value * resolved.scale + resolved.offset
+
+    def _log_label(self) -> str:
+        """日志标签(内部方法):客户端自身的 ``_debug_label`` 优先,
+
+        各走线子类会设成 ``tcp://ip:port`` 之类;未设时回退到端点文本
+        (连接生命周期事件 review-1043 戊-1 与既有告警共用同一标签口径)。
+        """
+        label = getattr(self, "_debug_label", None)
+        if label:
+            return str(label)
+        endpoint = getattr(self, "_endpoint_text", None)
+        return str(endpoint) if endpoint else "omniplc"
 
     def write_tag(self, tag: Union[str, Tag], value: PrimitiveValue) -> bool:
         """按点位(或标识)写入,数值自动做逆缩放 ``值 = (目标 - offset) / scale``。
@@ -1632,6 +1710,13 @@ class BaseClient(ABC):
                         # heartbeat 豁免(传输类真实故障照常计,protocol-
                         # features 心跳节口径)
                         self._capture_incident()
+                    # 链路拆连事件(review-1043 戊-1):不受 set_debug 门控;
+                    # 这是"何时断、断在哪"的第一手证据(生产常关实时报文日志)
+                    log_warning(
+                        self._log_label(),
+                        "链路断开(事务失败,将惰性重连):%s",
+                        _describe(exc),
+                    )
                     self._mark_disconnected()
             return False, None
 

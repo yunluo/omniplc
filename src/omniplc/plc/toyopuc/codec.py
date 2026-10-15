@@ -178,7 +178,9 @@ def check_response(
 
     :param whole: 完整响应帧(可选;调用方传原始响应以便坏帧诊断)
     """
-    detail_suffix = "(收到的原始帧:{})".format(format_hex(whole)) if whole else ""
+    # 片段经 `_()` 取词(review-1043 戊-7:原为硬编码中文,拼进已翻译模板后
+    # en 模式下恒中文;i18n AST 守卫只扫 `_()` 的字面量实参,漏此形态)
+    detail_suffix = _("(收到的原始帧:{})").format(format_hex(whole)) if whole else ""
     if rc != TOYOPUC_RC_OK:
         if rc == TOYOPUC_RC_ERROR:
             detail = data[-1] if data else cmd

@@ -298,6 +298,130 @@ class TestWriteWhitelist:
                 client._validate_value(data_type, bad)
 
 
+class TestLifecycleLogging:
+    """连接生命周期事件不受 ``set_debug`` 门控(review-1043 戊-1)。"""
+
+    def test_events_without_debug_enabled(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """已连接 / 已断开 / 链路断开 / 心跳失败都能在日志里看到。
+
+        生产推荐组合是「黑匣子常驻 + 实时报文日志关闭」——此时日志里原本
+        **永远看不到**何时断、断了多久、重连几次(全走 ``log_op``,受
+        ``_enabled`` 门控),夜间无人 poll ``stats`` 就等于没有证据。
+        """
+        import logging
+
+        from omniplc.core.debug import LOGGER_NAME, debug_enabled
+
+        client = _ScriptedClient()
+        assert debug_enabled() is False  # 未开报文调试
+        with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
+            assert client.connect() is True
+            assert client.disconnect() is True
+            # 拆连事件(WARNING,异常级)
+            client.connect()
+            client.script_failure(OSError("链路炸了"))
+            assert client.read("hr0", "ushort") == (False, None)
+        text = caplog.text
+        assert "已连接" in text
+        assert "已断开" in text
+        assert "链路断开" in text
+
+
+class TestBatchErrorAddressContext:
+    """批量失败带点位地址(review-1043 戊-2)。"""
+
+    def test_read_many_reports_failed_addresses(self) -> None:
+        """一个地址配错时,``last_error`` 要说出是哪个地址。"""
+        client = _ScriptedClient()
+        for _ in range(2):
+            client.script_failure(
+                DeviceError("Modbus 异常码 0x02(ILLEGAL DATA ADDRESS)", 2)
+            )
+        results = client.read_many(["hr100", "hr200"], "ushort")
+        assert results == [(False, None), (False, None)]
+        assert client.last_error is not None
+        assert "hr100" in client.last_error and "hr200" in client.last_error
+        assert "read_many 失败点位" in client.last_error
+
+    def test_write_many_reports_failed_addresses(self) -> None:
+        client = _ScriptedClient()
+        client.script_failure(DeviceError("写被拒", 0))
+        assert client.write_many([("hr1", "ushort", 1)]) == [False]
+        assert client.last_error is not None and "hr1" in client.last_error
+
+    def test_long_list_truncated(self) -> None:
+        """点位很多时只列前 3 个 + "等 N 点"(不把 last_error 撑爆)。"""
+        client = _ScriptedClient()
+        for _ in range(5):
+            client.script_failure(DeviceError("坏", 0))
+        client.read_many(["hr0", "hr1", "hr2", "hr3", "hr4"], "ushort")
+        assert client.last_error is not None
+        assert "hr0, hr1, hr2" in client.last_error
+        assert "等 5 点" in client.last_error
+
+
+class TestSetDebugReversible:
+    """``set_debug(False)`` 须还原 handler 与 propagate(review-1043 戊-3)。"""
+
+    def test_handler_and_propagate_restored(self) -> None:
+        """先开 debug 再配应用日志:应用 handler 仍应收到库日志。
+
+        原实现关闭时只把级别退回 ``NOTSET``,自己挂的 stderr handler 与
+        ``propagate=False`` 都留着 ⇒ 应用 root handler 收到 0 条,排障时
+        "手抖开过一次 debug"之后日志静默绕开应用日志体系。
+
+        用例把两侧既有 handler 临时摘净,**确保真正走到"挂 handler"分支**
+        (``_attach_default_handler`` 见到已有 handler 会直接返回——不摘的话
+        本用例在旧实现下也会通过,是假绿)。
+        """
+        import logging
+
+        from omniplc.core.debug import LOGGER_NAME, set_debug
+
+        logger = logging.getLogger(LOGGER_NAME)
+        root = logging.getLogger()
+        saved_logger_handlers = list(logger.handlers)
+        saved_root_handlers = list(root.handlers)
+        try:
+            for handler in saved_logger_handlers:
+                logger.removeHandler(handler)
+            for handler in saved_root_handlers:
+                root.removeHandler(handler)
+
+            set_debug(True)
+            assert logger.handlers, "前置条件:set_debug(True) 应挂上 stderr handler"
+            assert logger.propagate is False
+
+            set_debug(False)
+            assert logger.propagate is True  # 恢复挂载前状态
+            assert logger.handlers == []  # 自挂 handler 已摘
+
+            records: List[logging.LogRecord] = []
+
+            class _Sink(logging.Handler):
+                def emit(self, record: logging.LogRecord) -> None:
+                    records.append(record)
+
+            sink = _Sink()
+            old_level = root.level
+            root.addHandler(sink)
+            root.setLevel(logging.INFO)
+            try:
+                logger.info("测试事件")
+            finally:
+                root.removeHandler(sink)
+                root.setLevel(old_level)
+            assert [record.getMessage() for record in records] == ["测试事件"]
+        finally:
+            set_debug(False)
+            for handler in saved_logger_handlers:
+                logger.addHandler(handler)
+            for handler in saved_root_handlers:
+                root.addHandler(handler)
+
+
 class TestDisconnectIsTerminal:
     """``disconnect()`` 即终态:不再经惰性重连复活(review-1043 丙-2)。"""
 

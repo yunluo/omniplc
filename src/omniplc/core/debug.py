@@ -59,6 +59,11 @@ RECV_MARK = "← 接收"
 
 _logger = logging.getLogger(LOGGER_NAME)
 _enabled = False
+# set_debug 自挂的 stderr handler 与挂载前的 propagate(供关闭时逆操作,
+# review-1043 戊-3:原实现关闭只退级别,handler 与 propagate=False 留着,
+# 让"先开 debug 后配日志"的应用从此收不到库日志)
+_default_handler: Optional[logging.Handler] = None
+_prev_propagate: Optional[bool] = None
 
 # 报文黑匣子:deque(maxlen) 的 append 是原子操作(GIL 下无撕裂),
 # 记录路径不加锁;锁只保护 set_frame_recorder 的重建/关闭与快照拷贝——
@@ -194,15 +199,48 @@ def set_debug(enabled: bool) -> None:
     同步与异步客户端共用同一开关(异步镜像在单工作线程内驱动同步
     实例,日志自然汇聚到同一条流)。
 
+    **可逆**(review-1043 戊-3):关闭时移除 :func:`set_debug` 自己挂的
+    stderr 处理器并**恢复挂载前的 propagate** —— 原实现只把级别退回
+    ``NOTSET``,handler 与 ``propagate=False`` 都留着:应用"先开过 debug、
+    后配日志"的时序下,应用 root handler 收不到任何库日志(排障时手抖开过
+    一次,此后日志静默绕开应用日志体系)。
+
     :param enabled: True = 输出请求/响应报文;False = 关闭(默认)
     """
-    global _enabled
+    global _enabled, _default_handler, _prev_propagate
     _enabled = bool(enabled)
     if _enabled:
         _attach_default_handler(_logger, logging.getLogger())
         _logger.setLevel(logging.DEBUG)
     else:
         _logger.setLevel(logging.NOTSET)
+        if _default_handler is not None:
+            _logger.removeHandler(_default_handler)
+            _default_handler.close()
+            _default_handler = None
+            if _prev_propagate is not None:
+                _logger.propagate = _prev_propagate
+                _prev_propagate = None
+
+
+def log_event(label: str, message: str, *args: object) -> None:
+    """输出一条**不受 set_debug 门控**的连接生命周期事件(内部使用)。
+
+    review-1043 戊-1:连接/断开/拆连/重连/退避/心跳失败原先全走
+    :func:`log_op`(受 ``_enabled`` 门控)——生产推荐组合是"黑匣子常驻 +
+    实时日志关闭",此时日志里**永远看不到"何时断、断了多久、重连几次"**,
+    夜间无人 poll ``stats`` 就等于没有证据。本函数与 :func:`log_warning`
+    同属"总要发出"的一类,走 INFO 级别(拆连级异常走 WARNING,默认可见;
+    其余按应用的 logging 配置呈现——库自身不写 handler,是 Python 库的
+    惯例)。
+
+    :param label: 走线/会话标识,如 ``tcp://192.168.0.10:502``
+    :param message: 描述模板(如 ``"已连接"``)
+    :param args: 模板参数
+    """
+    if args:
+        message = message % args
+    _logger.info("%s %s", label, message)
 
 
 def debug_enabled() -> bool:
@@ -288,13 +326,18 @@ def _attach_default_handler(logger: logging.Logger, root: logging.Logger) -> Non
     """应用未配置任何日志时挂一个 stderr 处理器,保证开箱即用(内部函数)。
 
     本记录器或根记录器已有处理器时不挂(交由应用日志体系接管,
-    记录沿 propagate 到根);重复调用不会重复挂。
+    记录沿 propagate 到根);重复调用不会重复挂。挂载的 handler 与改动前的
+    ``propagate`` 记在模块级,由 :func:`set_debug(False)` 逆操作
+    (review-1043 戊-3)。
     """
+    global _default_handler, _prev_propagate
     if logger.handlers or root.handlers:
         return
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(
         logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%H:%M:%S")
     )
+    _prev_propagate = logger.propagate
     logger.addHandler(handler)
     logger.propagate = False
+    _default_handler = handler

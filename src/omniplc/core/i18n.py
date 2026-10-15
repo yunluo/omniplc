@@ -436,11 +436,18 @@ _TRANSLATIONS: Dict[str, str] = {
     "布尔量必须是 bool,收到:{}": "Boolean must be bool, got: {}",
     "read_only 必须为布尔值,收到:{!r}": "read_only must be a boolean, got: {!r}",
     "write_whitelist 必须为布尔值,收到:{!r}": "write_whitelist must be a boolean, got: {!r}",
+    "无法解析 OPC-UA NodeId:{!r}(示例:ns=2;s=Device.Tag / ns=4;i=100 / i=2258)": (
+        "Cannot parse the OPC-UA NodeId: {0!r} (examples: ns=2;s=Device.Tag /"
+        " ns=4;i=100 / i=2258)"
+    ),
+    "(收到的原始帧:{})": "(raw frame received: {})",
     "客户端为只读模式(read_only=True),写操作已拒绝": "The client is in read-only mode (read_only=True); the write operation was rejected",
     "客户端已断开(disconnect 之后不再受理调用;需重新 connect())": (
         "The client has been disconnected (no further calls are accepted after"
         " disconnect(); call connect() again)"
     ),
+    "({} 失败点位:{})": "({} failed addresses: {})",
+    "{} 等 {} 点": "{0} and {1} more",
     "客户端为只读模式(read_only=True),写操作已拒绝:{}": "The client is in read-only mode (read_only=True); the write operation was rejected: {}",
     "写白名单已开启但未绑定 TagTable:请先 bind_tags() 或关闭 write_whitelist": "The write whitelist is enabled but no TagTable is bound: call bind_tags() first or disable write_whitelist",
     "写白名单已开启:地址 {!r} 不在已绑定点位表内,写操作已拒绝": "The write whitelist is enabled: address {0!r} is not in the bound tag table; the write operation was rejected",

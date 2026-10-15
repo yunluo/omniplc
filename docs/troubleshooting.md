@@ -26,6 +26,12 @@
 | `PROTOCOL`  | 坏帧:长度/校验/回显不符、非预期帧型          | 抓包比对;`last_error` 里带原始帧十六进制转储,可与 Wireshark 逐字节对照;对照 [firmware-notes.md](firmware-notes.md) |
 | `UNKNOWN`   | 未归类                                       | 带报文转储提 issue                                                                                                 |
 
+> **建连阶段的超时**同样归 `TIMEOUT`,但**排查动作不同**(review-1043 戊-4):
+> 此时还没有"设备响应慢"这回事——先按「连不上」查网段/路由/防火墙/端口,
+> 再看对端服务。判据:`last_error` 文本以「连接 <ip>:<port> 失败」开头
+> (建连阶段),而收发阶段的超时来自事务本身。两端口径见 `_categorize`
+> 与 :meth:`BaseClient.connect`。
+
 各类失败下**库的自动行为**(`retries`/`write_retries`/心跳/退避的分工,
 应用层无需也不应重复处理):
 

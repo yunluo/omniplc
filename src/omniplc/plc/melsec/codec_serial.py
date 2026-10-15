@@ -544,7 +544,9 @@ def _hex_int(raw: bytes, whole: bytes = b"") -> int:
     try:
         return int(raw.decode("ascii"), 16)
     except (UnicodeDecodeError, ValueError) as _exc:
-        detail = "(收到的原始帧:{})".format(format_hex(whole)) if whole else ""
+        # 片段经 `_()` 取词(review-1043 戊-7:原为硬编码中文,拼进已翻译
+        # 模板后 en 模式下恒中文)
+        detail = _("(收到的原始帧:{})").format(format_hex(whole)) if whole else ""
         raise ProtocolFrameError(
             _("十六进制域非法:{!r}{}").format(raw.decode("ascii", "replace"), detail)
         ) from _exc

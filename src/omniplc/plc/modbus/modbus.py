@@ -252,6 +252,11 @@ class ModbusBaseClient(BaseClient):
             (_check_address(addr, data_type_enum), data_type_enum) for addr in addresses
         ]
         ok, values = self._execute(lambda: self._coalesce_and_read(parsed))
+        if not ok:
+            # 批量失败带地址上下文(review-1043 戊-2):整批按 FC 合并后,
+            # 「哪一个地址/哪一段配错」是现场第一问题,而 last_error 原样
+            # 只有底层异常文本
+            self._annotate_error_context("read_many", list(addresses))
         return self._pack_read_results(addresses, values)
 
     def read_batch(
