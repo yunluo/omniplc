@@ -146,7 +146,14 @@ def _translate_ua_error(exc: BaseException) -> OmniPLCInternalError:
     except ImportError:
         return OmniPLCInternalError(_("OPC-UA 调用失败:{}").format(exc))
     if isinstance(exc, uaerrors.UaError):
-        code = int(getattr(exc, "code", 0) or 0) & 0xFFFFFFFF
+        raw = getattr(exc, "code", None)
+        if raw is None:
+            # UaError 的若干子类(UaInvalidParameterError/UaStringParsingError/
+            # UaStructParsingError 等)**没有 .code**:原实现一律按状态码 0 渲染
+            # 成「OPC-UA 出错 0x00000000」,而 0x00000000 实为 **Good**,文案
+            # 自相矛盾(review-1037 §四 P3-1)。无码即按无具体状态码报告
+            return DeviceError(_("OPC-UA 调用失败:{}").format(exc), 0)
+        code = int(raw or 0) & 0xFFFFFFFF
         return DeviceError(
             _("OPC-UA 出错 0x{:08X}:{}").format(code, exc),
             code,
@@ -313,21 +320,59 @@ _UA_LOGGER = logging.getLogger("omniplc.plc.opcua")
 """异步回调内出错日志出口(用户回调异常不杀订阅,记日志 + last_error)。"""
 
 
+def _handle_subscription_status(
+    client: "OpcUaClient", status: Any, handle_cell: Optional[List[Any]]
+) -> None:
+    """订阅状态回调的公共处理(内部函数,DataChange / Event 两个 handler 共用)。
+
+    非 Good 且非 ``BadShutdown``(本端主动拆链)→ 判订阅服务端失效:
+    落 ``last_error``(DEVICE,码取 StatusCode 数值)并让句柄失效
+    (review-1037 §3.3:asyncua 遇 ``BadNoSubscription`` 直接 return、
+    无 Republish,订阅可在链路仍连时静默停更)。
+    """
+    _UA_LOGGER.debug("OPC-UA 订阅状态变化:%s", status)
+    name = getattr(status, "name", None)
+    try:
+        bad = bool(status.is_bad()) if hasattr(status, "is_bad") else False
+    except Exception:
+        bad = False
+    if not bad or name == "BadShutdown":
+        return
+    code = int(getattr(status, "value", 0) or 0)
+    client._set_error(  # noqa: SLF001
+        _("OPC-UA 订阅失效({}):服务端停止推送,句柄已标记失效").format(name or code),
+        ErrorCategory.DEVICE,
+        code or None,
+    )
+    for handle in list(handle_cell or ()):
+        try:
+            handle._invalidate()  # noqa: SLF001
+        except Exception:
+            pass
+
+
 class _DataChangeHandler:
     """asyncua DataChange 回调适配器:把内部通知翻译为 ``(value, node_id, ts)`` 三元组。
 
     asyncua 期望 handler 是有 ``datachange_notification`` 方法的对象;
     我们的公共 API 是 ``Callable[[Any, str, Optional[float]], None]``,
     故此处包一层。**用户回调异常被吞掉**(log + 写 last_error),不杀订阅。
+
+    **回调执行线程**(review-1037 §三 P2-5,实测):``datachange_notification``
+    在 asyncua 自己的事件循环线程上执行(**非**调用方线程),故回调里做阻塞
+    操作会冻结整个会话;服务端 I/O(如退订)在回调线程内**被显式拒绝**。
     """
 
     def __init__(
         self,
         client: "OpcUaClient",
         on_change: Callable[[Any, str, Optional[float]], None],
+        handle_cell: Optional[List[Any]] = None,
     ) -> None:
         self._client = client
         self._on_change = on_change
+        # 句柄回填单元(建订阅时句柄尚未构造):status_change 里让句柄失效用
+        self._handle_cell = handle_cell
 
     def datachange_notification(self, node: Any, val: Any, data: Any) -> None:
         try:
@@ -357,20 +402,34 @@ class _DataChangeHandler:
             _UA_LOGGER.exception("OPC-UA DataChange 回调异常")
 
     def status_change_notification(self, status: Any) -> None:
-        """连接断开时 asyncua 逐订阅通知状态(静默:资源由 disconnect 统一清理)。"""
-        _UA_LOGGER.debug("OPC-UA 订阅状态变化:%s", status)
+        """订阅状态变化:非 Good 且非拆链 → 判订阅**服务端失效**,记三件套。
+
+        asyncua 1.1.5 的 publish 循环遇 ``BadNoSubscription`` 直接 return、
+        未知订阅仅 warning、**无 Republish**;驱动侧原先只落 debug 日志 ⇒
+        订阅可在链路仍连的情况下**静默停更**,调用方无从察觉
+        (review-1037 §3.3)。现把非 Good(``BadShutdown`` 除外——那是本端
+        主动拆链,资源由 :meth:`OpcUaClient.disconnect` 统一清理)落
+        ``last_error``(分类 DEVICE,码取 StatusCode 数值)并让句柄失效。
+        """
+        _handle_subscription_status(self._client, status, self._handle_cell)
 
 
 class _EventHandler:
-    """asyncua Event 回调适配器:把内部通知翻译为 ``(fields_dict, node_id, ts)``。"""
+    """asyncua Event 回调适配器:把内部通知翻译为 ``(fields_dict, node_id, ts)``。
+
+    回调执行线程与 DataChange 同:运行在 asyncua 事件循环线程上
+    (非调用方线程),回调内阻塞会冻结会话(review-1037 §三 P2-5)。
+    """
 
     def __init__(
         self,
         client: "OpcUaClient",
         on_event: Callable[[dict, str, Optional[float]], None],
+        handle_cell: Optional[List[Any]] = None,
     ) -> None:
         self._client = client
         self._on_event = on_event
+        self._handle_cell = handle_cell
 
     def event_notification(self, event: Any) -> None:
         # asyncua 1.1.5 分发链:sync._SubHandler.event_notification →
@@ -417,8 +476,8 @@ class _EventHandler:
             _UA_LOGGER.exception("OPC-UA Event 回调异常")
 
     def status_change_notification(self, status: Any) -> None:
-        """连接断开时 asyncua 逐订阅通知状态(静默:资源由 disconnect 统一清理)。"""
-        _UA_LOGGER.debug("OPC-UA 订阅状态变化:%s", status)
+        """订阅状态变化处理(与 DataChange 共用 :func:`_handle_subscription_status`)。"""
+        _handle_subscription_status(self._client, status, self._handle_cell)
 
 
 class OpcUaSubscription:
@@ -506,6 +565,18 @@ class OpcUaSubscription:
                 return False
             self._unsub_done = True
         return self._unsub()
+
+    def _invalidate(self) -> None:
+        """标记句柄失效(内部方法):服务端订阅已被判定死亡时调用。
+
+        review-1037 §3.3:``status_change`` 报非 Good 状态时,句柄据此置终态
+        ——此后 :meth:`unsubscribe` 返回 ``False`` 且**不再向服务端发 I/O**
+        (订阅已不存在)。与 :meth:`release` / :meth:`unsubscribe` 共享同一
+        终态锁,先到者生效;``auto_resubscribe`` 意图**保留**(重连后仍可
+        按意图重建,新句柄另发)。
+        """
+        with self._unsub_lock:
+            self._unsub_done = True
 
     def release(self) -> bool:
         """断开联动释放(内部方法,``OpcUaClient.disconnect`` 用):释放
@@ -859,7 +930,9 @@ class OpcUaClient(BaseClient):
             }}
 
         单个子节点无权限/超时 → 跳过该节点,**不中断**整树;若起始节点本身
-        失败,整次返回 ``(False, None)``,错误三件套进 :attr:`last_error`。
+        失败、或起始层子节点枚举失败(起始节点存在但无权列其子节点),整次
+        返回 ``(False, None)``,错误三件套进 :attr:`last_error` —— 起始层
+        失败不得静默成"空树"(review-1037 §3.1)。
         :raises ValueError: ``max_depth`` 为负
         """
         if max_depth is not None and max_depth < 0:
@@ -890,7 +963,12 @@ class OpcUaClient(BaseClient):
             except Exception as exc:
                 raise _translate_ua_error(exc) from exc
             return self._browse_node(
-                start_node, recursive, 0, max_depth, reference_type_resolved
+                start_node,
+                recursive,
+                0,
+                max_depth,
+                reference_type_resolved,
+                start_layer=True,
             )
 
         return self._execute(operation)
@@ -902,11 +980,17 @@ class OpcUaClient(BaseClient):
         current_depth: int,
         max_depth: Optional[int],
         reference_type_id: Optional[int] = None,
+        start_layer: bool = False,
     ) -> dict:
         """递归枚举单层;子节点失败跳过,不影响父级(内部方法)。
 
         ``max_depth is None`` 时应用 :data:`OPCUA_BROWSE_DEFAULT_MAX_DEPTH`
         安全上限,防止服务端巨大树无限递归。
+
+        ``start_layer=True``(仅起始层):``get_children`` 失败**上抛**而
+        不是返回空树——起始节点存在但无权读其子节点时,"跳过该节点"会让
+        调用方把失败读成"这棵子树确实为空"(静默假成功,review-1037 §3.1)。
+        子层仍按"跳过该节点"处理。
         """
         if recursive and max_depth is None:
             max_depth = OPCUA_BROWSE_DEFAULT_MAX_DEPTH
@@ -916,7 +1000,9 @@ class OpcUaClient(BaseClient):
                 children = node.get_children(refs=reference_type_id)
             else:
                 children = node.get_children()
-        except Exception:
+        except Exception as exc:
+            if start_layer:
+                raise _translate_ua_error(exc) from exc
             return {}
         out: Dict[str, dict] = {}
         for child in children:
@@ -1037,7 +1123,10 @@ class OpcUaClient(BaseClient):
         """
         filter_obj = _build_data_change_filter(deadband_value, deadband_type)
         ua_client = self._session().client
-        handler = _DataChangeHandler(self, on_change)
+        # 句柄回填单元:handler 先于句柄构造(create_subscription 订阅级传 handler),
+        # 故用可变容器让 status_change 拿到句柄并置其失效(review-1037 §3.3)
+        handle_cell: List[Any] = []
+        handler = _DataChangeHandler(self, on_change, handle_cell)
         try:
             # asyncua 1.1.5:sync.Client 直接暴露 create_subscription(非 uaclient);
             # handler 在订阅级传入,subscribe_data_change 只收节点 + 采样间隔。
@@ -1045,6 +1134,12 @@ class OpcUaClient(BaseClient):
             # RequestedPublishingInterval / MonitoringParameters.
             # SamplingInterval 均直通毫秒),本参数名即毫秒,原样传入
             ua_sub = ua_client.create_subscription(float(sampling_interval_ms), handler)
+        except OSError:
+            # 传输类异常按原类型上抛,**不包成 OmniPLCInternalError**:
+            # 基类 _categorize 才能给出 TRANSPORT/TIMEOUT,与读写路径
+            # (:meth:`_OpcUaSession.read_value` 同款"OSError 原样上抛")
+            # 同类故障同分类(review-1037 §3.2 分类漂移)
+            raise
         except Exception as exc:
             raise _translate_ua_error(exc) from exc
         try:
@@ -1087,14 +1182,28 @@ class OpcUaClient(BaseClient):
                 item for item in monitored if isinstance(item, asyncua.ua.StatusCode)
             ]
             if rejected:
+                # 文案带状态名(如 BadNodeIdUnknown):`str(StatusCode)` 只给
+                # 数值(StatusCode(value=2150891520)),现场无从判读
+                # (review-1037 §四 P3-6)
+                first = rejected[0]
                 raise DeviceError(
-                    _("OPC-UA 订阅被服务端拒绝:{}").format(rejected[0]), 0
+                    _("OPC-UA 订阅被服务端拒绝:{}({})").format(
+                        getattr(first, "name", first), int(first.value)
+                    ),
+                    0,
                 )
         except DeviceError:
             try:
                 ua_sub.delete()
             except Exception:
                 pass
+            raise
+        except OSError:
+            try:
+                ua_sub.delete()
+            except Exception:
+                pass
+            # 传输类异常原样上抛(同 create_subscription 分支,review-1037 §3.2)
             raise
         except Exception as exc:
             try:
@@ -1154,6 +1263,7 @@ class OpcUaClient(BaseClient):
             _release=_do_release,
             _loop_thread=getattr(ua_sub, "tloop", None),
         )
+        handle_cell.append(handle)  # 供 status_change 判定订阅失效时回指句柄
         with self._state_lock:
             self._active_subscriptions[sub_id] = handle
             if self._auto_resubscribe:
@@ -1207,10 +1317,16 @@ class OpcUaClient(BaseClient):
         调用上下文与意图登记口径同 :meth:`_create_data_change_subscription`。
         """
         ua_client = self._session().client
-        handler = _EventHandler(self, on_event)
+        handle_cell: List[Any] = []
+        handler = _EventHandler(self, on_event, handle_cell)
         try:
             # asyncua 1.1.5:sync.Client 直接暴露 create_subscription(非 uaclient)
             ua_sub = ua_client.create_subscription(0, handler)
+        except OSError:
+            # 传输类异常按原类型上抛,**不包成 OmniPLCInternalError**:
+            # 基类 _categorize 才能给出 TRANSPORT/TIMEOUT,与读写路径同类
+            # 故障同分类(review-1037 §3.2 分类漂移)
+            raise
         except Exception as exc:
             raise _translate_ua_error(exc) from exc
         try:
@@ -1219,6 +1335,12 @@ class OpcUaClient(BaseClient):
             node = ua_client.get_node(parse_opcua_nodeid(node_text).text)
             handle_ev = ua_sub.subscribe_events(node, evfilter=event_filter)
             monitored = [handle_ev]
+        except OSError:
+            try:
+                ua_sub.delete()
+            except Exception:
+                pass
+            raise
         except Exception as exc:
             try:
                 ua_sub.delete()
@@ -1274,6 +1396,7 @@ class OpcUaClient(BaseClient):
             _release=_do_release,
             _loop_thread=getattr(ua_sub, "tloop", None),
         )
+        handle_cell.append(handle)  # 供 status_change 判定订阅失效时回指句柄
         with self._state_lock:
             self._active_subscriptions[sub_id] = handle
             if self._auto_resubscribe:

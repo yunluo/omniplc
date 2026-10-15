@@ -667,6 +667,13 @@ _TRANSLATIONS: Dict[str, str] = {
     "OPC-UA DataChange 回调异常:{}:{}": "Exception in the OPC-UA DataChange callback: {0}: {1}",
     "OPC-UA Event 回调异常:{}:{}": "Exception in the OPC-UA Event callback: {0}: {1}",
     "OPC-UA 订阅被服务端拒绝:{}": "The OPC-UA subscription was rejected by the server: {}",
+    "OPC-UA 订阅被服务端拒绝:{}({})": (
+        "The OPC-UA subscription was rejected by the server: {0}({1})"
+    ),
+    "OPC-UA 订阅失效({}):服务端停止推送,句柄已标记失效": (
+        "OPC-UA subscription lost ({0}): the server stopped publishing and the"
+        " handle has been marked invalid"
+    ),
     "OPC-UA 不可在数据变化/事件回调线程内{}:回调就运行在 asyncua 事件循环线程上,直连调用会自锁(服务端 I/O 等待自身)。请把该操作转交业务线程/队列执行(例如在回调里入队,由主循环消费后调用)": (
         "OPC-UA cannot {0} from the data-change/event callback thread: the"
         " callback runs on the asyncua event-loop thread, and calling this"

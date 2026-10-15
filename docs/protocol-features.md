@@ -480,12 +480,19 @@ start/stop,印刷页 45-47)+ §4.7.3 串口通讯协议(印刷页 52)+《极小�
 
 客户端:`OpcUaClient`
 
+> **依赖口径(review-1037 §三 P2-7)**:`opcua` extra 区间钉版 `asyncua>=1.1.5,<2`,
+> 但驱动用到 asyncua 的 **sync 私有内部**(``ThreadLoop.post`` 的返回语义、
+> aio ``Subscription._subscribe`` 的位置参数、``sync.Subscription`` 无
+> ``subscription_id``)——区间内新版本可能改变这些内部行为。升级 asyncua
+> 必须重跑 OPC-UA 用例;定点 `==1.1.5` 与区间二选一的裁决见 review-1037 §七-3。
+
 | 功能                          | 状态 | 备注                                                                                                                                  |
 | ----------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | 读 / 写(单点,NodeId 字符串)   | ✅   |                                                                                                                                       |
-| DataChange 订阅               | ✅   | `subscribe_data_change`(间隔 / 队列 / 死区);构造 `auto_resubscribe=True` 断线重连后按意图自动重订(默认关)                             |
+| DataChange 订阅               | ✅   | `subscribe_data_change`(间隔 / 死区);构造 `auto_resubscribe=True` 断线重连后按意图自动重订(默认关)。**回调线程 = asyncua 事件循环线程**(非调用方线程),回调内阻塞会冻结会话;回调内做服务端 I/O(退订/断开)被显式拒绝(review-1037 §三 P2-5)。**队列深度不可配**:沿用 asyncua 默认 `QueueSize=0 + DiscardOldest=True` ⇒ 突发变化静默丢中间通知(规约 Part 1 §7.10 允许配置"排队全部/只留最新",本库未暴露参数,review-1037 §三 P2-6) |
+| 订阅失效信号                  | ✅   | 服务端报非 Good 状态(如 `BadNoSubscription`)→ 记 `last_error`(DEVICE,码取 StateCode 数值)并把句柄标记失效(此后 `unsubscribe()` 返回 `False` 且不发 I/O);`BadShutdown`(本端拆链)不算失效(review-1037 §3.3) |
 | 事件订阅                      | ✅   | `subscribe_event`;asyncua 默认过滤器聚合 BaseEventType 全部属性(**含 SourceNode/Time**);自定义 `event_filter` 透传;同入自动重订意图表 |
-| Browse                        | ✅   | 别名表 + 递归;不存在节点返回空树不报错                                                                                                |
+| Browse                        | ✅   | 别名表 + 递归;不存在节点返回空树不报错;**起始层子节点枚举失败 → `(False, None)` + `last_error`**(不再静默成空树),子层失败仍跳过该节点(review-1037 §3.1) |
 | DataValue 时间戳 / 质量       | ❌   | 仅取值                                                                                                                                |
 | 方法调用(Call)                | ❌   | 未实现                                                                                                                                |
 | 历史访问(HistoryRead)         | ❌   | 未实现                                                                                                                                |

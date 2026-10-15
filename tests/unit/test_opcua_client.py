@@ -516,6 +516,172 @@ def test_translate_ua_error(monkeypatch: pytest.MonkeyPatch) -> None:
     assert not isinstance(other, DeviceError)
 
 
+def test_translate_ua_error_without_code_reports_no_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """UaError 子类**无 ``.code``** 时不得渲染成 0x00000000(review-1037 §四 P3-1)。
+
+    ``UaInvalidParameterError``/``UaStringParsingError`` 等没有 ``.code``;
+    原实现取默认 0 渲染成「OPC-UA 出错 0x00000000」,而 0x00000000 实为
+    **Good** —— 文案与语义自相矛盾。无码即按无具体状态码报告(code=0)。
+    """
+    pkg_asyncua = types.ModuleType("asyncua")
+    pkg_ua = types.ModuleType("asyncua.ua")
+    mod_errors = types.ModuleType("asyncua.ua.uaerrors")
+
+    class UaError(Exception):
+        """无 ``code`` 属性的 UaError 形态(与 asyncua 部分子类一致)。"""
+
+    setattr(mod_errors, "UaError", UaError)
+    setattr(pkg_ua, "uaerrors", mod_errors)
+    setattr(pkg_asyncua, "ua", pkg_ua)
+    monkeypatch.setitem(sys.modules, "asyncua", pkg_asyncua)
+    monkeypatch.setitem(sys.modules, "asyncua.ua", pkg_ua)
+    monkeypatch.setitem(sys.modules, "asyncua.ua.uaerrors", mod_errors)
+
+    translated = _translate_ua_error(UaError("bad parameter"))
+    assert isinstance(translated, DeviceError)
+    assert translated.code == 0
+    assert "0x00000000" not in str(translated)
+    assert "bad parameter" in str(translated)
+
+
+# ----------------------------------------------------------------------
+# Browse / 订阅:静默失败与分类口径(review-1037 §3.1~§3.3)
+# ----------------------------------------------------------------------
+
+
+class _RaisingChildren:
+    """``get_children`` 必抛异常的假节点(browse 静默失败回归用)。"""
+
+    def __init__(self, exc: BaseException, children: "list | None" = None) -> None:
+        self._exc = exc
+        self._children = children or []
+
+    def get_children(self, refs: object = None) -> list:
+        if self._exc is not None:
+            raise self._exc
+        return self._children
+
+
+def test_browse_start_layer_failure_not_silent_empty_tree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """起始层子节点枚举失败 → ``(False, None)`` + last_error(不复现静默空树)。
+
+    review-1037 §3.1:起始节点存在但无权列其子节点时,原实现把异常吞成
+    ``{}``,调用方读成"这棵子树确实为空" —— 静默假成功。
+    """
+    from types import SimpleNamespace
+
+    client = OpcUaClient("127.0.0.1", 4840)
+    fake = FakeSession()
+    monkeypatch.setattr(client, "_create_transport", lambda: fake)
+    client.connect()
+    monkeypatch.setattr(
+        fake,
+        "_client",
+        SimpleNamespace(get_node=lambda text: _RaisingChildren(OSError("无权枚举"))),
+    )
+
+    ok, tree = client.browse("ns=2;s=Root")
+    assert ok is False and tree is None
+    assert client.last_error is not None and "无权枚举" in client.last_error
+
+
+def test_browse_child_layer_failure_still_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """子层失败仍按"跳过该节点"处理(起始层与子层口径分离)。"""
+    from types import SimpleNamespace
+
+    client = OpcUaClient("127.0.0.1", 4840)
+    fake = FakeSession()
+    monkeypatch.setattr(client, "_create_transport", lambda: fake)
+    client.connect()
+    child = _RaisingChildren(OSError("子层无权"), children=[])
+    start = _RaisingChildren(None, children=[child])
+    monkeypatch.setattr(fake, "_client", SimpleNamespace(get_node=lambda text: start))
+
+    ok, tree = client.browse("ns=2;s=Root", recursive=True)
+    assert ok is True and tree is not None
+    assert len(tree) == 1
+    (entry,) = tree.values()
+    assert entry["children"] == {}  # 子层失败 → 空 dict,不挂外层、不报错
+
+
+def test_subscribe_transport_error_keeps_transport_category(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """订阅建链遇 ``OSError`` → 分类 TRANSPORT,不漂移成 UNKNOWN(review-1037 §3.2)。
+
+    读写路径的同类异常由 :class:`_OpcUaSession` 原样上抛 → ``_categorize``
+    给出 TRANSPORT/TIMEOUT;订阅路径原先把一切包成 ``OmniPLCInternalError``
+    ⇒ UNKNOWN —— 同一故障两条路径两种结论,上位机分级告警会错。
+    """
+    from types import SimpleNamespace
+
+    client = OpcUaClient("127.0.0.1", 4840)
+    fake = FakeSession()
+    monkeypatch.setattr(client, "_create_transport", lambda: fake)
+    client.connect()
+
+    def _boom(period: float, handler: object) -> object:
+        raise OSError("建订阅时链路断开")
+
+    monkeypatch.setattr(fake, "_client", SimpleNamespace(create_subscription=_boom))
+    ok, handle = client.subscribe_data_change("ns=2;s=T", lambda *_: None)
+    assert ok is False and handle is None
+    assert client.last_error_category is ErrorCategory.TRANSPORT
+
+
+def test_status_change_non_good_invalidates_handle() -> None:
+    """status_change 报非 Good → 记 DEVICE 三件套 + 句柄失效(review-1037 §3.3)。
+
+    asyncua 遇 ``BadNoSubscription`` 直接 return、无 Republish ⇒ 订阅可在
+    链路仍连时静默停更;驱动侧原先只落 debug 日志,调用方无从察觉。
+    """
+    from omniplc.plc.opcua.client import _DataChangeHandler
+
+    client = OpcUaClient("127.0.0.1", 4840)
+    handle = OpcUaSubscription(
+        node_id="ns=2;s=T",
+        subscription_id=1,
+        unsub=lambda: True,
+        _asyncua_subscription=None,
+        _monitored_items=[],
+    )
+
+    class _Bad:
+        name = "BadNoSubscription"
+        value = 0x80790000
+
+        def is_bad(self) -> bool:
+            return True
+
+    handler = _DataChangeHandler(client, lambda *_: None, [handle])
+    handler.status_change_notification(_Bad())
+    assert client.last_error is not None
+    assert "BadNoSubscription" in client.last_error
+    assert client.last_error_category is ErrorCategory.DEVICE
+    assert handle.unsubscribe() is False  # 已失效:不再向服务端发 I/O
+
+    # BadShutdown = 本端主动拆链(disconnect),不得记成订阅失效
+    client2 = OpcUaClient("127.0.0.1", 4840)
+
+    class _Shutdown:
+        name = "BadShutdown"
+        value = 0x80AC0000
+
+        def is_bad(self) -> bool:
+            return True
+
+    _DataChangeHandler(client2, lambda *_: None, []).status_change_notification(
+        _Shutdown()
+    )
+    assert client2.last_error is None
+
+
 # ----------------------------------------------------------------------
 # 异步镜像
 # ----------------------------------------------------------------------
