@@ -318,10 +318,20 @@ def registers_to_float32(
 def float32_to_registers(
     value: float, word_order: WordOrder = WordOrder.ABCD
 ) -> Tuple[int, int]:
-    """把 32 位浮点数按指定字序编码为 2 个寄存器。"""
+    """把 32 位浮点数按指定字序编码为 2 个寄存器。
+
+    :raises ValueError: 值超出 float32 表示范围(与 :func:`value_to_words`
+        同口径;review-1043 乙-7:原实现让 ``struct.pack(">f", 1e40)`` 抛
+        ``OverflowError``,现场只 catch ``ValueError`` 的批量入口会被穿透,
+        表现为部分写入已落盘)
+    """
+    try:
+        packed = struct.pack(">f", float(value))
+    except OverflowError as exc:
+        raise ValueError(_("float 超出 float32 范围:{}").format(value)) from exc
     return cast(
         Tuple[int, int],
-        _canonical_to_registers(struct.pack(">f", float(value)), word_order),
+        _canonical_to_registers(packed, word_order),
     )
 
 

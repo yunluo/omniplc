@@ -117,6 +117,21 @@ class TestWordOrder32:
             1, WordOrder.ABCD
         )
 
+    def test_float32_out_of_range_raises_value_error(self) -> None:
+        """float32_to_registers 越界收口为 ValueError(review-1043 乙-7):
+        原实现让 struct.pack 抛 OverflowError,批量入口只 catch ValueError 时
+        穿透并伴随部分写入。注:``struct.pack('>f', float('inf'))`` 在 Python
+        3.7/3.12 均**不**报错,直接打包为 IEEE-754 +inf 位型——只有超出
+        float32 上限的**有限**值才溢出。"""
+        # 远超 float32 上限的有限值(±1e40,float32 max ≈ 3.4e38)
+        with pytest.raises(ValueError, match="float32 范围"):
+            convert.float32_to_registers(1e40)
+        with pytest.raises(ValueError, match="float32 范围"):
+            convert.float32_to_registers(-1e40)
+        # 边界:float32 上限附近的有限值(包得住,不应报错)
+        # 3.4e38 < float32 max ≈ 3.4028235e38,位型为 0x7F7FC99E
+        assert convert.float32_to_registers(3.4e38) == (0x7F7F, 0xC99E)
+
 
 class TestWordOrder64:
     """64 位字序。"""
