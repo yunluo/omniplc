@@ -61,7 +61,8 @@ def pack_u16(value: int) -> bytes:
     """16 位无符号整数 → 小端两字节(越界抛错,内部函数)。"""
     if not 0 <= value <= 0xFFFF:
         raise ValueError(_("16 位无符号数值越界:{}").format(value))
-    return bytes((value & 0xFF, value >> 8))
+    # int.to_bytes 表达同一小端两字节(review-1044),范围校验仍在前
+    return value.to_bytes(2, "little")
 
 
 def unpack_u16(data: bytes) -> List[int]:

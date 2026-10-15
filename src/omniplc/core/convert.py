@@ -437,11 +437,13 @@ def registers_to_canonical(
 
     :raises ValueError: 任一寄存器超出 0~65535(不做静默掩码)
     """
-    for reg in registers:
-        number = int(reg)
+    numbers = [int(reg) for reg in registers]
+    for number in numbers:
         if not 0 <= number <= 0xFFFF:
             raise ValueError(_("寄存器值超出 0~65535 范围:{}").format(number))
-    raw = b"".join((int(reg) & 0xFFFF).to_bytes(2, "big") for reg in registers)
+    # 校验遍保留,装配一次 struct.pack(review-1044):校验通过后 int(reg) & 0xFFFF
+    # 恒等于原值,故 >nH 与逐字 to_bytes 拼接逐字节相同
+    raw = struct.pack(">{}H".format(len(numbers)), *numbers)
     return _reorder_bytes(raw, word_order)
 
 
@@ -550,7 +552,9 @@ def value_to_words(
 def _canonical_to_registers(data: bytes, word_order: WordOrder) -> Tuple[int, ...]:
     """把大端规范字节串按字序打散为寄存器元组(内部函数)。"""
     raw = _reorder_bytes(data, word_order)
-    return tuple(int.from_bytes(raw[i : i + 2], "big") for i in range(0, len(raw), 2))
+    # 一次 struct.unpack(逐字切片 + from_bytes 换出,review-1044);调用方恒为
+    # 4/8 字节(32/64 位数值的 struct.pack 产物),长度必偶,故 >nH 全域等价
+    return struct.unpack(">{}H".format(len(raw) // 2), raw)
 
 
 def _reorder_bytes(data: bytes, word_order: WordOrder) -> bytes:

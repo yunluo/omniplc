@@ -205,6 +205,14 @@ AB_TAG_LIST_ATTRIBUTES: "tuple" = (0x0001, 0x0002, 0x0008)
 属性**(同类开源参考实现 请求同款 3 属性、条目步长 = 名长 + 20 字节且真机可用;
 同类开源参考实现 请求 7 属性其应答多 3 个地址类 UDINT——两源布局各与自己的请求集
 自洽,不作全量假设)。"""
+AB_TAG_LIST_BODY: bytes = struct.pack(
+    "<{}H".format(len(AB_TAG_LIST_ATTRIBUTES) + 1),
+    len(AB_TAG_LIST_ATTRIBUTES),
+    *AB_TAG_LIST_ATTRIBUTES,
+)
+"""0x55 请求 body(属性数 + 属性号表,小端 H)。属性集是常量元组,故
+import 期算一次(review-1044),免每次请求重算——属性数与属性号表引用同一
+常量,不存在两处漂移。"""
 AB_TAG_LIST_MAX_PAGES: int = 1000
 """0x55 分页轮数上限(防不收敛)。每页受 unconnected 包 ~500 字节约束约
 十几~几十条,上限内可枚举数万点位;更大规模请按程序域分批(待真机核证)。"""
@@ -576,13 +584,11 @@ def build_get_attribute_list(
     for attr in attributes:
         if not 0 <= attr <= 0xFFFF:
             raise ValueError(_("CIP 属性号超出 0~65535:{}").format(attr))
-    body = struct.pack("<H", len(attributes)) + b"".join(
-        struct.pack("<H", a) for a in attributes
-    )
+    # 校验遍保留,装配一次 struct.pack(review-1044):body = 属性数 + 属性号表
     return _service_request(
         CIP_SERVICE_GET_ATTRIBUTE_LIST,
         build_class_instance_path(class_id, instance),
-        body,
+        struct.pack("<{}H".format(len(attributes) + 1), len(attributes), *attributes),
     )
 
 
@@ -629,10 +635,11 @@ def build_tag_list_request(instance: int) -> bytes:
         path += struct.pack("<BH", 0x25, instance)
     if len(path) % 2:
         path += b"\x00"
-    body = struct.pack("<H", len(AB_TAG_LIST_ATTRIBUTES))
-    for attr in AB_TAG_LIST_ATTRIBUTES:
-        body += struct.pack("<H", attr)
-    return _service_request(CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST, path, body)
+    # body 由常量元组唯一决定,import 期算一次(review-1044);常量不可变,
+    # _service_request 只做拼接不改实参,故与每次重算逐字节相同
+    return _service_request(
+        CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST, path, AB_TAG_LIST_BODY
+    )
 
 
 def parse_service_reply_with_status(

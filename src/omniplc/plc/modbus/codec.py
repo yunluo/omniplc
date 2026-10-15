@@ -1166,7 +1166,9 @@ def parse_read_file_record_response(
         if len(chunk) != 2 * record_length:
             raise ProtocolFrameError(_("FC20 记录数据长度不足"))
         result.append(
-            [struct.unpack(">H", chunk[i : i + 2])[0] for i in range(0, len(chunk), 2)]
+            # 上一句已钉死 len(chunk) == 2 * record_length(必偶),
+            # 一次 struct.unpack 替代逐字切片(review-1044)
+            list(struct.unpack(">{}H".format(len(chunk) // 2), chunk))
         )
         offset += 1 + file_resp_len
     if offset != len(body):
@@ -1197,7 +1199,9 @@ def build_write_file_record_pdu(
                 raise ValueError(
                     _("FC21 寄存器写入值超出范围 0~65535:{}").format(value)
                 )
-            sub += struct.pack(">H", value)
+        # 校验遍保留,装配一次 struct.pack(review-1044):校验通过后 >H 序列
+        # 拼接与逐值 sub += 逐字节相同,且省去每值一次 pack 调用
+        sub += struct.pack(">{}H".format(len(values)), *values)
     if not 0x09 <= len(sub) <= MODBUS_MAX_WRITE_FILE_BYTES:
         raise ValueError(
             _("FC21 请求数据长超出范围 0x09~0x{:02X}:{}").format(
