@@ -1054,8 +1054,12 @@ class OpcUaClient(BaseClient):
 
         :param node_text: 节点 NodeId 字符串
         :param on_change: 回调签名 ``(value, node_id_str, source_timestamp)``;
-            **回调异常被吞掉**(log + 写 last_error,category=UNKNOWN),
-            **不杀订阅**
+            **回调异常被吞掉**(log + 独立计数,三件套照写),
+            **不杀订阅**。**回调执行在 asyncua 事件循环线程**上:
+            回调内不要做阻塞操作,也**不要在回调里再调本客户端的读写/
+            订阅/退订**(业务线程正持锁等 loop 应答时会双向等待,最长到
+            asyncua 内部 120s 超时,review-1043 丁-3)——需要联动操作请把
+            请求投给业务线程/队列
         :param sampling_interval_ms: 采样间隔(毫秒,默认 1000)
         :param deadband_value: 死区值;``None``(默认)= 不过滤;
             ``>=0`` 触发 `DataChangeFilter`(``Absolute`` 语义,与服务端
@@ -1293,7 +1297,9 @@ class OpcUaClient(BaseClient):
             ``event_fields_dict`` 键集 = 订阅时 SelectClauses 选中的字段——asyncua
             1.1.5 默认过滤器聚合 BaseEventType 全部属性,**含 SourceNode/Time**
             (故 ``node_id_str`` 与时间戳有真值);传自定义 ``event_filter`` 时
-            键集以其所选字段为准
+            键集以其所选字段为准。回调执行线程与禁止事项同
+            :meth:`subscribe_data_change`(asyncua 事件循环线程,不得在回调内
+            再调本客户端,review-1043 丁-3)
         :param event_filter: 透传 asyncua 的 EventFilter(``None`` = 不过滤)
         :return: ``(成功, 订阅句柄)``
         :raises ValueError: 参数非法
