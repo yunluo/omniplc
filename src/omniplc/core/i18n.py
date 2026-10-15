@@ -480,10 +480,12 @@ _TRANSLATIONS: Dict[str, str] = {
         "A {0} value must be int/float (bool/str not accepted), got: {1!r}"
     ),
     "write_and_verify 回读不符:写入 {!r},读回 {!r}({} @ {})": "write_and_verify readback mismatch: wrote {0!r}, read back {1!r} ({2} @ {3})",
-    "write_and_verify 不支持异型回读:写入类型为 {}({} 字节),回读类型为 {}({} 字节);请手工 read 后比较,(原实现按数值直接比较,会恒判不符或碰巧一致,review-1043 乙-6)": (
+    "write_and_verify 不支持异型回读:写入类型为 {}({} 字节),回读类型为 {}({} 字节);请手工 read 后比较,(原实现按数值直接比较:值落低位字时假通过、邻字非零时误报不符,review-1043 乙-6)": (
         "write_and_verify does not support cross-type readback: wrote {0} ({1} bytes),"
         " read back {2} ({3} bytes); please read manually and compare,"
-        " (the old numeric comparison was either always mismatched or coincidentally passed, review-1043 乙-6)"
+        " (the old numeric comparison either passed falsely when the value sat in the"
+        " low word or reported a mismatch when the neighbour word was non-zero,"
+        " review-1043 乙-6)"
     ),
     "predicate 必须为可调用对象,收到:{!r}": "predicate must be callable, got: {!r}",
     "interval 必须大于 0,收到:{}": "interval must be greater than 0, got: {}",

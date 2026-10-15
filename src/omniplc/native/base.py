@@ -1257,7 +1257,8 @@ class AsyncBaseClient(ABC):
                     _(
                         "write_and_verify 不支持异型回读:写入类型为 {}({} 字节),"
                         "回读类型为 {}({} 字节);请手工 read 后比较,"
-                        "(原实现按数值直接比较,会恒判不符或碰巧一致,review-1043 乙-6)"
+                        "(原实现按数值直接比较:值落低位字时假通过、邻字非零时"
+                        "误报不符,review-1043 乙-6)"
                     ).format(
                         data_type_enum.value,
                         data_type_enum.byte_size,

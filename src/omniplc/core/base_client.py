@@ -1649,8 +1649,11 @@ class BaseClient(ABC):
         :param verify: ``False`` 跳过回读(只写不可读软元件场景),等价
             :meth:`write` 但返回 ``(是否成功, None)``
         :param readback_type: 回读类型;``None`` = 同写入类型(review-1043
-            乙-6:旧实现允许异型回读,实际比对是 ``bool(written == readback)``,
-            对窄型回读恒判不符、对宽型回读碰巧一致——「按文档用就是坏的」。
+            乙-6:旧实现允许异型回读,实际比对是纯数值 ``written == readback``,
+            而回读值来自不同宽度的解码——**宽写窄读、值落低位字时假通过**
+            (如 long 100 → ushort 100),**窄写宽读、邻字非零时误报不符**
+            (如 ushort 100 → long 100|邻字<<16),两种都是错的、取决于值与
+            邻字(初版 docstring 把方向写反,已随更正提交订正并留实测表)。
             现改为显式拒绝:需要拆字校验请手工 read 后比较)
         :return: ``(是否成功, 回读值)``;verify 关闭时回读值恒 ``None``
         :raises RuntimeError: 只读模式;:raises ValueError: 参数/白名单拒绝
@@ -1668,7 +1671,8 @@ class BaseClient(ABC):
                     _(
                         "write_and_verify 不支持异型回读:写入类型为 {}({} 字节),"
                         "回读类型为 {}({} 字节);请手工 read 后比较,"
-                        "(原实现按数值直接比较,会恒判不符或碰巧一致,review-1043 乙-6)"
+                        "(原实现按数值直接比较:值落低位字时假通过、邻字非零时"
+                        "误报不符,review-1043 乙-6)"
                     ).format(
                         data_type_enum.value,
                         data_type_enum.byte_size,

@@ -543,10 +543,12 @@ class TestWriteAndVerify:
         asyncio.run(scenario())
 
     def test_cross_type_readback_rejected(self) -> None:
-        """异型回读显式拒绝(review-1043 乙-6):原实现按数值直接比较会恒判不符
-        或碰巧一致——「按文档用就是坏的」。native 侧同构,通过 :meth:`native.BaseClient.write_and_verify`
-        实现分支与 sync 同步复制,不再单独测(走全链路必先过未连接 client 的
-        write=False 短路,无法触达该检查)。"""
+        """异型回读显式拒绝(review-1043 乙-6):旧比对是纯数值 ``written ==
+        readback``,而回读值来自不同宽度解码——宽写窄读值落低位字时假通过、
+        窄写宽读邻字非零时误报不符(四组合实测见更正提交)。native 侧同构,
+        通过 :meth:`native.BaseClient.write_and_verify` 实现分支与 sync 同步
+        复制,不再单独测(走全链路必先过未连接 client 的 write=False 短路,
+        无法触达该检查)。"""
         client = _ScriptedClient()
         client.readback = 100
         with pytest.raises(ValueError, match="异型回读"):
