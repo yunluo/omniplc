@@ -81,6 +81,18 @@ class ModbusBaseClient(BaseClient):
     广播语义:RTU 站号 0 为广播地址,设备不回包——写操作发送后
     不等响应直接成功,读操作直接拒绝;TCP 无广播概念(Unit ID 为
     路由字段),站号 0 照常收发。
+
+    **广播写的返回语义(review-1043 乙-8 抬头)**:
+
+    - 广播下 ``write``/``write_many``/``write_batch`` 返回 ``True``
+      **仅代表「帧已按规范发出」**,不代表设备已收到/已执行——设备不回包,
+      没有回显校验也没有异常码;
+    - 广播与 ``write_and_verify`` **语义割裂**:写成功后的回读是按读操作
+      走的,广播站号会被显式拒绝(``ValueError: 广播站号(station=0)仅支持
+      写操作``)——广播下请直接用 ``write``,或 ``write_and_verify(...,
+      verify=False)`` 跳过回读;
+    - 需要投递确认的场合不要用广播:改单播(设备应答 + 回显校验),或由
+      业务层用读回轮询间接确认。
     """
 
     _BROADCAST_WITHOUT_RESPONSE: bool = False
@@ -1340,8 +1352,9 @@ class ModbusTcpClient(ModbusBaseClient):
 class ModbusRtuClient(ModbusBaseClient):
     """Modbus RTU 客户端(串口,需要 pyserial)。
 
-    站号 0 为广播地址:写操作发送后不等响应(设备不回包),
-    读操作直接拒绝;详见 :class:`ModbusBaseClient`。
+    站号 0 为广播地址:写操作发送后不等响应(设备不回包),读操作直接
+    拒绝;广播写返回 ``True`` 仅代表「帧已发出」,与 ``write_and_verify``
+    组合的语义见 :class:`ModbusBaseClient` 广播语义节(review-1043 乙-8)。
 
     :example::
 
