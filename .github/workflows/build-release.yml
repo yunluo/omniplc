@@ -9,20 +9,26 @@ on:
     tags:
       - "v*"
 
-permissions:
-  contents: write # 创建 GitHub Release 并上传构件需要
+# 权限一律收 job 级(review-1043 己-7):tag 触发的工作流若另有无需写权限的
+# job(如纯构建),工作流级 contents: write 会让它们也带上写权限。
+#
+# actions 全部 SHA 钉版(review-1043 己-7):可变 tag(v4/v6/…)上游随时改指向,
+# 钉版后行为冻结可复现;注释尾部标出钉版时对应的发布版本,升级走显式提交(改
+# SHA+注释),不做自动跟进。SHA 经 GitHub API 由 tag 现解(2026-10-15)。
 
 jobs:
   build:
     name: uv build
     # 与 ci.yml 对齐 Windows 平台;产物为 py3-none-any,平台无关
     runs-on: windows-latest
+    permissions:
+      contents: write # 仅本 job 需要:创建 GitHub Release 并上传构件
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           # 仓库 .python-version 钉 3.7.9(本地开发用),runner 无此解释器且 uv
           # 托管下载不支持 3.7;构建本身与运行版本无关(hatchling 纯 Python,
@@ -33,7 +39,7 @@ jobs:
         run: uv build --python 3.12
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: omniplc-dist
           path: |
@@ -42,7 +48,7 @@ jobs:
           if-no-files-found: error
 
       - name: Create GitHub Release with artifacts
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           # 显式只发布分发包:uv build 会在 dist/ 生成 .gitignore(内容 *,
           # 防产物污染 VCS),通配 dist/* 会把它一并挂上 Release
@@ -58,15 +64,23 @@ jobs:
     # 仅主仓库发布,防止 fork 误触
     if: github.repository == 'yunluo/omniplc'
     permissions:
+      # 本 job 只发布,不写仓库内容——contents 权限不在此出现(己-7 权限收窄)
       id-token: write # 信任发布(OIDC)需要;PyPI 侧配置可信发布者后无需任何令牌
     steps:
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: omniplc-dist
           path: dist
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        # 原为 @release/v1(可变分支);钉版冻结行为(review-1043 己-7)。
+        # 升级:改 SHA + 注释版本号,并复核 attestations 行为未变
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: dist/
+          # PEP 740 数字证明(review-1043 己-7):该 action 对可信发布流程默认
+          # 生成并在上传时附带上载,这里**显式写 true** 冻结意图——上游将来若把
+          # 默认改回 false,本仓库仍出证明(PyPI 侧 /integrity/…/provenance 可查)。
+          # 前提:id-token: write 已在本 job 赋予(证明与信任发布同一 OIDC 身份)
+          attestations: true

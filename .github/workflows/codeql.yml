@@ -23,6 +23,9 @@ concurrency:
   group: codeql-${{ github.ref }}
   cancel-in-progress: true
 
+# actions 全部 SHA 钉版(review-1043 己-7,与 build-release.yml/ci.yml 同口径;
+# 注释尾部标出钉版时对应的发布版本,SHA 经 GitHub API 由 tag 现解 2026-10-15)。
+
 jobs:
   analyze:
     name: analyze (python)
@@ -30,14 +33,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           languages: python
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           category: "/language:python"
