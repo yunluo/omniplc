@@ -341,6 +341,35 @@ def test_read_range_translates_address_once_like_single(
     assert sent == _expected("R1603", 2, False, False)
 
 
+def test_read_range_dotted_bit_form_matches_other_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``R1.15`` 点号形式在 read_range(BOOL)上与单点读同字节放行。
+
+    review-1025 §四 P2:原实现在**换算前**做"位软元件位号后缀"校验,松下
+    R1.15(字号 1 + 位号 15,换算后位号已被消费)被误拒,而 read /
+    write / read_batch / read_bool 四条路径放行 —— 同一记号五条路径两种
+    行为(属保守侧,非静默错值,但用户无法预期)。现按换算后地址取判,
+    且发包仍只换算一次(与单点读逐字节相同)。
+    """
+    client = PanasonicMcTcpClient("127.0.0.1", 2000)
+    single = _bit_read_response([1])
+    scripted = ScriptedTransport([single[:9], single[9:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_bool("R1.15") == (True, True)
+    expected = bytes(scripted.sent)
+
+    other = PanasonicMcTcpClient("127.0.0.1", 2000)
+    got = _bit_read_response([1])
+    scripted2 = ScriptedTransport([got[:9], got[9:]])
+    _mount(monkeypatch, other, scripted2)
+    other.connect()
+    assert other.read_range("R1.15", 1, "bool") == (True, [True])
+    assert bytes(scripted2.sent) == expected  # 换算恰好一次(1×16+15=31)
+    assert bytes(scripted2.sent)[15:18] == b"\x1f\x00\x00"
+
+
 def test_write_tn_word_and_cs_bit(monkeypatch: pytest.MonkeyPatch) -> None:
     """TN 定时器当前值字写 / CS 计数器接点位写:码 C2/C4(盲点清缴)。"""
     client = PanasonicMcTcpClient("127.0.0.1", 2000)

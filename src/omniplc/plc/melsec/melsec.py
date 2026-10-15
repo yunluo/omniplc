@@ -383,7 +383,14 @@ class _MelsecMcBase(BaseClient):
                         address
                     )
                 )
-            codec_qna.reject_bit_suffix_on_bit_device(parsed)
+            # 位号后缀校验按**换算后**地址取判:品牌兼容子类(松下 R1.15 →
+            # 字号×16+位号、汇川 X/Y 八进制)的记号里"位号"是正常语法,换算
+            # 已消费它(与 codec_qna.reject_bit_suffix_on_bit_device docstring
+            # 同口径)。review-1025 §四 P2:原按未换算地址校验,松下 R1.15 在
+            # read_range 被误拒,而 read / read_batch / read_bool / random_*
+            # 四条路径放行 —— 同一记号五条路径两种行为。此处仅作判定,
+            # 发包仍用原记号(由 _build_frame 换算一次,避免二次线性化)。
+            codec_qna.reject_bit_suffix_on_bit_device(self._translate_address(parsed))
 
             def operation_bits() -> List[PrimitiveValue]:
                 return [bool(bit) for bit in self._read_bits(parsed, count)]
