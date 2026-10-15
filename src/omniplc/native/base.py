@@ -189,6 +189,7 @@ class AsyncBaseClient(ABC):
             "device_error_count": 0,
             "heartbeat_ok": 0,
             "heartbeat_fail": 0,
+            "write_count": 0,
         }
         self._timestamps: Dict[str, Optional[float]] = {
             "last_error_at": None,
@@ -196,7 +197,18 @@ class AsyncBaseClient(ABC):
             "last_success_at": None,
             "last_heartbeat_at": None,
             "last_rtt": None,
+            "last_write_at": None,
         }
+        # 失败按分类计数(review-1043 戊-5):与同步层同口径
+        self._error_count_by_category: Dict[str, int] = {
+            "transport": 0,
+            "protocol": 0,
+            "device": 0,
+            "timeout": 0,
+            "unknown": 0,
+        }
+        # 写审计回调(review-1043 乙-4):默认 None 不开
+        self._write_audit_hook: Optional[Callable[[str, str, Any, bool], None]] = None
         # 应用层心跳(asyncio 任务形态):connect 成功后启动,_disconnect_locked
         # 中取消;间隔与语义与同步基类一致(见其「心跳保活」节)
         self._heartbeat_interval: float = HEARTBEAT_INTERVAL_DEFAULT
@@ -628,7 +640,14 @@ class AsyncBaseClient(ABC):
         返回拷贝,改动返回值不影响内部计数;字段见
         :class:`~omniplc.core.base_client.ClientStats`。
         """
-        return cast(ClientStats, dict(self._counters, **self._timestamps))
+        return cast(
+            ClientStats,
+            dict(
+                self._counters,
+                **self._timestamps,
+                error_count_by_category=dict(self._error_count_by_category),
+            ),
+        )
 
     # ------------------------------------------------------------------
     # 通用读写(模板方法,公共 API)
@@ -651,20 +670,26 @@ class AsyncBaseClient(ABC):
     async def write(
         self, address: str, data_type: Union[DataType, str], value: PrimitiveValue
     ) -> bool:
-        """按数据类型写入一个点。
+        """按数据类型写入一个点(与同步 :meth:`BaseClient.write` 同契约;
 
-        :param address: 协议地址
-        :param data_type: 数据类型,推荐用 :class:`omniplc.types.DataType` 枚举
-        :param value: 待写入值
-        :return: 是否成功
-        :raises RuntimeError: 只读模式(:attr:`read_only`)下拒绝一切写
-        :raises ValueError: 参数非法 / 写白名单开启且地址不在已绑定点位表
+        见彼处的写审计 hook / stats 字段语义)。
         """
         self._check_write_allowed(address, data_type)
         data_type_enum = DataType.coerce(data_type)
         ok, _unused = await self._execute(
             lambda: self._write(address, data_type_enum, value), is_write=True
         )
+        self._record_write(ok)
+        hook = self._write_audit_hook
+        if hook is not None:
+            try:
+                hook(address, data_type_enum.value, value, ok)
+            except Exception as exc:
+                log_warning(
+                    self._log_label(),
+                    "写审计回调异常:%s",
+                    _describe(exc),
+                )
         return ok
 
     async def read_many(
@@ -939,6 +964,17 @@ class AsyncBaseClient(ABC):
             for tag_id in table
         }
 
+    def _log_label(self) -> str:
+        """日志标签(内部方法,与同步层同口径,review-1043 戊-1)。
+
+        各走线子类会设成 ``tcp://ip:port`` 之类;未设时回退到端点文本。
+        """
+        label = getattr(self, "_debug_label", None)
+        if label:
+            return str(label)
+        endpoint = getattr(self, "_endpoint_text", None)
+        return str(endpoint) if endpoint else "omniplc"
+
     async def read_tag(
         self, tag: Union[str, Tag]
     ) -> Tuple[bool, Optional[PrimitiveValue]]:
@@ -1058,6 +1094,24 @@ class AsyncBaseClient(ABC):
                 _("write_whitelist 必须为布尔值,收到:{!r}").format(enabled)
             )
         self._write_whitelist = enabled
+
+    @property
+    def write_audit_hook(
+        self,
+    ) -> Optional[Callable[[str, str, Any, bool], None]]:
+        """写审计回调(可选):语义与同步层 :attr:`BaseClient.write_audit_hook` 一致。"""
+        return self._write_audit_hook
+
+    @write_audit_hook.setter
+    def write_audit_hook(
+        self,
+        hook: Optional[Callable[[str, str, Any, bool], None]],
+    ) -> None:
+        if hook is not None and not callable(hook):
+            raise ValueError(
+                _("write_audit_hook 必须是可调用对象或 None,收到:{!r}").format(hook)
+            )
+        self._write_audit_hook = hook
 
     def _validate_value(self, data_type: DataType, value: PrimitiveValue) -> None:
         """值可编码性前置校验钩子(内部方法,语义同同步层 :meth:`_validate_value`)。
@@ -1372,10 +1426,27 @@ class AsyncBaseClient(ABC):
         self._next_connect_at = 0.0
         self._connect_fail_count = 0
 
-    def _record_error(self) -> None:
-        """登记一次失败(错误计数 + 时间戳,内部方法,须锁内调用)。"""
+    def _record_error(self, category: Optional[ErrorCategory] = None) -> None:
+        """登记一次失败(错误计数 + 时间戳,内部方法,须锁内调用)。
+
+        :param category: 同时按分类桶计数(review-1043 戊-5);传 ``None``
+            时只动 ``error_count``(与同步层同口径)
+        """
         self._counters["error_count"] += 1
         self._timestamps["last_error_at"] = time.monotonic()
+        if category is not None:
+            key = (
+                category.value
+                if category.value in self._error_count_by_category
+                else "unknown"
+            )
+            self._error_count_by_category[key] += 1
+
+    def _record_write(self, succeeded: bool) -> None:
+        """登记一次写操作结果(内部方法,须锁内调用)。"""
+        if succeeded:
+            self._counters["write_count"] += 1
+        self._timestamps["last_write_at"] = time.monotonic()
 
     def _set_error(
         self,
@@ -1395,7 +1466,7 @@ class AsyncBaseClient(ABC):
         self._last_error_category = category
         self._last_error_code = code or None
         if record:
-            self._record_error()
+            self._record_error(category)
 
     def _clear_error(self) -> None:
         """清空失败原因三件套(内部方法,须锁内调用)。"""

@@ -106,6 +106,15 @@ class ClientStats(TypedDict):
     last_success_at: Optional[float]
     last_heartbeat_at: Optional[float]
     last_rtt: Optional[float]
+    # 写操作可观测(review-1043 乙-4):「昨天 14:07 谁把 D100 写成了 500」
+    # 类问题从库侧回答,至少「写没写、写了几次、最近一次何时」
+    write_count: int
+    last_write_at: Optional[float]
+    # 失败按分类计数(review-1043 戊-5):``error_count`` 是总数,「链路
+    # 是不是在坏」要按 TRANSPORT/PROTOCOL/DEVICE/TIMEOUT/UNKNOWN 分桶
+    # 看趋势;``error_count_by_category`` 键集 = :class:`ErrorCategory`
+    # 五项全填(0 = 未发生过),不在五项内的 UNKNOWN 也照填不漏
+    error_count_by_category: Dict[str, int]
 
 
 def validate_endpoint(ip_address: str, port: int) -> None:
@@ -214,6 +223,8 @@ class BaseClient(ABC):
             "device_error_count": 0,
             "heartbeat_ok": 0,
             "heartbeat_fail": 0,
+            # 写操作可观测(review-1043 乙-4)
+            "write_count": 0,
         }
         self._timestamps: Dict[str, Optional[float]] = {
             "last_error_at": None,
@@ -221,7 +232,23 @@ class BaseClient(ABC):
             "last_success_at": None,
             "last_heartbeat_at": None,
             "last_rtt": None,
+            "last_write_at": None,
         }
+        # 失败按分类计数(review-1043 戊-5):键集与 :class:`ErrorCategory`
+        # 五项同形,便于 ``stats["error_count_by_category"]["transport"]``
+        # 直接访问;不在枚举内的失败归 UNKNOWN 桶(``_categorize`` 兜底)
+        self._error_count_by_category: Dict[str, int] = {
+            "transport": 0,
+            "protocol": 0,
+            "device": 0,
+            "timeout": 0,
+            "unknown": 0,
+        }
+        # 写审计回调(review-1043 乙-4):用户可选,形如
+        # ``Callable[[str, str, Any, bool], None]``(地址, 类型, 值, 是否成功);
+        # 写事务成功/失败各调一次,默认 None 不开——「昨天 14:07 谁把 D100
+        # 写成了 500」只能靠应用层自己在回调里落盘
+        self._write_audit_hook: Optional[Callable[[str, str, Any, bool], None]] = None
         # 应用层心跳:connect 成功后由守护线程按间隔驱动 ping()(见
         # 「心跳保活」节);显式 disconnect 停止,传输失败拆连**不**停止——
         # 心跳正是靠下一 tick 的 _execute 惰性重连实现自愈。
@@ -755,13 +782,47 @@ class BaseClient(ABC):
         回调不会阻塞事件循环,也不会读到撕裂的 ``error_count``/``last_error``。
         """
         with self._state_lock:
-            return cast(ClientStats, dict(self._counters, **self._timestamps))
+            return cast(
+                ClientStats,
+                dict(
+                    self._counters,
+                    **self._timestamps,
+                    error_count_by_category=dict(self._error_count_by_category),
+                ),
+            )
 
-    def _record_error(self) -> None:
-        """登记一次失败(错误计数 + 时间戳,内部方法;状态锁保护)。"""
+    def _record_error(self, category: Optional[ErrorCategory] = None) -> None:
+        """登记一次失败(错误计数 + 时间戳,内部方法;状态锁保护)。
+
+        :param category: 同时按分类桶计数(review-1043 戊-5);传 ``None``
+            时只动 ``error_count``(保留与旧调用点契约兼容)
+        """
         with self._state_lock:
             self._counters["error_count"] += 1
             self._timestamps["last_error_at"] = time.monotonic()
+            if category is not None:
+                # 兜底:不在 ErrorCategory 五项内的 category(理论上不会,
+                # 但 _categorize 新增规则时如果忘了同步这里就是这条防线)
+                # 归 "unknown" 桶,不丢数
+                key = (
+                    category.value
+                    if category.value in self._error_count_by_category
+                    else "unknown"
+                )
+                self._error_count_by_category[key] += 1
+
+    def _record_write(self, succeeded: bool) -> None:
+        """登记一次写操作结果(内部方法;状态锁保护)。
+
+        :param succeeded: ``True`` 写成功计数;``False`` 不计数只刷时间戳
+            (失败走 ``_set_error`` 已写 last_error/last_error_at,统计面
+            由 :attr:`error_count` 兜底;此处只让 ``last_write_at`` 真实
+            反映「最近一次写动作」而不管其成败)
+        """
+        with self._state_lock:
+            if succeeded:
+                self._counters["write_count"] += 1
+            self._timestamps["last_write_at"] = time.monotonic()
 
     def _set_error(
         self,
@@ -784,7 +845,7 @@ class BaseClient(ABC):
             self._last_error_category = category
             self._last_error_code = code or None
             if record:
-                self._record_error()
+                self._record_error(category)
 
     def _clear_error(self) -> None:
         """清空失败原因三件套(内部方法;状态锁保护)。"""
@@ -822,12 +883,31 @@ class BaseClient(ABC):
         :return: 是否成功
         :raises RuntimeError: 只读模式(:attr:`read_only`)下拒绝一切写
         :raises ValueError: 参数非法 / 写白名单开启且地址不在已绑定点位表
+
+        .. note::
+            成功时计数 ``stats["write_count"]``、刷 ``stats["last_write_at"]``;
+            设了 :attr:`write_audit_hook` 则在成功/失败各调一次
+            (review-1043 乙-4:库内首次提供「写留痕」原语;之前只能靠应用层
+            自己包 write)。失败计数走 ``_set_error`` 同口径。
         """
         self._check_write_allowed(address, data_type)
         data_type_enum = DataType.coerce(data_type)
         ok, _unused = self._execute(
             lambda: self._write(address, data_type_enum, value), is_write=True
         )
+        self._record_write(ok)
+        hook = self._write_audit_hook
+        if hook is not None:
+            try:
+                hook(address, data_type_enum.value, value, ok)
+            except Exception as exc:
+                # 写审计回调内部异常绝不影响写事务结果(已有 ``ok``);
+                # 仅记一次 last_error 不污染写安全统计(review-1043 乙-4)
+                log_warning(
+                    self._log_label(),
+                    "写审计回调异常:%s",
+                    _describe(exc),
+                )
         return ok
 
     def read_many(
@@ -1342,6 +1422,40 @@ class BaseClient(ABC):
                 _("write_whitelist 必须为布尔值,收到:{!r}").format(enabled)
             )
         self._write_whitelist = enabled
+
+    @property
+    def write_audit_hook(
+        self,
+    ) -> Optional[Callable[[str, str, Any, bool], None]]:
+        """写审计回调(可选):``Callable[[地址, 类型名, 值, 是否成功], None]``。
+
+        设了回调后,每次 :meth:`write` 事务完成(成功/失败)各调一次;
+        ``write_many``/``write_and_verify`/驱动特有写入口最终都经 :meth:`write`,
+        故均被覆盖。回调内部异常被库吞掉(只 ``log_warning``),不影响写事务
+        自身的结果与计数(review-1043 乙-4:应用层终于有「谁什么时候把哪个
+        地址写成了什么」的第一手入口)。
+
+        :example: ::
+
+            def audit(address, data_type, value, ok):
+                log.info("%s %s %r ok=%s", address, data_type, value, ok)
+            client.write_audit_hook = audit
+
+            # 不需要时
+            client.write_audit_hook = None
+        """
+        return self._write_audit_hook
+
+    @write_audit_hook.setter
+    def write_audit_hook(
+        self,
+        hook: Optional[Callable[[str, str, Any, bool], None]],
+    ) -> None:
+        if hook is not None and not callable(hook):
+            raise ValueError(
+                _("write_audit_hook 必须是可调用对象或 None,收到:{!r}").format(hook)
+            )
+        self._write_audit_hook = hook
 
     def _check_write_allowed(
         self, address: str, data_type: Optional[Union[DataType, str]] = None

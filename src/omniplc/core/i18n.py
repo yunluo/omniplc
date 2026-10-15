@@ -436,6 +436,10 @@ _TRANSLATIONS: Dict[str, str] = {
     "布尔量必须是 bool,收到:{}": "Boolean must be bool, got: {}",
     "read_only 必须为布尔值,收到:{!r}": "read_only must be a boolean, got: {!r}",
     "write_whitelist 必须为布尔值,收到:{!r}": "write_whitelist must be a boolean, got: {!r}",
+    "write_audit_hook 必须是可调用对象或 None,收到:{!r}": (
+        "write_audit_hook must be callable or None, got: {!r}"
+    ),
+    "写审计回调异常:{}": "Write audit hook raised: {}",
     "无法解析 OPC-UA NodeId:{!r}(示例:ns=2;s=Device.Tag / ns=4;i=100 / i=2258)": (
         "Cannot parse the OPC-UA NodeId: {0!r} (examples: ns=2;s=Device.Tag /"
         " ns=4;i=100 / i=2258)"

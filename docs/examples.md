@@ -54,8 +54,16 @@ if not ok:
 ```python
 s = client.stats     # ClientStats:connect_count/disconnect_count/transactions/
                      # error_count/device_error_count/heartbeat_ok/heartbeat_fail/
+                     # write_count/last_write_at(last_write_at 反映最近写动作,
+                     # 不论成败)/error_count_by_category(按 5 类分桶计数)/
                      # last_rtt/last_success_at/...
 ok = client.ping()   # 手动探活一次(仅支持探活命令的驱动)
+
+# 写审计(可选):每次 write 成功/失败各回调一次,回答「谁什么时候把哪个
+# 地址写成了什么」;回调内抛异常被库吞掉,不影响写事务结果
+def audit(address, data_type, value, ok):
+    print(address, data_type, value, ok)
+client.write_audit_hook = audit
 ```
 
 ### 点位表(按名读写 + 工程量缩放)

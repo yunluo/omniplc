@@ -595,6 +595,20 @@ class ABaseClient:
         self._sync.write_whitelist = enabled
 
     @property
+    def write_audit_hook(
+        self,
+    ) -> "Optional[Callable[[str, str, Any, bool], None]]":
+        """写审计回调(转发同步实例;语义见同步 :attr:`write_audit_hook`)。"""
+        return self._sync.write_audit_hook
+
+    @write_audit_hook.setter
+    def write_audit_hook(
+        self,
+        hook: "Optional[Callable[[str, str, Any, bool], None]]",
+    ) -> None:
+        self._sync.write_audit_hook = hook
+
+    @property
     def incident_frames(self) -> List[FrameRecord]:
         """最近一次拆连/设备错误的现场报文快照(转发同步实例)。"""
         return self._sync.incident_frames

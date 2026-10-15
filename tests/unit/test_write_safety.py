@@ -553,6 +553,107 @@ class TestWriteAndVerify:
 
 
 # ----------------------------------------------------------------------
+# 乙4:写统计计数 + 写审计回调(review-1043 乙-4)+ 分类计数(戊-5)
+# ----------------------------------------------------------------------
+
+
+class TestWriteStats:
+    def test_write_count_increments_on_success(self) -> None:
+        """写成功计 ``write_count`` 并刷 ``last_write_at``(review-1043 乙-4)。"""
+        client = _ScriptedClient()
+        before = client.stats["write_count"]
+        before_at = client.stats["last_write_at"]
+        client.write("hr0", "ushort", 100)
+        after = client.stats["write_count"]
+        after_at = client.stats["last_write_at"]
+        assert after == before + 1
+        assert after_at is not None
+        if before_at is not None:
+            assert after_at >= before_at
+
+    def test_write_failure_does_not_count_but_updates_last_write_at(self) -> None:
+        """写失败不增 ``write_count``,但 ``last_write_at`` 仍刷
+        (后者真实反映「最近一次写动作」,不管其成败)。"""
+        client = _ScriptedClient()
+        client.script_failure(DeviceError("PLC 拒绝", 2))
+        before = client.stats["write_count"]
+        before_at = client.stats["last_write_at"]
+        result = client.write("hr0", "ushort", 100)
+        assert result is False
+        assert client.stats["write_count"] == before
+        # last_write_at 已刷(单调钟非降序)
+        if before_at is not None:
+            assert client.stats["last_write_at"] >= before_at
+
+    def test_audit_hook_called_with_address_type_value_ok(self) -> None:
+        """写审计回调(地址, 类型名, 值, 是否成功)四元组(review-1043 乙-4)。"""
+        client = _ScriptedClient()
+        captured: List[Tuple[str, str, object, bool]] = []
+
+        def hook(address: str, dtype: str, value: object, ok: bool) -> None:
+            captured.append((address, dtype, value, ok))
+
+        client.write_audit_hook = hook
+        client.write("hr0", "ushort", 100)
+        assert captured == [("hr0", "ushort", 100, True)]
+
+    def test_audit_hook_exception_swallowed(self) -> None:
+        """回调内部异常不影响写事务结果(只 ``log_warning``)。"""
+        client = _ScriptedClient()
+
+        def bad_hook(address: str, dtype: str, value: object, ok: bool) -> None:
+            raise RuntimeError("用户回调写崩了")
+
+        client.write_audit_hook = bad_hook
+        # 写事务仍成功,异常被吞
+        result = client.write("hr0", "ushort", 100)
+        assert result is True
+
+    def test_audit_hook_setter_validates(self) -> None:
+        """非可调用对象直接拒。"""
+        client = _ScriptedClient()
+        with pytest.raises(ValueError, match="可调用"):
+            client.write_audit_hook = 123  # type: ignore[assignment]
+        client.write_audit_hook = None  # 关掉
+
+    def test_error_count_by_category_tracks_buckets(self) -> None:
+        """分类计数(review-1043 戊-5):DeviceError 计入 device,TransportTimeout
+        计入 timeout;五桶初始全 0,失败后只动对应桶。"""
+        client = _ScriptedClient()
+        # 初始:五桶 0
+        assert client.stats["error_count_by_category"] == {
+            "transport": 0,
+            "protocol": 0,
+            "device": 0,
+            "timeout": 0,
+            "unknown": 0,
+        }
+        # DeviceError 走 device 桶
+        client.script_failure(DeviceError("PLC 拒绝", 2))
+        client.read("hr0", "ushort")
+        bucket = client.stats["error_count_by_category"]
+        assert bucket["device"] == 1
+        assert bucket["timeout"] == 0
+        assert bucket["transport"] == 0
+        # error_count 总数也对
+        assert client.stats["error_count"] == 1
+
+    def test_audit_hook_native_mirrored(self) -> None:
+        """native 写审计回调属性存在(契约镜像)。"""
+        client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+        # 默认 None
+        assert client.write_audit_hook is None
+        # 设置可调用
+        captured: List[Tuple[str, str, object, bool]] = []
+
+        def hook(address: str, dtype: str, value: object, ok: bool) -> None:
+            captured.append((address, dtype, value, ok))
+
+        client.write_audit_hook = hook
+        assert client.write_audit_hook is hook
+
+
+# ----------------------------------------------------------------------
 # 丙3:wait_value 等信号原语
 # ----------------------------------------------------------------------
 
