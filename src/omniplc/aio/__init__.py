@@ -836,11 +836,16 @@ class AModbusBaseClient(ABaseClient):
         return await self._run(lambda: sync.read_file_record(requests))
 
     async def write_file_record(
-        self, records: Sequence[Tuple[int, int, Sequence[int]]]
+        self,
+        records: Sequence[Tuple[int, int, Sequence[int]]],
+        *,
+        dangerous: bool = False,
     ) -> bool:
-        """写文件记录(FC21,语义同同步版)。"""
+        """写文件记录(FC21,语义同同步版;``dangerous`` 确认参数亦然)。"""
         sync = self._typed(ModbusBaseClient)  # type: ignore[type-abstract]
-        return await self._run(lambda: sync.write_file_record(records))
+        return await self._run(
+            lambda: sync.write_file_record(records, dangerous=dangerous)
+        )
 
     async def read_fifo_queue(self, address: str) -> Tuple[bool, Optional[List[int]]]:
         """读 FIFO 队列(FC24,语义同同步版)。"""
@@ -1729,10 +1734,17 @@ class AHikrobotIdTcpClient(ABaseClient):
         return await self._run(self._reader().get_acquisition)
 
     async def command(
-        self, cmd_type: str, cmd: str, param: Optional[str] = None
+        self,
+        cmd_type: str,
+        cmd: str,
+        param: Optional[str] = None,
+        *,
+        dangerous: bool = False,
     ) -> Tuple[bool, Optional[str]]:
         """低阶命令入口(语义同同步版 :meth:`HikrobotIdTcpClient.command`)。"""
-        return await self._run(lambda: self._reader().command(cmd_type, cmd, param))
+        return await self._run(
+            lambda: self._reader().command(cmd_type, cmd, param, dangerous=dangerous)
+        )
 
 
 class AHikrobotIdSdkClient(ABaseClient):
@@ -2299,11 +2311,15 @@ class AOmronCipClient(ABaseClient):
         instance: int,
         body: bytes = b"",
         is_write: Optional[bool] = None,
+        *,
+        dangerous: bool = False,
     ) -> Tuple[bool, Optional[bytes]]:
         """通用 CIP 服务(语义同同步版 :meth:`OmronCipClient.generic_message`)。"""
         sync = self._typed(OmronCipClient)
         return await self._run(
-            lambda: sync.generic_message(service, class_id, instance, body, is_write)
+            lambda: sync.generic_message(
+                service, class_id, instance, body, is_write, dangerous=dangerous
+            )
         )
 
     async def list_identity(self) -> Tuple[bool, Optional[dict]]:
@@ -2716,11 +2732,15 @@ class AAllenBradleyEthIpClient(ABaseClient):
         instance: int,
         body: bytes = b"",
         is_write: Optional[bool] = None,
+        *,
+        dangerous: bool = False,
     ) -> Tuple[bool, Optional[bytes]]:
         """通用 CIP 服务(语义同同步版 :meth:`AllenBradleyEthIpClient.generic_message`)。"""
         sync = self._typed(AllenBradleyEthIpClient)
         return await self._run(
-            lambda: sync.generic_message(service, class_id, instance, body, is_write)
+            lambda: sync.generic_message(
+                service, class_id, instance, body, is_write, dangerous=dangerous
+            )
         )
 
     async def list_identity(self) -> Tuple[bool, Optional[dict]]:

@@ -1978,6 +1978,25 @@ def test_tcp_write_file_record_fc21_bad_echo(monkeypatch: pytest.MonkeyPatch) ->
     assert client.write_file_record([(4, 1, [1])]) is False
 
 
+def test_write_file_record_whitelist_requires_dangerous(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FC21 为非地址写:写白名单开启时默认拒绝,显式 dangerous=True 放行
+    (review-1043 乙-5;文件区常承载配方与程序,误写即覆盖设备数据)。"""
+    client = ModbusTcpClient("127.0.0.1", 502, 1)
+    request = codec.build_write_file_record_pdu([(4, 1, [1, 2])])
+    scripted = _mount(client, monkeypatch, [_mbap_response(1, 1, request)])
+    client.connect()
+    client.write_whitelist = True
+    with pytest.raises(ValueError, match="非地址写"):
+        client.write_file_record([(4, 1, [1, 2])])
+    # 拒绝发生在零发送期:链路上一个字节都没出去
+    assert len(scripted.sent) == 0
+    # 显式确认后放行(回显校验通过)
+    assert client.write_file_record([(4, 1, [1, 2])], dangerous=True) is True
+    assert len(scripted.sent) == 7 + len(request)
+
+
 def test_file_record_field_validation() -> None:
     """FC20/21 字段范围校验:文件号 0/记录号越界/记录长度 0 拒绝。"""
     with pytest.raises(ValueError):

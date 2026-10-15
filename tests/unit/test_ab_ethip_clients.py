@@ -971,6 +971,34 @@ def test_generic_message_low_level_entry(
     assert expected_req in bytes(scripted.sent)
 
 
+def test_generic_message_write_service_whitelist_requires_dangerous(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """判写服务为非地址写:写白名单开启时默认拒绝,显式 dangerous=True 放行
+    (review-1043 乙-5;读服务不受影响,准入在零发送期)。"""
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818)
+    client.write_whitelist = True
+    # Set_Attribute_Single(0x10)不在读服务白名单 → 判写 → 白名单下拒绝
+    with pytest.raises(ValueError, match="非地址写"):
+        client.generic_message(0x10, 0x01, 0x01)
+    # 显式确认后放行:打桩 _execute 到事务层边界(不发真包),
+    # 并核对判写标记确实按 fail-safe 表传下
+    calls: list = []
+
+    def fake_execute(operation, is_write=False, heartbeat=False):  # type: ignore[no-untyped-def]
+        calls.append(is_write)
+        return True, b"\x00"
+
+    monkeypatch.setattr(client, "_execute", fake_execute)
+    ok, payload = client.generic_message(0x10, 0x01, 0x01, dangerous=True)
+    assert ok is True and payload == b"\x00"
+    assert calls == [True]
+    # 显式读服务(0x4C)过守卫且按读事务
+    ok2, _payload2 = client.generic_message(codec_cip.CIP_SERVICE_READ_TAG, 0x01, 0x01)
+    assert ok2 is True
+    assert calls[-1] is False
+
+
 def test_list_identity_returns_identity_dict(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

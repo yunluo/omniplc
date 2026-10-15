@@ -1109,14 +1109,25 @@ class ModbusBaseClient(BaseClient):
         return self._execute(operation)
 
     def write_file_record(
-        self, records: Sequence[Tuple[int, int, Sequence[int]]]
+        self,
+        records: Sequence[Tuple[int, int, Sequence[int]]],
+        *,
+        dangerous: bool = False,
     ) -> bool:
         """写文件记录(FC21,规范 §6.15);正常响应须为请求回显。
 
+        非地址写(记录号不在点位表地址空间,**写白名单覆盖不了**):
+        很多设备的文件区承载配方与程序,误写即覆盖设备侧数据。写白名单
+        开启时本入口默认拒绝,确认执行须显式 ``dangerous=True``
+        (review-1043 乙-5)。
+
         :param records: ``(文件号, 起始记录号, 寄存器值序列[0~65535])`` 序列
+        :param dangerous: 写白名单开启时的显式确认(见上;白名单关闭时无作用)
         :return: 是否成功
-        :raises ValueError: 入参非法
+        :raises ValueError: 入参非法 / 白名单开启且未传 ``dangerous=True``
+        :raises RuntimeError: 只读模式(含进程级只读兜底)
         """
+        self._check_non_address_write("write_file_record(FC21 文件记录写)", dangerous)
         trimmed = [
             (
                 require_int(file),

@@ -1195,6 +1195,31 @@ class AsyncBaseClient(ABC):
                         )
                     )
 
+    def _check_non_address_write(self, api: str, dangerous: bool = False) -> None:
+        """非地址写入口守卫(内部方法,语义同同步层
+        :meth:`BaseClient._check_non_address_write`,review-1043 乙-5)。
+
+        :raises RuntimeError: 进程级只读兜底 / 实例只读模式
+        :raises ValueError: 写白名单开启且未传 ``dangerous=True``
+        """
+        if process_read_only():
+            raise RuntimeError(
+                _(
+                    "进程级只读兜底已开启(环境变量 OMNIPLC_READ_ONLY),写操作已拒绝:{}"
+                ).format(api)
+            )
+        if self._read_only:
+            raise RuntimeError(
+                _("客户端为只读模式(read_only=True),写操作已拒绝:{}").format(api)
+            )
+        if self._write_whitelist and not dangerous:
+            raise ValueError(
+                _(
+                    "写白名单已开启:{} 为非地址写,不按点位表校验;"
+                    "确认执行请显式传 dangerous=True(review-1043 乙-5)"
+                ).format(api)
+            )
+
     @property
     def incident_frames(self) -> List[FrameRecord]:
         """最近一次拆连/设备错误的现场报文快照(语义同同步 :attr:`incident_frames`,

@@ -1507,6 +1507,42 @@ class BaseClient(ABC):
                 )
             self._check_write_width(address, data_type)
 
+    def _check_non_address_write(self, api: str, dangerous: bool = False) -> None:
+        """非地址写入口守卫(内部方法,review-1043 乙-5)。
+
+        非地址写(AB/欧姆龙通用 CIP 服务、读码器 ``command("Set"/"Exec")``、
+        Modbus FC21 文件记录写等)不落在点位表地址空间里,写白名单**覆盖
+        不了它们**——原实现只把 ``read_only``/进程级兜底这一道闸写进
+        docstring 披露,默认配置下这三类入口等于裸奔(一次误调用即改设备
+        工作模式 / 重启读码器 / 覆盖设备文件区)。
+
+        本守卫给它们补上第二道闸:**写白名单开启时,非地址写一律拒绝,
+        除非调用点显式传 ``dangerous=True``**(显式抬头 = 调用方书面确认
+        "知道自己在写什么",与"点位表内地址"同等的显式声明地位)。
+
+        :param api: 入口描述(进错误文本,如 ``"write_file_record(FC21)"``)
+        :param dangerous: 调用方显式确认(白名单开启时豁免本守卫)
+        :raises RuntimeError: 进程级只读兜底 / 实例只读模式
+        :raises ValueError: 写白名单开启且未传 ``dangerous=True``
+        """
+        if process_read_only():
+            raise RuntimeError(
+                _(
+                    "进程级只读兜底已开启(环境变量 OMNIPLC_READ_ONLY),写操作已拒绝:{}"
+                ).format(api)
+            )
+        if self._read_only:
+            raise RuntimeError(
+                _("客户端为只读模式(read_only=True),写操作已拒绝:{}").format(api)
+            )
+        if self._write_whitelist and not dangerous:
+            raise ValueError(
+                _(
+                    "写白名单已开启:{} 为非地址写,不按点位表校验;"
+                    "确认执行请显式传 dangerous=True(review-1043 乙-5)"
+                ).format(api)
+            )
+
     def _check_write_width(
         self, address: str, data_type: Optional[Union[DataType, str]]
     ) -> None:

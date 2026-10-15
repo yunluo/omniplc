@@ -475,19 +475,32 @@ class HikrobotIdTcpClient(BaseClient):
         return int(value)
 
     def command(
-        self, cmd_type: str, cmd: str, param: Optional[str] = None
+        self,
+        cmd_type: str,
+        cmd: str,
+        param: Optional[str] = None,
+        *,
+        dangerous: bool = False,
     ) -> Tuple[bool, Optional[str]]:
         """低阶命令入口:透传手册 §3 指令列表中的任意命令。
+
+        Set/Exec 是非地址写(命令字符串不在点位表地址空间,**写白名单
+        覆盖不了**):一次误调用即可改设备工作模式或重启读码器(本入口
+        自举 ``"Reboot"``)。写白名单开启时默认拒绝,确认执行须显式
+        ``dangerous=True``(review-1043 乙-5);Get 不受影响。
 
         :param cmd_type: 命令类型,``"Get"``/``"Set"``/``"Exec"``
         :param cmd: 命令字符串(如 ``"RunMode"``/``"1DNum"``/``"Reboot"``)
         :param param: 参数(Get 不传;Set 必传;Exec 不传)
+        :param dangerous: Set/Exec 在写白名单开启时的显式确认(白名单
+            关闭时无作用)
         :return: ``(是否成功, 应答参数)``——Set/Exec 成功应答为 OK,应答参数
             为 ``None``;Get 成功返回参数文本;errno 应答记 :attr:`last_error`
             (``last_error_code`` = 负 errno)返回 ``(False, None)``
         :raises RuntimeError: 只读模式下 Set/Exec 被拒(review-1021 C2:
             动作型命令按写事务,重试取 ``write_retries`` 防非幂等重发)
-        :raises ValueError: 命令类型/参数组合非法
+        :raises ValueError: 命令类型/参数组合非法 / 白名单开启且 Set·Exec
+            未传 ``dangerous=True``
         """
         if cmd_type not in ("Get", "Set", "Exec"):
             raise ValueError(
@@ -509,9 +522,14 @@ class HikrobotIdTcpClient(BaseClient):
         # Set/Exec 按写事务(review-1021 C2:受只读闸管辖、重试取
         # write_retries 防 Reboot/TriSoft 等动作型命令按读口径重发),
         # Get 按读事务
+        is_write = cmd_type in ("Set", "Exec")
+        if is_write:
+            self._check_non_address_write(
+                "command({}, {})".format(cmd_type, cmd), dangerous
+            )
         return self._execute(
             lambda: self._command_exchange(cmd_type, cmd, param),
-            is_write=cmd_type in ("Set", "Exec"),
+            is_write=is_write,
         )
 
     # ------------------------------------------------------------------

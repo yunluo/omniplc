@@ -637,6 +637,58 @@ class TestProcessReadOnly:
 
 
 # ----------------------------------------------------------------------
+# 乙5:非地址写守卫(白名单开启时危险入口需显式 dangerous=True)
+# ----------------------------------------------------------------------
+
+
+class TestNonAddressWriteGuard:
+    """非地址写(API 出口不在点位表地址空间)的第二道闸(review-1043 乙-5)。
+
+    驱动级入口的接线测试分别在 test_modbus_clients / test_hikrobot_tcp /
+    test_ab_ethip_clients;本类锁基类守卫本身的语义。
+    """
+
+    def test_whitelist_off_passes(self) -> None:
+        client = _ScriptedClient()
+        client._check_non_address_write("demo(FC21)")  # 不抛
+
+    def test_whitelist_on_rejects_without_dangerous(self) -> None:
+        client = _ScriptedClient()
+        client.write_whitelist = True
+        with pytest.raises(ValueError, match="非地址写"):
+            client._check_non_address_write("demo(FC21)")
+
+    def test_whitelist_on_passes_with_dangerous(self) -> None:
+        client = _ScriptedClient()
+        client.write_whitelist = True
+        client._check_non_address_write("demo(FC21)", dangerous=True)  # 不抛
+
+    def test_read_only_still_dominant(self) -> None:
+        """dangerous=True 也翻不过只读闸(dangerous 只是白名单维度的确认)。"""
+        client = _ScriptedClient()
+        client.write_whitelist = True
+        client.read_only = True
+        with pytest.raises(RuntimeError, match="只读"):
+            client._check_non_address_write("demo(FC21)", dangerous=True)
+
+    def test_process_read_only_dominant(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        client = _ScriptedClient()
+        client.write_whitelist = True
+        monkeypatch.setenv("OMNIPLC_READ_ONLY", "1")
+        with pytest.raises(RuntimeError, match="进程级只读兜底"):
+            client._check_non_address_write("demo(FC21)", dangerous=True)
+
+    def test_native_mirror(self) -> None:
+        """native 基类同名守卫同语义。"""
+        client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+        client._check_non_address_write("demo(FC21)")  # 不抛
+        client.write_whitelist = True
+        with pytest.raises(ValueError, match="非地址写"):
+            client._check_non_address_write("demo(FC21)")
+        client._check_non_address_write("demo(FC21)", dangerous=True)  # 不抛
+
+
+# ----------------------------------------------------------------------
 # 乙4:写统计计数 + 写审计回调(review-1043 乙-4)+ 分类计数(戊-5)
 # ----------------------------------------------------------------------
 

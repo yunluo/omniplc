@@ -192,6 +192,26 @@ def test_command_rejects_bad_combination() -> None:
         client.command("Call", "RunMode")
 
 
+def test_command_whitelist_requires_dangerous(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Set/Exec 为非地址写:写白名单开启时默认拒绝,显式 dangerous=True 放行;
+    Get 不受影响(review-1043 乙-5——本入口自举 "Reboot",误调用即重启读码器)。"""
+    # 被拒的第一笔零发送,不消耗脚本响应;后续两笔按执行顺序取响应
+    client, _cmd, _result = _make_client(
+        monkeypatch,
+        [b"<Get,RunMode,1>", b"<Exec,Reboot,OK>"],
+        None,
+    )
+    client.write_whitelist = True
+    with pytest.raises(ValueError, match="非地址写"):
+        client.command("Exec", "Reboot")
+    # Get 是读事务,不涉白名单
+    assert client.command("Get", "RunMode") == (True, "1")
+    # 显式确认后 Set/Exec 放行
+    assert client.command("Exec", "Reboot", dangerous=True) == (True, None)
+
+
 def test_command_echo_mismatch_marks_disconnected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

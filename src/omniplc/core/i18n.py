@@ -454,6 +454,11 @@ _TRANSLATIONS: Dict[str, str] = {
         "The process-level read-only fallback is enabled (OMNIPLC_READ_ONLY"
         " environment variable); the write operation was rejected: {0}"
     ),
+    "写白名单已开启:{} 为非地址写,不按点位表校验;确认执行请显式传 dangerous=True(review-1043 乙-5)": (
+        "The write whitelist is enabled: {0} is a non-address write and is not"
+        " checked against the tag table; pass dangerous=True explicitly to"
+        " confirm execution (review-1043 乙-5)"
+    ),
     "客户端已断开(disconnect 之后不再受理调用;需重新 connect())": (
         "The client has been disconnected (no further calls are accepted after"
         " disconnect(); call connect() again)"
