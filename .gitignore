@@ -152,6 +152,17 @@ cython_debug/
 docs/**/*.pdf
 docs/**/*.pptx
 docs/**/*.ppt
+# 厂商版权物料一律本地留存、不入库(2026-10-15 review-1043 甲-1/甲-2:
+# FANUC fwlib32.h 与海康固件要求 txt 均为厂商版权文件,曾入库并随 sdist 出货)
+docs/**/*.h
+docs/**/*.txt
+
+# 锁文件不入库(2026-10-15 review-1043 甲-4):uv.lock 会记录生成时的依赖源,
+# 而本机 `UV_DEFAULT_INDEX` 指向国内镜像(环境变量优先级高于仓库级
+# `[[tool.uv.index]]` 与 pyproject,实测每次 `uv run` 都会把 lock 改回镜像)——
+# lock 入库即把镜像写进发布物与客户复现路径。解析结果仍由各依赖的上下界
+# (`asyncua>=1.1.5,<2` 等)约束,CI 每次现算(无镜像环境)。
+uv.lock
 
 # 审查精确过程台账只存 commit/CHANGELOG/memory,不入库(2026-10-14 用户决议)
 docs/review-*.md

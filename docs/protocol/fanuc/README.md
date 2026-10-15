@@ -1,22 +1,30 @@
 # FANUC FOCAS(fwlib32)帧面事实档案
 
-> 用途:ctypes 直绑 `fwlib32.dll` 的依据档案(铁律:厂商头文件为权威)。
-> 本档案只登记绑定用事实,全部以同目录 `fwlib32.h`(16043 行)为唯一主源,
-> 行号即该文件自印行号;外部参考只作交叉不作依据。
+> 用途:ctypes 直绑 `fwlib32.dll` 的依据档案。
+> **本档案即库内唯一依据**:头文件 `fwlib32.h` 版权归 FANUC(见 §0),
+> 自 2026-10-15 起**移出仓库、仅本地留存**(`.gitignore` 已覆盖
+> `docs/**/*.h`);库内依据 = 本档案逐条转录的接口事实(签名/结构体字段与
+> 偏移/错误码),文中的行号均指**本地留存那份头文件**的自印行号,供持有
+> 本地副本者比对。外部参考只作交叉,不作依据。
 
 ## 0. 物料出处与授权口径(如实登记)
 
 - 主源:`fwlib32.h`——FANUC「CNC/PMC Data Window Library for FOCAS」
-  官方头文件,版权 2003-2017 FANUC(头文件 1~19 行自印);获取渠道为
-  **社区打包仓库 社区打包参考实现快照(内部留存)(GitHub)**,非 FANUC 官方 Development
-  包渠道——内容与官方开发包头文件一致性**待与官方包核对**(拿到官方包后
-  diff 一次),在此之前所有布局事实均以本仓库这份头文件文本为准。
+  官方头文件,文件头写有 `Copyright (C) 2003-2017 by FANUC CORPORATION
+  All rights reserved.` / `This library is proprietary software…`
+  (本地留存件 1~19 行);获取渠道为**社区打包仓库快照(GitHub)**,
+  非 FANUC 官方 Development 包渠道——内容与官方开发包头文件一致性
+  **待与官方包核对**(拿到官方包后 diff 一次)。
+- **授权口径(2026-10-15 review-1043 甲-1 整改)**:FOCAS1/2 版权归 FANUC,
+  库与手册未经许可不得复制/单独分发 ⇒ **头文件本体不入库**(移出仓库、
+  本地留存;`.gitignore:docs/**/*.h` 防复发;**sdist 亦显式排除**
+  `docs/protocol/**`,见 `pyproject.toml [tool.hatch.build.targets.sdist]`);
+  本档案只登记**接口事实**(签名/结构体/错误码)与指向性引用;DLL 运行库
+  本体不入库,由部署侧自备(海康 SDK 同款纪律)。原「.h 已归档入库」的
+  口径与本节自述矛盾,已一并订正。
 - 交叉:`examples/ctypes/main.py`(同仓库,Python ctypes 连接参考)、
   cnblogs snail1502/p/18068966(连接流程/端口 8193 旁证)、
   inventcom.net fanuc-focas-library(型号覆盖面)。
-- 授权口径:FOCAS1/2 版权归 FANUC,库与手册未经许可不得复制/单独分发;
-  本档案只登记**接口事实**(签名/结构体/错误码)与指向性引用,DLL 运行库
-  本体不入库,由部署侧自备(海康 SDK 同款纪律)。
 - 型号覆盖面(inventcom 页):0i-A/B/C/D/F/PD/PF、15/150-B、15i/150i、
   16/18/21 及 160i/180i/210i 系、30i/31i/32i/35i-A/B、Power Mate i、
   Power Motion i。**FOCAS1** 用于除 FS300i/310i/320i 之外的 CNC,

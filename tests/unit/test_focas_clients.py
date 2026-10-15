@@ -1,10 +1,12 @@
 """FANUC FOCAS 客户端测试:假函数表全流程(不依赖真 DLL)+ sizeof 守卫。
 
-结构体布局以 fwlib32.h 为权威(docs/protocol/fanuc/,行号引用见
-focas.py 各定义):sizeof 期望值按 `#pragma pack(4)` + MAX_AXIS=32
-手工推导写死,防 ctypes 字段漂移。假 DLL 在 Python 侧模拟 FOCAS
-流程语义(allclibhndl3 → rdcncid → 读三件 → freelibhndl),操作
-模块内**真实 ctypes 结构体**(海康 SDK 测试同款手法)。
+结构体布局以库内事实档案 `docs/protocol/fanuc/README.md`(§4 逐字段转录)
+为依据;**厂商头文件 `fwlib32.h` 自 2026-10-15 起仅本地留存、不入库**
+(FANUC 版权,review-1043 甲-1),文中行号指本地留存件的自印行号,
+行号引用与代码侧同源(见 focas.py 模块头):sizeof 期望值按
+`#pragma pack(4)` + MAX_AXIS=32 手工推导写死,防 ctypes 字段漂移。
+假 DLL 在 Python 侧模拟 FOCAS 流程语义(allclibhndl3 → rdcncid → 读三件 →
+freelibhndl),操作模块内**真实 ctypes 结构体**(海康 SDK 测试同款手法)。
 """
 
 from __future__ import annotations

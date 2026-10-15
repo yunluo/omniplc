@@ -37,10 +37,12 @@ _GUID_RE = re.compile(
     r"[0-9A-Fa-f]{12}\}|[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
     r"[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})$"
 )
-"""GUID 严格校验:8-4-4-4-12 共 32 位十六进制 + 4 连字符,花括号**成对**
+r"""GUID 严格校验:8-4-4-4-12 共 32 位十六进制 + 4 连字符,花括号**成对**
 可选(review-1018 P2-14:原 `\{?`/`\}?` 各自可选,`{8-4-…` 单开括号
 也放行,运行时 asyncua UaError 才暴露);依据 OPC 10000-3 / RFC 4122
-文本格式。"""
+文本格式。**前缀 `r` 不可去**:正文含 `\{`,非 raw 字符串在 Python 3.12+
+起按无效转义序列告警,SyntaxWarning 在 `-W error` 下会让 `import omniplc`
+直接失败(review-1043 甲-6)。"""
 
 
 class OpcUaNodeId(NamedTuple):

@@ -79,7 +79,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 | 西门子 S7                                                                   | SZL 0x0424 读(自研栈)               | 另公开 `get_cpu_state()`(枚举名透传,RUN/STOP);状态字节偏移待真机核证              |
 | OPC-UA                                                                      | 读 `i=2258` Server 当前时间         | 0 命名空间标准变量(asyncua `nodes.current_time` 同款);顺带抑制空闲会话回收        |
 | MTConnect                                                                   | GET `/probe`                        | Part1 §8.3.1 p.98-100                                                             |
-| 发那科 FOCAS                                                                | `cnc_statinfo2` 状态读(零副作用)    | 另公开 `read_status()`(13 位命名展开);fwlib32.h L2928-2942/L12146                 |
+| 发那科 FOCAS                                                                | `cnc_statinfo2` 状态读(零副作用)    | 另公开 `read_status()`(13 位命名展开);依据 `docs/protocol/fanuc/README.md` §4(ODBST2 2928-2942 / cnc_statinfo2 12146,行号指本地留存头文件) |
 | 三菱 CNC EZSocket                                                           | 读系统数(section 2/1,T_CHAR,1 字节) | 零副作用最轻读;C 库无专门探活命令,取最轻数据读                                    |
 | 海康 Modbus 模式                                                            | FC03 读状态字 REG1                  | 工业协议手册 V1.0.4 §3.5;不触发扫描握手                                           |
 | 海康 TCP 命令                                                               | `<Get,Acq>` 采集状态查询            | 通信指令手册 V1.0.3 §3;命令通道探活                                               |
@@ -339,8 +339,16 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 
 客户端:`HikrobotIdModbusClient`(继承 `ModbusTcpClient`,读码器即 Modbus TCP 从站)
 
-依据:《海康机器人智能读码器工业协议操作手册》V1.0.4(`docs/protocol/hikrobot/`);
-适用 ID2000/ID3000/ID5000 系列、IDH 手持终端、SC2000A 导航传感器(固件要求见同目录 txt)。
+依据:《海康机器人智能读码器工业协议操作手册》V1.0.4(本地留存,
+`docs/protocol/hikrobot/`,厂商版权物料不入库);
+适用 ID2000/ID3000/ID5000 系列、IDH 手持终端、SC2000A 导航传感器。
+**各系列最低固件版本**(库内自编转录,来源为同目录厂商
+《读码器固件版本要求》,该 txt 属厂商原文、仅本地留存不入库,
+review-1043 甲-2):ID800/ID2000/ID3000X 系列 ≥ V3.0.0;
+ID3000/ID5000 系列 ≥ V2.4.0;ID5000X ≥ V3.2.2;
+IDH5000/IDH7000P ≥ V1.0.4;IDH7000B ≥ V1.0.0;SC2000A ≥ V2.8.0。
+(EtherNet/IP 配置文件 `smart_camera_id{800,2000,3000,5000,h5000,h,sc2000a}.eds`
+与 PROFINET GSDML 随该版本要求列出,本库不涉及这两种协议面。)
 
 **协议角色裁决**(手册全文研读结论,决定库内可落地范围):五种工业协议中读码器侧角色不同——
 Modbus TCP 服务端模式读码器为**从站**(本库主站对接 ✅);MELSEC-SLMP(轮询 PLC D 区)/
@@ -544,7 +552,9 @@ start/stop,印刷页 45-47)+ §4.7.3 串口通讯协议(印刷页 52)+《极小�
 ## 19. 发那科 FOCAS(fwlib32.dll ctypes 封装,首批只读)
 
 客户端:`FanucFocasClient`(aio 镜像 `AFanucFocasClient`);依据档案
-`docs/protocol/fanuc/`(`fwlib32.h` 主源 + README 帧面档案)。
+`docs/protocol/fanuc/README.md`(库内事实档案,逐条转录连接 API/EW 码表/
+尺寸宏/结构体字段;**厂商头文件 `fwlib32.h` 版权归 FANUC,仅本地留存、
+不入库**——2026-10-15 review-1043 甲-1 整改)。
 
 | 功能                              | 状态 | 备注                                                                                                                                                                                                                                         |
 | --------------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

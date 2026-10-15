@@ -39,6 +39,23 @@ def test_description_covers_supported_protocols() -> None:
         assert token in omniplc.__description__, "__description__ 缺:{}".format(token)
 
 
+def test_uv_lock_is_gitignored() -> None:
+    """锁文件**不入库**(review-1043 甲-4:依赖源不得随发布物固化)。
+
+    机理(2026-10-15 实测):`uv.lock` 记录生成时的依赖源,而开发机上
+    ``UV_DEFAULT_INDEX`` 常指向国内镜像;该环境变量在 uv 的优先级里**高于**
+    仓库级配置(pyproject ``[[tool.uv.index]]`` 也压不住),因此每次
+    ``uv run`` 都会把 lock 改回镜像。lock 一旦入库,镜像就随 sdist 出货、
+    并固化到客户的复现路径(客户内网不可达 / 绕过「依赖须来自官方源」的
+    审计口径)。故本库不跟踪 `uv.lock`,解析结果由各依赖的区间上下界约束,
+    CI 在无镜像的 runner 上现算(见 ci.yml sync/export 两步)。
+    """
+    lines = [
+        line.strip() for line in (_ROOT / ".gitignore").read_text("utf-8").splitlines()
+    ]
+    assert "uv.lock" in lines, "uv.lock 必须在 .gitignore 中(锁文件不入库)"
+
+
 def test_all_async_clients_have_mirror() -> None:
     """根包每个 *Client 客户端都有 A 前缀异步镜像,反之亦然。"""
     sync_clients = {name for name in omniplc.__all__ if name.endswith("Client")}

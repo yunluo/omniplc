@@ -59,7 +59,7 @@ dependencies = []
 [project.optional-dependencies]
 serial = ["pyserial==3.5"]
 mx = ["comtypes==1.4.6; platform_system == 'Windows'"]
-opcua = ["asyncua>=1.1.5,<2"]  # 区间钉版:精确 == 与下游 OPC-UA 工具冲突;CI 复现由 uv.lock 保证(review-1021 P2-6)。注意:驱动依赖 asyncua **sync 私有内部**(ThreadLoop.post 返回语义、aio Subscription._subscribe 位置参数、sync.Subscription 无 subscription_id —— 见 src/omniplc/plc/opcua/client.py 就近注释),区间内新版本可能改变行为(review-1037 §三 P2-7);升级 asyncua 必须重跑 OPC-UA 用例
+opcua = ["asyncua>=1.1.5,<2"]  # 区间钉版:精确 == 与下游 OPC-UA 工具冲突(review-1021 P2-6);复现由区间上下界约束——锁文件不入库(见 .gitignore「uv.lock」,review-1043 甲-4)。注意:驱动依赖 asyncua **sync 私有内部**(ThreadLoop.post 返回语义、aio Subscription._subscribe 位置参数、sync.Subscription 无 subscription_id —— 见 src/omniplc/plc/opcua/client.py 就近注释),区间内新版本可能改变行为(review-1037 §三 P2-7);升级 asyncua 必须重跑 OPC-UA 用例
 # v0.53:S7 驱动自研 S7comm 协议栈(直接替换 同类开源封装 封装),s7 extra
 # 退役——S7 客户端进核心,零第三方依赖(同类开源封装(1.3)/3.x 双轨线随之撤销)。
 dev = [
@@ -73,7 +73,9 @@ dev = [
 # 驱动;与 dev 的差异仅在于不含 pytest 测试工具。显式罗列而非自引用 extras
 # (omniplc[...]),兼容老版本 pip/uv 的元数据解析。asyncua 与 opcua extra
 # 同区间钉版(>=1.1.5,<2):精确 == 与下游 OPC-UA 工具冲突(review-1021
-# P2-6);dev 保持精确 == + uv.lock 保证门禁复现。
+# P2-6);dev 保持精确 == 由门禁环境自持(锁文件不入库:.gitignore「uv.lock」,
+# review-1043 甲-4——本机 UV_DEFAULT_INDEX 指向镜像,lock 一旦入库即把镜像
+# 写进发布物与客户复现路径)。
 all = [
     "pyserial==3.5",
     "comtypes==1.4.6; platform_system == 'Windows'",
@@ -86,6 +88,18 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/omniplc"]
+
+[tool.hatch.build.targets.sdist]
+# 厂商版权物料不得随发布物分发(2026-10-15 review-1043 甲-1/甲-2):头文件 /
+# 手册文本 / PDF / EDS-GSDML 一律本地留存,`.gitignore` 只管仓库,发布物要
+# 显式排除;sdist 仍保留本库自写的协议档案 md(审查依据链需随源码可读)
+exclude = [
+  "docs/protocol/**/*.h",
+  "docs/protocol/**/*.txt",
+  "docs/protocol/**/*.pdf",
+  "docs/protocol/**/*.eds",
+  "docs/protocol/**/*.xml",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

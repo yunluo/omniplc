@@ -52,6 +52,8 @@ jobs:
         # 故必须用 --extra;--group dev 会报 "Group dev is not defined" 退出码 2。
         # env 仅限本步:`never` 防 uv 静默换版本(3.7 无托管构建),但若设成 job 级会
         # 连 `uvx mypy` 的工具环境也挡住(它需要 ≥3.9 解释器)。
+        # 锁文件不入库(review-1043 甲-4):本步在 runner 上现算解析(官方源);
+        # `--frozen` 在无 lock 的检出里会直接失败,故不带。
         env:
           UV_PYTHON_DOWNLOADS: never
         run: uv sync --extra dev --python ${{ matrix.python-version }}
@@ -62,6 +64,15 @@ jobs:
         # 必须带 --extra dev:否则 `uv run` 会按默认依赖重新同步、把上一步装的
         # extras(含 pytest)卸掉 → "No module named pytest"
         run: uv run --extra dev --python ${{ matrix.python-version }} python -m pytest tests -q
+
+      - name: import under -W error
+        env:
+          UV_PYTHON_DOWNLOADS: never
+        # review-1043 甲-6:无效转义序列(如 docstring 里的 `\{`)在 3.12+ 是
+        # SyntaxWarning,客户用 `python -W error` 或 pytest filterwarnings=error
+        # 时 `import omniplc` 直接失败(「装得上、一跑就炸」)。本步把整个包
+        # 在 -W error 下导入一次,防复发(3.7 腿无此告警,属零成本冗余)
+        run: uv run --extra dev --python ${{ matrix.python-version }} python -W error -c "import omniplc, omniplc.aio, omniplc.native"
 
       - name: ruff format
         # 格式零漂移门禁(2026-10-04 起;配置 pyproject [tool.ruff.format],
@@ -97,12 +108,14 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
 
-      - name: Export locked dependencies
-        # --frozen 只读 uv.lock 不改写;--no-emit-project 排除 omniplc 自身
-        # (开发期未发布版本号在 PyPI 查不到,会误报包缺失);--extra dev 与
-        # 门禁环境同口径(dev 定义在 [project.optional-dependencies],非
-        # [dependency-groups],见上面 sync 步的说明)
-        run: uv export --frozen --no-hashes --format requirements-txt --extra dev --no-emit-project -o requirements-audit.txt
+      - name: Export dependencies
+        # 锁文件不入库(2026-10-15 review-1043 甲-4:本机 UV_DEFAULT_INDEX 指向
+        # 国内镜像,lock 入库即把镜像写进发布物与客户复现路径)⇒ 本步按
+        # pyproject 现算解析结果(无镜像的 runner 环境即官方源),不再 --frozen;
+        # --no-emit-project 排除 omniplc 自身(开发期未发布版本号在 PyPI 查不到,
+        # 会误报包缺失);--extra dev 与门禁环境同口径(dev 定义在
+        # [project.optional-dependencies],非 [dependency-groups],见上面 sync 步说明)
+        run: uv export --no-hashes --format requirements-txt --extra dev --no-emit-project -o requirements-audit.txt
 
       - name: pip-audit
         # runner 必须是 windows:comtypes 带 sys_platform=='win32' 标记,linux
