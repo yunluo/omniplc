@@ -6,7 +6,74 @@
 [architecture.md](architecture.md) 为准;失败分类与现场排障见
 [troubleshooting.md](troubleshooting.md)。
 
-安装可选依赖:`pip install 'omniplc[serial|mx|opcua]'`(对应小节标注)。
+安装可选依赖:`pip install 'omniplc[serial,mx,opcua]'`(逗号分隔;对应小节标注)。
+**没有真机也能跑**:先看顶部「零硬件 5 分钟上手」。
+
+## 零硬件 5 分钟上手(无设备 / 无网络)
+
+新同事没有 PLC 时,先过这两段(全程离线,不发一个字节);有真机后按
+下文分品牌节替换构造即可。
+
+**第一段:纯离线 API 面(bytes 编解码 / 点位表 / 报错语言)**
+
+```python
+from omniplc import DataType, Tag, TagTable, WordOrder, convert
+
+regs = convert.float32_to_registers(12.5, WordOrder.ABCD)
+print(regs)                                        # (16712, 0),即 (0x4148, 0x0000)
+print(convert.registers_to_float32(regs, WordOrder.ABCD))   # 12.5
+
+table = TagTable([
+    Tag(tag_id="炉温", address="hr0", data_type="float", scale=0.1, offset=-5.0),
+])
+print(table["炉温"].scale, table["炉温"].address)  # 0.1 hr0
+
+import omniplc
+omniplc.set_lang("en")        # 报错文案切英文(默认中文)
+```
+
+**第二段:真实客户端 + 假传输,离线看一整笔 Modbus 事务**
+
+真机的"事务"= 一串字节收发的往返。下面用 10 行假传输回放一段预置响应,
+走的是**真实驱动代码路径**(组帧、校验、解析全都在);把假传输换成真
+网络就是上真机。
+
+```python
+from omniplc import BaseTransport, ModbusTcpClient
+
+
+class ScriptedTransport(BaseTransport):
+    """假传输:按脚本回放接收字节(测试脚手架同款手法,不发网络)。"""
+
+    def __init__(self, chunks):
+        super().__init__()
+        self.chunks = list(chunks)
+        self.sent = bytearray()
+
+    def connect(self):
+        pass
+
+    def close(self):
+        pass
+
+    def send(self, data):
+        self.sent += data               # 记下真实发出的请求帧
+
+    def recv(self, size):
+        chunk = self.chunks.pop(0)      # 按驱动请求的尺寸逐片喂入
+        assert len(chunk) == size
+        return chunk
+
+
+# 站号 1 读 hr0 的响应:MBAP(7 字节)+ FC03 + 字节数 + 值 0x0C1C(=3100)
+frame = bytes.fromhex("0001000000050103020c1c")
+transport = ScriptedTransport([frame[:7], frame[7:]])   # 驱动先收 7 字节头,再收其余
+client = ModbusTcpClient("127.0.0.1", 502, 1)
+client._create_transport = lambda: transport            # 测试/离线手法:指向假传输
+client.connect()
+print(client.read("hr0", "ushort"))     # (True, 3100)
+print(bytes(transport.sent).hex())      # 驱动真实组出的请求帧:000100000006010300000001
+```
 
 ## 通用 API 面(所有客户端共享)
 
@@ -16,6 +83,10 @@
 `last_error`);参数非法抛 `ValueError`。
 
 ```python
+from omniplc import MelsecMcTcpClient
+
+client = MelsecMcTcpClient("192.168.0.10", 2000)   # 其余品牌构造见下文分节
+client.connect()
 ok, b = client.read_bool("M100")          # 位
 ok, i = client.read_ushort("D100")        # 16 位:short / ushort
 ok, i = client.read_int("D200")           # 32 位:int / uint;另有 long / ulong(64 位)

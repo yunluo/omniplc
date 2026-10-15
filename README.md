@@ -47,6 +47,10 @@ uv add 'omniplc[all]'     # 全部可选扩展(serial/mx/opcua,不含测试工�
 
 #### 快速上手
 
+> **还没有真机?** 先看 [docs/examples.md](docs/examples.md) 顶部的
+> 「零硬件 5 分钟上手」——纯离线跑通一次真实读事务(假传输),
+> 不发一个字节。
+
 ```python
 from omniplc import ModbusTcpClient, DataType
 
