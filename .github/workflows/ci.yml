@@ -99,7 +99,7 @@ jobs:
         run: uvx ty check src/omniplc
 
   audit:
-    # 依赖漏洞扫描(pip-audit):对 uv.lock 锁定依赖集查 PyPI 漏洞库。
+    # 依赖漏洞扫描(pip-audit):对现解析的依赖集查 PyPI 漏洞库。
     # 与上面五件套互补——五件套管"我们写的代码",本 job 管"我们装的依赖";
     # 与 test job 并行,每周一定时空跑也复用(新漏洞公告自动暴露)
     name: pip-audit
@@ -108,6 +108,18 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+      - name: Setup Python 3.12
+        # 为下面 export 步的现算解析提供解释器(与 test job 同款:setup-python
+        # 装的解释器可被 uv 发现)。2026-10-15 修复:原 audit job 无本步,
+        # `uv export` 不带 --python 时按 .python-version 找 3.7.9 —— runner
+        # 无该解释器、uv 托管下载也不支持 3.7,步骤必失败(实测复现:
+        # `error: No interpreter found for Python 3.7.9 in managed
+        # installations, search path, or registry`;本地无 .venv 的干净检出
+        # 同样复现)。这是 review-1043 甲-4 去掉 --frozen 时引入的回归。
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+
       - name: Install uv
         uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
 
@@ -115,10 +127,16 @@ jobs:
         # 锁文件不入库(2026-10-15 review-1043 甲-4:本机 UV_DEFAULT_INDEX 指向
         # 国内镜像,lock 入库即把镜像写进发布物与客户复现路径)⇒ 本步按
         # pyproject 现算解析结果(无镜像的 runner 环境即官方源),不再 --frozen;
+        # **无 lock 时 export 需解析、必须显式 --python**(否则按 .python-version
+        # 选 3.7.9 必失败,见上面 Setup 步注释),3.12 由 setup-python 提供;
+        # env 只限本步:never 防 uv 对托管不支持的 3.7 静默下载,但设成 job
+        # 级会挡住下面 pip-audit 步对 3.13 的托管获取(与 test 步同纪律);
         # --no-emit-project 排除 omniplc 自身(开发期未发布版本号在 PyPI 查不到,
         # 会误报包缺失);--extra dev 与门禁环境同口径(dev 定义在
         # [project.optional-dependencies],非 [dependency-groups],见上面 sync 步说明)
-        run: uv export --no-hashes --format requirements-txt --extra dev --no-emit-project -o requirements-audit.txt
+        env:
+          UV_PYTHON_DOWNLOADS: never
+        run: uv export --no-hashes --format requirements-txt --extra dev --no-emit-project --python 3.12 -o requirements-audit.txt
 
       - name: pip-audit
         # runner 必须是 windows:comtypes 带 sys_platform=='win32' 标记,linux

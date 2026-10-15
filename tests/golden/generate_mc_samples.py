@@ -194,8 +194,11 @@ def main() -> None:
     for sample in samples:
         filename = sample.pop("file")
         path = HERE / "{}.json".format(filename)
-        path.write_text(
-            json.dumps(sample, ensure_ascii=False, indent=4) + "\n", encoding="utf-8"
+        # 字节写(LF):见 generate_modbus_samples.py 同处注释(2026-10-15
+        # CI 修复——write_text 在 Windows 会写 CRLF,与库内 LF 存储不符,
+        # 再生成门禁在 LF 检出上必红)
+        path.write_bytes(
+            (json.dumps(sample, ensure_ascii=False, indent=4) + "\n").encode("utf-8")
         )
         print("written:", path)
 
