@@ -9,6 +9,7 @@ Python 3.7 无 ``typing.Final``,以命名约定与 Code Review 约束只读性�
 
 from __future__ import annotations
 
+import os
 from typing import Dict, NamedTuple, Optional, Tuple
 
 from .types import S7Model, SerialParity
@@ -1507,3 +1508,31 @@ FRAME_RECORDER_MAX_CAPACITY: int = 100000
 # ---------------------------------------------------------------- MTConnect
 MTCONNECT_MAX_NUMERIC_TEXT: int = 64
 """MTConnect 数值文本解析的最大字符长度(py3.11 前 int/float 对超长数字串超线性,先按长度快拒)。"""
+
+# ---------------------------------------------------------------- 进程级只读兜底
+OMNIPLC_READ_ONLY_ENV: str = "OMNIPLC_READ_ONLY"
+"""进程级只读兜底的环境变量名(review-1043 乙-9)。
+
+置为真值(``1``/``true``/``yes``/``on``,不区分大小写)时,**整个进程内所有
+客户端的写操作一律拒绝**——这是「新项目忘开 ``read_only=True``」的唯一
+结构性解:上线前先以只读观察期跑,把开关放在部署环境(如 systemd
+``Environment=``/容器 env)而非代码里,不必逐客户端记得设。
+
+库内优先:实例级 :attr:`~omniplc.BaseClient.read_only` 只能收紧不能放松,
+进程级开启时实例把 ``read_only`` 设回 False 也无效。取值在**每次写入口
+实时读取**,运行中改环境变量立即生效(应急只读闸)。
+
+与 :func:`process_read_only` 配套使用。
+"""
+
+_PROCESS_READ_ONLY_TRUTHY = frozenset(("1", "true", "yes", "on"))
+
+
+def process_read_only() -> bool:
+    """读进程级只读兜底开关(``OMNIPLC_READ_ONLY`` 环境变量,review-1043 乙-9)。
+
+    :return: 环境变量为真值(``1``/``true``/``yes``/``on``,去空白、不区分
+        大小写)时为 ``True``;其余(未设/空/``0``/``false`` 等)为 ``False``
+    """
+    value = os.environ.get(OMNIPLC_READ_ONLY_ENV, "")
+    return value.strip().lower() in _PROCESS_READ_ONLY_TRUTHY

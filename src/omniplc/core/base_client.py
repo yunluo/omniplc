@@ -50,6 +50,7 @@ from .constants import (
     RECONNECT_BACKOFF_FACTOR,
     RECONNECT_BACKOFF_MAX,
     RECONNECT_BACKOFF_MAX_EXPONENT,
+    process_read_only,
 )
 from .debug import (
     FrameRecord,
@@ -1392,6 +1393,10 @@ class BaseClient(ABC):
         现场口径:新接产线先只读观察一个周期再开写;写方法(含驱动特有
         批量/随机/时钟写)在 :meth:`_execute` 写入口统一拒绝,抛
         :class:`RuntimeError`。默认 ``False``;可随时切换。
+
+        **进程级兜底优先**:环境变量 ``OMNIPLC_READ_ONLY`` 为真值时
+        (:func:`~omniplc.core.constants.process_read_only`),整个进程的
+        写一律拒绝,本属性设回 ``False`` 也无效(review-1043 乙-9)。
         """
         return self._read_only
 
@@ -1470,10 +1475,19 @@ class BaseClient(ABC):
         不比同宽类型之间的数值语义(如 SHORT↔USHORT 不拦,那是范围问题,
         由驱动/类型转换层负责)。
 
-        :raises RuntimeError: 只读模式下拒绝写
+        :raises RuntimeError: 只读模式下拒绝写(**进程级兜底** ``OMNIPLC_READ_ONLY``
+            或实例级 ``read_only=True``,review-1043 乙-9)
         :raises ValueError: 白名单开启且(未绑表 / 地址不在表内 / 写入宽度与
             声明类型不符)
         """
+        if process_read_only():
+            # 进程级只读兜底(review-1043 乙-9):库内优先——实例把
+            # read_only 设回 False 也挡不住这道闸;写入口最早处拒绝
+            raise RuntimeError(
+                _(
+                    "进程级只读兜底已开启(环境变量 OMNIPLC_READ_ONLY),写操作已拒绝:{}"
+                ).format(address)
+            )
         if self._read_only:
             raise RuntimeError(
                 _("客户端为只读模式(read_only=True),写操作已拒绝:{}").format(address)
@@ -1771,6 +1785,12 @@ class BaseClient(ABC):
             (OSError 拆连)不受本标记影响,照常计数。
         :return: ``(是否成功, 值)``
         """
+        if is_write and process_read_only():
+            # 进程级只读兜底总闸(review-1043 乙-9):非地址写(时钟/读码器
+            # 握手/按服务码判写的通用命令等)不经 :meth:`write`,在此统一拒绝
+            raise RuntimeError(
+                _("进程级只读兜底已开启(环境变量 OMNIPLC_READ_ONLY),写操作已拒绝")
+            )
         if is_write and self._read_only:
             # 只读模式总闸(review-1020 §七甲1):驱动特有写(随机/时钟等)
             # 不经 :meth:`write` 入口,在此统一拒绝(调用方错误,直接抛)

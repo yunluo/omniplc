@@ -95,9 +95,14 @@ finally:
 - **点位表缩放**:`TagTable`/`Tag`(scale/offset)工程量换算;
 - **写安全**(接产线先开,现场铁律):
   - `client.read_only = True`——一切写入口显式拒绝(只读观察期);
-  - `client.write_whitelist = True`(配合 `bind_tags`)——表外地址拒绝;
+  - 更稳的兜底:环境变量 `OMNIPLC_READ_ONLY=1`——整个进程禁止写,实例
+    设回 False 也无效("新项目忘开只读"的结构性解,放在部署环境里);
+  - `client.write_whitelist = True`(配合 `bind_tags`)——表外地址拒绝
+    (写入类型宽度须与点位表声明一致);
   - `ok, readback = client.write_and_verify(地址, 类型, 值)`——写后回读校验
     (32 位浮点按位型比对);
+  - 写留痕:`stats["write_count"]`/`last_write_at` + 可选
+    `client.write_audit_hook`(写成功/失败各回调一次);
 - **等信号**:`ok, value = client.wait_value(地址, 类型, 谓词, timeout=…)`
   ——轮询等待条件成立(单次读失败不中断);
 - **异步两层**:aio 包装层 `omniplc.aio`(类名前加 `A`,全协议镜像,拿不准选它);

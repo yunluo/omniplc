@@ -553,6 +553,90 @@ class TestWriteAndVerify:
 
 
 # ----------------------------------------------------------------------
+# 乙9:进程级只读兜底 OMNIPLC_READ_ONLY(review-1043 乙-9)
+# ----------------------------------------------------------------------
+
+
+class TestProcessReadOnly:
+    def test_env_truthy_values(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """真值集:1/true/yes/on 不区分大小写、去空白;其余不算。"""
+        from omniplc.core.constants import process_read_only
+
+        for value in ("1", "true", "TRUE", "yes", "On", " 1 "):
+            monkeypatch.setenv("OMNIPLC_READ_ONLY", value)
+            assert process_read_only() is True, value
+        for value in ("", "0", "false", "off", "no", "x"):
+            monkeypatch.setenv("OMNIPLC_READ_ONLY", value)
+            assert process_read_only() is False, value
+        monkeypatch.delenv("OMNIPLC_READ_ONLY", raising=False)
+        assert process_read_only() is False
+
+    def test_write_rejected_even_if_instance_read_only_false(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """进程级开启时实例把 read_only 设回 False 也无效(库内优先)。"""
+        client = _ScriptedClient()
+        client.read_only = False
+        monkeypatch.setenv("OMNIPLC_READ_ONLY", "1")
+        with pytest.raises(RuntimeError, match="进程级只读兜底"):
+            client.write("hr0", "ushort", 100)
+        # 零发送:written 未被追加
+        assert client.written == []
+
+    def test_is_write_execute_gate_covers_non_address_writes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_execute(is_write=True) 总闸:非地址写(驱动特有)同样被拒。"""
+        client = _ScriptedClient()
+        monkeypatch.setenv("OMNIPLC_READ_ONLY", "1")
+        with pytest.raises(RuntimeError, match="进程级只读兜底"):
+            client._execute(lambda: None, is_write=True)
+        # 读事务不受影响
+        ok, value = client._execute(lambda: 7)
+        assert ok is True and value == 7
+
+    def test_reads_unaffected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """只读兜底只管写;读照常。"""
+        client = _ScriptedClient()
+        client.readback = 42
+        monkeypatch.setenv("OMNIPLC_READ_ONLY", "1")
+        ok, value = client.read("hr0", "ushort")
+        assert ok is True and value == 42
+
+    def test_write_many_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        client = _ScriptedClient()
+        monkeypatch.setenv("OMNIPLC_READ_ONLY", "1")
+        with pytest.raises(RuntimeError, match="进程级只读兜底"):
+            client.write_many([("hr0", "ushort", 1), ("hr1", "ushort", 2)])
+        assert client.written == []
+
+    def test_native_mirror(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """native 层同口径:write 与之上的 _execute 总闸都被拦。"""
+        client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+        monkeypatch.setenv("OMNIPLC_READ_ONLY", "1")
+
+        async def scenario() -> None:
+            with pytest.raises(RuntimeError, match="进程级只读兜底"):
+                await client.write("hr0", "ushort", 100)
+            with pytest.raises(RuntimeError, match="进程级只读兜底"):
+                await client._execute(lambda: None, is_write=True)
+
+        asyncio.run(scenario())
+
+    def test_aio_mirror(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """aio 包装层转发同步实例,写被拒(经工作线程抛出)。"""
+        client = AModbusTcpClient("127.0.0.1", 502, 1)
+        monkeypatch.setenv("OMNIPLC_READ_ONLY", "1")
+
+        async def scenario() -> None:
+            with pytest.raises(RuntimeError, match="进程级只读兜底"):
+                await client.write("hr0", "ushort", 100)
+            await client.close()
+
+        asyncio.run(scenario())
+
+
+# ----------------------------------------------------------------------
 # 乙4:写统计计数 + 写审计回调(review-1043 乙-4)+ 分类计数(戊-5)
 # ----------------------------------------------------------------------
 

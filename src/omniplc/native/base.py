@@ -78,6 +78,7 @@ from ..core.constants import (
     RECONNECT_BACKOFF_FACTOR,
     RECONNECT_BACKOFF_MAX,
     RECONNECT_BACKOFF_MAX_EXPONENT,
+    process_read_only,
 )
 from ..core.errors import (
     DeviceError,
@@ -1151,7 +1152,14 @@ class AsyncBaseClient(ABC):
 
         ``data_type`` 给定时额外核对**写入宽度与点位表声明类型同宽**
         (review-1043 乙-2,与同步层 :meth:`_check_write_allowed` 同口径)。
+        进程级只读兜底 ``OMNIPLC_READ_ONLY``(review-1043 乙-9)优先于实例级。
         """
+        if process_read_only():
+            raise RuntimeError(
+                _(
+                    "进程级只读兜底已开启(环境变量 OMNIPLC_READ_ONLY),写操作已拒绝:{}"
+                ).format(address)
+            )
         if self._read_only:
             raise RuntimeError(
                 _("客户端为只读模式(read_only=True),写操作已拒绝:{}").format(address)
@@ -1323,6 +1331,11 @@ class AsyncBaseClient(ABC):
         """
         self._ensure_open()
         self._check_loop_affinity()
+        if is_write and process_read_only():
+            # 进程级只读兜底总闸(review-1043 乙-9,与同步层同口径)
+            raise RuntimeError(
+                _("进程级只读兜底已开启(环境变量 OMNIPLC_READ_ONLY),写操作已拒绝")
+            )
         if is_write and self._read_only:
             # 只读模式总闸(review-1020 §七甲1,与同步层同口径):驱动特有写
             # (随机/时钟等)不经 :meth:`write` 入口,在此统一拒绝

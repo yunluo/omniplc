@@ -446,6 +446,14 @@ _TRANSLATIONS: Dict[str, str] = {
     ),
     "(收到的原始帧:{})": "(raw frame received: {})",
     "客户端为只读模式(read_only=True),写操作已拒绝": "The client is in read-only mode (read_only=True); the write operation was rejected",
+    "进程级只读兜底已开启(环境变量 OMNIPLC_READ_ONLY),写操作已拒绝": (
+        "The process-level read-only fallback is enabled (OMNIPLC_READ_ONLY"
+        " environment variable); the write operation was rejected"
+    ),
+    "进程级只读兜底已开启(环境变量 OMNIPLC_READ_ONLY),写操作已拒绝:{}": (
+        "The process-level read-only fallback is enabled (OMNIPLC_READ_ONLY"
+        " environment variable); the write operation was rejected: {0}"
+    ),
     "客户端已断开(disconnect 之后不再受理调用;需重新 connect())": (
         "The client has been disconnected (no further calls are accepted after"
         " disconnect(); call connect() again)"

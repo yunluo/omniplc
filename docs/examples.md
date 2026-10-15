@@ -140,6 +140,13 @@ client.read_only = True
 client.write("M0", "bool", True)     # → RuntimeError(只读模式)
 client.read_only = False             # 观察期结束,显式开写
 
+# 进程级只读兜底:环境变量 OMNIPLC_READ_ONLY=1(true/yes/on 亦可)时,
+# 整个进程所有客户端的一切写入口拒绝,实例把 read_only 设回 False 也无效
+# ——"新项目忘开只读"的结构性解;放在部署环境(容器 env / systemd)里最稳
+# 库内优先,运行中改环境变量立即生效(应急只读闸)
+import os
+os.environ["OMNIPLC_READ_ONLY"] = "1"   # 一般不用代码设,在部署配置里设
+
 # 写白名单:仅允许写已绑定点位表内的地址(表外地址 ValueError)
 client.bind_tags(table)              # 可写集 = 表内地址快照
 client.write_whitelist = True
