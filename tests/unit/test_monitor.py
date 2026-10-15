@@ -742,6 +742,42 @@ def test_client_disconnect_stops_monitor_terminal(
         monitor.start()
 
 
+def test_monitor_does_not_keep_client_alive() -> None:
+    """丢弃客户端(未 disconnect)后:客户端可回收、监控线程自行退出。
+
+    review-1043 丙-1:监视器原持客户端**强引用**,而客户端持监视器
+    (``client._monitors``)+ 线程 target 是绑定方法 ⇒「线程根 → monitor →
+    client」强引用环,``del client`` 后两者都永不回收,监控线程按 interval
+    永久发包、连接常驻(现场常见写法:创建后覆盖变量/作用域结束,不
+    disconnect)。心跳早有同款弱引用防线(base_client 心跳 tick),监控
+    此前没有。
+
+    注意:本用例**不用 monkeypatch** 打桩(``monkeypatch.setattr`` 会由
+    fixture 强引用被补对象,令"客户端可回收"永远不成立)——直接赋值,
+    用例结束随对象一起消失。
+    """
+    import gc
+    import weakref
+
+    client = _client()
+    client.read_many = lambda addresses, data_type: (
+        [  # type: ignore[method-assign]
+            (True, 1)
+        ]
+        * len(addresses)
+    )
+    monitor = client.create_monitor({"a": ("hr0", "ushort")}, interval=0.05)
+    monitor.start()
+    assert wait_until(lambda: monitor.running)
+
+    client_ref = weakref.ref(client)
+    del client  # 丢弃宿主(不 disconnect)
+    gc.collect()
+    assert client_ref() is None, "客户端仍被监控线程/监视器强引用拉住"
+    # 线程自行收尾(不再发包)
+    assert wait_until(lambda: not monitor.running)
+
+
 def test_stop_keeps_registry_entry() -> None:
     """工厂登记 + stop 保留(review-1006 P1 翻转):在册 = 未终态,重启
     无需重登记;仅 disconnect 联动终停并清空。未启动过的监视器 stop 幂等。"""

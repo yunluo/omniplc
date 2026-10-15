@@ -298,8 +298,75 @@ class TestWriteWhitelist:
                 client._validate_value(data_type, bad)
 
 
+class TestDisconnectIsTerminal:
+    """``disconnect()`` 即终态:不再经惰性重连复活(review-1043 丙-2)。"""
+
+    def test_no_lazy_reconnect_after_disconnect(self) -> None:
+        """断开后读写都直接 ``RuntimeError``,且**零发送**。
+
+        现场形态:采集线程在 ``read_many`` 循环、控制线程在 ``write_many``
+        循环时另一线程点「断开」——旧实现只把 ``_connected`` 置 False,
+        循环的下一个点会经 ``_execute`` 的惰性重连分支**重新建连继续收发**
+        (写循环即「已断开仍向 PLC 写」)。native 层早有 ``_ensure_open``
+        关闸,aio ``close()`` 亦是终态,同步层此前独缺。
+        """
+        client = _ScriptedClient()
+        assert client.connect() is True
+        transport = client._transport
+        assert client.disconnect() is True
+        sent_before = len(getattr(transport, "sent", []))
+        with pytest.raises(RuntimeError, match="已断开"):
+            client.read("hr0", "ushort")
+        with pytest.raises(RuntimeError, match="已断开"):
+            client.write("hr0", "ushort", 1)
+        with pytest.raises(RuntimeError, match="已断开"):
+            client.read_many(["hr0"], "ushort")
+        assert len(getattr(transport, "sent", [])) == sent_before  # 零发送
+        # 显式 connect 解除关闸后照常可用
+        assert client.connect() is True
+        ok, _value = client.read("hr0", "ushort")
+        assert ok is True
+
+    def test_native_mirror(self) -> None:
+        """native 层的终态关闸由 ``close()`` 承担(``disconnect`` 仍可重连)。"""
+        client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+
+        async def scenario() -> None:
+            await client.close()
+            with pytest.raises(RuntimeError):
+                await client.read("hr0", "ushort")
+
+        asyncio.run(scenario())
+
+
+class TestWaitValueTimeBounds:
+    """``wait_value`` 时间参数须为有限数(review-1043 丙-4)。"""
+
+    def test_non_finite_rejected(self) -> None:
+        client = _ScriptedClient()
+        client.readback = 1
+        for bad in (float("nan"), float("inf"), -1.0, 0.0):
+            with pytest.raises(ValueError, match="有限数|大于 0"):
+                client.wait_value("hr0", "ushort", lambda v: v == 1, timeout=bad)
+        with pytest.raises(ValueError, match="有限数|大于 0"):
+            client.wait_value(
+                "hr0", "ushort", lambda v: v == 1, timeout=1.0, interval=float("nan")
+            )
+
+    def test_native_mirror(self) -> None:
+        client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+
+        async def scenario() -> None:
+            with pytest.raises(ValueError, match="有限数|大于 0"):
+                await client.wait_value(
+                    "hr0", "ushort", lambda v: v == 1, timeout=float("inf")
+                )
+
+        asyncio.run(scenario())
+
+
 # ----------------------------------------------------------------------
-# 甲3:write_and_verify 写后回读
+# 甲2:write_and_verify 写后回读
 # ----------------------------------------------------------------------
 
 

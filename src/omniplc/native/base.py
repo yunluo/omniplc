@@ -1200,10 +1200,13 @@ class AsyncBaseClient(ABC):
             raise ValueError(
                 _("predicate 必须为可调用对象,收到:{!r}").format(predicate)
             )
-        if timeout <= 0:
-            raise ValueError(_("timeout 必须大于 0,收到:{}").format(timeout))
-        if interval <= 0:
-            raise ValueError(_("interval 必须大于 0,收到:{}").format(interval))
+        # 有限数收口(review-1043 丙-4,与同步层同口径):nan/inf 不得穿过
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError(_("timeout 必须为大于 0 的有限数,收到:{}").format(timeout))
+        if not math.isfinite(interval) or interval <= 0:
+            raise ValueError(
+                _("interval 必须为大于 0 的有限数,收到:{}").format(interval)
+            )
         data_type_enum = DataType.coerce(data_type)
         deadline = time.monotonic() + timeout
         last_value: Optional[PrimitiveValue] = None

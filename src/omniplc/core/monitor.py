@@ -88,11 +88,13 @@ import random
 import sys
 import threading
 import time
+import weakref
 from collections import deque
 from enum import Enum
 from itertools import count
 from typing import (
     TYPE_CHECKING,
+    Any,
     Callable,
     Dict,
     List,
@@ -288,7 +290,14 @@ class Monitor:
                 )
             )
 
-        self._client = client
+        # 宿主客户端**弱引用**(review-1043 丙-1):监视器被客户端强引用
+        # (``client._monitors``),若此处再反向强引用客户端就构成
+        # 「线程根 → 绑定方法 self → client」的强引用环——现场常见写法
+        # 「创建客户端 + create_monitor + start,之后不再持有 client 变量、
+        # 也不 disconnect」会让该客户端永不回收,监控线程按 interval 永久发包、
+        # 连接常驻(句柄已丢,连 stop() 都调不到)。心跳早有同款弱引用防线,
+        # 监控此前没有。
+        self._client_ref: "weakref.ReferenceType[Any]" = weakref.ref(client)
         self._interval = float(interval)
         self._jitter = float(jitter)
         self._on_change = on_change
@@ -355,7 +364,17 @@ class Monitor:
         self._group_warn_suppressed = 0
         # 构造即注册:直接构造与工厂 create_monitor 行为一致——disconnect
         # 联动对两者同样生效,不存在"绕过注册表、线程活过客户端"的旁路
-        self._client._register_monitor(self)
+        client._register_monitor(self)
+
+    @property
+    def _client(self) -> Any:
+        """宿主客户端(弱引用解引用,review-1043 丙-1)。
+
+        客户端被回收后返回 ``None``——调用方(采集循环)据此**自行收尾**:
+        线程不因宿主消失而继续按 interval 发包(旧实现持强引用,
+        「未 disconnect 直接丢弃客户端」场景下客户端与线程都永不回收)。
+        """
+        return self._client_ref()
 
     # ------------------------------------------------------------------
     # 构造期校验与点位解析
@@ -578,6 +597,16 @@ class Monitor:
             first_delay += random.uniform(0.0, self._jitter)
         next_deadline = _monotonic() + first_delay
         while not self._stop_event.is_set():
+            if self._client_ref() is None:
+                # 宿主客户端已被回收(未 disconnect 直接丢弃,review-1043 丙-1):
+                # 自行置停止标志退出——否则本线程会按 interval 永久发包、
+                # 连接常驻,而句柄已丢、调用方连 stop() 都调不到
+                self._stop_event.set()
+                log_warning(
+                    "omniplc-monitor",
+                    "宿主客户端已被回收,监视器自行停止(未调用 disconnect)",
+                )
+                break
             self._cycle()
             if self._stop_event.is_set():
                 # 显式短路:终拍不再落到下方慢周期记账(删之则末拍恰为慢

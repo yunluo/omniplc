@@ -96,7 +96,13 @@ async def _await_with_timeout(
         raise
     if done:
         return True, task.result()
-    task.cancel()
+    # 竞态收口(review-1043 丙-3):`asyncio.wait` 返回与 `cancel()` 之间,
+    # 任务可能**刚好完成**——此时 `cancel()` 是 no-op,旧写法把 `await task`
+    # 的结果直接丢掉并按"失败"返回:建连路径(`asyncio.open_connection`)上
+    # 就是一条已建立的连接再无人关闭(FD + 对端半开连接缓慢累积)。
+    # `cancel()` 返回 False 表示任务已终结而未被取消与拒绝取消 ⇒ 收下结果
+    if not task.cancel() and task.done() and not task.cancelled():
+        return True, task.result()
     try:
         await task
     except _CANCELLED_ERRORS + (Exception,):

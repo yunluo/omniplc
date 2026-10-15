@@ -437,6 +437,10 @@ _TRANSLATIONS: Dict[str, str] = {
     "read_only 必须为布尔值,收到:{!r}": "read_only must be a boolean, got: {!r}",
     "write_whitelist 必须为布尔值,收到:{!r}": "write_whitelist must be a boolean, got: {!r}",
     "客户端为只读模式(read_only=True),写操作已拒绝": "The client is in read-only mode (read_only=True); the write operation was rejected",
+    "客户端已断开(disconnect 之后不再受理调用;需重新 connect())": (
+        "The client has been disconnected (no further calls are accepted after"
+        " disconnect(); call connect() again)"
+    ),
     "客户端为只读模式(read_only=True),写操作已拒绝:{}": "The client is in read-only mode (read_only=True); the write operation was rejected: {}",
     "写白名单已开启但未绑定 TagTable:请先 bind_tags() 或关闭 write_whitelist": "The write whitelist is enabled but no TagTable is bound: call bind_tags() first or disable write_whitelist",
     "写白名单已开启:地址 {!r} 不在已绑定点位表内,写操作已拒绝": "The write whitelist is enabled: address {0!r} is not in the bound tag table; the write operation was rejected",
@@ -1213,6 +1217,12 @@ _TRANSLATIONS: Dict[str, str] = {
     "scan_dwell 必须大于 0,收到:{}": "scan_dwell must be greater than 0, got: {}",
     "bank 必须在 {}~{} 之间,收到:{}": "bank must be between {0} and {1}, got: {2}",
     "timeout 必须大于 0,收到:{}": "timeout must be greater than 0, got: {}",
+    "timeout 必须为大于 0 的有限数,收到:{}": (
+        "timeout must be a finite number greater than 0, got: {}"
+    ),
+    "interval 必须为大于 0 的有限数,收到:{}": (
+        "interval must be a finite number greater than 0, got: {}"
+    ),
     "SR 命令 {} 应答异常:期望 OK,收到 {!r}": "SR command {} response error: expected OK, got {!r}",
     "encoding 非法:{!r}": "Invalid encoding: {!r}",
     "SR 命令错误应答:{}(错误代码 {})": "SR command error response: {0} (error code {1})",

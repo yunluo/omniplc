@@ -190,6 +190,11 @@ class BaseClient(ABC):
         self._state_lock = threading.RLock()
         self._transport: Optional[BaseTransport] = None
         self._connected: bool = False
+        # 关闸标志(review-1043 丙-2):disconnect() 后为 True,事务入口
+        # (_execute → _ensure_open)直接 RuntimeError;显式 connect() 清零。
+        # 与 _connected 的区别:_connected 是"链路好不好"(可被惰性重连修复),
+        # _closed 是"调用方还要不要这个客户端"(只能显式 connect 撤销)。
+        self._closed: bool = False
         self._last_error: Optional[str] = None
         self._last_error_category: Optional[ErrorCategory] = None
         self._last_error_code: Optional[int] = None
@@ -247,6 +252,9 @@ class BaseClient(ABC):
         :return: 是否成功
         """
         with self._lock:
+            # 显式 connect 撤销 disconnect 的关闸(review-1043 丙-2):
+            # 这是唯一解除 _closed 的路径(惰性重连不解除)
+            self._closed = False
             if self._connected:
                 return True
             now = time.monotonic()
@@ -325,8 +333,16 @@ class BaseClient(ABC):
         断开同时**联动停掉所有在跑监视器**(终态,不可再 ``start()``)——
         监控线程不得活过客户端;``with`` 块退出经本方法,同样生效。
 
+        **断开即终态**(review-1043 丙-2):此后任何事务(含在途循环的
+        下一点)经 :meth:`_ensure_open` 直接 ``RuntimeError``,不再像以前
+        那样被惰性重连"复活"而继续收发(现场形态见 :meth:`_ensure_open`
+        说明);需重新使用请显式 :meth:`connect`。
+
         :return: 是否成功
         """
+        # 先关闸再停监视器:期间(含 join 预算内)到达的任何事务都在锁内
+        # 立刻被 _ensure_open 拒绝,不会有"断开后仍向 PLC 写"的窗口
+        self._closed = True
         # 先停监视器再取事务锁:join 不在锁内,监视器线程若正持有锁跑
         # 周期,能自然跑完本轮(有界)后退出,不会与锁形成环形等待
         self._stop_monitors()
@@ -1412,10 +1428,16 @@ class BaseClient(ABC):
             raise ValueError(
                 _("predicate 必须为可调用对象,收到:{!r}").format(predicate)
             )
-        if timeout <= 0:
-            raise ValueError(_("timeout 必须大于 0,收到:{}").format(timeout))
-        if interval <= 0:
-            raise ValueError(_("interval 必须大于 0,收到:{}").format(interval))
+        # 有限数收口(review-1043 丙-4,与库内其它时间参数同口径):
+        # `nan <= 0` 恒 False、`inf` 使 deadline 无穷 ⇒ 旧写法两者都能穿过,
+        # 前者先跑完一轮读再从 stdlib 抛 ValueError(消息来自 CPython,现场
+        # 易误判为库缺陷),后者**永久轮询不返回也不报错**
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError(_("timeout 必须为大于 0 的有限数,收到:{}").format(timeout))
+        if not math.isfinite(interval) or interval <= 0:
+            raise ValueError(
+                _("interval 必须为大于 0 的有限数,收到:{}").format(interval)
+            )
         data_type_enum = DataType.coerce(data_type)
         deadline = time.monotonic() + timeout
         last_value: Optional[PrimitiveValue] = None
@@ -1548,6 +1570,7 @@ class BaseClient(ABC):
             raise RuntimeError(_("客户端为只读模式(read_only=True),写操作已拒绝"))
         retries = self._write_retries if is_write else self._retries
         with self._lock:
+            self._ensure_open()
             with self._state_lock:
                 # 计数器口径统一:全部计数只在状态锁内变更,stats 快照
                 # (状态锁)不再可能读到跨锁序中间态
@@ -1611,6 +1634,29 @@ class BaseClient(ABC):
                         self._capture_incident()
                     self._mark_disconnected()
             return False, None
+
+    def _ensure_open(self) -> None:
+        """关闸检查(内部方法,review-1043 丙-2):``disconnect()`` 之后不再
+
+        受理事务。语义与 native :meth:`AsyncBaseClient._ensure_open`、
+        ``aio.close()`` 同口径(三层一致:关闭即终态,不是"可被惰性重连
+        复活"的软状态)。
+
+        为什么需要:`_execute` 的惰性重连分支(`if not self._connected:
+        ... self.connect()`)对**在途/后续事务**同样生效——采集线程在
+        ``read_many`` 循环、控制线程在 ``write_many`` 循环时,另一线程点
+        "断开",没有这道闸的话循环的下一个点会**重新建连继续收发**
+        (对写循环即「已断开仍向 PLC 写」)。心跳 tick 早有同类复查
+        (``_stop_event`` 在锁内复核),业务事务此前没有。
+        传输失败触发的拆连(:meth:`_mark_disconnected`)不受影响——那是
+        "链路坏了等重连",不是调用方意图。
+
+        :raises RuntimeError: 已 ``disconnect()``(显式 ``connect()`` 前)
+        """
+        if self._closed:
+            raise RuntimeError(
+                _("客户端已断开(disconnect 之后不再受理调用;需重新 connect())")
+            )
 
     def _mark_disconnected(self) -> None:
         """标记断开并静默关闭传输(惰性重连发生在下一次事务,内部方法)。"""
