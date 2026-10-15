@@ -440,14 +440,19 @@ def test_forward_close_golden_and_reply() -> None:
 
 
 def test_send_unit_data_golden() -> None:
-    """SendUnitData 字面字节(0xA1 地址项 + 0xB1 数据项 + 序列号)。"""
+    """SendUnitData 字面字节(0xA1 地址项 + 0xB1 数据项 + 序列号)。
+
+    timeout 字段 = `0x0000`:Rockwell 指南 p.20 Table 2 明文
+    ("For router, in seconds; **0x0000 for SendUnitData**")——
+    review-1031 §3.4 订正前本黄金帧固化的是 `0x0001`(绿着错)。
+    """
     request = codec_cip.build_tag_read(_MYDINT_PATH, 1)
     frame = codec_cip.build_send_unit_data(_SESSION, 0xAABBCCDD, 1, request)
     assert frame == bytes.fromhex(
         "70002200"
         "78563412"
         "00000000000000000000000000000000"  # ENIP 头(len=22+12)
-        "0000000001000200"  # interface + timeout(1 秒) + 项数
+        "0000000000000200"  # interface + timeout(0x0000,SendUnitData 规定值) + 项数
         "a1000400"
         "ddccbbaa"  # 连接地址项:O->T 连接 ID
         "b1000e000100"  # 连接数据项:len=12+2、序列号 1

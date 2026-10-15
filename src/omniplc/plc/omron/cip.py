@@ -3,7 +3,14 @@
 依据:Omron W506 §7(CIP Message Communications,client function)、W627(NX EtherNet/IP
 单元);变量 / 标签的显式报文访问。
 
-NJ/NX(Sysmac)系列没有 FINS/TCP-UDP,变量经标准 CIP 显式报文访问;
+**NJ/NX 同时内置 FINS 服务(review-1031 §3.3 订正)**:N系列 CPU 的
+EtherNet/IP 口**默认开放 FINS/TCP 与 FINS/UDP(端口均 9600)**——W506
+自印 5-15/5-16(PDF 179/180)的服务/端口表逐行列出(「FINS/TCP … 9600 …
+Use for EtherNet/IP Port Settings - FINS」与 FINS/UDP 同理)。故本文档
+**不再声称"NJ/NX 没有 FINS/TCP-UDP"**(旧断言与手册矛盾):本类只是因为
+**变量访问走标准 CIP 显式报文**而选 CIP;需要 FINS 数据区访问时,NJ/NX
+同样可用 :mod:`omniplc.plc.omron` 的 FINS 驱动(以现场是否启用为准)。
+
 与罗克韦尔 AB 同属 ODVA EtherNet/IP(端口同为 44818),故继承
 :class:`~omniplc.plc.ab.AllenBradleyEthIpClient`,仅覆写走线与变量
 模型差异:
@@ -17,7 +24,10 @@ NJ/NX(Sysmac)系列没有 FINS/TCP-UDP,变量经标准 CIP 显式报文访问;
 - **NJ 变量模型**:标量 BOOL 直接读写(C1 走继承路径);BOOL 数组按
   元素访问(NJ 不做 Logix 的 32 位打包,实际类型由自描述应答决定,
   元素应答存储字类型时按 Logix 口径回退);整型 ``.位号`` 写走 0x4E
-  读-改-写,设备侧支持与否随固件,不支持时按 DeviceError 报告不断线。
+  读-改-写,**该服务在本目录收录的 W506 中零命中**(§7-6 只列 4C/4D,
+  §7-5-1 对象表无 Tag 对象)⇒ 属**库内扩展/Logix 口径,欧姆龙侧待真机**
+  (review-1031 §3.2;同码在 Forward_Close 有据,属"同码不同类"而非
+  凭空发明),设备侧支持与否随固件,不支持时按 DeviceError 报告不断线。
   **BOOL 写载荷 = Status + Forced 两字节**(W506 §7-7-3 印刷页 7-91
   (PDF 387)「Boolean Data / Data Format」:`USINT Status`(01=TRUE/
   00=FALSE)+ `USINT Forced set/reset information`(写时**指定 0**);

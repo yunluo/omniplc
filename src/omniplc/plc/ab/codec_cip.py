@@ -1008,6 +1008,12 @@ def build_send_unit_data(
     """把 CIP 请求封装为 SendUnitData 帧(connected 标签读写)。
 
     CPF:连接地址项(0xA1,O->T 连接 ID)+ 连接数据项(0xB1,序列号 + 请求)。
+    依据:Rockwell 指南 **p.20 Table 2**——interface handle(4)= 0、
+    **timeout(2)= `0x0000`(原文"For router, in seconds; 0x0000 for
+    SendUnitData")**、项数(2)= 2;连接地址/数据项字段见 p.21 Table 4。
+
+    review-1031 §3.4 订正:本节原把 timeout 填 ``1``(与 p.20 明文相悖,测试
+    黄金帧同时固化),现改 0——**帧面变更**,仅作用于 connected 消息。
     """
     header = struct.pack(
         "<HHIIQI",
@@ -1018,7 +1024,7 @@ def build_send_unit_data(
         0,
         0,
     )
-    prefix = struct.pack("<IHH", 0, 1, 2)
+    prefix = struct.pack("<IHH", 0, 0, 2)
     prefix += struct.pack("<HHI", _CPF_ITEM_CONNECTED_ADDRESS, 4, ot_connection_id)
     prefix += struct.pack(
         "<HHH", _CPF_ITEM_CONNECTED_DATA, len(cip_request) + 2, sequence
