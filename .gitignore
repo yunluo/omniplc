@@ -1,4 +1,4 @@
-﻿# Byte-compiled / optimized / DLL files
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
@@ -133,8 +133,7 @@ dmypy.json
 # ruff
 .ruff_cache/
 
-# uv
-# uv.lock 闇€瑕佹彁浜?涓嶈蹇界暐
+# uv(锁文件策略见下方 uv.lock 段:不入库)
 
 # Pyre type checker
 .pyre/
@@ -144,10 +143,8 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
-  
-"# 三菱版权手册仅本地参考,不入库(需要发布时删除下面一行)"  
-  
 
+# 三菱版权手册仅本地参考,不入库(需要发布时删除下面一行)
 # Mitsubishi copyrighted manuals stay local only
 docs/**/*.pdf
 docs/**/*.pptx
@@ -177,4 +174,3 @@ tools/manual_test.*
 # 会话临时文件(命令输出/临时脚本,根目录锚定不误伤包内 __init__.py)
 /_*.txt
 /_*.py
-

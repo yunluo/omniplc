@@ -1,0 +1,10 @@
+# 行尾统一:文本文件在版本库与工作区一律 LF。
+#
+# 背景(review-1043 己-9):本仓库跨平台协作,Windows 机 core.autocrlf=true
+# 会把 checkout 变成 CRLF、Linux/CI 又是 LF;不显式钉版则"同一文件不同
+# 行尾"的伪改动反复出现(且与 ruff/工具链默认的 LF 口径漂移)。与
+# ruff 配置的 line-ending = "auto" 配套:这里把事实钉死为 LF。
+#
+# 已核:加入本文件前仓库内文本均为 LF 存储(i/lf),无重规范化改动;
+# 二进制由 text=auto 的启发式排除(PNG 等),无需逐类声明。
+* text=auto eol=lf
