@@ -35,6 +35,7 @@ from ...core.constants import (
     MEWTOCOL_DEFAULT_PORT,
     MEWTOCOL_DEFAULT_STATION,
     MEWTOCOL_MAX_DATAGRAM,
+    MEWTOCOL_MAX_LINE,
     MEWTOCOL_WORD_FIELD_MAX,
 )
 from ...core.errors import ProtocolFrameError
@@ -42,6 +43,27 @@ from ...core.validation import check_int16, check_uint16, require_bool, require_
 from ...transport import BaseTransport, TcpTransport, UdpTransport
 from ...core.types import ByteOrder, DataType, PrimitiveValue
 from ...core.i18n import _
+
+
+def _recv_until_cr(transport: BaseTransport, limit: int) -> bytes:
+    """接收至 CR(含)或达到 ``limit`` 字节(内部函数,review-1025 §2.4)。
+
+    仅用于**错误响应**:错误码宽度待核(2 字符 vs 4 字符),按 CR 终止
+    收包与宽度无关。达到上界仍未见 CR 时不在这里报错——已收字节照常交给
+    :func:`~omniplc.plc.panasonic.codec_mewtocol.parse_response`,由它按
+    坏帧(``ProtocolFrameError``)响亮报告。
+
+    :param transport: 流式传输(``recv_some`` 语义)
+    :param limit: 单帧字节上界
+    :return: 已收到的字节(非空)
+    """
+    buffer = bytearray()
+    while len(buffer) < limit and b"\r" not in buffer:
+        chunk = transport.recv_some(limit - len(buffer))
+        if not chunk:
+            break
+        buffer += chunk
+    return bytes(buffer)
 
 
 class _MewtocolBase(BaseClient):
@@ -349,7 +371,11 @@ class _MewtocolBase(BaseClient):
         else:
             head = transport.recv(4)
             if head[3:4] == b"!":
-                response = head + transport.recv(5)
+                # 错误码宽度**待核**(2 字符 vs 4 字符,如 4004/4101),故不按
+                # 定长 9 字节硬收:错误响应纯 ASCII、错误码与文本不含 CR,
+                # 读到 CR 为止即与宽度无关;定长收会把 4 字符码帧的尾部 2 字节
+                # 留在缓冲里,把该笔错误退化成坏帧并触发拆线(review-1025 §二)
+                response = head + _recv_until_cr(transport, MEWTOCOL_MAX_LINE - 4)
             else:
                 total = codec_mewtocol.parse_expected_size(data_chars)
                 response = head + transport.recv(total - 4)

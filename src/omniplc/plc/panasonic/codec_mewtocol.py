@@ -4,7 +4,9 @@
 未收录,见 docs/protocol/README.md「待补」;下列帧面由库外手册口径 +
 BCC 测试向量 ``%01#RCSX0000`` → ``1D`` 按手册 BCC 算法验算交叉确认,
 **两条真机终裁项**见 P1 候补:①错误码疑 4 字符(类别 2 + 细分 2,如
-4004/4101)而非 2 字符——若属实 TCP 须按 9 字节收否则残留脏缓冲;
+4004/4101)而非 2 字符——据此**收包已改为按 CR 终止**(错误响应纯 ASCII、
+码与文本不含 CR,与宽度无关;TCP 定长收会把 4 字符码帧的尾部 2 字节留在
+缓冲里,把该笔错误退化成坏帧并触发拆线,review-1025 §二);
 ②多字数据"低字在前"与字符串字内字节序须真机往返核证):
 
 - 请求 = ``%`` + 站号(2 位,``EE`` 或十进制 01~99)+ ``#`` + 命令文本
@@ -35,7 +37,18 @@ from ...core.i18n import _
 _RESPONSE_DATA_OFFSET = 6
 _RESPONSE_MIN_SIZE = 9
 
-# 错误码 → 含义(来源:MEWTOCOL 手册错误码表)
+# 错误码 → 含义
+#
+# **依据:待核** —— MEWTOCOL-COM 手册未收录(见 docs/protocol/README.md
+# 「待补」;docs/protocol/panasonic/ 目录亦不存在)。下列 26 条中文释义
+# **转抄自库外资料,未经页码级核对**,现场排障请以设备实际报码 + 官方
+# 错误码表为准(review-1025 §三 P1-A)。
+#
+# 待核点(无手册无法裁决):
+#   - "23" 称远程单元号 01~16 与本机重复,而 "26" 称超出 01~63 —— 两处范围
+#     互不一致;
+#   - "40" 归"BCC 错误"、"41" 归"格式错误"的归属未核(存在把真实的
+#     "区码/格式"类错误说成 BCC 错误的风险)。
 _ERROR_MESSAGES = {
     "20": "未定义错误(命令不能执行)",
     "21": "NACK 错误(远程单元未正确识别或数据错误)",
@@ -193,10 +206,18 @@ def parse_response(response: bytes, station: str, command: str) -> str:
             )
         )
     if text[3] == "!":
-        code = text[4:6]
-        message = _(_ERROR_MESSAGES.get(code, _("未知错误")))
+        # 错误码宽度**待核**(2 字符 vs 4 字符,如 4004/4101):取 `!` 之后、
+        # BCC 之前的**全部**字符,查表按"先全长、再前 2 字符"降级——4 字符
+        # 码未收录时至少不丢设备原报的细分信息(review-1025 §2.4)
+        code = text[4:-3]
+        message = _ERROR_MESSAGES.get(code)
+        if message is None:
+            message = _ERROR_MESSAGES.get(code[:2])
+        if message is None:
+            message = "未知错误"
         raise DeviceError(
-            _("MEWTOCOL 错误码 {}:{}").format(code, message), _error_code_value(code)
+            _("MEWTOCOL 错误码 {}:{}").format(code, _(message)),
+            _error_code_value(code),
         )
     echo = text[4:6]
     if echo != command:

@@ -391,7 +391,9 @@ def test_en_end_to_end_codec_errors() -> None:
             return str(exc)
         raise AssertionError("should raise")
 
-    # MEWTOCOL:错误响应(BCC = 帧体各字节异或)
+    # MEWTOCOL:错误响应(BCC = 帧体各字节异或)。帧体用 **4 字符错误码**
+    # (``2102``,错误码宽度待核:2 字符 vs 4 字符):取 `!` 后到 BCC 前的全长
+    # 字符,查表降级到前 2 字符 ``21``(review-1025 §二 P1-D/§2.4)
     body = b"%01!2102"
     bcc = 0
     for byte in body:
@@ -412,8 +414,8 @@ def test_en_end_to_end_codec_errors() -> None:
     )
     assert fins_error() == "FINS end code 0x2101 (The specified area is read-only)"
     assert mew_error() == (
-        "MEWTOCOL error code 21: NACK error (remote unit not correctly recognized"
-        " or data error)"
+        "MEWTOCOL error code 2102: NACK error (remote unit not correctly"
+        " recognized or data error)"
     )
 
     set_lang("zh")
@@ -422,7 +424,7 @@ def test_en_end_to_end_codec_errors() -> None:
         == "Modbus 异常码 0x02(ILLEGAL DATA ADDRESS(地址越界))(请求功能码 0x03)"
     )
     assert fins_error() == "FINS 结束码 0x2101(指定区域只读)"
-    assert mew_error() == "MEWTOCOL 错误码 21:NACK 错误(远程单元未正确识别或数据错误)"
+    assert mew_error() == "MEWTOCOL 错误码 2102:NACK 错误(远程单元未正确识别或数据错误)"
 
 
 # ----------------------------------------------------------------------

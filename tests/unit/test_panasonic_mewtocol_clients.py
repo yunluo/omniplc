@@ -8,7 +8,8 @@ RD/WD 数据区、低字在前+字内高字节在前的多字编解码、读-改
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+import socket
+from typing import Any, List
 
 import pytest
 
@@ -19,8 +20,9 @@ from omniplc.core.constants import (
     MEWTOCOL_STATION_DIRECT,
 )
 from omniplc.core.debug import format_hex
-from omniplc.core.errors import ErrorCategory
+from omniplc.core.errors import DeviceError, ErrorCategory
 from omniplc.plc.panasonic import codec_mewtocol
+from omniplc.transport import TcpTransport
 from scripted import ScriptedTransport
 
 _STATION = "01"
@@ -369,6 +371,83 @@ def test_error_code_non_numeric_keeps_return_contract(
     assert client.last_error_category is ErrorCategory.DEVICE
     assert client.last_error_code is None  # 无具体错误码
     assert client.last_error is not None and "E1" in client.last_error
+
+
+class _FrameSocket:
+    """按"设备每次发送一帧"模型应答的假 socket(size 感知,不跨帧取字节)。
+
+    与 :class:`ChunkSocket` 的差别:后者把所有字节放进单一池,``recv`` 会
+    越界取走后续帧(``pool[:size]``),对"一问一答"协议的收包语义失真——
+    真 socket 上第二帧在收到第二笔请求前根本不会到达,故不能用它验证
+    "错误帧少收/多收若干字节会怎样"。
+    """
+
+    def __init__(self, frames: List[bytes]) -> None:
+        self._frames = list(frames)
+        self._current = b""
+
+    def recv(self, size: int, flags: int = 0) -> bytes:
+        if not self._current:
+            if not self._frames:
+                raise socket.timeout("timed out")
+            self._current = self._frames.pop(0)
+        chunk = self._current[:size]
+        self._current = self._current[size:]
+        return chunk
+
+    def settimeout(self, value: Any) -> None:
+        pass
+
+    def sendall(self, data: bytes) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+def test_error_frame_four_char_code_keeps_stream_synced() -> None:
+    """4 字符错误码的 11 字节错误帧不再错位,下一笔照常(真 TCP 走线)。
+
+    review-1025 §二 P1-D:错误码宽度待核(疑 4 字符如 ``4004``/``4101``);
+    原实现按定长 9 字节收,4 字符码帧的尾部 2 字节留在缓冲 → 该笔**设备错误**
+    (链路正常)退化报成 ``ProtocolFrameError`` 并触发拆线。现按 CR 终止收包,
+    与错误码宽度无关。本用例连续两笔事务,中间不断线。
+    """
+    client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
+    error_frame = _err("4004")
+    good_frame = _resp("RD", "1234")
+    assert len(error_frame) == 11  # 口径锚:4 字符码错误帧 11 字节
+    assert len(good_frame) == 13
+    transport = TcpTransport("127.0.0.1", 1024)
+    transport._socket = _FrameSocket([error_frame, good_frame])  # type: ignore[assignment]
+    client._transport = transport
+    client._connected = True
+
+    assert client.read_ushort("D100") == (False, None)  # 设备错误 → 契约返回值
+    assert client.connected is True  # 错误响应不断线
+    assert client.last_error_category is ErrorCategory.DEVICE
+    assert client.last_error is not None and "4004" in client.last_error
+
+    assert client.read_ushort("D100") == (True, 0x1234)  # 第二笔未受污染
+
+
+def test_error_code_lookup_width_tolerant() -> None:
+    """错误码取值与宽度无关:4 字符码保留全长,查表降级到前 2 字符。
+
+    review-1025 §2.4:4 字符码表未收录时不得丢设备原报细分——``4004`` 报成
+    ``40``(BCC 错误)本身信息丢失,故键按"先全长、再前 2 字符"降级。
+    """
+    body = "%01!4004"
+    frame = (body + codec_mewtocol.bcc(body) + "\r").encode("ascii")
+    with pytest.raises(DeviceError) as excinfo:
+        codec_mewtocol.parse_response(frame, _STATION, "RD")
+    assert excinfo.value.code == 4004  # 全长进 code,不退化为 40
+    assert "4004" in str(excinfo.value)
+    # 2 字符码(现表口径)行为逐字不变
+    with pytest.raises(DeviceError) as excinfo2:
+        codec_mewtocol.parse_response(_err("21"), _STATION, "RD")
+    assert excinfo2.value.code == 21
+    assert "NACK" in str(excinfo2.value)
 
 
 def test_bcc_mismatch_marks_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:

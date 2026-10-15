@@ -6,8 +6,12 @@ FP0H/FP7 系列以太网口提供三菱 MC 协议兼容模式(QnA 兼容 3E 帧,
 QnA 兼容 3E 完全一致,因此本模块继承
 :class:`~omniplc.plc.melsec.MelsecMcTcpClient`,只做两件事:
 
-1. 换软元件码表(:data:`~omniplc.core.constants.PANASONIC_MC_DEVICE_CODES`,
-   与三菱 Q/L 系列同码:X=9Ch/Y=9Dh/L=A0h/R=90h/D=A8h…);
+1. 换软元件码表(:data:`~omniplc.core.constants.PANASONIC_MC_DEVICE_CODES`
+   ——**码位与三菱是"语义借用",不是"同码"**:松下 `R`←三菱 `M`(90h)、
+   松下 `L`←三菱 `B`(A0h)、松下 `LD`←三菱 `W`(B4h);三菱同名 `L`=92h、
+   `R`=AFh 与松下**完全不同**(且三菱 `R` 是字软元件、松下 `R` 是位)。
+   X/Y/D/SM/SD/TS/TN/CS/CN 9 项同名同码,但 X/Y 编号松下为十进制、
+   三菱为十六进制。详见常量 docstring 与 review-1025 §三 P1-C);
 2. 换算"字号 + 位号"组织的位软元件地址:X/Y/L/R 的帧内编号 =
    字号×16+位号;字号 ≥900(记法 R9000 起)映射系统继电器 SM,
    D 编号 ≥90000 映射系统寄存器 SD。
