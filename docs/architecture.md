@@ -831,7 +831,9 @@ DM(数据存储,字,十进制)用 D 的 ``A8h``、ZR(文件寄存器,字,十进�
 
 汇川 H3U/H5U 说明(2026-09):汇川小型 PLC(H3U/H3S/H5U/Easy 系列)的
 TCP 与串口通信**本质是标准 Modbus**——网口 Modbus TCP 从站默认开启
-(端口 502,多数机型不可改),串口 Modbus RTU(缺省 9600-8N2)。
+(端口 502,多数机型不可改),串口 Modbus RTU(``InovanceRtuClient`` 缺省
+9600-8N2,取 H5U 手册 19011157 §9.5.1 从站参数表口径;H3U 手册 19010394
+全文无 8N2,其示例为 8N1/8E1,接 H3U 时按现场 D8120/D8110 显式传参)。
 ``InovanceTcpClient`` / ``InovanceRtuClient`` 因此**继承 Modbus 客户端**,
 只在地址原语入口做一层翻译:位软元件(M/SM/S/T/C 接点/X/Y/B)映射到
 线圈区,字软元件(D/SD/R/T/C 当前值)映射到保持寄存器区,基址照手册
