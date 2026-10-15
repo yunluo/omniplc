@@ -12,18 +12,25 @@
 应用既有日志体系;开启时若应用尚未配置任何日志处理器,则自动向
 ``omniplc.debug`` 挂一个 stderr 处理器,保证开箱即用。
 
-**报文黑匣子**(独立于 :func:`set_debug`,默认关闭)::
+**报文黑匣子**(独立于 :func:`set_debug`,**默认低容量常驻**)::
 
-    omniplc.set_frame_recorder(True)        # 常驻留存最近 1000 帧
-    ...
-    for rec in omniplc.recorded_frames():   # 故障后取现场
+    # 默认已开启:最近 200 帧常驻,故障后直接取现场
+    for rec in omniplc.recorded_frames():
         print(rec.at, rec.direction, rec.label, rec.data.hex())
+
+    omniplc.set_frame_recorder(True, capacity=1000)   # 需要更长窗口时扩容
+    omniplc.set_frame_recorder(False)                 # 不需要留存时显式关闭
 
 与实时打印的区别:黑匣子**只存不打印**——生产环境不便开
 :func:`set_debug`(刷屏/性能)时,常驻一个小容量环形缓冲,故障发生后
 取最近报文做现场比对。挂点与实时日志同在传输层收发口
 (:func:`log_frame`),走线型协议全量覆盖;会话型(OPC-UA / MX)无字节
 流,不进黑匣子。
+
+默认常驻口径(review-1043 戊-6):独立开关的默认值原为「关」,生产推荐
+组合「黑匣子常驻 + 实时日志关闭」靠人工纪律记得开,忘开则断线零留存。
+现默认以 :data:`~omniplc.core.constants.FRAME_RECORDER_IDLE_CAPACITY`
+(200 帧)常驻,显式 :func:`set_frame_recorder` 可关可扩。
 
 两类协议的输出口径:
 
@@ -47,6 +54,7 @@ from typing import List, NamedTuple, Optional
 from .constants import (
     DEBUG_MAX_DUMP_BYTES,
     FRAME_RECORDER_DEFAULT_CAPACITY,
+    FRAME_RECORDER_IDLE_CAPACITY,
     FRAME_RECORDER_MAX_CAPACITY,
 )
 from .i18n import _
@@ -69,7 +77,9 @@ _prev_propagate: Optional[bool] = None
 # 记录路径不加锁;锁只保护 set_frame_recorder 的重建/关闭与快照拷贝——
 # 替换/关闭瞬间另一线程可能仍持旧 deque 引用 append,丢失/残留一条属
 # 观测级竞态(与 Monitor stats 无锁快照同口径)。
-_recorder: Optional[deque] = None
+# 默认低容量常驻(review-1043 戊-6):200 帧 ≈ 几十 KB 量级;
+# set_frame_recorder(False) 显式关闭(None = 关)。
+_recorder: Optional[deque] = deque(maxlen=FRAME_RECORDER_IDLE_CAPACITY)
 _recorder_lock = threading.Lock()
 
 
@@ -93,6 +103,11 @@ def set_frame_recorder(
 ) -> None:
     """开启/关闭报文黑匣子(进程级开关,对所有客户端实例生效)。
 
+    黑匣子**默认即以低容量常驻**(review-1043 戊-6:
+    :data:`~omniplc.core.constants.FRAME_RECORDER_IDLE_CAPACITY` = 200 帧),
+    故障现场默认有最近报文可查;本函数用于**扩容**(``enabled=True,
+    capacity=N``)或**显式关闭**(``enabled=False``,丢弃已留存内容)。
+
     开启后走线报文(传输层 ``send``/``recv``)按序留存最近 ``capacity``
     帧,**只存不打印**;关闭即丢弃已留存内容并释放缓冲。
 
@@ -100,12 +115,12 @@ def set_frame_recorder(
       只清空不关停用 :func:`clear_recorded_frames`;
     - 关闭(``enabled=False``)**不校验容量**(直接丢弃已留存内容;
       review-1007 P3:关闭语义与容量无关);
-    - 与 :func:`set_debug` 相互独立,可单独开启(黑匣子常驻、日志关闭
-      是生产环境的推荐组合);
+    - 与 :func:`set_debug` 相互独立(黑匣子常驻、日志关闭是生产环境的
+      推荐组合,现已是默认形态);
     - 记录路径无锁(:class:`~collections.deque` append 原子),替换/关闭
       瞬间的极端竞态最多丢/串一条,观测级。
 
-    :param enabled: True = 开始留存;False = 关闭并清空
+    :param enabled: True = 开始留存(默认形态);False = 关闭并清空
     :param capacity: 环形容量(帧数),1~100000
     :raises ValueError: 开启时 capacity 非整数或越界
     """
@@ -129,14 +144,15 @@ def set_frame_recorder(
 
 
 def frame_recorder_enabled() -> bool:
-    """当前是否已开启报文黑匣子(内部与测试使用)。"""
+    """当前是否已开启报文黑匣子(内部与测试使用;默认 True,见模块 docstring)。"""
     return _recorder is not None
 
 
 def recorded_frames() -> List[FrameRecord]:
     """取黑匣子留存的最近报文(快照拷贝,先旧后新)。
 
-    未开启时返回空列表;返回后黑匣子继续滚动,不影响已取快照。
+    黑匣子默认常驻(200 帧),故默认形态下本函数即有内容;
+    显式关闭后返回空列表;返回后黑匣子继续滚动,不影响已取快照。
 
     :return: :class:`FrameRecord` 列表(墙钟时间升序)
     """

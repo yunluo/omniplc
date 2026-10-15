@@ -34,6 +34,7 @@ from omniplc import (
 from omniplc.aio import AModbusTcpClient
 from omniplc.core.base_client import BaseClient, _extract_code
 from omniplc.core.debug import (
+    FRAME_RECORDER_IDLE_CAPACITY,
     RECV_MARK,
     SEND_MARK,
     clear_recorded_frames,
@@ -405,8 +406,9 @@ class TestContractBatch:
             assert client.connected is False  # 传输类真实故障照常拆连
             assert "重置" in (client.last_error or "")
         finally:
+            # 恢复默认常驻形态(review-1043 戊-6),不要关掉全局黑匣子
             clear_recorded_frames()
-            set_frame_recorder(False)
+            set_frame_recorder(True, capacity=FRAME_RECORDER_IDLE_CAPACITY)
 
     def test_aio_write_whitelist_forwarding(
         self, monkeypatch: pytest.MonkeyPatch

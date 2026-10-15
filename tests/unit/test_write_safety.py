@@ -22,6 +22,7 @@ from omniplc import (
 from omniplc.aio import AModbusTcpClient
 from omniplc.core.base_client import BaseClient
 from omniplc.core.debug import (
+    FRAME_RECORDER_IDLE_CAPACITY,
     RECV_MARK,
     SEND_MARK,
     clear_recorded_frames,
@@ -856,8 +857,10 @@ class TestIncidentFrames:
         clear_recorded_frames()
 
     def teardown_method(self) -> None:
+        # 恢复默认形态(常驻 200 帧),不用 set_frame_recorder(False)——
+        # 那会把全局黑匣子关掉,污染后续用例(review-1043 戊-6 默认常驻)
         clear_recorded_frames()
-        set_frame_recorder(False)
+        set_frame_recorder(True, capacity=FRAME_RECORDER_IDLE_CAPACITY)
 
     def test_device_error_captures_snapshot(self) -> None:
         set_frame_recorder(True, capacity=16)
@@ -869,6 +872,8 @@ class TestIncidentFrames:
         assert len(client.incident_frames) >= 2  # 事故前的 SEND/RECV 已入快照
 
     def test_recorder_off_keeps_empty(self) -> None:
+        """显式关闭黑匣子后,事故现场无留存(快照恒空)。"""
+        set_frame_recorder(False)
         client = _ScriptedClient()
         client.script_failure(DeviceError("PLC 拒绝", 2))
         ok, _value = client.read("hr0", "ushort")

@@ -172,7 +172,9 @@ ok, value = client.wait_value("M100", "bool", lambda v: bool(v), timeout=5.0, in
 import omniplc
 
 omniplc.set_debug(True)                    # 收发报文十六进制实时输出(走 logging)
-omniplc.set_frame_recorder(True)           # 报文黑匣子:只存不打印,常驻最近 1000 帧
+# 报文黑匣子:只存不打印,默认即以 200 帧低容量常驻(无需配置);
+# set_frame_recorder 用于扩容或显式关闭
+omniplc.set_frame_recorder(True, capacity=1000)  # 需要更长窗口时扩容
 for rec in omniplc.recorded_frames():      # 故障后取现场(墙钟时间升序)
     print(rec.at, rec.direction, rec.label, rec.data.hex())
 omniplc.export_recorded_frames("incident.txt")  # 一键导出排障文本(带时间/方向/转储)

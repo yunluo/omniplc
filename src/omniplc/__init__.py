@@ -36,11 +36,12 @@ CNC 机床数采(MTConnect Agent,HTTP/XML 只读;
 
     omniplc.set_debug(True)
 
-报文黑匣子(只存不打印,故障后取最近报文)::
+报文黑匣子(只存不打印,**默认常驻最近 200 帧**,故障后直接取现场)::
 
-    omniplc.set_frame_recorder(True)            # 常驻留存最近 1000 帧
     for rec in omniplc.recorded_frames():       # 故障后取现场
         print(rec.at, rec.direction, rec.label, rec.data.hex())
+    omniplc.set_frame_recorder(True, capacity=1000)   # 需要更长窗口时扩容
+    omniplc.set_frame_recorder(False)                 # 不需要留存时显式关闭
 
 报错语言(全局开关,默认中文)::
 

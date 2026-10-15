@@ -216,17 +216,20 @@ omniplc.set_debug(True)   # 进程级:所有协议收发报文十六进制转储
 - 输出走标准 `logging`(logger 名 `omniplc.debug`),接自己的 handler
   落盘;`Monitor` 的组级异常、心跳异常也走这条通道(WARNING 级);
 - 报错文案语言用 `omniplc.set_lang("en")` 切英文(默认中文),进程级;
-- `set_debug` 是实时打印,进程崩溃后历史报文不保留——生产环境建议改用
+- `set_debug` 是实时打印,进程崩溃后历史报文不保留——生产环境建议用
   **报文黑匣子**(只存不打印,常驻无刷屏):故障后取最近报文逐字节比对。
 
 ```python
 import omniplc
 
-omniplc.set_frame_recorder(True)   # 常驻留存最近 1000 帧(容量可配,1~100000)
+# 黑匣子默认即以 200 帧低容量常驻(断线现场默认有最近报文可查),
+# 一般无需任何配置;需要更长窗口时扩容:
+omniplc.set_frame_recorder(True, capacity=1000)   # 容量可配,1~100000
 ...
 for rec in omniplc.recorded_frames():   # 故障后取现场(墙钟时间升序)
     print(rec.at, rec.direction, rec.label, rec.data.hex())
 omniplc.clear_recorded_frames()    # 只清内容不关开关
+omniplc.set_frame_recorder(False)  # 完全不需要留存时显式关闭
 ```
 
 **一键导出**(review-1020 §七乙1):带墙钟时间/方向/走线标签/十六进制转储的

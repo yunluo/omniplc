@@ -23,10 +23,11 @@ from omniplc.transport import TcpTransport, UdpTransport
 
 @pytest.fixture(autouse=True)
 def _restore_debug_state() -> Iterator[None]:
-    """每个用例后关闭调试与黑匣子,避免污染其他测试。"""
+    """每个用例后关闭调试并把黑匣子恢复为默认形态(常驻 200 帧),避免污染其他测试。"""
     yield
     debug.set_debug(False)
-    debug.set_frame_recorder(False)
+    debug.set_frame_recorder(True, capacity=debug.FRAME_RECORDER_IDLE_CAPACITY)
+    debug.clear_recorded_frames()
 
 
 # ----------------------------------------------------------------------
@@ -255,10 +256,23 @@ def test_log_op_formats_args_when_enabled(caplog: pytest.LogCaptureFixture) -> N
 # ----------------------------------------------------------------------
 
 
-def test_recorder_default_off() -> None:
-    """默认关闭:不记录、快照为空。"""
-    assert debug.frame_recorder_enabled() is False
+def test_recorder_default_on_low_capacity() -> None:
+    """默认低容量常驻(review-1043 戊-6):断线现场默认有留存;
+    显式关闭后不记录、快照为空。"""
+    debug.clear_recorded_frames()
+    assert debug.frame_recorder_enabled() is True
+    assert debug.recorded_frames() == []
     debug.log_frame("tcp://1.2.3.4:502", debug.SEND_MARK, b"\x01")
+    frames = debug.recorded_frames()
+    assert len(frames) == 1 and frames[0].data == b"\x01"
+    # 默认容量即 idle 档:溢出一帧后仍只留最近 200 条
+    for seq in range(debug.FRAME_RECORDER_IDLE_CAPACITY + 1):
+        debug.log_frame("tcp://x", debug.SEND_MARK, bytes([seq & 0xFF]))
+    assert len(debug.recorded_frames()) == debug.FRAME_RECORDER_IDLE_CAPACITY
+    assert debug.FRAME_RECORDER_IDLE_CAPACITY < debug.FRAME_RECORDER_DEFAULT_CAPACITY
+    debug.set_frame_recorder(False)
+    assert debug.frame_recorder_enabled() is False
+    debug.log_frame("tcp://1.2.3.4:502", debug.SEND_MARK, b"\x02")
     assert debug.recorded_frames() == []
 
 
