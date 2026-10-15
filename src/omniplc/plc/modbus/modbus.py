@@ -468,6 +468,28 @@ class ModbusBaseClient(BaseClient):
     # 批量写入:与读侧对称的"按 (area, kind, width, dtype) 分组合并连续地址"
     # ------------------------------------------------------------------
 
+    def _parse_write_items(
+        self, items: Sequence[Tuple[str, Union[DataType, str], PrimitiveValue]]
+    ) -> List[Tuple[ModbusAddress, DataType, PrimitiveValue]]:
+        """批量写入参前置校验:地址 / 类型解析 + 写安全闸逐地址过闸(内部方法)。
+
+        ``write_many``/``write_batch`` 共用(review-1044:此前两份逐字重复)。
+        任一非法在**零字节发送期**同步抛出,不进事务锁;含写区域收口
+        (ir/di 只读)与写白名单/只读闸(review-1021 P0-1)。
+        """
+        parsed_items: List[Tuple[ModbusAddress, DataType, PrimitiveValue]] = []
+        for address, dtype, value in items:
+            data_type_enum = DataType.coerce(dtype)
+            self._check_write_allowed(address)
+            parsed_items.append(
+                (
+                    _check_address(address, data_type_enum, is_write=True),
+                    data_type_enum,
+                    value,
+                )
+            )
+        return parsed_items
+
     def write_many(
         self,
         items: Sequence[Tuple[str, Union[DataType, str], PrimitiveValue]],
@@ -505,17 +527,7 @@ class ModbusBaseClient(BaseClient):
         # 1) 入参合法性前置校验:任一非法即同步抛出,不进事务(含写区域收口:
         #    ir/di 只读,批量写不再"锁内才抛");写安全闸逐地址过闸
         #    (review-1021 P0-1:白名单/只读与地址校验同期,零发送期拒绝)
-        parsed_items: List[Tuple[ModbusAddress, DataType, PrimitiveValue]] = []
-        for address, dtype, value in items:
-            data_type_enum = DataType.coerce(dtype)
-            self._check_write_allowed(address)
-            parsed_items.append(
-                (
-                    _check_address(address, data_type_enum, is_write=True),
-                    data_type_enum,
-                    value,
-                )
-            )
+        parsed_items = self._parse_write_items(items)
         # 外层不再套 _execute:每个 chunk / RMW 项各自成事务(见 _coalesce_and_write),
         # 否则外层会把内层刚记下的失败当成功 _clear_error(),失败原因丢失
         return self._coalesce_and_write(parsed_items, fail_fast=False)
@@ -553,17 +565,7 @@ class ModbusBaseClient(BaseClient):
             raise ValueError(_("write_batch 至少需要一个 (地址, 数据类型, 值) 项"))
         # 1) 入参合法性前置校验(含写区域收口:ir/di 只读);写安全闸逐地址
         #    过闸(review-1021 P0-1,与 write_many 同口径)
-        parsed_items: List[Tuple[ModbusAddress, DataType, PrimitiveValue]] = []
-        for address, dtype, value in items:
-            data_type_enum = DataType.coerce(dtype)
-            self._check_write_allowed(address)
-            parsed_items.append(
-                (
-                    _check_address(address, data_type_enum, is_write=True),
-                    data_type_enum,
-                    value,
-                )
-            )
+        parsed_items = self._parse_write_items(items)
         # 整批容错:任一 FC 失败 → (False, None);异常穿透到 _execute,
         # 失败原因(设备异常码 / 越界)随 last_error 与分类记录;
         # is_write=True → 重试取 write_retries(默认 0,防重复写入)

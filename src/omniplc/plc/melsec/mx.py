@@ -119,11 +119,6 @@ def _com_error() -> Type[BaseException]:
     return comtypes.COMError
 
 
-def _first(result: Any) -> Any:
-    """comtypes 含出参方法可能回 (数据, 码) 元组,取首个业务值(内部函数)。"""
-    return result[0] if isinstance(result, tuple) else result
-
-
 def _return_code(result: Any) -> int:
     """取返回码:纯 LONG 直接用;(出参数组, 码) 元组取首个 int(内部函数)。"""
     items = result if isinstance(result, tuple) else (result,)

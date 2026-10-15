@@ -223,20 +223,7 @@ def parse_multiple_area_read(
         命令码·区码回显不符(消息带**收到的原始帧**十六进制转储,
         便于现场与抓包比对)
     """
-    _check_identity(frame, request_frame)
-    prefix = FINS_HEADER_SIZE + 2
-    if len(frame) < prefix + FINS_END_CODE_SIZE:
-        raise ProtocolFrameError(
-            _("FINS 响应不完整:至少 {} 字节,实际 {}(收到的原始帧:{})").format(
-                prefix + FINS_END_CODE_SIZE, len(frame), format_hex(frame)
-            )
-        )
-    end_code = int.from_bytes(frame[12:14], "big")
-    if not _is_normal_end_code(end_code):
-        text = _(_end_code_text(end_code))
-        raise DeviceError(
-            _("FINS 结束码 0x{:04X}({})").format(end_code, text), end_code
-        )
+    prefix = _check_response_head(frame, request_frame)
     expected = len(codes) * 3
     total = prefix + FINS_END_CODE_SIZE + expected
     if len(frame) != total:
@@ -287,20 +274,7 @@ def parse_response(
     :raises omniplc.core.errors.ProtocolFrameError: 帧结构/ICF·SID·
         命令码不符(消息带**收到的原始帧**十六进制转储,便于现场与抓包比对)
     """
-    _check_identity(frame, request_frame)
-    prefix = FINS_HEADER_SIZE + 2
-    if len(frame) < prefix + FINS_END_CODE_SIZE:
-        raise ProtocolFrameError(
-            _("FINS 响应不完整:至少 {} 字节,实际 {}(收到的原始帧:{})").format(
-                prefix + FINS_END_CODE_SIZE, len(frame), format_hex(frame)
-            )
-        )
-    end_code = int.from_bytes(frame[12:14], "big")
-    if not _is_normal_end_code(end_code):
-        text = _(_end_code_text(end_code))
-        raise DeviceError(
-            _("FINS 结束码 0x{:04X}({})").format(end_code, text), end_code
-        )
+    prefix = _check_response_head(frame, request_frame)
     if not is_read:
         total = prefix + FINS_END_CODE_SIZE
         if len(frame) != total:
@@ -376,22 +350,7 @@ def parse_cpu_unit_status_read(frame: bytes, request_frame: bytes) -> Dict[str, 
         (消息带原始帧十六进制转储)
     :raises DeviceError: 结束码非正常完成
     """
-    _check_identity(frame, request_frame)
-    prefix = FINS_HEADER_SIZE + 2
-    # 结束码先于数据长度校验(与 parse_response 同口径):错误应答只带
-    # 结束码、不带数据,按结束码抛 DeviceError 而非误判坏帧
-    if len(frame) < prefix + FINS_END_CODE_SIZE:
-        raise ProtocolFrameError(
-            _("FINS 响应不完整:至少 {} 字节,实际 {}(收到的原始帧:{})").format(
-                prefix + FINS_END_CODE_SIZE, len(frame), format_hex(frame)
-            )
-        )
-    end_code = int.from_bytes(frame[12:14], "big")
-    if not _is_normal_end_code(end_code):
-        text = _(_end_code_text(end_code))
-        raise DeviceError(
-            _("FINS 结束码 0x{:04X}({})").format(end_code, text), end_code
-        )
+    prefix = _check_response_head(frame, request_frame)
     data_total = 1 + 1 + 2 + 2 + 2 + 2 + 16
     total = prefix + FINS_END_CODE_SIZE + data_total
     if len(frame) != total:
@@ -550,22 +509,7 @@ def parse_clock_read(frame: bytes, request_frame: bytes) -> FinsClock:
         字段非 BCD(消息带原始帧十六进制转储)
     :raises DeviceError: 结束码非正常完成
     """
-    _check_identity(frame, request_frame)
-    prefix = FINS_HEADER_SIZE + 2
-    # 结束码先于数据长度校验(与 parse_response 同口径):错误应答只带
-    # 结束码、不带数据,按结束码抛 DeviceError 而非误判坏帧
-    if len(frame) < prefix + FINS_END_CODE_SIZE:
-        raise ProtocolFrameError(
-            _("FINS 响应不完整:至少 {} 字节,实际 {}(收到的原始帧:{})").format(
-                prefix + FINS_END_CODE_SIZE, len(frame), format_hex(frame)
-            )
-        )
-    end_code = int.from_bytes(frame[12:14], "big")
-    if not _is_normal_end_code(end_code):
-        text = _(_end_code_text(end_code))
-        raise DeviceError(
-            _("FINS 结束码 0x{:04X}({})").format(end_code, text), end_code
-        )
+    prefix = _check_response_head(frame, request_frame)
     data_total = 7
     total = prefix + FINS_END_CODE_SIZE + data_total
     if len(frame) != total:
@@ -923,3 +867,31 @@ def _check_identity(frame: bytes, request_frame: bytes) -> None:
                 "FINS 响应命令码回显不符:期望 0x{:04X},收到 0x{:04X}(收到的原始帧:{})"
             ).format(expected_command, actual_command, format_hex(frame))
         )
+
+
+def _check_response_head(frame: bytes, request_frame: bytes) -> int:
+    """响应头校验:回显三元组 + 长度下限 + 结束码,返回数据区起始偏移(内部函数)。
+
+    四个响应解析器(多存储区读 / 单区读写 / CPU 单元状态读 / 时钟读)共用同一
+    口径(review-1044:此前四份逐字重复):**结束码先于数据长度校验**——错误
+    应答只带结束码、不带数据,按结束码抛 :class:`DeviceError` 而非误判坏帧。
+
+    :return: 体头之后的偏移(``FINS_HEADER_SIZE + 2``),供调用方续算总长
+    :raises omniplc.core.errors.DeviceError: 结束码非正常完成
+    :raises omniplc.core.errors.ProtocolFrameError: 回显不符或帧长不足
+    """
+    _check_identity(frame, request_frame)
+    prefix = FINS_HEADER_SIZE + 2
+    if len(frame) < prefix + FINS_END_CODE_SIZE:
+        raise ProtocolFrameError(
+            _("FINS 响应不完整:至少 {} 字节,实际 {}(收到的原始帧:{})").format(
+                prefix + FINS_END_CODE_SIZE, len(frame), format_hex(frame)
+            )
+        )
+    end_code = int.from_bytes(frame[12:14], "big")
+    if not _is_normal_end_code(end_code):
+        text = _(_end_code_text(end_code))
+        raise DeviceError(
+            _("FINS 结束码 0x{:04X}({})").format(end_code, text), end_code
+        )
+    return prefix

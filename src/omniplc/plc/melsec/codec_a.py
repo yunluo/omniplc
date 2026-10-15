@@ -38,7 +38,7 @@ from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
 from ...core.i18n import _
 from .address import McAddress
-from .codec_qna import reject_bit_suffix_on_bit_device
+from .codec_qna import _write_payload, reject_bit_suffix_on_bit_device
 
 
 def device_info(device: str) -> Tuple[int, bool, int]:
@@ -237,20 +237,3 @@ def parse_response(frame: bytes, points: int, is_bit: bool, is_read: bool) -> Li
         ]
     # 一次 struct.unpack(逐字切片 + from_bytes 换出,review-1019 P2-10)
     return list(struct.unpack(f"<{points}H", data))
-
-
-def _write_payload(points: int, is_bit: bool, data: List[int]) -> bytes:
-    """写数据编码:位按"每字节 2 位、高位在前"打包;字逐字小端(内部函数)。"""
-    if len(data) != points:
-        raise ValueError(_("写数据个数 {} 与点数 {} 不符").format(len(data), points))
-    if is_bit:
-        packed = bytearray((points + 1) // 2)
-        for index, flag in enumerate(data):
-            if flag:
-                packed[index // 2] |= 0x10 if index % 2 == 0 else 0x01
-        return bytes(packed)
-    for word in data:
-        if not 0 <= word <= 0xFFFF:
-            raise ValueError(_("字写数据超出范围 0~65535:{}").format(word))
-    # 校验遍保留,打包一次 struct.pack(review-1019 P2-10)
-    return struct.pack(f"<{len(data)}H", *data)
