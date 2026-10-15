@@ -1162,11 +1162,23 @@ class AsyncBaseClient(ABC):
             return False, None
         if not verify:
             return True, None
-        reread_enum = (
-            DataType.coerce(readback_type)
-            if readback_type is not None
-            else data_type_enum
-        )
+        if readback_type is not None:
+            reread_enum = DataType.coerce(readback_type)
+            if reread_enum.byte_size != data_type_enum.byte_size:
+                raise ValueError(
+                    _(
+                        "write_and_verify 不支持异型回读:写入类型为 {}({} 字节),"
+                        "回读类型为 {}({} 字节);请手工 read 后比较,"
+                        "(原实现按数值直接比较,会恒判不符或碰巧一致,review-1043 乙-6)"
+                    ).format(
+                        data_type_enum.value,
+                        data_type_enum.byte_size,
+                        reread_enum.value,
+                        reread_enum.byte_size,
+                    )
+                )
+        else:
+            reread_enum = data_type_enum
         ok, actual = await self.read(address, reread_enum)
         if not ok or actual is None:
             return False, None

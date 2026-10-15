@@ -1448,21 +1448,36 @@ class BaseClient(ABC):
         :param value: 待写入值
         :param verify: ``False`` 跳过回读(只写不可读软元件场景),等价
             :meth:`write` 但返回 ``(是否成功, None)``
-        :param readback_type: 回读类型;``None`` = 同写入类型(如写入用
-            32 位跨字设定值、回读按两个 16 位字拆读的场景可指定)
+        :param readback_type: 回读类型;``None`` = 同写入类型(review-1043
+            乙-6:旧实现允许异型回读,实际比对是 ``bool(written == readback)``,
+            对窄型回读恒判不符、对宽型回读碰巧一致——「按文档用就是坏的」。
+            现改为显式拒绝:需要拆字校验请手工 read 后比较)
         :return: ``(是否成功, 回读值)``;verify 关闭时回读值恒 ``None``
         :raises RuntimeError: 只读模式;:raises ValueError: 参数/白名单拒绝
+            或回读类型与写入类型宽度不同
         """
         data_type_enum = DataType.coerce(data_type)
         if not self.write(address, data_type_enum, value):
             return False, None
         if not verify:
             return True, None
-        reread_enum = (
-            DataType.coerce(readback_type)
-            if readback_type is not None
-            else data_type_enum
-        )
+        if readback_type is not None:
+            reread_enum = DataType.coerce(readback_type)
+            if reread_enum.byte_size != data_type_enum.byte_size:
+                raise ValueError(
+                    _(
+                        "write_and_verify 不支持异型回读:写入类型为 {}({} 字节),"
+                        "回读类型为 {}({} 字节);请手工 read 后比较,"
+                        "(原实现按数值直接比较,会恒判不符或碰巧一致,review-1043 乙-6)"
+                    ).format(
+                        data_type_enum.value,
+                        data_type_enum.byte_size,
+                        reread_enum.value,
+                        reread_enum.byte_size,
+                    )
+                )
+        else:
+            reread_enum = data_type_enum
         ok, actual = self.read(address, reread_enum)
         if not ok or actual is None:
             return False, None
