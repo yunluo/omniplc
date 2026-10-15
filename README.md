@@ -10,7 +10,8 @@
 面向多品牌、多协议 PLC 的 Python 统一通信库:三菱 / 欧姆龙 / 基恩士 / 汇川 /
 松下 / 丰田 / 罗克韦尔(AB)/ 西门子(S7)/ SR 扫码枪 /
 海康读码器 / OPC-UA / CNC(MTConnect + 发那科 FOCAS + 三菱 EZSocket),
-共 18 族协议、34 个同步客户端。
+共 18 族协议、**32 个具体同步客户端**(`omniplc.__all__` 里 34 个以 `Client`
+结尾的名字中,`BaseClient`/`ModbusBaseClient` 是抽象基类,不计入)。
 **一次编写,同一套 API。**
 源码:[GitHub](https://github.com/yunluo/omniplc) · [Gitee 镜像](https://gitee.com/yunluo/omniplc) ·
 发布:[PyPI](https://pypi.org/project/omniplc/)
@@ -26,7 +27,8 @@
 - 线程安全、惰性自动重连、指数退避门控、可配置超时/重试
 - 全局报文调试(`set_debug`)+ 报文黑匣子(`set_frame_recorder`,只存
   不打印,故障后取最近报文)+ 报错语言中英切换(`set_lang`)
-- 同步 + 异步双轨(异步类 = 同步类名前加 `A`;另有原生 asyncio 层 `Async*`)
+- 三层走线同一张 API:同步 / 线程池异步(`omniplc.aio`,类名 = 同步类名前加 `A`)
+  / 原生 asyncio(`omniplc.native`,`Async*` 前缀,零第三方依赖)
 
 #### 安装
 
@@ -70,7 +72,7 @@ with ModbusTcpClient(ip_address="192.168.0.10", port=502, station=1) as client:
 - 连接失败自动进入指数退避门控(默认开,`reconnect_backoff = False` 关闭);
   `client.stats` 提供连接健康统计(`ClientStats` TypedDict)。
 
-各协议全部 34 个客户端的用法示例(构造参数 / 地址语法 / 协议特有能力)见
+各协议全部 32 个具体客户端的用法示例(构造参数 / 地址语法 / 协议特有能力)见
 **[docs/examples.md](docs/examples.md)**;现场排障(失败分类 / 超时语义 /
 坏帧比对 / 轮询过载)见 **[docs/troubleshooting.md](docs/troubleshooting.md)**,
 已知固件/设备行为差异见 [docs/firmware-notes.md](docs/firmware-notes.md)。
@@ -192,9 +194,11 @@ EZSocket 读系统数、海康读码器状态查询等——
 
 | 文档                                                             | 内容                                              |
 | ---------------------------------------------------------------- | ------------------------------------------------- |
-| [docs/examples.md](docs/examples.md)                             | 各协议用法示例(34 客户端 / 扩展功能码 / 批量读取) |
+| [docs/examples.md](docs/examples.md)                             | 各协议用法示例(32 客户端 / 扩展功能码 / 批量读取) |
 | [docs/async.md](docs/async.md)                                   | 异步两套的选型、示例与边界                        |
 | [docs/architecture.md](docs/architecture.md)                     | 架构设计、类继承图、版本履历                      |
+| [docs/troubleshooting.md](docs/troubleshooting.md)               | **现场排障**:失败分类→动作、超时专题、高频错误码话术 |
+| [docs/firmware-notes.md](docs/firmware-notes.md)                 | **已知固件/设备行为差异**对照                      |
 | [docs/real-machine-checklist.md](docs/real-machine-checklist.md) | 真机联测记录与待核证项                            |
 | [docs/protocol-features.md](docs/protocol-features.md)           | 协议功能实现矩阵(已实现/未实现逐协议对照)         |
 | [docs/protocol/README.md](docs/protocol/README.md)               | 协议官方手册索引                                  |
@@ -210,12 +214,17 @@ EZSocket 读系统数、海康读码器状态查询等——
 
 #### 开发
 
+门禁**五件套**(口径权威在 [CONTRIBUTING.md](CONTRIBUTING.md),此处只抄一份
+快捷版本——review-1043 庚-4:原 README 少 `ruff format --check`、mypy 漏
+`--python 3.12`,按它跑会撞上 3.7 时代 mypy 的 tokenizer 误报):
+
 ```bash
-uv sync --extra dev                 # 安装开发依赖
-uv run python -m pytest tests -q    # 测试(无需真机)
-uvx ruff check src tests            # 代码检查
-uvx mypy src/omniplc                # 类型检查(python_version = 3.10)
-uvx ty check src/omniplc            # ty 类型检查
+uv sync --extra dev                        # 安装开发依赖
+uv run --extra dev python -m pytest tests -q   # 3.7.9 全量(无需真机)
+uvx ruff format --check src tests          # 格式零漂移
+uvx ruff check src tests                   # 代码检查
+uvx --python 3.12 mypy src/omniplc         # 类型检查(必须 3.12 跑)
+uvx ty check src/omniplc                   # ty 类型检查
 ```
 
 本地双版本(3.7.9 + 3.12)测试跑法见 [CONTRIBUTING.md](CONTRIBUTING.md)「测试」节。

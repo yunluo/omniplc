@@ -13,7 +13,7 @@ omniplc 是面向多品牌、多协议 PLC 的 Python 统一通信库(Python 3.7
 ```mermaid
 flowchart TB
     subgraph UserApi["用户 API 层"]
-        Clients["协议 × 走线 具体客户端类<br/>34 个同步 + 34 个异步(A 前缀镜像,omniplc.aio 线程池包装)<br/>9 个原生异步(Async 前缀,omniplc.native 真 asyncio 协议栈,零第三方依赖,8 个具体客户端覆盖五协议)<br/>reader:KeyenceSrClient 扫码枪 · cnc:MTConnectClient 机床数采"]
+        Clients["协议 × 走线 具体客户端类<br/>32 个具体同步 + 32 个具体异步(A 前缀镜像,omniplc.aio 线程池包装)<br/>9 个原生异步(Async 前缀,omniplc.native 真 asyncio 协议栈,零第三方依赖,8 个具体客户端覆盖五协议)<br/>reader:KeyenceSrClient 扫码枪 · cnc:MTConnectClient 机床数采"]
     end
     subgraph Drivers["驱动层 drivers(协议编解码 + 地址解析)"]
         Modbus["plc/modbus/<br/>codec + address + client"]
@@ -234,7 +234,11 @@ flowchart TB
     class BaseClient,ModbusBaseClient,MelsecMcBase,KeyenceMcCodeMixin,OmronFinsBase,KeyenceHlBase,ToyopucBase,MewtocolBase,BaseTransportABC abstract;
 ```
 
-全库共 **34 个同步具体类 + 34 个异步镜像类**;三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
+全库共 **32 个具体同步类 + 32 个具体异步镜像类**(口径:导出面里以 `Client`
+结尾的名字 34 个,其中 `BaseClient`/`ModbusBaseClient` 为抽象基类不计;
+判据命令 `.venv\Scripts\python.exe -c "import omniplc; print(len([n for n
+in omniplc.__all__ if n.endswith('Client')]))"` → 34,减去两个基类);
+三菱三帧型(3E/4E/1E)× 两走线(TCP/UDP)
 加串口帧(1C/3C/4C,同一 `_MelsecMcBase` 基类),基恩士 KV MC 兼容 TCP/UDP 两走线
 (共用 `_KeyenceMcCodeMixin` 码表覆写),罗克韦尔 AB EtherNet/IP(TCP 44818,
 unconnected 消息),欧姆龙 NJ/NX CIP(继承 AB 客户端,三钩子覆写),
@@ -603,8 +607,8 @@ class BaseClient(ABC):
 ## 8. 全协议 × 走线矩阵与实现选型
 
 矩阵中的 **✅ = 代码实现 + 单元测试已就位**;真机核证状态另见
-`docs/real-machine-checklist.md`(正文各驱动另标有"真机联测待做",汇总表见
-`README.md`「真机联测待做」)。
+`docs/real-machine-checklist.md`(正文各驱动另标有"真机联测待做"标记,
+汇总即该清单文件;review-1043 庚-3 订正原指 README 的失联引用)。
 表中 `v1.x(...)` 表示该走线**留待 v1.x 版本**实现,非版本号标注。
 
 | 协议                                           | TCP                                                           | UDP                                   | RTU(串口)                              | MX Component        |
@@ -1335,14 +1339,14 @@ BaseClient(ABC,模板方法:连接状态机 / 事务锁 / 惰性重连 / 类型�
 ├── MTConnectClient —— CNC 机床数采(HTTP/XML 只读,Agent 默认 5000)
 └── SiemensS7Client —— 西门子 S7(102,rack/slot 路由,自研 S7comm 栈)
 
-异步镜像(omniplc.aio):类名 = 同步类名前加 A,签名同名同型,共 30 个
+异步镜像(omniplc.aio):类名 = 同步类名前加 A,签名同名同型,共 32 个具体
 AModbusTcpClient / AModbusRtuClient / AInovanceTcpClient / AInovanceRtuClient / AInovanceMcTcpClient
 AMelsecMcTcpClient / AMelsecMcUdpClient / AMelsecMcSerialClient / AMelsecMxClient / AOmronFinsTcpClient
 AOmronFinsUdpClient / AOmronCipClient / AAllenBradleyEthIpClient / AKeyenceHostLinkTcpClient
 AKeyenceHostLinkUdpClient / AKeyenceMcTcpClient / AKeyenceMcUdpClient / APanasonicMcTcpClient / APanasonicMewtocolTcpClient
 APanasonicMewtocolUdpClient / AKeyenceSrClient / AToyopucTcpClient / AToyopucUdpClient / AOpcUaClient
 AMTConnectClient / ASiemensS7Client / AHikrobotIdModbusClient / AHikrobotIdTcpClient
-AHikrobotIdSdkClient / AHikrobotIdSerialClient
+AHikrobotIdSdkClient / AHikrobotIdSerialClient / AFanucFocasClient / AMitsubishiEzSocketClient
 
 原生异步(omniplc.native):独立层,类名 = 同步类名前加 Async,覆盖五协议 8 个具体客户端(共 9 个,含 AsyncBaseClient 基类)
 AsyncBaseClient(异步基类,事务模板与同步层同口径)

@@ -24,12 +24,16 @@
 
 ## 测试
 
-- [ ] `uv run python -m pytest tests -q` 全过(本地验证)
+- [ ] `uv run --extra dev python -m pytest tests -q` 全过(3.7.9 全量,本地验证)
+- [ ] `uvx ruff format --check src tests` 零漂移
 - [ ] `uvx ruff check src tests` 零告警
-- [ ] `uvx mypy src/omniplc` 零问题
+- [ ] `uvx --python 3.12 mypy src/omniplc` 零问题(**必须 3.12 跑**:3.7 时代
+      mypy 的 tokenizer 会误报中文源码)
 - [ ] `uvx ty check src/omniplc` 零问题
 - [ ] 新增/改动对应测试已补(含黄金向量,若涉及协议帧)
 - [ ] 真机联测(协议面改动):______
+- [ ] 台账撤库后引用只用协作记忆/CHANGELOG 口径(若要引用历轮审查结论,
+      用 `review-XXXX §N` 标签而非文件链接)
 
 ## 文档同步
 

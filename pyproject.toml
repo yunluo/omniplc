@@ -56,6 +56,15 @@ classifiers = [
 ]
 dependencies = []
 
+[project.urls]
+# 交付面元数据(review-1043 己-5):原完全缺失,PyPI 页 project_urls/home_page
+# 均为空 ⇒ 客户尽调拿不到仓库/变更日志/问题跟踪入口
+Homepage = "https://github.com/yunluo/omniplc"
+Repository = "https://github.com/yunluo/omniplc"
+Changelog = "https://github.com/yunluo/omniplc/blob/master/CHANGELOG.md"
+Documentation = "https://github.com/yunluo/omniplc/blob/master/SKILL.md"
+Issues = "https://github.com/yunluo/omniplc/issues"
+
 [project.optional-dependencies]
 serial = ["pyserial==3.5"]
 mx = ["comtypes==1.4.6; platform_system == 'Windows'"]

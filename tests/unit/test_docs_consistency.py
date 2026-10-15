@@ -27,6 +27,12 @@ ROOT = Path(__file__).resolve().parents[2]
 
 _CONCRETE_NATIVE = 8  # 五协议 8 个具体客户端(Modbus/MC×2/FINS×2/汇川×2/S7)
 _NATIVE_BASE = "AsyncBaseClient"
+# 抽象基类不计入"具体客户端"口径(review-1043 庚-1:原守卫把导出面里所有
+# `*Client` 名字当具体客户端,于是 README/SKILL/architecture 的「34 个同步
+# 客户端」被守卫**锁在错误口径上**——34 含 BaseClient/ModbusBaseClient 两个基类,
+# 具体客户端实为 32,与推广材料一致)
+_SYNC_BASES = ("BaseClient", "ModbusBaseClient")
+_AIO_BASES = ("ABaseClient", "AModbusBaseClient")
 
 
 def _text(rel: str) -> str:
@@ -43,29 +49,100 @@ def _counts() -> Tuple[int, int, int, int]:
     return sync_n, aio_n, native_client_n, native_concrete_n
 
 
+def _concrete_counts() -> Tuple[int, int]:
+    """具体(非抽象基类)同步/异步客户端数(review-1043 庚-1 口径)。"""
+    sync_n, aio_n, _nc, _nc8 = _counts()
+    for base in _SYNC_BASES:
+        if base in omniplc.__all__:
+            sync_n -= 1
+    for base in _AIO_BASES:
+        if base in omniplc.aio.__all__:
+            aio_n -= 1
+    return sync_n, aio_n
+
+
 def test_readme_skill_examples_client_counts() -> None:
-    """README/SKILL/examples 的「N 个同步客户端 / N 客户端」与导出面对拍。"""
-    sync_n, _aio_n, _nc, _nc8 = _counts()
+    """README/SKILL/examples 的「N 个具体…客户端」与**具体**客户端数对拍。"""
+    sync_concrete, _aio_concrete = _concrete_counts()
     for rel in ("README.md", "SKILL.md", "docs/examples.md"):
         text = _text(rel)
-        for m in re.findall(r"(\d+) 个同步客户端", text):
-            assert int(m) == sync_n, "{}: {} 个同步客户端".format(rel, m)
-        for m in re.findall(r"(\d+) 个?客户端", text):
-            assert int(m) == sync_n, "{}: {} 客户端".format(rel, m)
+        for m in re.findall(r"(\d+) 个具体同步客户端", text):
+            assert int(m) == sync_concrete, "{}: {} 个具体同步客户端".format(rel, m)
+        for m in re.findall(r"(\d+) 个具体客户端", text):
+            assert int(m) == sync_concrete, "{}: {} 个具体客户端".format(rel, m)
+        # 旧的"34 个同步客户端"口径已废弃(含两个抽象基类):出现即报
+        assert "个同步客户端" not in text or "个具体同步客户端" in text, (
+            "{} 仍用「N 个同步客户端」口径(应写「N 个具体同步客户端」)".format(rel)
+        )
 
 
 def test_architecture_layer_counts() -> None:
-    """architecture 分层图/类清单的计数与导出面对拍。"""
-    sync_n, aio_n, native_client_n, native_concrete_n = _counts()
+    """architecture 分层图/类清单的计数与**具体**客户端数对拍。"""
+    sync_concrete, aio_concrete = _concrete_counts()
+    _sync_n, _aio_n, native_client_n, native_concrete_n = _counts()
     text = _text("docs/architecture.md")
-    for m in re.findall(r"(\d+) 个同步 \+ (\d+) 个异步", text):
-        assert int(m[0]) == sync_n and int(m[1]) == aio_n, "分层图计数漂移"
-    for m in re.findall(r"(\d+) 个同步具体类 \+ (\d+) 个异步镜像类", text):
-        assert int(m[0]) == sync_n and int(m[1]) == aio_n, "类清单计数漂移"
+    typed = re.findall(r"(\d+) 个具体同步 \+ (\d+) 个具体异步", text)
+    assert typed, "分层图应写「N 个具体同步 + N 个具体异步」(review-1043 庚-1 口径)"
+    for m in typed:
+        assert int(m[0]) == sync_concrete and int(m[1]) == aio_concrete, (
+            "分层图计数漂移"
+        )
+    for m in re.findall(r"(\d+) 个具体同步类 \+ (\d+) 个具体异步镜像类", text):
+        assert int(m[0]) == sync_concrete and int(m[1]) == aio_concrete, (
+            "类清单计数漂移"
+        )
     for m in re.findall(r"覆盖五协议 (\d+) 个", text):
         assert int(m) == native_concrete_n, "原生异步具体客户端计数漂移"
     for m in re.findall(r"(\d+) 个原生异步", text):
         assert int(m) == native_client_n, "原生异步总数(含基类)计数漂移"
+
+
+def test_docs_client_names_are_importable() -> None:
+    """docs/*.md 里出现的 ``*Client`` 名必须能在库里导入(review-1043 庚-2)。
+
+    实测漏网:`docs/protocol-features.md` 曾写 ``InovanceModbusTcpClient``
+    ——该名字**库里不存在**(真名 `InovanceTcpClient`),集成商按矩阵选型会
+    直接 `ImportError`。守卫半径从「只守 4 种句式 + 架构版本」扩到「全 docs
+    的客户端类名逐个可导入」。
+    """
+    import omniplc.aio
+    import omniplc.native
+
+    exported = (
+        set(omniplc.__all__) | set(omniplc.aio.__all__) | set(omniplc.native.__all__)
+    )
+    # 非本库名字白名单:
+    # - 抽象基类(公开导出面里也有,文档叙述性提到)
+    # - **已移除驱动的历史记录**:`OpenTcpClient`/`AOpenTcpClient`(v0.45.0 移除)、
+    #   `BeckhoffAdsClient`/`ABeckhoffAdsClient`(v0.52.0 移除)——出现在
+    #   architecture 版本履历表里,是"已移除"事实的记载,不是可用类名
+    # - 缩写/占位形态:`UdpClient` 是「XxxTcpClient / UdpClient」成对书写里的
+    #   后半截,`AClient` 是文档里的泛指占位(`async with AClient(...)`)
+    allowed = {
+        "BaseClient",
+        "ABaseClient",
+        "ModbusBaseClient",
+        "AModbusBaseClient",
+        "AsyncBaseClient",
+        "OpenTcpClient",
+        "AOpenTcpClient",
+        "BeckhoffAdsClient",
+        "ABeckhoffAdsClient",
+        "UdpClient",
+        "AClient",
+    }
+    offenders = {}
+    for path in sorted((ROOT / "docs").glob("*.md")):
+        if path.name.startswith("review-"):
+            # 内部审查台账(未入库/gitignored):内容含已删除类名的历史对照,
+            # 不属"面向用户的文档"口径
+            continue
+        text = path.read_text(encoding="utf-8")
+        for name in set(re.findall(r"\b([A-Z][A-Za-z0-9]*Client)\b", text)):
+            if name in exported or name in allowed:
+                continue
+            offenders.setdefault(name, []).append(path.name)
+    assert not offenders, "docs 引用了库内不存在的客户端名:{}".format(offenders)
 
 
 def test_architecture_version_matches_package() -> None:

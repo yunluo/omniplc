@@ -89,7 +89,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 
 ## 1. Modbus(应用协议 V1.1b3 + 串口链路 V1.02 + TCP 指南 V1.0b)
 
-客户端:`ModbusTcpClient` / `ModbusRtuClient` / `InovanceModbusTcpClient` / `InovanceRtuClient`
+客户端:`ModbusTcpClient` / `ModbusRtuClient` / `InovanceTcpClient` / `InovanceRtuClient`
 
 | 功能                                  | 状态 | 备注                                                                                                                                                                  |
 | ------------------------------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -271,7 +271,7 @@ TCP keepalive 只能证明 TCP 栈活着,证明不了 PLC 应用/固件没卡死
 
 ## 10. 汇川 H3U/H5U(Modbus 映射)
 
-客户端:`InovanceModbusTcpClient` / `InovanceRtuClient`(继承 Modbus)
+客户端:`InovanceTcpClient` / `InovanceRtuClient`(继承 Modbus)
 
 | 功能                                    | 状态 | 备注                                           |
 | --------------------------------------- | ---- | ---------------------------------------------- |

@@ -41,7 +41,7 @@
   - `tools/_ref_*/`(第三方参考项目源码,如 `tools/_ref_edge/`)
   - `.idea/`、`__pycache__/`、`.venv/`(本地环境)
 - **不要库内模拟器**:不引入 Virtual PLC / Fake PLC 之类代码;协议真机核证由人工完成
-  (`README.md`「真机联测待做」表登记)。
+  (`docs/real-machine-checklist.md` 登记,该清单自 README 迁入)。
 - **公共 API 不抛自定义异常**:失败一律 `(False, None)` / `False`,原因进 `client.last_error`;
   内部异常仅用于控制流(`core/errors.py` 见)。
 
@@ -53,7 +53,7 @@
 uv run python -m pytest tests -q         # 全量(例数随批次增长,以门禁输出为准;无平台跳过;超 120s 由 pytest-timeout 判失败)
 uvx ruff format --check src tests        # 格式零漂移(ruff 默认配置,与 同类参考实现 对齐;改动后先 uvx ruff format src tests)
 uvx ruff check src tests                 # 0 告警(规则集显式固定,target-version 由 requires-python 推导为 py37)
-uvx --python 3.12 mypy src/omniplc       # 0 问题(81 源文件,目标 python_version=3.10;mypy 已不支持 <3.10,3.7 兼容由 ruff + 3.7.9 测试腿兜底)
+uvx --python 3.12 mypy src/omniplc       # 0 问题(83 源文件,目标 python_version=3.10;mypy 已不支持 <3.10,3.7 兼容由 ruff + 3.7.9 测试腿兜底)
 uvx ty check src/omniplc                 # 0 问题(Astral 第二类型检查器,与 mypy 互补)
 ```
 
@@ -129,4 +129,31 @@ CHANGELOG 披露即可。
 - 在 [`docs/real-machine-checklist.md`](docs/real-machine-checklist.md) 填写真机型号 / 读取 / 写入 / 备注
 - 模拟器(PLCSIM Advanced / TwinCAT Simulator 等)需在备注里明确标注
 
-现有未真机项目清单:`README.md`「真机联测待做」表。
+现有未真机项目清单:`docs/real-machine-checklist.md`(该清单自 README 迁入;
+review-1043 庚-3 订正原「README.md 真机联测待做表」的失联引用)。
+
+---
+
+## 九、新增一个驱动要摸的落点(约 12 处;review-1043 庚-5)
+
+驱动类名/导出面/文档表三处不一致是历史高频缺陷,故列全清单;**标 ★ 的有机械
+守卫**(写错即门禁红),其余靠自检:
+
+| # | 落点 | 守卫 |
+| --- | --- | --- |
+| 1 | `src/omniplc/plc/<品牌>/` 驱动模块 + `codec` + `address` | — |
+| 2 | 根包 `src/omniplc/__init__.py` 的 `__all__` + 导入 | ★ 导出面导入性 |
+| 3 | `src/omniplc/aio/__init__.py` 异步镜像(`A` 前缀) | ★ aio 镜像面/签名对拍 |
+| 4 | `src/omniplc/native/`(若做原生异步) | ★ native 能力面守卫 |
+| 5 | `core/constants.py` 码表/常量(带**页码级依据**注释) | ★ 码表重码 + i18n 取词 |
+| 6 | `core/i18n.py` 新增 raise 文案的 en 条目 | ★ raise 文案全收录 |
+| 7 | 单元测试 + 黄金帧向量(逐字节字面量,勿自指断言) | — |
+| 8 | `tests/unit/test_manual_common_smoke.py` 构造冒烟驱动清单 | ★ 构造冒烟 |
+| 9 | `tests/unit/test_docs_consistency.py::_EXPECTED_DRIVERS` | ★ 驱动集覆盖 |
+| 10 | `README.md` 客户端表 | ★ 计数口径 + `*Client` 可导入 |
+| 11 | `SKILL.md` 速查表 + `docs/examples.md` 用法块 | ★ examples 代码块 AST |
+| 12 | `docs/architecture.md` 类图/分层图/类清单 + `docs/protocol-features.md` 功能矩阵 + `docs/real-machine-checklist.md` 真机项 | ★ 计数与版本口径 |
+
+口径提醒:客户端计数写「N 个**具体**同步客户端」(抽象基类不计);协议实现必须
+在 `docs/protocol/` 有手册依据或按 `docs/rules.md` 登记「待核」;真机脚本
+(`tools/manual_*.py`)永不入库。
