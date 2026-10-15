@@ -971,6 +971,30 @@ def test_generic_message_low_level_entry(
     assert expected_req in bytes(scripted.sent)
 
 
+def test_known_types_cache_bounded_fifo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """标签类型缓存有界,先进先出淘汰(review-1043 丙-6)。
+
+    原实现只增不减:动态拼标签名的长跑应用无界吃内存。上限经常量注入
+    (测试改小到 3),覆盖「插入淘汰最早已见 / 覆写已有不淘汰」两条。
+    """
+    from omniplc.plc.ab import ab as ab_module
+
+    monkeypatch.setattr(ab_module, "AB_KNOWN_TYPES_MAX", 3)
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818)
+    for tag, code in (("T1", 0xC4), ("T2", 0xC5), ("T3", 0xC6)):
+        client._remember_type(tag, code)
+    assert len(client._known_types) == 3
+    # 覆写已有基名不新增(不触发淘汰)
+    client._remember_type("T2", 0xC7)
+    assert client._known_types["T2"] == 0xC7
+    assert len(client._known_types) == 3
+    # 第 4 个新基名挤掉最早已见的 T1
+    client._remember_type("T4", 0xC8)
+    assert len(client._known_types) == 3
+    assert "T1" not in client._known_types
+    assert client._known_types["T4"] == 0xC8
+
+
 def test_generic_message_write_service_whitelist_requires_dangerous(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

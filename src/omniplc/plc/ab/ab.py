@@ -47,6 +47,7 @@ from ...core.constants import (
     AB_EIP_MAX_FRAME,
     AB_EIP_ORIGINATOR_VENDOR_ID,
     AB_EIP_SLOT_MAX,
+    AB_KNOWN_TYPES_MAX,
     AB_MAX_BATCH_PAYLOAD,
     AB_MAX_BATCH_SERVICES,
     INT32_MAX,
@@ -103,6 +104,9 @@ class AllenBradleyEthIpClient(BaseClient):
         self._slot = slot
         self._connected_messaging = bool(connected_messaging)
         self._session_handle = 0
+        # 标签基名 → CIP 类型码缓存:有界(review-1043 丙-6,先进先出淘汰,
+        # 上限 AB_KNOWN_TYPES_MAX——原实现只增不减,动态拼标签名的长跑
+        # 应用会无界吃内存)
         self._known_types: dict = {}
         self._connection_serial = 0
         self._ot_connection_id: Optional[int] = None
@@ -584,6 +588,20 @@ class AllenBradleyEthIpClient(BaseClient):
     # 类型发现(标签自描述,按基名缓存)
     # ------------------------------------------------------------------
 
+    def _remember_type(self, base: str, cip_type: int) -> None:
+        """登记标签基名 → 类型码,超上限先进先出淘汰(内部方法)。
+
+        review-1043 丙-6:缓存有界,防动态拼标签名的长跑应用无界吃内存;
+        淘汰只影响一次类型发现往返(重读自描述即补回),无正确性风险。
+        dict 保插入序(py3.7+),``next(iter(...))`` 即最早已见基名。
+        """
+        if (
+            base not in self._known_types
+            and len(self._known_types) >= AB_KNOWN_TYPES_MAX
+        ):
+            self._known_types.pop(next(iter(self._known_types)))
+        self._known_types[base] = cip_type
+
     def _ensure_type(self, parsed: AbTag) -> int:
         """确认标签实际类型码:读末级下标置 0 的 1 个元素并缓存(内部方法)。"""
         base = parsed.base
@@ -596,7 +614,7 @@ class AllenBradleyEthIpClient(BaseClient):
         cip_type, _unused = codec_cip.parse_tag_read_payload(
             self._transact(request, codec_cip.CIP_SERVICE_READ_TAG)
         )
-        self._known_types[base] = cip_type
+        self._remember_type(base, cip_type)
         return cip_type
 
     @staticmethod
@@ -627,7 +645,9 @@ class AllenBradleyEthIpClient(BaseClient):
             self._transact(request, codec_cip.CIP_SERVICE_READ_TAG)
         )
         if parsed.bit is None:
-            self._known_types.setdefault(parsed.base, cip_type)
+            # 读路径顺带刷新缓存(已有条目按新读到的实际类型覆写,
+            # 程序重下改类型后缓存自愈;覆写不改变 dict 插入序)
+            self._remember_type(parsed.base, cip_type)
         return cip_type, data
 
     def _read(self, address: str, data_type: DataType) -> PrimitiveValue:
@@ -812,7 +832,7 @@ class AllenBradleyEthIpClient(BaseClient):
             ):
                 cip_type, data = codec_cip.parse_tag_read_payload(payload)
                 if parsed.bit is None:
-                    self._known_types.setdefault(parsed.base, cip_type)
+                    self._remember_type(parsed.base, cip_type)
                 if kind == "scalar":
                     expected = codec_cip.data_type_code(data_type_enum)
                     self._check_type(address, cip_type, expected)
