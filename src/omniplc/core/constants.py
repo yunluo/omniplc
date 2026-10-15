@@ -1240,7 +1240,11 @@ AB_EIP_STATUS_TEXT: dict = {
     0x65: "长度域非法",
     0x69: "不支持的封装协议版本",
 }
-"""ENIP 封装层状态 → 可读描述(last_error 用;非 0 按坏帧处理触发惰性重连)。"""
+"""ENIP 封装层状态 → 可读描述(last_error 用;非 0 按坏帧处理触发惰性重连)。
+
+**依据状态(review-1035 §三 P2-3)**:正典 = EtherNet/IP Vol 2 封装层状态表,
+本目录**未收录**(Rockwell 指南 p.20 Table 2 只标字段名"Status",未给码表)
+⇒ 取值来自参考实现 + 真机实测,**待核**。"""
 AB_CIP_STATUS_TEXT: dict = {
     0x00: "成功",
     0x01: "连接失败",
@@ -1288,10 +1292,20 @@ AB_CIP_STATUS_TEXT: dict = {
     0x2B: "未知 Modbus 错误",
     0x2C: "属性不可读",
 }
-"""CIP 通用状态码 → 可读描述(last_error 用;未收录的提示十六进制原文)。"""
+"""CIP 通用状态码 → 可读描述(last_error 用;未收录的提示十六进制原文)。
+
+**依据状态(review-1035 §三 P2-3)**:三张表(本表 / ``AB_EIP_STATUS_TEXT`` /
+``AB_CIP_EXTENDED_STATUS_TEXT``)的**正典本体为 CIP Vol 1**——本目录**未收录**
+(见 `docs/protocol/README.md`「待补」),且收录的 Rockwell 指南 p.23 Table 6
+只写"Status Codes(**Appendix B of CIP Common**)"即转入正典 ⇒ **无页码级依据**;
+以下取值来自 Rockwell KB 28917(网页)+ 参考实现对照 + 真机实测,**整体待核**。
+"""
 
 # CIP 子状态码(扩展码)二级映射:general_status -> {extended_status: 文本}
-# 源:Rockwell KB 28917 + ODVA CIP Vol 1 §5-4.4.2(2026-09 复审交叉核证)。
+# 源:Rockwell KB 28917(网页)+ 参考实现对照(2026-09 复审交叉核证);
+# **ODVA CIP Vol 1 Appendix B / §5-4.4.2 未收录**(review-1035 §三 P2-3 订正:
+# 原注释写"ODVA CIP Vol 1 §5-4.4.2",但本目录语料全文检索无该章节、亦无
+# 0x06/0x1E 条目文本)⇒ 逐条待核,拿到正典后按 Appendix B 补页码。
 # DeviceError 抛出时若状态码有扩展子状态,
 # 自动拼到 message 末尾便于排错;扩展码不进 ``DeviceError.code``(仍仅 8 位
 # 通用状态),以免破坏既有错误契约。

@@ -1,15 +1,44 @@
 """EtherNet/IP(CIP)编解码纯函数——ENIP 封装 + CIP 消息路由服务。
 
-帧格式按 ODVA《EtherNet/IP — CIP on Ethernet》/ PUB00123《CIP Networks》、Rockwell
-《EtherNet/IP Explicit Messaging Guide》实现(ENIP 封装、SendRRData/SendUnitData、CIP 报文);
-部分封装命令结构(如 ListIdentity)见 EtherNet/IP 规范 Vol 2(本目录未收录,**待核**):
+**帧面依据(页码级;review-1035 §二 P1 补齐)**:
+
+- **ENIP 封装 / CPF / UC-Send / Fwd_Open·Close / RMW** —— Rockwell
+  《EtherNet/IP Explicit Messaging Guide》Rev. 1.2(`odva/`,43 页):
+  封装包 24 字节头 **p.20 Table 2**(command/length/session/status/
+  sender context 8/options/handle/timeout)、CPF **p.21 Table 3**
+  (unconnected:Null Address `0x0000` + Unconn Data `0x00B2`)与 **Table 4**
+  (connected:`0x00A1` CID + `0x00B1`)、UC Send 请求/应答 **p.22-23
+  Table 5/6**(CM 服务 `0x52`)、Fwd_Open 请求/应答 **p.24-25 Table 7/8**
+  (服务 `0x54`/应答 `0xD4`)、Fwd_Close **p.42 Packet 15**(服务 `0x4E`)、
+  RMW **p.17 §7**(服务 `0x4E`/应答 `0xCE`,mask 尺寸 1/2/4/8/12)、
+  连接超时乘数 **p.26 乘数表**(0=×4 默认 … 3=×32);**真机抓包黄金算例
+  16 例见 Appendix D p.28-42**。
+- **CIP 逻辑段编码与数据类型码** —— ODVA PUB00123R1(2016,134 页):
+  逻辑段 **p.31 Figure 10**(Class `0x20`/Instance `0x24`/Attribute `0x30`
+  段编码)、数据类型码 **p.31 §2.9.2**;封装包结构 **p.71 Figure 36**、
+  CPF **p.72 Figure 37/38**。
+- **Logix 私有面**(标签读 `0x4C`/写 `0x4D`、符号段 `0x91`、
+  Get_Instance_Attribute_List `0x55`):1756-PM020《Logix 5000 Data Access》
+  **未收录**(见 `docs/protocol/README.md`「待补」),帧面按参考实现逐字节
+  裁决,**逐条待核**。
+- **ListIdentity 应答布局**(项 `0x000C` / 16 字节 Socket Address / Identity
+  7 字段 / state 字节):EtherNet/IP 规范 **Vol 2 未收录**本目录,p.20-21 与
+  p.70-72 均无该布局 ⇒ **无页码级依据,待核**(review-1035 §二:原引
+  Rockwell p.20-21 并不支持该布局,已订正)。
+
+⚠ **原依据行已订正**:曾把 ODVA《EtherNet/IP — CIP on Ethernet》
+(实为 PUB00138R2 **8 页宣传册,零帧面**)与 PUB00123《CIP Networks》并列
+作"帧格式依据",现删除(review-1035 §二 P1)。
+
+帧面要点:
 
 - ENIP 封装头 24 字节:command(H) + length(H) + session(I) + status(I)
-  + sender context(8) + options(I)
+  + sender context(8) + options(I)(Rockwell p.20 Table 2)
 - RegisterSession ``0x0065``(载荷 4 字节 = 协议版本 1 + 选项 0)、
   UnregisterSession ``0x0066``、SendRRData ``0x006F``
 - SendRRData 公共包格式(CPF)两项:NullAddress(0x0000,长 0)
   + UnconnectedData(0x00B2;0x00B1 是 connected 数据项,不用于 RRData)
+  (Rockwell p.21 Table 3/4)
 - CIP Unconnected Send(服务 ``0x52``,Connection Manager 类 0x06 实例 1)
   包裹实际标签服务,路由段 = 背板端口(0x01)+ 槽号;NJ/NX 等内置以太网口
   设备目标即消息路由器本体,不经此包裹,请求/应答直接承载于 0xB2 项
@@ -54,16 +83,27 @@ EIP_COMMAND_REGISTER_SESSION: int = 0x0065
 EIP_COMMAND_UNREGISTER_SESSION: int = 0x0066
 EIP_COMMAND_SEND_RR_DATA: int = 0x006F
 EIP_COMMAND_SEND_UNIT_DATA: int = 0x0070
-"""ENIP SendUnitData:connected 显式报文(0xA1 地址项 + 0xB1 数据项 + 序列号)。"""
+"""ENIP SendUnitData:connected 显式报文(0xA1 地址项 + 0xB1 数据项 + 序列号)。
+
+依据:Rockwell 指南 p.21 Table 4(CPF connected 两项)+ p.20 Table 2
+(command 0x0070)。"""
 EIP_HEADER_SIZE: int = 24
-"""ENIP 封装头长度(command/length/session/status/context/options)。"""
+"""ENIP 封装头长度(command/length/session/status/context/options)。
+
+依据:Rockwell 指南 **p.20 Table 2**(封装包头 24 字节 7 字段)。"""
 EIP_RRDATA_PREFIX_SIZE: int = 16
 """RRData 头之后、CIP 数据之前的前缀:
-interface(4) + timeout(2) + 项数(2) + NullAddress 项(4) + 数据项头(4)。"""
+interface(4) + timeout(2) + 项数(2) + NullAddress 项(4) + 数据项头(4)。
+
+依据:Rockwell 指南 p.20 Table 2(interface handle/timeout)+ p.21 Table 3
+(CPF 两项头)。"""
 _CPF_ITEM_NULL_ADDRESS: int = 0x0000
 _CPF_ITEM_UNCONNECTED_DATA: int = 0x00B2
 _CPF_ITEM_CONNECTED_ADDRESS: int = 0x00A1
-"""CPF 连接地址项:4 字节连接 ID(connected 报文)。"""
+"""CPF 连接地址项:4 字节连接 ID(connected 报文)。
+
+依据:Rockwell 指南 p.21 Table 3(unconnected:0x0000 + 0x00B2)/ Table 4
+(connected:0x00A1 CID + 0x00B1)。"""
 _CPF_ITEM_CONNECTED_DATA: int = 0x00B1
 """CPF 连接数据项:序列号 + CIP 报文(connected 报文)。"""
 
@@ -73,17 +113,38 @@ CIP_SERVICE_GET_ATTRIBUTES_ALL: int = 0x01
 CIP_SERVICE_GET_ATTRIBUTE_LIST: int = 0x03
 """CIP Get_Attribute_List(指定属性号列表读取)。"""
 CIP_SERVICE_UNCONNECTED_SEND: int = 0x52
+"""CIP Unconnected Send 服务码。
+
+依据:Rockwell 指南 **p.22 Table 5**(CM 服务请求 0x52,Request_Path
+`20,06`=class CM / `24,01`=instance 1)。"""
 CIP_SERVICE_READ_TAG: int = 0x4C
 CIP_SERVICE_WRITE_TAG: int = 0x4D
 CIP_SERVICE_READ_MODIFY_WRITE: int = 0x4E
+"""CIP 读-改-写服务码(Logix 符号对象;与 Fwd_Close 同码不同类)。
+
+依据:Rockwell 指南 **p.17 §7**(RMW 请求服务码 0x4E / 应答 0xCE,
+mask 尺寸仅 1/2/4/8/12、状态码 00/03/10-2101 表)。"""
 CIP_SERVICE_FORWARD_OPEN: int = 0x54
-"""CIP Forward Open(Connection Manager,普通连接,参数域 16 位)。"""
+"""CIP Forward Open(Connection Manager,普通连接,参数域 16 位)。
+
+依据:Rockwell 指南 **p.24 Table 7**(Fwd_Open 请求 T-PDU,服务 0x54)/
+p.25 Table 8(应答 0xD4)。"""
 CIP_SERVICE_LARGE_FORWARD_OPEN: int = 0x5B
-"""CIP Large Forward Open(参数域 32 位,连接尺寸 >505 时使用)。"""
+"""CIP Large Forward Open(参数域 32 位,连接尺寸 >505 时使用)。
+
+依据:ODVA Vol 1 §3-5.5.2 扩展(本目录未收录该册,见
+`docs/protocol/README.md`「待补」;**待核**)。
+"""
 CIP_SERVICE_FORWARD_CLOSE: int = 0x4E
-"""CIP Forward Close(Connection Manager;与标签 RMW 同码不同类,不冲突)。"""
+"""CIP Forward Close(Connection Manager;与标签 RMW 同码不同类,不冲突)。
+
+依据:Rockwell 指南附录 D **p.42 Packet 15**(Fwd_Close 服务 0x4E,
+连接序列号 + `01 01 20 02 24 01` 路由路径)。"""
 CIP_SERVICE_MULTIPLE: int = 0x0A
-"""CIP Multiple Service Packet(批量内嵌服务,发往消息路由器 0x02/0x01)。"""
+"""CIP Multiple Service Packet(批量内嵌服务,发往消息路由器 0x02/0x01)。
+
+依据:ODVA PUB00123R1 未载该服务布局(Vol 1 §2-4 未收录)⇒ 帧面按参考实现
+逐字节裁决,**待核**。"""
 CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST: int = 0x55
 """CIP Get_Instance_Attribute_List(Logix 符号对象点位枚举,list_tags)。
 
@@ -138,13 +199,17 @@ EIP_COMMAND_LIST_IDENTITY: int = 0x0063
 CIP_ITEM_LIST_IDENTITY: int = 0x000C
 """CPF Item 类型码:ListIdentity 应答的 Identity Item(CIP Vol 2 封装层)。"""
 
-# Identity Object 类/实例号(CIP Vol 1 §5-1)
+# Identity Object 类/实例号(CIP Vol 1 §5-1;**该册未收录本目录,待核**)
 CIP_CLASS_IDENTITY: int = 0x01
-"""Identity Object 类号(CIP 通用 Class ID 0x01)。"""
+"""Identity Object 类号(CIP 通用 Class ID 0x01;PUB00123R1 未载类号表,待核)。"""
 CIP_INSTANCE_IDENTITY: int = 0x01
 """Identity Object 实例号(GetAttributesAll/GetAttributeList 实例属性用 1)。"""
 CIP_CLASS_MESSAGE_ROUTER: int = 0x02
-"""Message Router 类号(Multiple Service Packet 0x0A 的目标对象)。"""
+"""Message Router 类号(Multiple Service Packet 0x0A 的目标对象)。
+
+依据:Rockwell 指南 p.42 Packet 15 路由段 `20 02 24 01`(class 0x02 /
+instance 0x01)与 p.24 Table 7 的 `20 06 24 01`(CM class 0x06)同型编码
+(逻辑段编码规则见 PUB00123R1 p.31 Figure 10)。"""
 CIP_INSTANCE_MESSAGE_ROUTER: int = 0x01
 """Message Router 实例号(批量多标签请求常见取值)。"""
 
@@ -152,14 +217,24 @@ CIP_INSTANCE_MESSAGE_ROUTER: int = 0x01
 FO_PRIORITY_TIME_TICK: int = 0x0A
 FO_TIMEOUT_TICKS: int = 0x0E
 FO_TIMEOUT_MULTIPLIER: int = 0x03
+"""连接超时乘数:取值 3 = **RPI × 32**(Rockwell 指南 p.26 乘数表:
+0=×4 默认、1=×8、2=×16、3=×32 …)。
+
+review-1035 §三 P2-2 订正:原注释写"空闲超时约 **4×RPI**",对应的是乘数
+**0**(默认值),与线上实发值 0x03(×32)不符——属帧值与注释语义错配。
+本库**保持线上值 0x03 不变**(行为零变更),仅订正注释;若要按默认 ×4
+工作,应把常量改为 0x00(现场排障须知的实际模型见 :data:`FO_OT_RPI`)。
+"""
 FO_TRANSPORT_TRIGGER: int = 0xA3
 """传输类/触发器:Class 3(应用触发,显式报文连接)。"""
 FO_OT_RPI: int = AB_EIP_DEFAULT_RPI_US
 """O->T 请求包间隔 RPI(微秒;默认 100ms)。
 
-原值 ≈2.1s 会使连接空闲超时约 4×RPI≈8.4s,轮询间隔大于该值时连接被
-反复重建;降到 100ms 量级可避免。可通过 :func:`build_forward_open`
-的 ``rpi_us`` 参数按现场覆盖。
+RPI 与连接超时的关系见 :data:`FO_TIMEOUT_MULTIPLIER`:本库线上乘数为
+0x03(×32),故 100ms RPI 的连接空闲超时 ≈ **3.2s**;原值 ≈2.1s 在 ×32 口径
+下超时 ≈67s(旧注释按 ×4 算成 ≈8.4s,review-1035 §三 P2-2 一并订正)。
+轮询间隔大于该超时值时连接会被反复重建,降到 100ms 量级可避免;可通过
+:func:`build_forward_open` 的 ``rpi_us`` 参数按现场覆盖。
 """
 FO_TO_RPI: int = AB_EIP_DEFAULT_RPI_US
 """T->O 请求包间隔 RPI(微秒;默认 100ms,同 O->T)。"""
@@ -1305,11 +1380,13 @@ def build_list_identity() -> bytes:
 def parse_list_identity_reply(reply: bytes) -> Dict[str, object]:
     """解析 ListIdentity ENIP 应答,返回 Identity Object 字段字典。
 
-    布局(CPF 标准,依 Rockwell《Communicating with RA Products Using
-    EtherNet/IP Explicit Messaging》p.20-21 封装头 24 字节 + CPF Item
-    结构,及 同类开源参考实现(1.2.16 快照) ``ListIdentityObject`` 参考实现裁决,2026-09-27):
+    布局(**该布局在本目录收录文档中无页码级依据,review-1035 §二订正**:
+    Rockwell 指南 p.20-21 只支持"24 字节封装头 + CPF Item 结构"外壳,**不含**
+    本节的 Item `0x000C` 内容;**本目录的 EtherNet/IP 规范 Vol 2 未收录**
+    ⇒ 帧面按参考实现(1.2.16 快照)``ListIdentityObject`` 逐字节裁决,
+    p.71 Figure 36 仅佐证封装包结构;**整节待核**):
 
-    - ENIP 头 24 字节(``EIP_HEADER_SIZE``)
+    - ENIP 头 24 字节(``EIP_HEADER_SIZE``;Rockwell p.20 Table 2)
     - Item Count(2)+ Item Type Code(2,``0x000C`` ListIdentity)+ Item
       Length(2)+ Encapsulation Protocol Version(2)+ Socket Address(16 =
       sin_family 2 + sin_port 2 + sin_addr 4 + sin_zero 8)

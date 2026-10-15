@@ -1,7 +1,14 @@
 """AB Logix 标签名解析。
 
-依据:Rockwell《EtherNet/IP Explicit Messaging Guide》第 1 章(symbolic tag addressing);
-数组下标 / 位号语法为 Logix 标签命名约定。
+依据状态(**review-1035 §三 P2 订正**):本模块原引"Rockwell《EtherNet/IP
+Explicit Messaging Guide》第 1 章(symbolic tag addressing)",但**本目录收录
+的 Rockwell 指南全文没有标签文法页**(该册讲显式报文的封装/CPF/Fwd_Open/
+RMW/抓包算例),语料里也检索不到 `[i]`/`.`/`Program:`/`.bit` 四条文法
+⇒ 现按实情降级为「**Logix 标签命名约定**(1756-PM020《Logix 5000 Data Access》
+未收录,见 `docs/protocol/README.md`「待补」),**待核**」;帧面侧(标签名如何
+编码进符号段 `0x91`)见 `codec_cip.py` 模块头同一登记。
+
+数组下标 / 位号语法为 Logix 标签命名约定(同上,待核):
 
 Logix 地址即标签名,支持::
 
