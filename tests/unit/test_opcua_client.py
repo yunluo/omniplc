@@ -1089,6 +1089,12 @@ def test_subscribe_data_change_callback_exception_logged(_opcua_server_module) -
         # last_error 应记了回调异常(UNKNOWN,不杀订阅)
         assert client.last_error is not None
         assert "回调" in (client.last_error or "")
+        # 独立计数(review-1043 戊-9):回调异常不计入连接健康账
+        stats = client.stats
+        assert stats["callback_error_count"] >= 1
+        assert stats["error_count"] == 0  # 应用自身回调炸了≠链路在坏
+        assert stats["last_error_at"] is None  # 也不刷失败时间戳
+        assert all(v == 0 for v in stats["error_count_by_category"].values())
         # 订阅句柄未消亡
         assert sub.unsubscribe() is True
     finally:

@@ -317,7 +317,12 @@ def _safe_disconnect(client: Any) -> None:
 # ----------------------------------------------------------------------
 
 _UA_LOGGER = logging.getLogger("omniplc.plc.opcua")
-"""异步回调内出错日志出口(用户回调异常不杀订阅,记日志 + last_error)。"""
+"""异步回调内出错日志出口(用户回调异常不杀订阅,记日志 + last_error)。
+
+独立于 ``omniplc.debug``(帧级日志)的第二条记录器:订阅回调异常
+(ERROR)、订阅失效与重订失败(DEBUG/WARNING)走这里;应用接管日志时
+需一并接(见 docs/troubleshooting.md §四,review-1043 戊-8)。
+"""
 
 
 def _handle_subscription_status(
@@ -388,14 +393,14 @@ class _DataChangeHandler:
                 ts = None
             self._on_change(val, str(node), ts)
         except Exception as exc:
-            # 用户回调异常:不杀订阅,走 _set_error 三件套(category=UNKNOWN)
+            # 用户回调异常:不杀订阅;三件套照写但**独立计数**
+            # (review-1043 戊-9:原走 _set_error 默认 record=True,应用自身
+            # 回调写错会计入 error_count,现场看着像「链路在坏」)
             try:
-                self._client._set_error(  # noqa: SLF001
+                self._client._record_callback_error(  # noqa: SLF001
                     _("OPC-UA DataChange 回调异常:{}:{}").format(
                         type(exc).__name__, exc
-                    ),
-                    ErrorCategory.UNKNOWN,
-                    None,
+                    )
                 )
             except Exception:
                 pass
@@ -466,10 +471,9 @@ class _EventHandler:
             self._on_event(fields, node_id, ts)
         except Exception as exc:
             try:
-                self._client._set_error(  # noqa: SLF001
-                    _("OPC-UA Event 回调异常:{}:{}").format(type(exc).__name__, exc),
-                    ErrorCategory.UNKNOWN,
-                    None,
+                # 同 DataChange:独立计数,不计连接健康账(review-1043 戊-9)
+                self._client._record_callback_error(  # noqa: SLF001
+                    _("OPC-UA Event 回调异常:{}:{}").format(type(exc).__name__, exc)
                 )
             except Exception:
                 pass

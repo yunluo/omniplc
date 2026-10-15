@@ -116,6 +116,10 @@ class ClientStats(TypedDict):
     # 看趋势;``error_count_by_category`` 键集 = :class:`ErrorCategory`
     # 五项全填(0 = 未发生过),不在五项内的 UNKNOWN 也照填不漏
     error_count_by_category: Dict[str, int]
+    # 用户回调异常独立计数(review-1043 戊-9):应用自己的订阅回调写错
+    # 不该让现场看着像「链路在坏」——不计入 ``error_count`` 与分类桶,
+    # 单独一档;``last_error`` 仍会写一条(调用方能察觉自己的回调炸了)
+    callback_error_count: int
 
 
 def validate_endpoint(ip_address: str, port: int) -> None:
@@ -226,6 +230,8 @@ class BaseClient(ABC):
             "heartbeat_fail": 0,
             # 写操作可观测(review-1043 乙-4)
             "write_count": 0,
+            # 用户回调异常独立计数(review-1043 戊-9)
+            "callback_error_count": 0,
         }
         self._timestamps: Dict[str, Optional[float]] = {
             "last_error_at": None,
@@ -824,6 +830,29 @@ class BaseClient(ABC):
             if succeeded:
                 self._counters["write_count"] += 1
             self._timestamps["last_write_at"] = time.monotonic()
+
+    def _record_callback_error(
+        self,
+        message: str,
+        category: ErrorCategory = ErrorCategory.UNKNOWN,
+        code: Optional[int] = None,
+    ) -> None:
+        """登记一次**用户回调异常**(内部方法;状态锁保护,可从任意线程调用)。
+
+        review-1043 戊-9:用户订阅回调抛异常经 :meth:`_set_error` 默认
+        ``record=True`` 会计入 ``error_count``/分类桶——应用自身回调写错
+        会让现场看着像「链路在坏」。本方法把这类失败单列:计
+        ``callback_error_count``,``last_error`` 三件套照写(调用方能察觉
+        自己的回调炸了),但**不**动 ``error_count`` 与分类桶,也不刷
+        ``last_error_at``(口径:环境/应用侧问题不计入连接健康账)。
+
+        :param message: 人读原因(进 ``last_error``)
+        :param category: 分类(仅入三件套,不计分类桶)
+        :param code: 原始错误码
+        """
+        with self._state_lock:
+            self._counters["callback_error_count"] += 1
+        self._set_error(message, category, code, record=False)
 
     def _set_error(
         self,

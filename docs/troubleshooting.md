@@ -215,6 +215,11 @@ omniplc.set_debug(True)   # 进程级:所有协议收发报文十六进制转储
 
 - 输出走标准 `logging`(logger 名 `omniplc.debug`),接自己的 handler
   落盘;`Monitor` 的组级异常、心跳异常也走这条通道(WARNING 级);
+- **另一个记录器 `omniplc.plc.opcua`**(review-1043 戊-8 公示):OPC-UA
+  订阅回调异常(ERROR 级)、订阅失效与重订失败(DEBUG/WARNING 级)走它
+  ——应用接管日志时**两个记录器都要接**(如
+  `logging.getLogger("omniplc").setLevel(...)` 挂父 logger 一并收),
+  只接 `omniplc.debug` 会漏掉 OPC-UA 订阅面异常;
 - 报错文案语言用 `omniplc.set_lang("en")` 切英文(默认中文),进程级;
 - `set_debug` 是实时打印,进程崩溃后历史报文不保留——生产环境建议用
   **报文黑匣子**(只存不打印,常驻无刷屏):故障后取最近报文逐字节比对。

@@ -191,6 +191,7 @@ class AsyncBaseClient(ABC):
             "heartbeat_ok": 0,
             "heartbeat_fail": 0,
             "write_count": 0,
+            "callback_error_count": 0,
         }
         self._timestamps: Dict[str, Optional[float]] = {
             "last_error_at": None,
