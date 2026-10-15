@@ -347,21 +347,24 @@ class AllenBradleyEthIpClient(BaseClient):
         布局自行解码;便捷方法 :meth:`get_attribute_all` / :meth:`get_attribute_list`
         / :meth:`get_plc_info` 已覆盖 Identity Object 常见用法。
 
-        :param is_write: 该服务是否按**写事务**处理;缺省按服务码判定
-            (0x4D Write Tag / 0x4E Read-Modify-Write Tag 判写,与库内
-            写标签同款服务码,其余判读)。判写的服务受 :attr:`read_only`
-            管辖、失败重试取 ``write_retries``(review-1021 C1:入参是任意
-            CIP service,传写服务即写设备,不得一律按读事务跑);
-            Write Tag Fragmented(0x53)本库未实现不在判定表内,需要时显式
-            传 ``is_write=True``
+        :param is_write: 该服务是否按**写事务**处理;缺省按服务码判定 ——
+            **fail-safe 方向**:只有 :data:`~.codec_cip.CIP_READ_ONLY_SERVICES`
+            (0x01 Get_Attributes_All / 0x03 Get_Attribute_List /
+            0x55 Get_Instance_Attribute_List / 0x4C Read Tag)判**读**,
+            **其余服务码一律判写**(写标签 0x4D、RMW 0x4E、Fragmented 写 0x53、
+            Set_Attribute_Single 0x10、Fwd_Open 0x54/0x5B、Multiple 0x0A、
+            UC Send 0x52 内嵌任意服务、以及一切未收录的厂商扩展)。判写的服务
+            受 :attr:`read_only` 管辖、失败重试取 ``write_retries``
+            (review-1021 C1 立此入口;review-1043 乙-1 把判据由"写服务黑名单"
+            翻转为"读服务白名单"——原表只有 0x4D/0x4E 两项,传任何表外写服务
+            都会以读事务身份**绕过只读总闸**,而调用方按 ``read_only`` 的
+            「一切写入口显式拒绝」承诺行事不会想到还要手传 ``is_write``)。
+            确知某服务只读而本表白名单未收录时,显式传 ``is_write=False``
         :returns: ``(True, 数据域)`` 或 ``(False, None)``(失败时 ``last_error`` 有消息)
         :raises RuntimeError: 判写(或显式 ``is_write=True``)且只读模式
         """
         if is_write is None:
-            is_write = service in (
-                codec_cip.CIP_SERVICE_WRITE_TAG,
-                codec_cip.CIP_SERVICE_READ_MODIFY_WRITE,
-            )
+            is_write = service not in codec_cip.CIP_READ_ONLY_SERVICES
         request = codec_cip._service_request(
             service,
             codec_cip.build_class_instance_path(class_id, instance),

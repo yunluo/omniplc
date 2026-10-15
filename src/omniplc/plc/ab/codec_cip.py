@@ -151,6 +151,31 @@ CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST: int = 0x55
 依据:Rockwell《Logix 5000 Data Access》(1756-PM020)私有扩展——公开
 手册库暂缺该册(见 docs/protocol/README.md「待补」);帧面经 同类开源参考实现
 1.2.16 与 同类开源参考实现(1.1.6 快照) 双参考实现逐字节对照裁决(2026-10-03)。"""
+
+CIP_READ_ONLY_SERVICES: "frozenset[int]" = frozenset(
+    {
+        CIP_SERVICE_GET_ATTRIBUTES_ALL,  # 0x01
+        CIP_SERVICE_GET_ATTRIBUTE_LIST,  # 0x03
+        CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST,  # 0x55
+        CIP_SERVICE_READ_TAG,  # 0x4C
+    }
+)
+"""**只读** CIP 服务码白名单(读侧判据,fail-safe 方向)。
+
+用于 ``generic_message`` 的**判写**:入参是任意 CIP 服务码(开放整数),
+而只读服务只是其中少数 ⇒ **判据必须按"已知读服务之外一律判写"** 取,
+否则传一个未列入写表的写服务(如 Set_Attribute_Single 0x10、
+Set_Attributes_All 0x02、Write Tag Fragmented 0x53、Fwd_Open 0x54/0x5B、
+Multiple 0x0A、UC Send 0x52 内嵌任意服务)就会以 ``is_write=False`` 进事务,
+**绕过 ``read_only`` 只读总闸**(review-1043 乙-1:原实现写成
+``service in (0x4D, 0x4E)`` 是 fail-open)。
+
+依据:服务语义(读/写/连接管理)见本模块头依据表所列 Rockwell 指南服务
+表(p.17 §7 RMW / p.22-23 Table 5-6 UC Send / p.24-25 Table 7-8 Fwd_Open)
+与 CIP Vol 1 对象库服务集;本表只收**本库实际以只读语义发出**的四个服务,
+其余(含未收录的厂商扩展)一律按写处理,需要只读语义时由调用方显式传
+``is_write=False``。
+"""
 CIP_STATUS_CONNECTION_FAILURE: int = 0x01
 """CIP 通用状态 0x01:Connection failure(connected 消息的会话已失效)。
 

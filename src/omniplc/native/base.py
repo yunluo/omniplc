@@ -205,6 +205,7 @@ class AsyncBaseClient(ABC):
         self._read_only = False
         self._write_whitelist = False
         self._write_allow_addresses: frozenset = frozenset()
+        self._write_allow_types: Dict[str, DataType] = {}
         # 拆连/设备错误现场快照(review-1020 §七乙):与同步层同口径
         self._incident_frames: List[FrameRecord] = []
 
@@ -659,7 +660,7 @@ class AsyncBaseClient(ABC):
         :raises RuntimeError: 只读模式(:attr:`read_only`)下拒绝一切写
         :raises ValueError: 参数非法 / 写白名单开启且地址不在已绑定点位表
         """
-        self._check_write_allowed(address)
+        self._check_write_allowed(address, data_type)
         data_type_enum = DataType.coerce(data_type)
         ok, _unused = await self._execute(
             lambda: self._write(address, data_type_enum, value), is_write=True
@@ -755,9 +756,10 @@ class AsyncBaseClient(ABC):
         :raises RuntimeError: 只读模式(:attr:`read_only`)
         :raises ValueError: 地址/类型/值参数非法(任一项非法即抛出)
         """
-        for address, data_type, _value in items:
-            DataType.coerce(data_type)
-            self._check_write_allowed(address)
+        for address, data_type, value in items:
+            data_type_enum = DataType.coerce(data_type)
+            self._validate_value(data_type_enum, value)
+            self._check_write_allowed(address, data_type_enum)
         return [
             await self.write(address, data_type, value)
             for address, data_type, value in items
@@ -909,7 +911,7 @@ class AsyncBaseClient(ABC):
         """
         if not value:
             raise ValueError(_("value 不能为空字符串"))
-        self._check_write_allowed(address)
+        self._check_write_allowed(address, DataType.STRING)
         ok, _unused = await self._execute(
             lambda: self._write_string(address, str(value), encoding), is_write=True
         )
@@ -931,6 +933,11 @@ class AsyncBaseClient(ABC):
         self._write_allow_addresses = frozenset(
             table[tag_id].address for tag_id in table
         )
+        # 地址 → 声明类型(宽度判据,review-1043 乙-2,与同步层同口径)
+        self._write_allow_types = {
+            table[tag_id].address: DataType.coerce(table[tag_id].data_type)
+            for tag_id in table
+        }
 
     async def read_tag(
         self, tag: Union[str, Tag]
@@ -1052,8 +1059,45 @@ class AsyncBaseClient(ABC):
             )
         self._write_whitelist = enabled
 
-    def _check_write_allowed(self, address: str) -> None:
-        """写入口安全守卫:只读模式与写白名单(内部方法,语义同同步)。"""
+    def _validate_value(self, data_type: DataType, value: PrimitiveValue) -> None:
+        """值可编码性前置校验钩子(内部方法,语义同同步层 :meth:`_validate_value`)。
+
+        :meth:`write_many` 在零发送期逐值过闸用(``write_many`` 前置校验的
+        值维度,review-1043 乙-3)。
+
+        :raises ValueError: 值类型与声明类型不相容
+        """
+        if data_type is DataType.STRING:
+            if not isinstance(value, (str, bytes)):
+                raise ValueError(
+                    _("STRING 类型的值必须是 str/bytes,收到:{!r}").format(
+                        type(value).__name__
+                    )
+                )
+            return
+        if data_type is DataType.BOOL:
+            if not isinstance(value, (bool, int)):
+                raise ValueError(
+                    _("BOOL 类型的值必须是 bool/int,收到:{!r}").format(
+                        type(value).__name__
+                    )
+                )
+            return
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(
+                _(
+                    "数值类型 {} 的值必须是 int/float(不接受 bool/字符串),收到:{!r}"
+                ).format(data_type.value, type(value).__name__)
+            )
+
+    def _check_write_allowed(
+        self, address: str, data_type: Optional[Union[DataType, str]] = None
+    ) -> None:
+        """写入口安全守卫:只读模式与写白名单(内部方法,语义同同步)。
+
+        ``data_type`` 给定时额外核对**写入宽度与点位表声明类型同宽**
+        (review-1043 乙-2,与同步层 :meth:`_check_write_allowed` 同口径)。
+        """
         if self._read_only:
             raise RuntimeError(
                 _("客户端为只读模式(read_only=True),写操作已拒绝:{}").format(address)
@@ -1071,6 +1115,23 @@ class AsyncBaseClient(ABC):
                         "写白名单已开启:地址 {!r} 不在已绑定点位表内,写操作已拒绝"
                     ).format(address)
                 )
+            declared = self._write_allow_types.get(address)
+            if declared is not None and data_type is not None:
+                written = DataType.coerce(data_type)
+                if written.byte_size != declared.byte_size:
+                    raise ValueError(
+                        _(
+                            "写白名单已开启:地址 {!r} 在点位表中声明为 {}({} 字节),"
+                            "本次写入按 {}({} 字节)——类型宽度不符,写操作已拒绝"
+                            "(防从该地址起连写覆盖邻点)"
+                        ).format(
+                            address,
+                            declared.value,
+                            declared.byte_size,
+                            written.value,
+                            written.byte_size,
+                        )
+                    )
 
     @property
     def incident_frames(self) -> List[FrameRecord]:

@@ -440,6 +440,17 @@ _TRANSLATIONS: Dict[str, str] = {
     "客户端为只读模式(read_only=True),写操作已拒绝:{}": "The client is in read-only mode (read_only=True); the write operation was rejected: {}",
     "写白名单已开启但未绑定 TagTable:请先 bind_tags() 或关闭 write_whitelist": "The write whitelist is enabled but no TagTable is bound: call bind_tags() first or disable write_whitelist",
     "写白名单已开启:地址 {!r} 不在已绑定点位表内,写操作已拒绝": "The write whitelist is enabled: address {0!r} is not in the bound tag table; the write operation was rejected",
+    "写白名单已开启:地址 {!r} 在点位表中声明为 {}({} 字节),本次写入按 {}({} 字节)——类型宽度不符,写操作已拒绝(防从该地址起连写覆盖邻点)": (
+        "The write whitelist is enabled: address {0!r} is declared as {1} ({2} bytes)"
+        " in the tag table but this write uses {3} ({4} bytes) — type width mismatch;"
+        " the write operation was rejected (prevents a multi-byte write from the same"
+        " address overwriting neighbouring points)"
+    ),
+    "STRING 类型的值必须是 str/bytes,收到:{!r}": "A STRING value must be str/bytes, got: {!r}",
+    "BOOL 类型的值必须是 bool/int,收到:{!r}": "A BOOL value must be bool/int, got: {!r}",
+    "数值类型 {} 的值必须是 int/float(不接受 bool/字符串),收到:{!r}": (
+        "A {0} value must be int/float (bool/str not accepted), got: {1!r}"
+    ),
     "write_and_verify 回读不符:写入 {!r},读回 {!r}({} @ {})": "write_and_verify readback mismatch: wrote {0!r}, read back {1!r} ({2} @ {3})",
     "predicate 必须为可调用对象,收到:{!r}": "predicate must be callable, got: {!r}",
     "interval 必须大于 0,收到:{}": "interval must be greater than 0, got: {}",

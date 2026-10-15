@@ -302,6 +302,44 @@ class TestGenericMessageGate:
         with pytest.raises(RuntimeError, match="只读"):
             client.generic_message(0x4D, 0x04, 1)
 
+    def test_fail_safe_unknown_services_treated_as_write(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """**表外服务码一律判写**(review-1043 乙-1:判据翻转成 fail-safe)。
+
+        原判据是「写服务黑名单」(仅 0x4D Write Tag / 0x4E RMW):入参是开放
+        整数服务码,传 Set_Attribute_Single(0x10)、Set_Attributes_All(0x02)、
+        Write Tag Fragmented(0x53)、Fwd_Open(0x54)、Large Fwd_Open(0x5B)、
+        Multiple(0x0A)、UC Send(0x52,内嵌任意服务)或厂商扩展码,都会以
+        ``is_write=False`` 进事务,**绕过 read_only 只读总闸**——而调用方按
+        「``read_only=True`` = 一切写入口显式拒绝」的承诺行事,不会想到还要手传
+        ``is_write=True``。现改为「读服务白名单之外一律判写」。
+        """
+        client = AllenBradleyEthIpClient("127.0.0.1")
+        capture = _ExecuteCapture()
+        monkeypatch.setattr(client, "_execute", capture)
+        write_services = (0x4D, 0x4E, 0x53, 0x10, 0x02, 0x54, 0x5B, 0x0A, 0x52, 0x99)
+        read_services = (0x01, 0x03, 0x55, 0x4C)
+        for service in write_services + read_services:
+            client.generic_message(service, 0x04, 1)
+        assert capture.calls == [True] * len(write_services) + [False] * len(
+            read_services
+        )
+
+    def test_fail_safe_table_service_zero_send_under_read_only(self) -> None:
+        """read_only=True 下表外写服务**零字节拒发**(不再是"照发")。"""
+        from scripted import ScriptedTransport
+
+        client = AllenBradleyEthIpClient("127.0.0.1")
+        scripted = ScriptedTransport([])
+        client._transport = scripted  # type: ignore[assignment]
+        client._connected = True
+        client.read_only = True
+        for service in (0x10, 0x53, 0x0A, 0x99):
+            with pytest.raises(RuntimeError, match="只读"):
+                client.generic_message(service, 0x04, 1)
+        assert bytes(scripted.sent) == b""  # 零发送:闸在发包之前
+
 
 class TestCommandGate:
     def test_cmd_type_inference(self, monkeypatch: pytest.MonkeyPatch) -> None:

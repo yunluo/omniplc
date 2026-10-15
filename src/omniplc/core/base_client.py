@@ -179,6 +179,7 @@ class BaseClient(ABC):
         self._read_only = False
         self._write_whitelist = False
         self._write_allow_addresses: frozenset = frozenset()
+        self._write_allow_types: Dict[str, DataType] = {}
         # 拆连/设备错误现场快照(review-1020 §七乙):最近一次事故时点的
         # 黑匣子帧拷贝(黑匣子继续滚动,快照不动)
         self._incident_frames: List[FrameRecord] = []
@@ -774,7 +775,7 @@ class BaseClient(ABC):
         :raises RuntimeError: 只读模式(:attr:`read_only`)下拒绝一切写
         :raises ValueError: 参数非法 / 写白名单开启且地址不在已绑定点位表
         """
-        self._check_write_allowed(address)
+        self._check_write_allowed(address, data_type)
         data_type_enum = DataType.coerce(data_type)
         ok, _unused = self._execute(
             lambda: self._write(address, data_type_enum, value), is_write=True
@@ -884,22 +885,59 @@ class BaseClient(ABC):
         ``write_batch`` 的空入参是同步 ``ValueError``——"整批"契约,
         两种批量入口的不对称属契约选择,review-1023 §四 P3-1)。
 
-        入参先全量前置校验(类型 coerce + 写安全闸逐地址),任一非法在
-        零发送期同步抛出——避免"前面的点已写、调用方却拿不到部分结果"
-        的部分写入(review-1021 P1-4,与 Modbus 覆写的入参前置校验同口径);
+        入参先全量前置校验(**类型 coerce + 值可编码性 + 写安全闸逐地址**),
+        任一非法在零发送期同步抛出——避免"前面的点已写、调用方却拿不到部分
+        结果"的部分写入(review-1021 P1-4;review-1043 乙-3 补上**值**这一
+        维:原实现只校验地址与类型名,值非法要等写到该点才炸,而 Modbus 族
+        覆写一直在步骤 1 就把全部值编码校验完——同一公开 API 两种安全度)。
         事务期的单点失败仍不影响其他点。
 
         :param items: ``(地址, 数据类型, 值)`` 三元组列表
         :return: 与 items 顺序对应的布尔结果列表
         :raises RuntimeError: 只读模式(:attr:`read_only`)
-        :raises ValueError: 任一地址/类型非法或白名单拒绝(零字节发送)
+        :raises ValueError: 任一地址/类型/值非法或白名单拒绝(零字节发送)
         """
-        for address, data_type, _value in items:
-            DataType.coerce(data_type)
-            self._check_write_allowed(address)
+        for address, data_type, value in items:
+            data_type_enum = DataType.coerce(data_type)
+            self._validate_value(data_type_enum, value)
+            self._check_write_allowed(address, data_type_enum)
         return [
             self.write(address, data_type, value) for address, data_type, value in items
         ]
+
+    def _validate_value(self, data_type: DataType, value: PrimitiveValue) -> None:
+        """值可编码性前置校验钩子(内部方法,默认只做类型/范围的基础检查)。
+
+        供 :meth:`write_many` 在零发送期逐值过闸;驱动可覆写补充协议特有的
+        可编码性约束(如某驱动对字符串长度/枚举值的额外限制)。默认实现覆盖
+        通用面:**值类型须与声明类型相容**(BOOL 收 bool/int、数值类型收
+        int/float 且不取 bool、STRING 收 str/bytes),数值范围交给各驱动在
+        编码期按位宽判定(此处只挡"类型明显不符"这一最常见误操作)。
+
+        :raises ValueError: 值类型与声明类型不相容
+        """
+        if data_type is DataType.STRING:
+            if not isinstance(value, (str, bytes)):
+                raise ValueError(
+                    _("STRING 类型的值必须是 str/bytes,收到:{!r}").format(
+                        type(value).__name__
+                    )
+                )
+            return
+        if data_type is DataType.BOOL:
+            if not isinstance(value, (bool, int)):
+                raise ValueError(
+                    _("BOOL 类型的值必须是 bool/int,收到:{!r}").format(
+                        type(value).__name__
+                    )
+                )
+            return
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(
+                _(
+                    "数值类型 {} 的值必须是 int/float(不接受 bool/字符串),收到:{!r}"
+                ).format(data_type.value, type(value).__name__)
+            )
 
     @staticmethod
     def _pack_read_results(
@@ -1048,7 +1086,7 @@ class BaseClient(ABC):
         """
         if not value:
             raise ValueError(_("value 不能为空字符串"))
-        self._check_write_allowed(address)
+        self._check_write_allowed(address, DataType.STRING)
         ok, _unused = self._execute(
             lambda: self._write_string(address, str(value), encoding), is_write=True
         )
@@ -1070,6 +1108,14 @@ class BaseClient(ABC):
         self._write_allow_addresses = frozenset(
             table[tag_id].address for tag_id in table
         )
+        # 地址 → 声明类型(宽度的判据,review-1043 乙-2):点位表声明
+        # `D100 = ushort` 时,`write("D100", "double")` 会从该地址起连写 4 字
+        # 覆盖邻点,白名单须能拦住;同地址多 Tag 时取其一(等宽才可能撞,
+        # 不等宽时取任一都能拦住跨宽写入)
+        self._write_allow_types = {
+            table[tag_id].address: DataType.coerce(table[tag_id].data_type)
+            for tag_id in table
+        }
 
     def read_tag(self, tag: Union[str, Tag]) -> Tuple[bool, Optional[PrimitiveValue]]:
         """按点位(或标识)读取,数值自动应用 ``scale``/``offset``。
@@ -1203,11 +1249,22 @@ class BaseClient(ABC):
             )
         self._write_whitelist = enabled
 
-    def _check_write_allowed(self, address: str) -> None:
+    def _check_write_allowed(
+        self, address: str, data_type: Optional[Union[DataType, str]] = None
+    ) -> None:
         """写入口安全守卫:只读模式与写白名单(内部方法)。
 
+        ``data_type`` 给定时,白名单额外核对**写入类型与点位表声明类型是否
+        同宽**(review-1043 乙-2:原判据只比地址字面量,点位表写
+        ``D100 = ushort`` 并不能拦住 ``write("D100", "double")`` 这类从该地址
+        起连写 4 字、覆盖邻点的操作——而"点位表里类型写错"正是现场最常见的
+        误操作形态)。宽度按 :attr:`~omniplc.types.DataType.byte_size` 比较,
+        不比同宽类型之间的数值语义(如 SHORT↔USHORT 不拦,那是范围问题,
+        由驱动/类型转换层负责)。
+
         :raises RuntimeError: 只读模式下拒绝写
-        :raises ValueError: 白名单开启且(未绑表或地址不在表内)
+        :raises ValueError: 白名单开启且(未绑表 / 地址不在表内 / 写入宽度与
+            声明类型不符)
         """
         if self._read_only:
             raise RuntimeError(
@@ -1226,6 +1283,33 @@ class BaseClient(ABC):
                         "写白名单已开启:地址 {!r} 不在已绑定点位表内,写操作已拒绝"
                     ).format(address)
                 )
+            self._check_write_width(address, data_type)
+
+    def _check_write_width(
+        self, address: str, data_type: Optional[Union[DataType, str]]
+    ) -> None:
+        """白名单第二道判据:写入类型宽度须与点位表声明一致(内部方法)。
+
+        :raises ValueError: 写入宽度与声明类型不符
+        """
+        declared = self._write_allow_types.get(address)
+        if declared is None or data_type is None:
+            return
+        written = DataType.coerce(data_type)
+        if written.byte_size != declared.byte_size:
+            raise ValueError(
+                _(
+                    "写白名单已开启:地址 {!r} 在点位表中声明为 {}({} 字节),"
+                    "本次写入按 {}({} 字节)——类型宽度不符,写操作已拒绝"
+                    "(防从该地址起连写覆盖邻点)"
+                ).format(
+                    address,
+                    declared.value,
+                    declared.byte_size,
+                    written.value,
+                    written.byte_size,
+                )
+            )
 
     @property
     def incident_frames(self) -> List[FrameRecord]:

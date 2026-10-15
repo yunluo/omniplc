@@ -227,6 +227,76 @@ class TestWriteWhitelist:
         with pytest.raises(ValueError, match="bind_tags"):
             asyncio.run(client.write_ushort("hr0", 1))
 
+    def test_type_width_mismatch_rejected(self) -> None:
+        """白名单第二道判据:写入类型宽度须与点位表声明一致(review-1043 乙-2)。
+
+        点位表声明 ``D100 = ushort``(2 字节)时,``write("D100", "double")``
+        会从该地址起连写 4 字、覆盖邻点——原判据只比地址字面量,拦不住这类
+        「点位表里类型写错」的现场高频误操作。同宽不同名(SHORT↔USHORT)
+        不拦:那是范围问题,由类型转换层负责。
+        """
+        client = _ScriptedClient()
+        client.bind_tags(TagTable([Tag("液位", "D100", "ushort")]))
+        client.write_whitelist = True
+        with pytest.raises(ValueError, match="类型宽度不符"):
+            client.write("D100", "double", 1.0)
+        with pytest.raises(ValueError, match="类型宽度不符"):
+            client.write("D100", "float", 1.0)
+        assert client.written == []  # 零下发
+        assert client.write("D100", "ushort", 7) is True  # 同宽放行
+        assert client.write("D100", "short", -7) is True  # 同宽异名不拦
+        assert client.written == [7, -7]
+
+    def test_type_width_mismatch_native_mirror(self) -> None:
+        """native 层同口径(review-1043 乙-2 镜像)。"""
+        client = AsyncModbusTcpClient("127.0.0.1", 502, 1)
+        client.bind_tags(TagTable([Tag("液位", "hr100", "ushort")]))
+        client.write_whitelist = True
+        with pytest.raises(ValueError, match="类型宽度不符"):
+            asyncio.run(client.write("hr100", "double", 1.0))
+
+    def test_write_many_prevalidates_values_zero_send(self) -> None:
+        """``write_many`` 前置阶段校验**值**(review-1043 乙-3)。
+
+        原实现只校验地址与类型名,值非法要等写到该点才抛 ⇒
+        「值非法 = 前几个点已写 + 抛 ValueError」,而 Modbus 族覆写一直在
+        步骤 1 就把全部值校验完——同一公开 API 两种安全度。现基类补齐值
+        预检:任一值非法即零发送。
+        """
+        client = _ScriptedClient()
+        client.bind_tags(
+            TagTable([Tag("a", "hr0", "ushort"), Tag("b", "hr1", "ushort")])
+        )
+        client.write_whitelist = True
+        with pytest.raises(ValueError, match="int/float"):
+            client.write_many([("hr0", "ushort", 1), ("hr1", "ushort", "abc")])
+        assert client.written == []  # 零发送:第一个点也没写出去
+        # 全合法 → 正常逐点写
+        assert client.write_many([("hr0", "ushort", 1), ("hr1", "ushort", 2)]) == [
+            True,
+            True,
+        ]
+        assert client.written == [1, 2]
+
+    def test_validate_value_type_matrix(self) -> None:
+        """``_validate_value`` 类型矩阵(BOOL/STRING/数值)。"""
+        client = _ScriptedClient()
+        client._validate_value(DataType.BOOL, True)
+        client._validate_value(DataType.BOOL, 1)
+        client._validate_value(DataType.STRING, "abc")
+        client._validate_value(DataType.STRING, b"abc")
+        client._validate_value(DataType.USHORT, 5)
+        client._validate_value(DataType.FLOAT, 1.5)
+        for data_type, bad in (
+            (DataType.BOOL, "yes"),
+            (DataType.STRING, 5),
+            (DataType.USHORT, "5"),
+            (DataType.USHORT, True),
+            (DataType.FLOAT, None),
+        ):
+            with pytest.raises(ValueError):
+                client._validate_value(data_type, bad)
+
 
 # ----------------------------------------------------------------------
 # 甲3:write_and_verify 写后回读
