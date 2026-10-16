@@ -1,0 +1,113 @@
+name: cython-pyd
+
+# Cython 编译轮(pyd 无源二进制包,防源码泄露交付形态):cp37-win32(py3.7.9-32,
+# 与现场老设备/本机门禁环境同构)与 cp312-win_amd64 两条腿各出一个无源码 wheel,
+# **只挂对应 GitHub Release 附件,不进 PyPI**(独立 workflow,失败不阻塞发版;
+# 纯 Python 轮仍由 build-release.yml 发 PyPI)。
+#
+# 触发与 build-release 相同 = tag 推送:不能用 `release: published`——平台规则
+# 「GITHUB_TOKEN 建出的 Release 不再触发 workflow」,而 Release 正是 build-release
+# 的 softprops 用 token 建的;故这里同 tag 触发、上传前轮询等 Release 出现。
+# workflow_dispatch 供回填历史版本(输入已有版本标签)。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "已有版本标签(如 v0.56.1),回填其 Release 的 pyd 附件"
+        required: true
+
+# dispatch 用输入标签,tag 推送用触发标签(空值走 || 回退)
+env:
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+# actions 全部 SHA 钉版(review-1043 己-7,与 ci.yml/build-release.yml 同口径;
+# 注释尾部标出钉版时对应的发布版本,升级走显式提交)。
+
+jobs:
+  build-pyd:
+    name: pyd ${{ matrix.python-version }}-${{ matrix.architecture }}
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 3.7 腿用末代兼容三件套:其后 pip 24 / setuptools 68 / wheel 0.42
+          # 均弃 3.7;Cython **3.0.11**(有 cp37-win32 轮、可运行于 3.7)——
+          # 2026-09 的 0.29.37 配方因不支持 typing.NamedTuple 编译退役(0.29
+          # 无 win 二进制轮、两种指令模式都编不过 NamedTuple;3.0.11 探针 OK)
+          - python-version: "3.7.9"
+            architecture: x86
+            tools: "pip==23.3.2 setuptools==67.8.0 wheel==0.41.3 cython==3.0.11"
+          # 3.12 腿:同 Cython 3.0.11 统一(3.1 起 requires_python >=3.8 对 3.7
+          # 不适用);包 init 两个 PyInit_ 符号都生成,已探针核实
+          - python-version: "3.12"
+            architecture: x64
+            tools: "setuptools==75.8.0 wheel==0.45.1 cython==3.0.11"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Setup Python ${{ matrix.python-version }} (${{ matrix.architecture }})
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          architecture: ${{ matrix.architecture }}
+
+      - name: Install build tools
+        run: python -m pip install ${{ matrix.tools }}
+
+      - name: Build pyd wheel
+        # 脚本内一次完成:剥 PEP563 → Cython 全模块 → 删源 → bdist_wheel
+        # (无源轮)→ pip 装入本解释器 → -I 干净子进程 import 冒烟
+        run: python .github/scripts/build_pyd.py
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pyd-${{ matrix.python-version }}-${{ matrix.architecture }}
+          path: dist-pyd/*.whl
+          if-no-files-found: error
+
+  attach:
+    name: 挂到 GitHub Release 附件
+    needs: build-pyd
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # 仅主仓库上传,防 fork 误触(与 build-release 的 publish job 同口径)
+    if: github.repository == 'yunluo/omniplc'
+    permissions:
+      contents: write # 仅本 job:gh release upload 写附件
+    steps:
+      - name: Download pyd wheels
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: pyd-*
+          merge-multiple: true
+          path: dist-pyd
+
+      - name: Wait for release and upload
+        # Release 由 build-release(同 tag 推送,并行)用 softprops 建成,通常
+        # 2~5 分钟内出现;60 次×30s 预算,超时不建则本步失败(属上游问题)。
+        # 只传 dist-pyd/*.whl(两个平台标轮),与 Release 上已有的纯轮/sdist 不同名
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          for i in $(seq 1 60); do
+            if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "Release $RELEASE_TAG 就绪(第 $i 次探测)"
+              break
+            fi
+            echo "等待 build-release 建 Release(第 $i 次,30s 间隔)…"
+            sleep 30
+          done
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          gh release upload "$RELEASE_TAG" dist-pyd/*.whl --clobber --repo "$GITHUB_REPOSITORY"
+          echo "附件清单:"
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'
