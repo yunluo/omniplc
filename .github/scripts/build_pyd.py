@@ -26,7 +26,11 @@ cp37-win32 轮运行;2026-09 的 0.29.37 配方因**不支持 typing.NamedTuple 
   同级 .pyd、无 ``__path__``、相对导入全乱;
 - 冒烟必须用干净解释器(``-I`` + 中立 cwd):项目 venv 里 setuptools editable
   安装的 ``_editable_impl_*.pth`` MetaPathFinder 会抢在 site-packages 之前
-  拦截 ``omniplc``,冒烟假绿。
+  拦截 ``omniplc``,冒烟假绿;
+- **runner(英文 Windows)stdout 是 cp1252,打印中文会 UnicodeEncodeError**
+  (本地 cp936 掩盖;2026-10-16 CI 首跑两腿同点失败根因,已在本地
+  ``PYTHONIOENCODING=cp1252`` 条件复现)——脚本开头已把自身 stdout/stderr
+  ``reconfigure`` 成 UTF-8 并给子进程兜底 ``PYTHONIOENCODING``(勿删)。
 """
 import argparse
 import os
@@ -35,6 +39,16 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+# 见文件头第 4 条坑:中文输出在 runner 上必须显式切 UTF-8,勿删
+for _stream in (sys.stdout, sys.stderr):
+    _reconfigure = getattr(_stream, "reconfigure", None)
+    if _reconfigure is not None:
+        try:
+            _reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass
+os.environ["PYTHONIOENCODING"] = "utf-8"  # 子进程(pip/冒烟)也不受 cp1252 影响
 
 HERE = Path(__file__).resolve()
 ROOT = HERE.parents[2]  # .github/scripts/build_pyd.py → 仓库根
@@ -150,7 +164,9 @@ def build_wheel(extensions, version, compiler):
     setup_cwd.mkdir(parents=True, exist_ok=True)
     os.chdir(str(setup_cwd))
     build_options = {"build_base": str(BUILD_ROOT / "build")}
-    build_ext_options = {"parallel": os.cpu_count() or 4}
+    # 不启用 build_ext parallel:Windows/MSVC 路径未实测(CI 盲跑成本高),
+    # 83 模块串行编译数分钟可接受;要开先在分支上验证
+    build_ext_options = {}
     if compiler:
         build_options["compiler"] = compiler
         build_ext_options["compiler"] = compiler

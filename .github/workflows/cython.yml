@@ -49,9 +49,19 @@ jobs:
             tools: "setuptools==75.8.0 wheel==0.45.1 cython==3.0.11"
     steps:
       - name: Checkout
+        # 默认取触发 ref(tag 推送=该 tag;dispatch=选中的分支)——构建脚本总是
+        # 取本 ref 的最新版;回填历史版本时,下一步再把「源码 + 版本」切到目标标签
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: 回填时切源码到目标标签
+        # 设计取舍:回填 vX = 目标标签的「src + pyproject 版本号」+ 本 ref 的
+        # 构建脚本。脚本必须取最新版——否则标签里的旧脚本缺陷(如 v0.56.2 首跑
+        # 的 cp1252 编码坑)永远无法回填修复;版本号/源码取标签,产物即该版本的
+        # omniplc-X-cp37-cp37m-win32.whl / -cp312-cp312-win_amd64.whl
+        if: ${{ github.event.inputs.tag }}
+        run: |
+          git fetch --depth 1 origin "refs/tags/${{ github.event.inputs.tag }}:refs/tags/${{ github.event.inputs.tag }}"
+          git checkout "refs/tags/${{ github.event.inputs.tag }}" -- src pyproject.toml
 
       - name: Setup Python ${{ matrix.python-version }} (${{ matrix.architecture }})
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
@@ -64,7 +74,11 @@ jobs:
 
       - name: Build pyd wheel
         # 脚本内一次完成:剥 PEP563 → Cython 全模块 → 删源 → bdist_wheel
-        # (无源轮)→ pip 装入本解释器 → -I 干净子进程 import 冒烟
+        # (无源轮)→ pip 装入本解释器 → -I 干净子进程 import 冒烟。
+        # PYTHONUTF8:runner 英文环境 stdout 为 cp1252(中文输出会炸;脚本自身
+        # 已 reconfigure,此为双保险,同时覆盖子进程)
+        env:
+          PYTHONUTF8: "1"
         run: python .github/scripts/build_pyd.py
 
       - name: Upload wheel
