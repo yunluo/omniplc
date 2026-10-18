@@ -197,6 +197,37 @@
 ②拿到 Host 通信手册(→ 走路径 3,正式立项);③用户另行拍板。
 `docs/protocol/README.md`「待补」表已登记文档缺口。
 
+### CPU 优化候选(留档,review-1044 §五;台账已删,本节为唯一存底)
+
+> 来源:review-1044 子代理基准画像(2026-10-15,门禁 3.7.9,`timeit.repeat`
+> 取 min;基线:100 点 `read_many` 合并 1 笔 FC = 420 µs,库侧单笔纯 CPU
+> 18.3 µs,本机回环 RTT 30.4 µs ⇒ 上限在网络 IO 不在本地 CPU)。下列各项
+> 均属**改行为/改结构**而非等价替换,立项须独立回归;按现场体感排序。
+
+| # | 项 | 位置 | 收益画像 | 风险 / 约束 |
+| --- | --- | --- | --- | --- |
+| 1 | **锁内 CPU 前移**(Entry 构造 + classify + 分组) | `plc/modbus/modbus.py` 批量路径 | 该段 ≈175/420 µs 持在事务锁内,锁持有时间可缩短约 40%,直接改善心跳 tick 与多线程调用方响应延迟 | 次序契约:先整体替换快照再发事件 |
+| 2 | `_check_address` 每点校验收成 frozenset 成员判定 | 同上 | 1.54 µs/点,占 100 点 `read_many` 的 36.6% | 错误文案须自行拼装,`test_modbus_clients.py` 有文案断言 |
+| 3 | `_CoalesceEntry` 构造 + `_classify` 两趟合一 | 同上 | ≈0.88 µs/点(约 20%) | — |
+| 4 | `group.sort(key=lambda …)` → `operator.attrgetter` | 同上 | 60.4 µs/100 点(14.4%) | — |
+| 5 | 单点读 `to_bytes`→`from_bytes` 往返直通(SHORT/USHORT) | 同上 | 0.68 µs/笔(3.7%) | — |
+| 6 | `Monitor._cycle` 的 `results` 中间字典 | `core/monitor.py` | 0.3~0.5 µs/点 | 硬约束:「先整体替换快照再发事件」次序契约与组间隔离 |
+
+**不建议动**(已到最优或纯 IO,勿再议):`struct.pack/unpack`、`int.from_bytes`、
+`crc16`(表驱动,RTU 9600 baud 下占 0.01%)、`_execute` 锁与计数、
+`lru_cache` 地址解析(命中 0.06 µs,已在地板)、`log_frame` 开关、
+`Monitor.stats` 百分位。
+
+**防重复劳动(review-1044 §四已实测否决,勿再提)**:hikrobot
+`_decode_result` 逐字切片换一次 `struct.unpack`(异常类型 `OverflowError`
+→ `struct.error` 变);`_reorder_bytes` 扩展切片赋值(真实尺寸 4B 实测
+x0.94 反而变慢);`format_hex` 换 `map("{:02X}".format,…)`(3.7 无
+`bytes.hex(sep)`,三档尺寸实测均无收益);`total += x` 换 `sum(生成器)`
+(单条时 x0.71);点分 IPv4 换 `ipaddress.IPv4Address`(非等价,拒绝形态
+变);toyopuc `build_word_write` 合并 pack(丢 `pack_u16` 逐值校验与中文
+`ValueError`);删 `decode_identity_string`(模块级公开名,须按
+CONTRIBUTING §六弃用周期走一轮)。
+
 ---
 
 ## 有意不做(登记口径,不再实现)
