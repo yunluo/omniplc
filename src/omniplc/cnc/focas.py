@@ -229,7 +229,7 @@ class _ODBDY2Pos(ctypes.Union):
     """ODBDY2.pos union(fwlib32.h 467~480 行)。"""
 
     _pack_ = 4
-    _fields_ = [  # noqa: RUF012 —— ctypes union 布局协议必需,非共享可变默认
+    _fields_ = [
         ("faxis", _ODBDY2Axes),
         ("oaxis", _ODBDY2OneAxis),
     ]
