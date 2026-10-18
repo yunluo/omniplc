@@ -248,3 +248,28 @@ class TestAioConfigureSerialMirror:
         sync_ref.configure_serial("COM3")
         assert sync._serial_config.baud_rate == sync_ref._serial_config.baud_rate
         assert sync._serial_config.stop_bits == sync_ref._serial_config.stop_bits
+
+
+class TestAioTimeoutAsyncSetter:
+    """review-1043 丁-1:async 安全入口在事件循环内设置超时,不冻结 loop。"""
+
+    def test_set_receive_and_connect_timeout_effective(self) -> None:
+        client = AModbusTcpClient("127.0.0.1", 502)
+
+        async def scenario() -> None:
+            await client.set_receive_timeout(2.5)
+            assert client._sync.receive_timeout == 2.5
+            await client.set_connect_timeout(3.5)
+            assert client._sync.connect_timeout == 3.5
+
+        asyncio.run(scenario())
+
+    def test_setter_rejected_after_close(self) -> None:
+        client = AModbusTcpClient("127.0.0.1", 502)
+
+        async def scenario() -> None:
+            await client.close()
+            with pytest.raises(RuntimeError):
+                await client.set_receive_timeout(2.5)
+
+        asyncio.run(scenario())

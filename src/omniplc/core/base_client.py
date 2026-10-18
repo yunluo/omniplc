@@ -1777,7 +1777,10 @@ class BaseClient(ABC):
         - 监视器周期与业务**共享同一本客户端账**(周期失败照常写
           ``last_error``/``error_count``),混用时业务侧错误文本会被采集
           周期冲掉,建议监视器独占客户端实例;
-        - 客户端 :meth:`disconnect` 联动停掉所有在跑监视器(终态)。
+        - 客户端 :meth:`disconnect` 联动停掉所有在跑监视器(终态);
+        - **回调内不要调用 ``create_monitor``/``disconnect``**(review-1043
+          丁-2):回调在监视器线程执行,断开终停含 join(最坏一个周期 +
+          最慢事务),回调线程与之交错会互等;新建/断开请放业务线程。
 
         :param points: 点位映射(标识 → (地址, 数据类型))或点位表
         :param interval: 采集周期(秒,下限 0.05)
@@ -1821,13 +1824,20 @@ class BaseClient(ABC):
         "断开是调用方的明确意图"(与心跳同款口径):置终态再停线程,
         监视器不得违背它继续采集;停掉即终态,不可再 ``start()``。
 
-        注册与清空共用 :attr:`_monitor_lock`(review-1006 P3④):终停 +
-        清空对注册表原子,构造期并发登记不会落入"快照后清空"的摘除缝。
+        锁内只做**快照 + 清空**(与注册原子,:attr:`_monitor_lock`,
+        review-1006 P3④——构造期并发登记不会落入"快照后清空"的摘除缝),
+        :meth:`~omniplc.core.monitor.Monitor._terminate`(含 join)在
+        **锁外**逐个执行(review-1043 丁-2):join 预算 = 一个周期 + 最慢
+        事务(review-1006 P3②),持锁跨 join 会让回调线程内的
+        ``create_monitor`` 与 disconnect 互等(断开至少停摆一个 join
+        预算);锁外 terminate 后,断连后新建的监视器按"连接前构造"
+        语义处理(启动前须先 ``connect()``)。
         """
         with self._monitor_lock:
-            for monitor in list(self._monitors):
-                monitor._terminate()
+            monitors = list(self._monitors)
             self._monitors.clear()
+        for monitor in monitors:
+            monitor._terminate()
 
     # ------------------------------------------------------------------
     # 事务执行:惰性重连 + 重试 + 错误转换(线程安全核心)

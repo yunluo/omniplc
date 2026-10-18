@@ -463,6 +463,9 @@ _WRITE_METHOD_REGISTRY = frozenset(
         "write_file_record",
         "write_clock",
         "set_clock",
+        # 纯本地参数 setter(review-1043 丁-1 async 安全入口;不写设备)
+        "set_receive_timeout",
+        "set_connect_timeout",
         # 读码器家族(§二 B/C 形态收口面)
         "scan",
         "read_result",

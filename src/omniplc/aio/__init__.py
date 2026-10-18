@@ -262,6 +262,11 @@ class ABaseClient:
         线程直写——慢事务持锁时会阻塞整个 loop;属性 setter 是同步调用
         (非协程),这里**等待投递完成**前先校验关门,避免关闸后写入。
         属性写入本身是毫秒级操作,阻塞调用方一次事件循环拍可接受。
+
+        ⚠️ 在途长事务(如 :meth:`wait_value`,可达 300s)期间本方法会
+        阻塞到该事务排空——**事件循环线程内赋值会冻结整个 loop**
+        (review-1043 丁-1):请在工作线程赋值,或改用 async 安全入口
+        :meth:`set_receive_timeout` / :meth:`set_connect_timeout`。
         """
         self._ensure_open()
         executor = self._executor
@@ -357,6 +362,36 @@ class ABaseClient:
     @connect_timeout.setter
     def connect_timeout(self, seconds: float) -> None:
         self._run_sync_attribute_set("connect_timeout", seconds)
+
+    async def set_receive_timeout(self, seconds: float) -> None:
+        """设置单次收发超时——**不阻塞事件循环**的 async 安全入口
+        (review-1043 丁-1)。
+
+        语义同 :attr:`receive_timeout` setter;区别在同步 property setter
+        会等待投递排空,在途长事务期间冻结整个 loop,而本方法以
+        ``await`` 让出控制权,多客户端共用 loop 时不会全局无响应。
+        """
+        await self._run_sync_attribute_set_async("receive_timeout", seconds)
+
+    async def set_connect_timeout(self, seconds: float) -> None:
+        """设置连接超时——不阻塞事件循环的 async 安全入口(动机与
+        :meth:`set_receive_timeout` 同,review-1043 丁-1)。"""
+        await self._run_sync_attribute_set_async("connect_timeout", seconds)
+
+    async def _run_sync_attribute_set_async(self, name: str, value: object) -> None:
+        """async 版属性下发(内部方法):投递到工作线程执行并 ``await``,
+        不阻塞事件循环(review-1043 丁-1)。"""
+        self._ensure_open()
+        executor = self._executor
+        if executor is None:
+            raise RuntimeError(_("aio 客户端已关闭"))
+        setter = getattr(type(self._sync), name).fset
+        loop = asyncio.get_running_loop()
+
+        def _apply() -> None:
+            setter(self._sync, value)
+
+        await loop.run_in_executor(executor, _apply)
 
     @property
     def retries(self) -> int:
