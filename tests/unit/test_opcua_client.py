@@ -807,7 +807,7 @@ def test_browse_root_top_level(opcua_client: OpcUaClient) -> None:
     # Objects 节点(服务端必有)在树中,以 browse_name 标识
     names = [v["browse_name"] for v in tree.values()]
     assert "Objects" in names, (names, list(tree.keys()))
-    for _k, v in tree.items():
+    for v in tree.values():
         assert "browse_name" in v
         assert "node_class" in v
         assert "children" in v
@@ -861,7 +861,7 @@ def test_browse_max_depth_limits_recursion(_opcua_server_module) -> None:
     try:
         ok, tree = client.browse("Root", recursive=True, max_depth=0)
         assert ok is True
-        for _k, v in tree.items():
+        for v in tree.values():
             assert v["children"] is None  # max_depth=0 → 无下钻
     finally:
         client.disconnect()

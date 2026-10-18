@@ -638,9 +638,11 @@ class AsyncUdpTransport(AsyncBaseTransport):
         except RuntimeError:
             return  # 无当前事件循环:无 selector 注册可摘
         for remove in (loop.remove_reader, loop.remove_writer):
+            # 逐移除方法独立容错(remove_reader/remove_writer 可各自抛不同
+            # 异常),try 必须在循环内——PERF203 豁免
             try:
                 remove(fd)
-            except NotImplementedError:
+            except NotImplementedError:  # noqa: PERF203
                 pass  # Proactor/IOCP:没有 selector 注册
             except ValueError:
                 pass

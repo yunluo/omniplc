@@ -719,7 +719,7 @@ class OpcUaClient(BaseClient):
                     self._create_event_subscription(
                         spec["node_text"], spec["on_event"], spec["event_filter"]
                     )
-            except Exception as exc:
+            except Exception as exc:  # noqa: PERF203 —— 逐 spec 独立重订,异常独立记录后继续
                 _UA_LOGGER.warning(
                     "OPC-UA 重订失败(%s,%s):%s:%s",
                     spec["kind"],

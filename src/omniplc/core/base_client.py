@@ -1788,7 +1788,7 @@ class BaseClient(ABC):
         :raises ValueError: points/interval/回调/deadband/jitter 参数非法
         :return: 未启动的 :class:`~omniplc.core.monitor.Monitor` 实例
         """
-        monitor = Monitor(
+        return Monitor(
             self,
             points,
             interval=interval,
@@ -1797,7 +1797,6 @@ class BaseClient(ABC):
             deadband=deadband,
             jitter=jitter,
         )
-        return monitor
 
     def _register_monitor(self, monitor: Monitor) -> None:
         """登记监视器(内部方法,:class:`Monitor` 构造期调用——直接构造与
