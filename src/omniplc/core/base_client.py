@@ -1947,6 +1947,8 @@ class BaseClient(ABC):
                         _describe(exc),
                     )
                     self._mark_disconnected()
+                else:
+                    return True, value
             return False, None
 
     def _ensure_open(self) -> None:

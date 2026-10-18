@@ -650,7 +650,7 @@ class Monitor:
                     # 与 read_many_strict 同一形状守卫(review-1022):驱动
                     # 返回形状错误是库内缺陷信号,升格为组异常使 WARNING 与
                     # 失败记账可见,而非静默截断
-                    raise ProtocolFrameError(
+                    raise ProtocolFrameError(  # noqa: TRY301 —— 有意在 try 内抛,由外层 except 组间隔离捕获
                         _(
                             "read_many 返回条目数与请求不符:请求 {} 条,实返 {} 条(驱动实现缺陷)"
                         ).format(len(group), len(pairs))

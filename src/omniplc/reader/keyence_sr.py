@@ -191,7 +191,6 @@ class KeyenceSrClient(BaseClient):
                     ),
                     code,
                 )
-            return text
         except socket.timeout:
             # 读码窗口内无应答:链路仍然完好,不断线。
             # _drain_line 返回 False = 仍留半行(客户端持续输出且永不空行,
@@ -202,6 +201,8 @@ class KeyenceSrClient(BaseClient):
             raise TransportTimeoutError(
                 _("扫码读超时({}s),未收到应答").format(read_timeout), 0
             ) from None
+        else:
+            return text
         finally:
             transport.receive_timeout = previous_timeout
 

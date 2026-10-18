@@ -105,9 +105,10 @@ def _numeric_roundtrip(client: object, cases: list) -> None:
 def _gateway_online() -> bool:
     try:
         socket.create_connection((GATEWAY_HOST, GATEWAY_PORT), timeout=0.5).close()
-        return True
     except OSError:
         return False
+    else:
+        return True
 
 
 _SERVER_CACHE: dict = {}

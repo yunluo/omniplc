@@ -191,7 +191,6 @@ class OmronCipClient(AllenBradleyEthIpClient):
                     ),
                     codec_cip.CIP_SERVICE_WRITE_TAG,
                 )
-                return
             except DeviceError:
                 self._modify_word(
                     _word_index_path(parsed, index),
@@ -199,6 +198,8 @@ class OmronCipClient(AllenBradleyEthIpClient):
                     index % 32,
                     flag,
                 )
+                return
+            else:
                 return
         raise ValueError(
             _("标签 {!r} 实际类型 {} 不是 BOOL").format(

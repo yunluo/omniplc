@@ -1186,7 +1186,7 @@ class OpcUaClient(BaseClient):
                 # 数值(StatusCode(value=2150891520)),现场无从判读
                 # (review-1037 §四 P3-6)
                 first = rejected[0]
-                raise DeviceError(
+                raise DeviceError(  # noqa: TRY301 —— 有意在 try 内抛,由外层 except DeviceError 捕获(重订失败处理)
                     _("OPC-UA 订阅被服务端拒绝:{}({})").format(
                         getattr(first, "name", first), int(first.value)
                     ),

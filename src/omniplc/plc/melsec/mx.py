@@ -1130,9 +1130,10 @@ class MelsecMxClient(BaseClient):
             return False, None
         try:
             text = _com_get_error_message(com, int(code))
-            return True, text
         except DeviceError:
             return False, None
+        else:
+            return True, text
         finally:
             com = None  # 与 CreateObject 配对:失败路径也不留代理引用
 
