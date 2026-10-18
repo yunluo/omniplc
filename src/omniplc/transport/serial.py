@@ -89,13 +89,13 @@ class SerialTransport(BaseTransport):
     :attr:`receive_timeout` 修改后**立即作用于已打开串口**。
     """
 
-    _PARITY_MAP = {
+    _PARITY_MAP = {  # noqa: RUF012 —— 类级只读常量映射,从不修改
         SerialParity.NONE: "PARITY_NONE",
         SerialParity.EVEN: "PARITY_EVEN",
         SerialParity.ODD: "PARITY_ODD",
     }
-    _DATA_BITS_MAP = {5: "FIVEBITS", 6: "SIXBITS", 7: "SEVENBITS", 8: "EIGHTBITS"}
-    _STOP_BITS_MAP = {
+    _DATA_BITS_MAP = {5: "FIVEBITS", 6: "SIXBITS", 7: "SEVENBITS", 8: "EIGHTBITS"}  # noqa: RUF012
+    _STOP_BITS_MAP = {  # noqa: RUF012 —— 类级只读常量映射,从不修改
         1: "STOPBITS_ONE",
         1.5: "STOPBITS_ONE_POINT_FIVE",
         2: "STOPBITS_TWO",

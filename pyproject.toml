@@ -133,7 +133,7 @@ timeout_method = "thread"
 # B 中依赖新语法的规则(如 B905 strict=)不会误报;C90 阈值 12(默认 10
 # 全库噪音过大,见 1045 §五-3「平台化」观察口径)。
 [tool.ruff.lint]
-select = ["E", "F", "B", "SIM","I","C4","C90","RUF100","PERF","SIM401","RET","TRY"]
+select = ["E", "F", "B", "SIM","I","C4","C90","RUF100","PERF","SIM401","RET","TRY","RUF012"]
 ignore = [
     "E501",  # 行宽交给 formatter 管
     "TRY004",  # isinstance 检查抛 ValueError 是项目入参契约(review-1042
@@ -142,6 +142,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["TRY003"]  # tests 内 raise 长消息风格,与 src 异常契约无关
+"src/omniplc/reader/hikrobot_sdk.py" = ["RUF012"]  # 全文件为 ctypes 布局定义,_fields_ 是 SDK 协议必需,非共享可变默认
 
 [tool.ruff.lint.mccabe]
 max-complexity = 12
