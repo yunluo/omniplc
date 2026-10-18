@@ -434,6 +434,21 @@ class TestCategorizeOrder:
         exc = ProtocolFrameError("bad crc")
         assert _categorize(exc) == ErrorCategory.PROTOCOL
 
+
+class TestTransactionIdWraparound:
+    """事务号 u16 回绕(review-1045 B-5 / 1042 §12.5 测试缺口)。"""
+
+    def test_bump_id_wraps_at_0xffff(self) -> None:
+        client = _ScriptedClient()
+        setattr(client, "_transaction_id", 0xFFFF)
+        assert client._bump_id("_transaction_id", 16) == 0
+        assert client._bump_id("_transaction_id", 16) == 1
+
+    def test_bump_id_normal_increment(self) -> None:
+        client = _ScriptedClient()
+        setattr(client, "_transaction_id", 0x7FFE)
+        assert client._bump_id("_transaction_id", 16) == 0x7FFF
+
     def test_connection_refused_is_transport(self) -> None:
         exc = ConnectionRefusedError()
         assert _categorize(exc) == ErrorCategory.TRANSPORT

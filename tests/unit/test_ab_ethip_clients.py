@@ -1568,3 +1568,19 @@ def test_list_tags_async_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
         await client.close()
 
     asyncio.run(scenario())
+
+
+def test_session_handle_mismatch_rejected() -> None:
+    """应答 ENIP session 句柄不符拒绝;ListIdentity(session=0)放过
+    (review-1045 B-4 / 1035 §三 P2-1)。"""
+    from omniplc.core.errors import ProtocolFrameError
+
+    client = AllenBradleyEthIpClient("127.0.0.1", 44818)
+    client._session_handle = 0x1234
+    mismatch = struct.pack("<HHII", 0x006F, 4, 0xDEADBEEF, 0) + b"\x00\x00"
+    with pytest.raises(ProtocolFrameError):
+        client._check_session_handle(mismatch)
+    match = struct.pack("<HHII", 0x006F, 4, 0x1234, 0) + b"\x00\x00"
+    client._check_session_handle(match)  # 一致不抛
+    list_identity = struct.pack("<HHII", 0x0063, 0, 0, 0)
+    client._check_session_handle(list_identity)  # session=0(ListIdentity)放过

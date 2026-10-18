@@ -32,7 +32,7 @@ from ..core.constants import (
     S7_WSTRING_DEFAULT_LENGTH,
 )
 from ..core.debug import log_op
-from ..core.errors import DeviceError, TransportClosedError
+from ..core.errors import DeviceError, TransportClosedError, _CANCELLED_ERRORS
 from ..core.i18n import _
 from ..core.types import DataType, PrimitiveValue, S7Model
 from ..core.validation import require_bool, require_count, require_float, require_int
@@ -216,11 +216,20 @@ class AsyncS7Session(AsyncBaseTransport):
         return self._sequence
 
     async def _transact(self, request: bytes) -> bytes:
-        """完整事务:COTP DT 包裹发送 → 收 TPKT 剥 COTP 返回 S7 PDU(内部)。"""
+        """完整事务:COTP DT 包裹发送 → 收 TPKT 剥 COTP 返回 S7 PDU(内部)。
+
+        事务被取消(用户 ``wait_for`` 超时等)时,已发出的请求应答可能迟到,
+        残留字节会让紧随的下一事务读到旧应答造成假 PROTOCOL 错 —— 取消
+        即拆连(review-1045 B-2 / 1034 §4.2),下次事务经惰性重连重建会话。
+        """
         tcp = self._require_tcp()
-        await tcp.send(codec.build_tpkt(codec.build_cotp_dt(request)))
-        length = codec.parse_tpkt_header(await tcp.recv(4))
-        return codec.parse_cotp_dt(await tcp.recv(length - 4))
+        try:
+            await tcp.send(codec.build_tpkt(codec.build_cotp_dt(request)))
+            length = codec.parse_tpkt_header(await tcp.recv(4))
+            return codec.parse_cotp_dt(await tcp.recv(length - 4))
+        except _CANCELLED_ERRORS:
+            self.close()
+            raise
 
     def _require_tcp(self) -> AsyncTcpTransport:
         """取底层 TCP 传输,未建立则抛出(内部方法)。"""
@@ -861,7 +870,27 @@ class AsyncSiemensS7Client(AsyncBaseClient):
             )
 
         async def operation() -> List[PrimitiveValue]:
-            blobs = await self._session().read_multi_vars(specs)
+            session = self._session()
+            if not codec.multi_read_fits_pdu(session.pdu_size, len(specs)):
+                raise ValueError(
+                    _(
+                        "S7 多变量读 {} 项超出协商 PDU {}B 容量"
+                        "(请求 {}B / 应答 {}B;上限 {} 项,review-1034 §4.1)"
+                    ).format(
+                        len(specs),
+                        session.pdu_size,
+                        12 + 12 * len(specs),
+                        14 + 12 * len(specs),
+                        max(
+                            1,
+                            min(
+                                (session.pdu_size - 12) // 12,
+                                (session.pdu_size - 14) // 12,
+                            ),
+                        ),
+                    )
+                )
+            blobs = await session.read_multi_vars(specs)
             values: List[PrimitiveValue] = []
             for kind, index, bit, data_type_enum in plan:
                 blob = blobs[index]

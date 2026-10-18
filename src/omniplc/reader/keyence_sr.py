@@ -72,7 +72,10 @@ class KeyenceSrClient(BaseClient):
 
         :param ip_address: 扫码枪 IP 或主机名
         :param port: TCP 端口,默认 9004
-        :param scan_dwell: 扫码窗口时长(秒),LON 到 LOFF 的等待时间
+        :param scan_dwell: LON 之后、LOFF 之前等待的时长(秒,固定窗口时序),
+            用于适配设备侧「触发 OFF 后发送」配置(手册出厂默认为「读取后
+            发送」,review-1028 §二;现场若按出厂默认,此窗口为白等——真机
+            裁决项)
         :param encoding: 条码内容解码编码,默认 utf-8。QR/DataMatrix 可携带
             Shift-JIS/GB2312/任意二进制内容,按现场码制选择
         :param encoding_errors: 解码失败策略,默认 ``strict``——非法序列抛错
@@ -96,7 +99,8 @@ class KeyenceSrClient(BaseClient):
 
     @property
     def scan_dwell(self) -> float:
-        """扫码窗口时长(秒),LON 开窗到 LOFF 关窗的等待时间(构造期定,只读)。"""
+        """LON 之后、LOFF 之前等待的时长(秒,固定窗口时序,构造期定,只读);
+        用于适配设备侧「触发 OFF 后发送」配置(review-1028 §二)。"""
         return self._scan_dwell
 
     # ------------------------------------------------------------------
@@ -150,7 +154,10 @@ class KeyenceSrClient(BaseClient):
     def _scan_once(self, bank: Optional[int], read_timeout: float) -> str:
         """LON → 扫码窗口 → LOFF → 读一行应答(内部方法,须事务内调用)。
 
-        LOFF 之后才发应答,故读超时(LOFF 后 ``read_timeout`` 内无应答)时
+        本库按「触发 OFF 后发送」时序实现(固定窗口 :attr:`scan_dwell`);
+        手册出厂默认为「读取后发送」(p.47/p.82 命令 201 初始值 0),两者
+        相冲——真机裁决项(review-1028 §二):发 ``LON`` 后立刻读,看窗口内
+        是否已有结果字节。LOFF 后读超时(``read_timeout`` 内无应答)时
         先尽力清掉半行残留,再抛 :class:`TransportTimeoutError`:0 字节
         可回退、链路无残渣,基类按"不断线"处理(与串口/UDP 超时同口径)。
         """
@@ -159,7 +166,7 @@ class KeyenceSrClient(BaseClient):
         transport.send(lon)
         time.sleep(self._scan_dwell)
         transport.send(SR_CMD_LOFF)
-        # 应答在 LOFF 之后才发送;临时收紧收包超时
+        # 本库时序假设应答在 LOFF 之后发送(设备「触发 OFF 后发送」配置);临时收紧收包超时
         previous_timeout = transport.receive_timeout
         transport.receive_timeout = read_timeout
         try:

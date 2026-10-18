@@ -1019,7 +1019,27 @@ class SiemensS7Client(BaseClient):
             )
 
         def operation() -> List[PrimitiveValue]:
-            blobs = self._session().read_multi_vars(specs)
+            session = self._session()
+            if not codec.multi_read_fits_pdu(session.pdu_size, len(specs)):
+                raise ValueError(
+                    _(
+                        "S7 多变量读 {} 项超出协商 PDU {}B 容量"
+                        "(请求 {}B / 应答 {}B;上限 {} 项,review-1034 §4.1)"
+                    ).format(
+                        len(specs),
+                        session.pdu_size,
+                        12 + 12 * len(specs),
+                        14 + 12 * len(specs),
+                        max(
+                            1,
+                            min(
+                                (session.pdu_size - 12) // 12,
+                                (session.pdu_size - 14) // 12,
+                            ),
+                        ),
+                    )
+                )
+            blobs = session.read_multi_vars(specs)
             values: List[PrimitiveValue] = []
             for kind, index, bit, data_type_enum in plan:
                 blob = blobs[index]

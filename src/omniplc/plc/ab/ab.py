@@ -272,7 +272,29 @@ class AllenBradleyEthIpClient(BaseClient):
                     length, AB_EIP_MAX_FRAME, format_hex(head)
                 )
             )
-        return head + transport.recv(length)
+        frame = head + transport.recv(length)
+        self._check_session_handle(frame)
+        return frame
+
+    def _check_session_handle(self, frame: bytes) -> None:
+        """校验应答帧的 ENIP session 字段与本地会话句柄一致
+        (review-1045 B-4 / 1035 §三 P2-1)。
+
+        本地句柄为 0(会话建立前)不校验;应答 session 为 0(ListIdentity
+        等无会话命令)放过;两者皆非 0 且不符 → :class:`ProtocolFrameError`
+        拆连——陈旧/串线应答不得被当本次事务结果(connected 空闲重连后
+        句柄重分配的窗口,1035 定级 P2)。
+        """
+        expected = self._session_handle
+        if not expected:
+            return
+        session = struct.unpack_from("<I", frame, 4)[0]
+        if session and session != expected:
+            raise ProtocolFrameError(
+                _(
+                    "ENIP 会话句柄不符:期望 0x{:08X},实际 0x{:08X}(收到的原始帧:{})"
+                ).format(expected, session, format_hex(frame))
+            )
 
     def _next_sequence(self) -> int:
         """connected 序列号递增(1~65535 回绕,内部方法)。"""

@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, List
 import pytest
 
 from omniplc import S7Model, SiemensS7Client
+from omniplc.core.errors import _CANCELLED_ERRORS
 from omniplc.native import AsyncSiemensS7Client
 from test_siemens_s7_clients import (
     _FakeS7Tcp,
@@ -460,3 +461,58 @@ def test_smart_v_read_parity(monkeypatch: pytest.MonkeyPatch, loop: Any) -> None
     # CR 用 SMART 预设(本端 0x1000/远端 0x0300),读请求走 DB1
     assert b"\xc1\x02\x10\x00\xc2\x02\x03\x00" in sync_sent
     assert b"\x00\x01\x84\x00\x00\x50" in sync_sent
+
+
+def test_read_batch_rejects_over_pdu_capacity(
+    monkeypatch: pytest.MonkeyPatch, loop: Any
+) -> None:
+    """协商 PDU 240 下 19/20 项多变量读入参期拒绝(review-1045 B-1 / 1034 §4.1)。"""
+    holder: Dict[str, Any] = {}
+
+    async def scenario() -> None:
+        client = AsyncSiemensS7Client("127.0.0.1", 102, rack=0, slot=1)
+        fake = _FakeAsyncS7Tcp()
+        monkeypatch.setattr(
+            "omniplc.native.siemens.AsyncTcpTransport", lambda ip, port: fake
+        )
+        fake.queue(_tpkt(_cotp_cc()))
+        fake.queue(_tpkt(_dt(_negotiate_ack(1))))
+        assert await client.connect() is True
+        client._session().pdu_size = 240  # 模拟老 S7-300/400
+        items20 = [("DB1.DBB{}".format(i), "SHORT") for i in range(20)]
+        items19 = [("DB1.DBB{}".format(i), "SHORT") for i in range(19)]
+        with pytest.raises(ValueError):
+            await client.read_batch(items20)
+        with pytest.raises(ValueError):
+            await client.read_batch(items19)
+        holder["ok"] = True
+
+    loop.run_until_complete(scenario())
+    assert holder["ok"]
+
+
+def test_transact_cancel_closes_session(loop: Any) -> None:
+    """事务被取消即拆连(review-1045 B-2 / 1034 §4.2):残留应答不得污染下一事务。"""
+    from omniplc.native.siemens import AsyncS7Session
+
+    session = AsyncS7Session("127.0.0.1", 102, 0x0100, 0x0200, 0x0A, 0, 1)
+    closed: List[str] = []
+
+    class FakeTcp:
+        async def send(self, data: bytes) -> None:
+            pass
+
+        async def recv(self, size: int) -> bytes:
+            raise asyncio.CancelledError()
+
+        def close(self) -> None:
+            closed.append("closed")
+
+    session._tcp = FakeTcp()  # type: ignore[attr-defined]
+
+    async def scenario() -> None:
+        with pytest.raises(_CANCELLED_ERRORS):
+            await session._transact(b"\x00")
+
+    loop.run_until_complete(scenario())
+    assert closed == ["closed"]

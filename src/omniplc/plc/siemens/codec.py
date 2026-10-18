@@ -501,6 +501,18 @@ def build_multi_read(
     return build_s7_request(PDU_REQUEST, sequence, parameters)
 
 
+def multi_read_fits_pdu(pdu_size: int, item_count: int) -> bool:
+    """Read Var 多 Item 是否落在协商 PDU 容量内(内部函数)。
+
+    请求头 12B + 每项 12B、应答头 14B + 每项 12B(数值项实测每项应答
+    12B:返回码 1 + 传输大小 1 + 长度 2 + 数据 4 + 对齐 4;20 项 DOUBLE
+    实测请求 252B / 应答 254B,review-1034 §4.1)。协商 PDU 同时约束
+    请求与应答,取两者上限的较小者 ⇒ 老 CPU(PDU 240)下多变量读
+    上限收敛到 18 项。
+    """
+    return 12 + 12 * item_count <= pdu_size and 14 + 12 * item_count <= pdu_size
+
+
 def parse_read_response(
     pdu: bytes, sequence: int, item_count: int, byte_lengths: Optional[List[int]] = None
 ) -> List[bytes]:

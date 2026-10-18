@@ -1062,3 +1062,11 @@ def test_wstring_model_gate(s7: Any) -> None:
         client.read_wstring("DB1.DBW20")
     with pytest.raises(ValueError, match="WString 仅"):
         client.write_wstring("DB1.DBW20", "文本")
+
+
+def test_multi_read_fits_pdu() -> None:
+    """多变量读 PDU 容量校验(review-1045 B-1 / 1034 §4.1)。"""
+    assert codec.multi_read_fits_pdu(480, 20) is True
+    assert codec.multi_read_fits_pdu(240, 20) is False
+    assert codec.multi_read_fits_pdu(240, 19) is False
+    assert codec.multi_read_fits_pdu(240, 18) is True
