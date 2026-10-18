@@ -832,7 +832,8 @@ class _HikrobotSdkSession(BaseTransport):
     def _find_device_by_ip(self, target: int) -> _MV_CODEREADER_DEVICE_INFO:
         """在私有协议与 GigE/USB 枚举结果中按 IP 匹配设备(内部方法)。"""
         functions = self._functions
-        assert functions is not None  # connect 先加载函数表,再进入枚举
+        if functions is None:  # connect 先加载函数表,再进入枚举;防 -O 下 assert 被移除
+            raise OmniPLCInternalError(_("海康 SDK 函数表未加载"))
         for layer in (None, _MV_CODEREADER_GIGE_DEVICE | _MV_CODEREADER_USB_DEVICE):
             device_list = _MV_CODEREADER_DEVICE_INFO_LIST()
             if layer is None:

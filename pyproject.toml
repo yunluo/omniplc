@@ -133,7 +133,7 @@ timeout_method = "thread"
 # B 中依赖新语法的规则(如 B905 strict=)不会误报;C90 阈值 12(默认 10
 # 全库噪音过大,见 1045 §五-3「平台化」观察口径)。
 [tool.ruff.lint]
-select = ["E", "F", "B", "SIM","I","C4","C90","RUF100","RUF012","PERF","SIM401","RET","TRY","RUF013","FA","PIE","PLC0105","PLC0206","PLC2401","PLC0414","TD","PGH","S105","S106","S107","S113","PTH","T201"]
+select = ["E", "F", "B", "SIM","I","C4","C90","RUF100","RUF012","PERF","SIM401","RET","TRY","RUF013","FA","PIE","PLC0105","PLC0206","PLC2401","PLC0414","TD","PGH","S105","S106","S107","S113","PTH","T201","RUF015","RUF018","RUF019","S101"]
 ignore = [
     "E501",  # 行宽交给 formatter 管
     "TRY004",  # isinstance 检查抛 ValueError 是项目入参契约(review-1042
@@ -141,7 +141,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["TRY003", "T201"]  # TRY003:tests 内 raise 长消息风格;T201:print 仅禁库代码,golden 生成脚本/调试 print 属正常
+"tests/**" = ["TRY003", "T201", "S101"]  # TRY003:tests raise 长消息;T201:print 仅禁库代码;S101:pytest 测试用 assert 是惯用法
 "src/omniplc/reader/hikrobot_sdk.py" = ["RUF012"]  # 全文件为 ctypes 布局定义,_fields_ 是 SDK 协议必需,非共享可变默认
 
 [tool.ruff.lint.mccabe]

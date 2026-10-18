@@ -1326,6 +1326,8 @@ _TRANSLATIONS: Dict[str, str] = {
     "{} 命令不携带参数,收到:{!r}": "A {0} command takes no parameter, got: {1!r}",
     # ---- 海康机器人 ID 系列智能读码器(SDK) ----
     "必须提供 sdk_dir 或 dll_path 之一": "Provide either sdk_dir or dll_path",
+    "海康 SDK 函数表未加载": "Hikrobot SDK function table not loaded",
+    "读码结果解码:words 未就绪": "Decode result decoding: words not ready",
     "SDK 动态库未找到:{}(请确认 sdk_dir 指向含 {} 的目录)": "SDK shared library not found: {0} (make sure sdk_dir points to a directory containing {1})",
     "SDK 动态库加载失败:{}(请检查位数与依赖库是否齐全)": "Failed to load the SDK shared library: {} (check the bitness and dependent DLLs)",
     "SDK 调用失败({}):0x{:08X}": "SDK call failed ({0}): 0x{1:08X}",

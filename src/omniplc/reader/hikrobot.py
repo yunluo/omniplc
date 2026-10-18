@@ -91,7 +91,12 @@ from ..core.constants import (
     HIKROBOT_STATUS_TRIGGER_READY,
     MODBUS_DEFAULT_PORT,
 )
-from ..core.errors import DeviceError, ErrorCategory, TransportTimeoutError
+from ..core.errors import (
+    DeviceError,
+    ErrorCategory,
+    OmniPLCInternalError,
+    TransportTimeoutError,
+)
 from ..core.i18n import _
 from ..core.types import DataType
 from ..plc.modbus import ModbusTcpClient
@@ -346,7 +351,8 @@ class HikrobotIdModbusClient(ModbusTcpClient):
         if ng:
             # Results NG:设备已把结果区清零(§3.6 步骤 3),正常未读到码
             return False, None
-        assert words is not None  # 循环必经 break,words 已就绪
+        if words is None:  # 循环必经 break,words 应已就绪;防 -O 下 assert 被移除
+            raise OmniPLCInternalError(_("读码结果解码:words 未就绪"))
         return True, self._decode_result(words)
 
     def read_status(self) -> Tuple[bool, Optional[HikrobotStatus]]:
