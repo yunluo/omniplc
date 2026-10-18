@@ -133,7 +133,7 @@ timeout_method = "thread"
 # B 中依赖新语法的规则(如 B905 strict=)不会误报;C90 阈值 12(默认 10
 # 全库噪音过大,见 1045 §五-3「平台化」观察口径)。
 [tool.ruff.lint]
-select = ["E", "F", "B", "SIM","I","C4","C90","RUF100","PERF","SIM401","RET","TRY","RUF012"]
+select = ["E", "F", "B", "SIM","I","C4","C90","RUF100","RUF012","PERF","SIM401","RET","TRY","RUF013","FA","PIE","PLC0105","PLC0206","PLC2401","PLC0414","TD","PGH","S105","S106","S107","S113"]
 ignore = [
     "E501",  # 行宽交给 formatter 管
     "TRY004",  # isinstance 检查抛 ValueError 是项目入参契约(review-1042

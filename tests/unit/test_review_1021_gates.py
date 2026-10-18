@@ -512,11 +512,7 @@ class TestWriteMethodRegistry:
                     continue
                 if isinstance(getattr(cls, name), property):
                     continue
-                hit = (
-                    name.startswith("write")
-                    or name.endswith("write")
-                    or name.startswith("set_")
-                )
+                hit = name.startswith(("write", "set_")) or name.endswith("write")
                 if hit and name not in _WRITE_METHOD_REGISTRY:
                     unknown.append(f"{cls.__name__}.{name}")
         assert unknown == [], f"新增写方法未登记写安全面:{unknown}"

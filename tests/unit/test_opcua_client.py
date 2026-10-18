@@ -712,7 +712,7 @@ def test_async_mirror_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
 # ----------------------------------------------------------------------
 
 try:
-    import asyncua.sync as _asyncua_sync  # type: ignore
+    import asyncua.sync as _asyncua_sync  # type: ignore[import-untyped]
 
     _HAVE_ASYNCUA = True
 except ImportError:  # pragma: no cover
