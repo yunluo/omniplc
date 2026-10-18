@@ -157,8 +157,10 @@ def parse_opcua_nodeid(address: str) -> OpcUaNodeId:  # noqa: C901
     parts = []
     if namespace != 0:
         parts.append(f"ns={namespace}")
-    for extra_key in ("nsu", "srv"):
-        if extra_key in extras:
-            parts.append(f"{extra_key}={extras[extra_key]}")
+    parts.extend(
+        f"{extra_key}={extras[extra_key]}"
+        for extra_key in ("nsu", "srv")
+        if extra_key in extras
+    )
     parts.append(f"{kind}={body}")
     return OpcUaNodeId(namespace=namespace, text=";".join(parts))

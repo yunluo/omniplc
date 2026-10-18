@@ -479,10 +479,11 @@ class MTConnectClient(BaseClient):
             raise ProtocolFrameError(
                 _("MTConnect /probe 返回了 {} 文档").format(_local_name(root.tag))
             )
-        devices: List[Dict[str, str]] = []
-        for elem in root.iter():
-            if _local_name(elem.tag) == "Device":
-                devices.append(dict(elem.attrib))
+        devices: List[Dict[str, str]] = [
+            dict(elem.attrib)
+            for elem in root.iter()
+            if _local_name(elem.tag) == "Device"
+        ]
         return devices
 
     def _fetch_sample(

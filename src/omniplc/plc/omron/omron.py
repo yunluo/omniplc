@@ -484,7 +484,7 @@ class _OmronFinsBase(BaseClient):
         )
         return self._pack_read_results(addresses, values)
 
-    def read_batch(  # noqa: C901
+    def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """多存储区批量读取:0104 单事务混读多个非连续字(TCP/UDP 通用)。
@@ -538,10 +538,10 @@ class _OmronFinsBase(BaseClient):
                 )
             _unused, word_code = codec.memory_codes(parsed.area, parsed.bank)
             plan.append(("word", len(entries), words, data_type_enum))
-            for index in range(words):
-                entries.append(
-                    (word_code, codec.area_offset(parsed.area, parsed.offset + index))
-                )
+            entries.extend(
+                (word_code, codec.area_offset(parsed.area, parsed.offset + index))
+                for index in range(words)
+            )
         codes = [code for code, _unused in entries]
 
         def operation() -> List[PrimitiveValue]:

@@ -241,9 +241,11 @@ def test_error_code_tables_fully_translated_in_en() -> None:  # noqa: C901
                 parts.pop()
             module = importlib.import_module("omniplc." + ".".join(parts))
             table = getattr(module, name)
-            for text in texts_of(table):
-                if _(text) == text:
-                    missing.append(f"{name}:{str(text)[:40]}")
+            missing.extend(
+                f"{name}:{str(text)[:40]}"
+                for text in texts_of(table)
+                if _(text) == text
+            )
     finally:
         set_lang("zh")
     assert missing == [], f"码表 en 漏翻(键不在 _TRANSLATIONS):{missing}"
