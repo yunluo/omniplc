@@ -154,6 +154,10 @@ class TestTransportTimeoutError:
             def recv(self, _n: int) -> bytes:
                 raise socket.timeout("timed out")
 
+            def recv_into(self, _buffer: bytearray, _size: int, _flags: int = 0) -> int:
+                # POSIX 分支(udp.py)经 recv_into 收包,同抛超时
+                raise socket.timeout("timed out")
+
             def close(self) -> None:
                 pass
 

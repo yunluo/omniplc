@@ -12,6 +12,7 @@ freelibhndl),操作模块内**真实 ctypes 结构体**(海康 SDK 测试同款�
 from __future__ import annotations
 
 import ctypes
+import sys
 from typing import Any, Callable, Dict, List, Optional
 
 import pytest
@@ -19,6 +20,13 @@ import pytest
 from omniplc import FanucFocasClient
 from omniplc.cnc import focas
 from omniplc.core.errors import OmniPLCInternalError
+
+# FOCAS 驱动仅 Windows(fwlib32.dll,见 focas.py 平台守卫);POSIX 下
+# ctypes 结构 64 位对齐与 `#pragma pack(4)` 推导的 sizeof 不符
+# (CI ubuntu 腿实测 _ODBDY2 = 1076 ≠ 540),整个文件非 Windows 跳过。
+pytestmark = pytest.mark.skipif(
+    sys.platform != "win32", reason="FOCAS 仅 Windows(fwlib32.dll)"
+)
 
 # ----------------------------------------------------------------------
 # 假 DLL / 函数表(操作真实 ctypes 结构体)

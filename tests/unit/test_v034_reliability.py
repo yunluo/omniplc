@@ -395,8 +395,11 @@ class TestAioBackoffAndErrorSurfaces:
         assert async_client.last_error == sync.last_error
         assert async_client.last_error_category is ErrorCategory.TRANSPORT
         assert async_client.last_error_code is None
-        assert async_client.next_connect_in == sync.next_connect_in
-        assert async_client.next_connect_in is not None
+        # 退避剩余秒是 time.monotonic 时刻差,两次读取间微秒漂移
+        # (CI 3.10/3.11 暴露,本地 3.7 偶合)——按近似断言
+        remaining = sync.next_connect_in
+        assert async_client.next_connect_in == pytest.approx(remaining, abs=0.05)
+        assert remaining is not None
 
     def test_property_reads_do_not_block_on_transaction_lock(self) -> None:
         """事务锁被占时,aio 只读属性仍应立即返回(不得进同步事务锁)。

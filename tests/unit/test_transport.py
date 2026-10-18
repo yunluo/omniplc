@@ -286,12 +286,16 @@ class TestUdpTransport:
         """
 
         class OversizeSocket:
-            """``recv`` 恒抛 WSAEMSGSIZE(Windows 内核行为)。"""
+            """``recv``/``recv_into`` 恒抛 WSAEMSGSIZE(Windows 内核行为)。"""
 
             def settimeout(self, _value: float) -> None:
                 pass
 
             def recv(self, _size: int) -> bytes:
+                raise OSError(10040, "WSAEMSGSIZE: message too long")
+
+            def recv_into(self, _buffer: bytearray, _size: int, _flags: int = 0) -> int:
+                # POSIX 分支(udp.py)经 recv_into 探测截断,同抛
                 raise OSError(10040, "WSAEMSGSIZE: message too long")
 
             def close(self) -> None:
