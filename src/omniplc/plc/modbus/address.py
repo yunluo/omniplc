@@ -103,8 +103,12 @@ def parse_address(address: str) -> ModbusAddress:
 
     :param address: 地址,如 ``"hr0"``、``"C7"``、``"40001"``
     :return: :class:`ModbusAddress`
-    :raises ValueError: 语法错误、位号越界或区域不可写
+    :raises ValueError: 非字符串入参、语法错误、位号越界或区域不可写
     """
+    if not isinstance(address, str):
+        raise ValueError(
+            _("Modbus 地址必须是字符串,收到 {!r}").format(type(address).__name__)
+        )
     if not address or not address.strip():
         raise ValueError(_("Modbus 地址不能为空"))
     text = address.strip().lower()

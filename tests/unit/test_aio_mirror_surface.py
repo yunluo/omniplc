@@ -114,15 +114,17 @@ def test_method_signatures_match_sync_twin() -> None:
     (2026-10-05 异步对齐核查固化)。property/静态方法不涉签名比对;
     ``close`` 两侧语义超集(同步 SDK 子类为 disconnect 别名、aio 基类为
     断连+释放线程)参数一致,天然通过。
+    基类公共方法同样纳入比对(2026-10-18 review-1042 §11.2:原
+    ``base_public`` 排除项恰好豁免了最容易漂移的基类手写转发——
+    ``BaseClient.ping(heartbeat=)`` 曾因此漏检,参数在 aio 面静默丢失)。
     """
     problems: list = []
-    base_public = _public(pkg.BaseClient) & _public(aio.ABaseClient)
     for name in pkg.__all__:
         if not name.endswith("Client") or name == "BaseClient":
             continue
         s_cls = getattr(pkg, name)
         a_cls = getattr(aio, "A" + name)
-        for attr in sorted((_public(s_cls) & _public(a_cls)) - base_public):
+        for attr in sorted(_public(s_cls) & _public(a_cls)):
             s_m = inspect.getattr_static(s_cls, attr)
             a_m = inspect.getattr_static(a_cls, attr)
             if isinstance(s_m, (staticmethod, classmethod, property)) or isinstance(

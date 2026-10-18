@@ -96,3 +96,24 @@ class TestFunctionCodes:
     def test_write_ir_not_writable(self) -> None:
         with pytest.raises(ValueError):
             parse_address("ir0").write_single_function_code
+
+
+class TestInvalidInputTypes:
+    """非字符串入参统一 ``ValueError``(review-1042 §九-8,与「无效入参
+    → ValueError」的全库口径对齐,不再裸 AttributeError 外逃)。"""
+
+    def test_int_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            parse_address(40001)
+
+    def test_int_zero_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            parse_address(0)
+
+    def test_bytes_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            parse_address(b"40001")
+
+    def test_none_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            parse_address(None)

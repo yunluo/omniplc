@@ -311,9 +311,11 @@ class ABaseClient:
         """连接健康统计快照(转发同步实例,字段说明见同步版)。"""
         return self._sync.stats
 
-    async def ping(self) -> bool:
-        """探活(语义同同步版 :meth:`BaseClient.ping`)。"""
-        return await self._run(self._sync.ping)
+    async def ping(self, *, heartbeat: bool = False) -> bool:
+        """探活(语义同同步版 :meth:`BaseClient.ping`;``heartbeat=True``
+        时豁免 error_count / device_error_count 且成功不清 ``last_error``,
+        与同步版口径一致)。"""
+        return await self._run(lambda: self._sync.ping(heartbeat=heartbeat))
 
     @property
     def ping_supported(self) -> bool:

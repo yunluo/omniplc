@@ -496,6 +496,7 @@ _TRANSLATIONS: Dict[str, str] = {
     "{} 超出范围 {}~{}:{}": "{0} out of range {1}~{2}: {3}",
     "{} 必须在 0~{} 之间,收到:{}": "{0} must be between 0 and {1}, got: {2}",
     "Modbus 地址不能为空": "Modbus address must not be empty",
+    "Modbus 地址必须是字符串,收到 {!r}": "Modbus address must be a string, got {!r}",
     "Modicon 地址超出区段:{},支持 {}": "Modicon address out of the segment ranges: {0}, supported: {1}",
     "无法解析 Modbus 地址:{!r}(示例:hr0 / c0 / di10 / 40001)": "Cannot parse the Modbus address: {!r} (examples: hr0 / c0 / di10 / 40001)",
     "区域 {!r} 本身就是位地址,不支持位访问:{!r}": "Area {!r} is already a bit address; bit access is not supported: {!r}",
