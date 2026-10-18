@@ -198,7 +198,7 @@ class _OpcUaSession(BaseTransport):
                 _("OPC-UA 会话创建失败:{}(请确认已 pip install omniplc[opcua])").format(
                     exc
                 )
-            )
+            ) from None
         try:
             client.connect()
         except OSError:
@@ -206,7 +206,9 @@ class _OpcUaSession(BaseTransport):
             raise
         except Exception as exc:
             _safe_disconnect(client)
-            raise OSError(_("OPC-UA 连接失败:{}({})").format(type(exc).__name__, exc))
+            raise OSError(
+                _("OPC-UA 连接失败:{}({})").format(type(exc).__name__, exc)
+            ) from None
         self._client = client
         log_op(self._debug_label, "会话已建立")
 
@@ -294,7 +296,7 @@ class _OpcUaSession(BaseTransport):
         except Exception:
             raise OmniPLCInternalError(
                 _("OPC-UA VariantType 解析失败:{}").format(variant_name)
-            )
+            ) from None
         try:
             self.client.get_node(node_text).write_value(value, variant_type)
         except OSError:
@@ -1112,7 +1114,7 @@ class OpcUaClient(BaseClient):
 
         return self._execute(operation)
 
-    def _create_data_change_subscription(
+    def _create_data_change_subscription(  # noqa: C901
         self,
         node_text: str,
         on_change: Callable[[Any, str, Optional[float]], None],
@@ -1316,7 +1318,7 @@ class OpcUaClient(BaseClient):
 
         return self._execute(operation)
 
-    def _create_event_subscription(
+    def _create_event_subscription(  # noqa: C901
         self,
         node_text: str,
         on_event: Callable[[dict, str, Optional[float]], None],

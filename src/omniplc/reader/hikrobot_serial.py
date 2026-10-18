@@ -319,7 +319,7 @@ class HikrobotIdSerialClient(BaseClient):
                     self._mark_disconnected()
                 raise TransportTimeoutError(
                     _("读码结果等待超时({}s),串口无应答").format(timeout), 0
-                )
+                ) from None
             try:
                 return line.decode(self._encoding, errors=self._encoding_errors)
             except UnicodeDecodeError as exc:

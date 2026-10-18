@@ -229,7 +229,7 @@ class TestAioFinsRouting:
         client = AOmronFinsUdpClient.__new__(AOmronFinsUdpClient)
         ABaseClient.__init__(client, ModbusTcpClient("127.0.0.1", 502, 1))
         with pytest.raises(TypeError):
-            client.destination_network
+            client.destination_network  # noqa: B018 —— 故意求值触发 TypeError
 
 
 # ----------------------------------------------------------------------

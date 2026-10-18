@@ -397,7 +397,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         )
         return self._pack_read_results(addresses, values)
 
-    async def read_batch(
+    async def read_batch(  # noqa: C901
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """多块批量读取:0406 单事务混读多个字/位软元件(仅 3E/4E 帧)。

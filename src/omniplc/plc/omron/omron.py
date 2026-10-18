@@ -374,7 +374,7 @@ class _OmronFinsBase(BaseClient):
     # 批量读取(0104 多存储区读,单事务)
     # ------------------------------------------------------------------
 
-    def read_range(
+    def read_range(  # noqa: C901
         self,
         address: str,
         count: int,
@@ -484,7 +484,7 @@ class _OmronFinsBase(BaseClient):
         )
         return self._pack_read_results(addresses, values)
 
-    def read_batch(
+    def read_batch(  # noqa: C901
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """多存储区批量读取:0104 单事务混读多个非连续字(TCP/UDP 通用)。

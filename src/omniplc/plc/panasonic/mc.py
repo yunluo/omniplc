@@ -103,7 +103,7 @@ def _linearize(device: str, number_text: str, bit: Optional[int]) -> Tuple[int, 
     except ValueError:
         raise ValueError(
             _("松下位软元件 {} 字号为十进制,解析失败:{!r}").format(device, word_text)
-        )
+        ) from None
     return word * 16 + bit_value, bit_value
 
 

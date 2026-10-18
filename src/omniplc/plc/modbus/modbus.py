@@ -18,6 +18,7 @@ from __future__ import annotations
 import math
 import time
 from abc import abstractmethod
+from functools import partial
 from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple, Union, cast
 
 from . import codec
@@ -303,7 +304,7 @@ class ModbusBaseClient(BaseClient):
             parsed.append((_check_address(addr, coerced), coerced))
         return self._execute(lambda: self._coalesce_and_read(parsed))
 
-    def read_range(
+    def read_range(  # noqa: C901
         self,
         address: str,
         count: int,
@@ -679,7 +680,7 @@ class ModbusBaseClient(BaseClient):
                 # 逐项独立事务:该项 False 且原因落 last_error,其余继续
                 # (写语义:重试取 write_retries,默认 0 防重复写入)
                 ok, _unused = self._execute(
-                    lambda: self._write_bool_impl(parsed, flag), is_write=True
+                    partial(self._write_bool_impl, parsed, flag), is_write=True
                 )
                 result[item_index] = ok
 
@@ -715,7 +716,7 @@ class ModbusBaseClient(BaseClient):
                     # 逐 chunk 独立事务:该 chunk 全 False 且原因落 last_error
                     # (写语义:重试取 write_retries,默认 0 防重复写入)
                     ok, _unused = self._execute(
-                        lambda: _write_chunk(self, area, kind, chunk_items),
+                        partial(_write_chunk, self, area, kind, chunk_items),
                         is_write=True,
                     )
                     for item_index, _entry, _area in chunk_items:
@@ -1481,7 +1482,7 @@ class ModbusRtuClient(ModbusBaseClient):
             raise ValueError(_("请先调用 configure_serial() 配置串口参数"))
         return SerialTransport(self._serial_config)
 
-    def _transact(self, pdu: bytes, expect_response: bool = True) -> bytes:
+    def _transact(self, pdu: bytes, expect_response: bool = True) -> bytes:  # noqa: C901
         """RTU 事务:站号+PDU+CRC16 → 发送 → 按功能码推算长度收 → 校验 CRC。
 
         异常响应(功能码 | 0x80)恒为 2 字节 PDU,读到功能码后先行分支;
@@ -1570,7 +1571,7 @@ def _coerce_word_order(value: Union[WordOrder, str]) -> WordOrder:
         return WordOrder(str(value).strip().upper())
     except ValueError:
         valid = ", ".join(order.value for order in WordOrder)
-        raise ValueError(_("未知字序:{!r},支持:{}").format(value, valid))
+        raise ValueError(_("未知字序:{!r},支持:{}").format(value, valid)) from None
 
 
 class _CoalesceEntry(NamedTuple):
@@ -1857,11 +1858,11 @@ def _device_id_code(level: Union[str, int]) -> int:
                     "设备标识层次未知:{!r},支持 basic / regular / extended"
                     "(单个对象请用 read_device_object)"
                 ).format(level)
-            )
+            ) from None
     try:
         code = int(level)
     except (TypeError, ValueError):
-        raise ValueError(_("设备标识层次非法:{!r}").format(level))
+        raise ValueError(_("设备标识层次非法:{!r}").format(level)) from None
     if code == MODBUS_DEVICE_ID_CODE_INDIVIDUAL:
         raise ValueError(_("个体访问(读取码 4)请用 read_device_object(object_id)"))
     if code not in (

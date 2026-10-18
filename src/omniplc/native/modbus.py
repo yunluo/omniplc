@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Dict, List, Optional, Sequence, Tuple, Union, cast
 
 from .base import AsyncBaseClient
@@ -689,7 +690,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
                 result[item_index] = True
             else:
                 ok, _unused = await self._execute(
-                    lambda: self._write_bool_impl(parsed, flag), is_write=True
+                    partial(self._write_bool_impl, parsed, flag), is_write=True
                 )
                 result[item_index] = ok
 
@@ -718,7 +719,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
                         result[item_index] = True
                 else:
                     ok, _unused = await self._execute(
-                        lambda: self._write_chunk(area, kind, chunk_items),
+                        partial(self._write_chunk, area, kind, chunk_items),
                         is_write=True,
                     )
                     for item_index, _entry, _area in chunk_items:

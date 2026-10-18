@@ -201,7 +201,7 @@ class KeyenceSrClient(BaseClient):
                 self._mark_disconnected()
             raise TransportTimeoutError(
                 _("扫码读超时({}s),未收到应答").format(read_timeout), 0
-            )
+            ) from None
         finally:
             transport.receive_timeout = previous_timeout
 

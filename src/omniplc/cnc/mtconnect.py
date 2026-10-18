@@ -293,7 +293,7 @@ class _MtConnectSession(BaseTransport):
                 _("MTConnect HTTP 状态 {}:{}").format(
                     status, body[:120].decode("utf-8", "replace")
                 )
-            )
+            ) from None
         info = _error_of_document(root)
         if info is None:
             raise OSError(_("MTConnect HTTP 状态 {} 响应非错误文档").format(status))
@@ -763,7 +763,7 @@ def _coerce(value: str, data_type: DataType, address: str) -> PrimitiveValue:
         except ValueError:
             raise DeviceError(
                 _("MTConnect 数据项不是数值:{} ← {!r}").format(address, value), 0
-            )
+            ) from None
         if not math.isfinite(number_f):
             # "nan"/"inf"/"1e999" 文本 float() 接受成功——非有限值进数据链
             # 会把下游报警比较恒短路为 False,与 UNAVAILABLE 同类无效值,
@@ -777,7 +777,7 @@ def _coerce(value: str, data_type: DataType, address: str) -> PrimitiveValue:
     except ValueError:
         raise DeviceError(
             _("MTConnect 数据项不是整数:{} ← {!r}").format(address, value), 0
-        )
+        ) from None
     # 按声明类型收窄范围:Agent 文本超出该类型属设备侧条件(不断线)
     bounds = _INT_RANGES.get(data_type)
     if bounds is not None and not bounds[0] <= number <= bounds[1]:

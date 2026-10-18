@@ -88,7 +88,7 @@ def _to_melsec_address(parsed: McAddress) -> McAddress:
         except ValueError:
             raise ValueError(
                 _("汇川 R 编号为十进制,解析失败:{!r}").format(parsed.number)
-            )
+            ) from None
         return McAddress("D", str(number + INOVANCE_MC_R_BASE), parsed.bit)
     if device in ("X", "Y"):
         try:
@@ -98,7 +98,7 @@ def _to_melsec_address(parsed: McAddress) -> McAddress:
                 _("汇川 {} 编号为八进制(数字 0~7),解析失败:{!r}(示例:X17)").format(
                     device, parsed.number
                 )
-            )
+            ) from None
         return McAddress(device, format(number, "X"), parsed.bit)
     return parsed
 

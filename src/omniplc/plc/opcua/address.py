@@ -71,7 +71,7 @@ def _bad_nodeid(address: str) -> str:
 
 # 地址串 → 解析结果缓存(结果类型不可变):高频轮询同址免重复正则解析
 @lru_cache(maxsize=ADDRESS_CACHE_MAXSIZE)
-def parse_opcua_nodeid(address: str) -> OpcUaNodeId:
+def parse_opcua_nodeid(address: str) -> OpcUaNodeId:  # noqa: C901
     """解析 OPC-UA NodeId 字符串。
 
     与 asyncua ``NodeId.from_string`` 对齐:``;`` 分隔组件;``s=`` 之后的

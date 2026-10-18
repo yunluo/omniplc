@@ -278,7 +278,7 @@ def _coerce_parity(value: Union[SerialParity, str]) -> SerialParity:
     except ValueError:
         raise ValueError(
             _("校验位必须是 SerialParity 枚举或 N/E/O,收到:{!r}").format(value)
-        )
+        ) from None
 
 
 def _require_int_field(name: str, value: PrimitiveValue) -> int:

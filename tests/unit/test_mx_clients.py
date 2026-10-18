@@ -79,7 +79,7 @@ class FakeActUtlType:
 
 
 @pytest.fixture
-def fake(monkeypatch: pytest.MonkeyPatch) -> FakeActUtlType:
+def fake(monkeypatch: pytest.MonkeyPatch) -> FakeActUtlType:  # noqa: C901
     """替换 COM 交互层为内存版假控件。"""
     act = FakeActUtlType()
 

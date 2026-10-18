@@ -830,7 +830,7 @@ _EXT_CASES = [
 ]
 
 
-def _call_ext(client: Any, case: ExtCase, is_async: bool = False) -> Any:
+def _call_ext(client: Any, case: ExtCase, is_async: bool = False) -> Any:  # noqa: C901
     """按用例调用扩展方法(同步客户端返回结果,异步客户端返回协程)。
 
     ``is_async`` 与 :func:`_call` 同形参但同样不使用——调用哪个方法由客户端

@@ -50,7 +50,7 @@ from omniplc import (
 _CONN_BASE: Dict[str, Any] = {"ip": "192.0.2.10", "port": None}
 
 
-def _build(conn: Dict[str, Any]) -> Any:
+def _build(conn: Dict[str, Any]) -> Any:  # noqa: C901
     """按 driver 直接构造同步客户端(原 tools/manual_common.build_client 内联)。
 
     各驱动的**位置参数顺序与关键字形态**与原联机脚本构造口径一致——库签名

@@ -95,7 +95,7 @@ class TestFunctionCodes:
 
     def test_write_ir_not_writable(self) -> None:
         with pytest.raises(ValueError):
-            parse_address("ir0").write_single_function_code
+            parse_address("ir0").write_single_function_code  # noqa: B018 —— 故意求值触发 ValueError
 
 
 class TestInvalidInputTypes:

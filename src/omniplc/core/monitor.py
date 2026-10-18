@@ -251,7 +251,7 @@ class Monitor:
     发一条汇总并报压制条数——默认 60 拍(interval 1s 时 ≈ 每分钟一条),
     防 50 台客户端 × 长时间检修的万条重复 WARNING 刷屏。"""
 
-    def __init__(
+    def __init__(  # noqa: C901
         self,
         client: "BaseClient",
         points: Union[Mapping[str, Sequence[str]], TagTable],
@@ -621,7 +621,7 @@ class Monitor:
                 self._stop_event.wait(next_deadline - now)
                 next_deadline += self._interval
 
-    def _cycle(self) -> None:
+    def _cycle(self) -> None:  # noqa: C901
         """执行一个采集周期:批量读 → 记账 → 替换快照 → 发事件(内部方法)。
 
         读取段**按组兜底** :class:`Exception`:参数类错误(如坏地址)按库

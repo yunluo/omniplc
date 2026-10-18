@@ -888,7 +888,7 @@ class MelsecMxClient(BaseClient):
         )
         return self._pack_read_results(addresses, values)
 
-    def read_batch(
+    def read_batch(  # noqa: C901
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """批量读取:16 位条目合并随机读,32/64 位条目各走一笔块读。

@@ -174,9 +174,9 @@ def test_opcua_ops_logged(
     class _VariantType:
         UInt16 = object()
 
-    setattr(ua_mod, "VariantType", _VariantType)
+    ua_mod.VariantType = _VariantType
     pkg = types.ModuleType("asyncua")
-    setattr(pkg, "ua", ua_mod)
+    pkg.ua = ua_mod
     monkeypatch.setitem(sys.modules, "asyncua", pkg)
     monkeypatch.setitem(sys.modules, "asyncua.ua", ua_mod)
 

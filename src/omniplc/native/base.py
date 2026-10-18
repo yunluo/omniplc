@@ -248,7 +248,7 @@ class AsyncBaseClient(ABC):
             self._ensure_open()
             return await self._connect_locked()
 
-    async def _connect_locked(self) -> bool:
+    async def _connect_locked(self) -> bool:  # noqa: C901
         """连接实现(内部方法,**调用方须已持有事务锁**)。"""
         if self._connected:
             return True
@@ -327,7 +327,7 @@ class AsyncBaseClient(ABC):
             self._transport = None
             self._connected = False
             if cancelled is not None:
-                raise cancelled
+                raise cancelled from None
             return False
         self._connected = True
         self._clear_error()
@@ -1067,7 +1067,7 @@ class AsyncBaseClient(ABC):
         try:
             return self._tag_table[tag]
         except KeyError:
-            raise ValueError(_("点位表中不存在:{!r}").format(tag))
+            raise ValueError(_("点位表中不存在:{!r}").format(tag)) from None
 
     # ------------------------------------------------------------------
     # 写安全与信号原语(review-1020 §七甲/丙,与同步基类同口径)
@@ -1326,7 +1326,7 @@ class AsyncBaseClient(ABC):
     # 事务执行:惰性重连 + 重试 + 错误转换(事件循环内串行的核心)
     # ------------------------------------------------------------------
 
-    async def _execute(
+    async def _execute(  # noqa: C901
         self,
         operation: Callable[[], Awaitable[_T]],
         is_write: bool = False,
@@ -1374,7 +1374,7 @@ class AsyncBaseClient(ABC):
             self._ensure_open()
             self._counters["transactions"] += 1
             started = time.perf_counter()
-            for attempt in range(retries + 1):
+            for _attempt in range(retries + 1):
                 if not self._connected:
                     # 每次重连前再查关闸:close() 在事务执行中被调用时,
                     # 循环体内不再重建连接
@@ -1582,10 +1582,10 @@ class AsyncBaseClient(ABC):
     def _create_transport(self) -> AsyncBaseTransport:
         """创建与走线对应的**异步**传输对象(每次连接新建)。"""
 
-    async def _after_connect(self) -> None:
+    async def _after_connect(self) -> None:  # noqa: B027 —— 默认无操作钩子(非抽象,可选覆写点)
         """连接建立后的**异步**钩子,默认无操作(如 FINS/TCP 握手)。"""
 
-    async def _after_connect_failure(self) -> None:
+    async def _after_connect_failure(self) -> None:  # noqa: B027 —— 默认无操作钩子(非抽象,可选覆写点)
         """连接初始化失败后的尽力清理钩子,默认无操作(协程;内部方法)。
 
         与同步基类同名同义:持有 PLC 侧会话等资源的驱动覆写,调用点在

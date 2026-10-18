@@ -309,7 +309,7 @@ class _MelsecMcBase(BaseClient):
     # 批量读取(3E/4E 走 0406 多块批量读,单事务)
     # ------------------------------------------------------------------
 
-    def read_range(
+    def read_range(  # noqa: C901
         self,
         address: str,
         count: int,
@@ -463,7 +463,7 @@ class _MelsecMcBase(BaseClient):
         )
         return self._pack_read_results(addresses, values)
 
-    def read_batch(
+    def read_batch(  # noqa: C901
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """多块批量读取:0406 单事务混读多个字/位软元件(仅 3E/4E 帧)。
@@ -1357,7 +1357,7 @@ class MelsecMcSerialClient(_MelsecMcBase):
         )
 
     @staticmethod
-    def _transact_4c(transport: BaseTransport) -> bytes:
+    def _transact_4c(transport: BaseTransport) -> bytes:  # noqa: C901
         """4C 收包:长度域 + 附加码还原,重组逻辑帧(内部方法)。
 
         整帧受一次 ``receive_timeout`` 预算约束——不逐字节重置超时,防

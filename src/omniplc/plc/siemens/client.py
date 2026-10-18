@@ -963,7 +963,7 @@ class SiemensS7Client(BaseClient):
             return [(False, None) for _ in addresses]
         return [(True, value) for value in values]
 
-    def read_batch(
+    def read_batch(  # noqa: C901
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """多变量批量读取:Read Var 多 Item 单 PDU 混读(DB/I/Q/M)。

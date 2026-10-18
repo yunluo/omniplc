@@ -530,7 +530,7 @@ def _parse_error_body(body: bytes) -> int:
     return int(code)
 
 
-def decode_get_data(payload: bytes, request_type: int) -> Any:
+def decode_get_data(payload: bytes, request_type: int) -> Any:  # noqa: C901
     """解码 mochaGetData 数据段(内部函数)。
 
     数据头 = C 库 get_data_response_header(L107~110):u32(0)+

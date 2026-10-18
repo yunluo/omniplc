@@ -172,7 +172,7 @@ def build_3c_request(
     return bytes([ENQ]) + body + checksum_text + _CRLF
 
 
-def parse_3c_response(
+def parse_3c_response(  # noqa: C901
     response: bytes,
     points: int,
     is_bit: bool,

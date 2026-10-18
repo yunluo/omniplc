@@ -189,7 +189,7 @@ def build_1c_request(
     return bytes([codec_serial.ENQ]) + body + checksum_text + codec_serial._CRLF
 
 
-def parse_1c_response(
+def parse_1c_response(  # noqa: C901
     response: bytes,
     points: int,
     is_bit: bool,

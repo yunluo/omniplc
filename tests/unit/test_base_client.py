@@ -440,13 +440,13 @@ class TestTransactionIdWraparound:
 
     def test_bump_id_wraps_at_0xffff(self) -> None:
         client = _ScriptedClient()
-        setattr(client, "_transaction_id", 0xFFFF)
+        client._transaction_id = 65535
         assert client._bump_id("_transaction_id", 16) == 0
         assert client._bump_id("_transaction_id", 16) == 1
 
     def test_bump_id_normal_increment(self) -> None:
         client = _ScriptedClient()
-        setattr(client, "_transaction_id", 0x7FFE)
+        client._transaction_id = 32766
         assert client._bump_id("_transaction_id", 16) == 0x7FFF
 
     def test_connection_refused_is_transport(self) -> None:

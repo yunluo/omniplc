@@ -326,7 +326,7 @@ def data_type_code(data_type: DataType) -> int:
     try:
         return _DATA_TYPE_CODES[data_type]
     except KeyError:
-        raise ValueError(_("AB 不支持的数据类型:{}").format(data_type))
+        raise ValueError(_("AB 不支持的数据类型:{}").format(data_type)) from None
 
 
 def type_name(cip_type: int) -> str:
@@ -1161,7 +1161,7 @@ def parse_send_unit_data_reply_with_status(
 # ----------------------------------------------------------------------
 
 
-def _parse_rr_data_cip(reply: bytes) -> bytes:
+def _parse_rr_data_cip(reply: bytes) -> bytes:  # noqa: C901
     """校验 SendRRData 封装与 CPF,返回 CIP 数据(内部函数)。
 
     应答命令规范为 SendRRData(0x6F);个别模拟器以 0x66 回帧非连接请求

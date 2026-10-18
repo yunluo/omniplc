@@ -554,7 +554,7 @@ class HikrobotIdTcpClient(BaseClient):
             # 结果通道无推送:链路仍完好,不断线(与 SR 读超时同口径)
             raise TransportTimeoutError(
                 _("读码结果等待超时({}s),结果通道无数据").format(timeout), 0
-            )
+            ) from None
         try:
             return raw.decode(self._encoding, errors=self._encoding_errors)
         except UnicodeDecodeError as exc:
@@ -564,7 +564,7 @@ class HikrobotIdTcpClient(BaseClient):
                 _("结果报文解码失败({}):{}").format(self._encoding, exc), 0
             ) from exc
 
-    def _command_exchange(
+    def _command_exchange(  # noqa: C901
         self, cmd_type: str, cmd: str, param: Optional[str] = None
     ) -> Optional[str]:
         """发送命令并校验应答回显(内部方法,须事务内调用)。
@@ -609,7 +609,7 @@ class HikrobotIdTcpClient(BaseClient):
             self._mark_disconnected()
             raise TransportTimeoutError(
                 _("命令 {} 应答超时({}s)").format(payload, self._receive_timeout), 0
-            )
+            ) from None
         text = reply.decode("ascii", errors="replace")
         # invalid 在闭合 > 之外(手册 §1.3 印刷页 2):切出括号体与后缀
         if text.endswith(">"):
@@ -659,7 +659,7 @@ class HikrobotIdTcpClient(BaseClient):
                 _("{} 应答既非 OK 也非 errno:{!r}(原始帧:{})").format(
                     cmd_type, reply_payload, format_hex(reply)
                 )
-            )
+            ) from None
         if errno < 0:
             # 负数 = 错误码表(印刷页 12-13);Get 参数恰为负数文本的场景手册
             # 未给类型标注,按 errno 解读(极端场景,见 docstring 注意)

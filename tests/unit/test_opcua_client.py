@@ -500,9 +500,9 @@ def test_translate_ua_error(monkeypatch: pytest.MonkeyPatch) -> None:
             super().__init__(text)
             self.code = code
 
-    setattr(mod_errors, "UaError", UaError)
-    setattr(pkg_ua, "uaerrors", mod_errors)
-    setattr(pkg_asyncua, "ua", pkg_ua)
+    mod_errors.UaError = UaError
+    pkg_ua.uaerrors = mod_errors
+    pkg_asyncua.ua = pkg_ua
     monkeypatch.setitem(sys.modules, "asyncua", pkg_asyncua)
     monkeypatch.setitem(sys.modules, "asyncua.ua", pkg_ua)
     monkeypatch.setitem(sys.modules, "asyncua.ua.uaerrors", mod_errors)
@@ -532,9 +532,9 @@ def test_translate_ua_error_without_code_reports_no_status(
     class UaError(Exception):
         """无 ``code`` 属性的 UaError 形态(与 asyncua 部分子类一致)。"""
 
-    setattr(mod_errors, "UaError", UaError)
-    setattr(pkg_ua, "uaerrors", mod_errors)
-    setattr(pkg_asyncua, "ua", pkg_ua)
+    mod_errors.UaError = UaError
+    pkg_ua.uaerrors = mod_errors
+    pkg_asyncua.ua = pkg_ua
     monkeypatch.setitem(sys.modules, "asyncua", pkg_asyncua)
     monkeypatch.setitem(sys.modules, "asyncua.ua", pkg_ua)
     monkeypatch.setitem(sys.modules, "asyncua.ua.uaerrors", mod_errors)
@@ -808,7 +808,7 @@ def test_browse_root_top_level(opcua_client: OpcUaClient) -> None:
     # Objects 节点(服务端必有)在树中,以 browse_name 标识
     names = [v["browse_name"] for v in tree.values()]
     assert "Objects" in names, (names, list(tree.keys()))
-    for k, v in tree.items():
+    for _k, v in tree.items():
         assert "browse_name" in v
         assert "node_class" in v
         assert "children" in v
@@ -864,7 +864,7 @@ def test_browse_max_depth_limits_recursion(_opcua_server_module) -> None:
     try:
         ok, tree = client.browse("Root", recursive=True, max_depth=0)
         assert ok is True
-        for k, v in tree.items():
+        for _k, v in tree.items():
             assert v["children"] is None  # max_depth=0 → 无下钻
     finally:
         client.disconnect()

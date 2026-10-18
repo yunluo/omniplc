@@ -766,7 +766,7 @@ class AllenBradleyEthIpClient(BaseClient):
         )
         return self._pack_read_results(addresses, values)
 
-    def read_batch(
+    def read_batch(  # noqa: C901
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """多服务包批量读取(0x0A,混读多个标签;自动按预算拆分事务)。
@@ -787,7 +787,7 @@ class AllenBradleyEthIpClient(BaseClient):
         if not items:
             raise ValueError(_("read_batch 至少需要一个 (标签, 数据类型) 项"))
 
-        def operation() -> List[PrimitiveValue]:
+        def operation() -> List[PrimitiveValue]:  # noqa: C901
             requests: List[bytes] = []
             # 解码计划:(类别, 标签地址, 已解析对象, 位号/数组下标, 数据类型)
             # ——已解析对象随计划存下,解码循环免逐条目重解析 + base 重建

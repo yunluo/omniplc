@@ -423,7 +423,7 @@ class TestAioBackoffAndErrorSurfaces:
             for reader in readers:
                 done: List[bool] = []
                 thread = threading.Thread(
-                    target=lambda r=reader: (r(), done.append(True))
+                    target=lambda r=reader, d=done: (r(), d.append(True))
                 )
                 thread.start()
                 thread.join(timeout=1.0)

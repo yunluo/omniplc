@@ -1409,7 +1409,7 @@ class BaseClient(ABC):
         try:
             return self._tag_table[tag]
         except KeyError:
-            raise ValueError(_("点位表中不存在:{!r}").format(tag))
+            raise ValueError(_("点位表中不存在:{!r}").format(tag)) from None
 
     # ------------------------------------------------------------------
     # 写安全与信号原语(review-1020 §七甲/丙)
@@ -1843,7 +1843,7 @@ class BaseClient(ABC):
     # 事务执行:惰性重连 + 重试 + 错误转换(线程安全核心)
     # ------------------------------------------------------------------
 
-    def _execute(
+    def _execute(  # noqa: C901
         self,
         operation: Callable[[], _T],
         is_write: bool = False,
@@ -1889,7 +1889,7 @@ class BaseClient(ABC):
                 # (状态锁)不再可能读到跨锁序中间态
                 self._counters["transactions"] += 1
             started = time.perf_counter()
-            for attempt in range(retries + 1):
+            for _attempt in range(retries + 1):
                 if not self._connected:
                     if self.next_connect_in is not None:
                         # 退避门控激活:窗口内重试只会空转,直接结束——
@@ -2040,10 +2040,10 @@ class BaseClient(ABC):
     def _create_transport(self) -> BaseTransport:
         """创建与走线对应的传输对象(每次连接新建)。"""
 
-    def _after_connect(self) -> None:
+    def _after_connect(self) -> None:  # noqa: B027 —— 默认无操作钩子(非抽象,可选覆写点)
         """连接建立后的钩子,默认无操作(FINS/TCP 用它做握手)。"""
 
-    def _after_connect_failure(self) -> None:
+    def _after_connect_failure(self) -> None:  # noqa: B027 —— 默认无操作钩子(非抽象,可选覆写点)
         """连接初始化失败后的尽力清理钩子,默认无操作(内部方法)。
 
         持有 PLC 侧会话等资源的驱动覆写(如 AB 注销 CIP 会话)。调用点在

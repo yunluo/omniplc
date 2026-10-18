@@ -123,7 +123,7 @@ def test_regressed_mixed_numbering_entries_format_in_en(key: str) -> None:
     set_lang("zh")
 
 
-def test_error_code_tables_fully_translated_in_en() -> None:
+def test_error_code_tables_fully_translated_in_en() -> None:  # noqa: C901
     """经 ``_()`` 取词的**全部码表**逐条断言 en 可译(review-1022 P1-3)。
 
     取词 fallback 查不到键时静默返回中文原文(v0.47.2 刚修过 FINS/CIP 两处
@@ -193,13 +193,15 @@ def test_error_code_tables_fully_translated_in_en() -> None:
                         if target.id != base:
                             var_map.setdefault(target.id, set()).add(base)
 
-        def resolve(name: str, chain: "tuple" = ()) -> "set":
+        def resolve(
+            name: str, chain: "tuple" = (), _var_map: "dict" = var_map
+        ) -> "set":
             out = set()
             if name in chain:
                 return out
             if name in candidate_tables:
                 out.add(name)
-            for base in var_map.get(name, ()):
+            for base in _var_map.get(name, ()):
                 out |= resolve(base, chain + (name,))
             return out
 
@@ -273,7 +275,7 @@ def test_no_chinese_fstring_raises_in_src() -> None:
     assert offenders == [], "含中文的 f-string raise(无法过 _()):{}".format(offenders)
 
 
-def test_all_raise_templates_in_translations() -> None:
+def test_all_raise_templates_in_translations() -> None:  # noqa: C901
     """扫描 src:所有 ``_("…")`` 字面量模板必须在 ``_TRANSLATIONS`` 有键
     (review-1002 P3:原 en 守卫只扫码表不扫 raise 文案——read_range/心跳
     批的 73 条新文案 en 模式全部兜底回中文即此盲区;AST 提取含 py3.7 的

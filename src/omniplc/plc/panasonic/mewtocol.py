@@ -233,7 +233,7 @@ class _MewtocolBase(BaseClient):
             )
         return list(struct.unpack(f">{word_count}H", raw))
 
-    def read_range(
+    def read_range(  # noqa: C901
         self,
         address: str,
         count: int,

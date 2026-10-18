@@ -1848,7 +1848,7 @@ def test_tcp_write_bool_int_values_reach_wire(
             1, 1, bytes([0x05, 0x00, 0x00]) + expected_value_field
         )
         scripted = _ScriptedTransport([response[:7], response[7:]])
-        monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+        monkeypatch.setattr(client, "_create_transport", lambda s=scripted: s)
         client.connect()
         assert client.write_bool("c0", value) is True
         assert bytes(scripted.sent)[-2:] == expected_value_field

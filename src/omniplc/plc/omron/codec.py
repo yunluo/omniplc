@@ -82,7 +82,7 @@ def memory_codes(area: str, bank: int = 0) -> Tuple[int, int]:
             _("不支持的 FINS 存储区:{!r},支持:{}").format(
                 area, "/".join(sorted(FINS_MEMORY_CODES))
             )
-        )
+        ) from None
 
 
 def build_area_read(

@@ -83,7 +83,7 @@ class ModbusAddress:
         except KeyError:
             raise ValueError(
                 _("区域 {!r} 不可写(仅线圈/保持寄存器可写)").format(self.area.value)
-            )
+            ) from None
 
     @property
     def write_multi_function_code(self) -> int:
@@ -93,7 +93,7 @@ class ModbusAddress:
         except KeyError:
             raise ValueError(
                 _("区域 {!r} 不可写(仅线圈/保持寄存器可写)").format(self.area.value)
-            )
+            ) from None
 
 
 # 地址串 → 解析结果缓存(结果类型不可变):高频轮询同址免重复正则解析

@@ -60,7 +60,9 @@ class DataType(Enum):
             return cls(name.strip().lower())
         except ValueError:
             valid = ", ".join(member.value for member in cls)
-            raise ValueError(_("未知的数据类型 {0!r},支持:{1}").format(name, valid))
+            raise ValueError(
+                _("未知的数据类型 {0!r},支持:{1}").format(name, valid)
+            ) from None
 
     @property
     def byte_size(self) -> int:

@@ -163,7 +163,7 @@ class _ToyopucBase(BaseClient):
             )
         raise ValueError(_("TOYOPUC 不支持的数据类型:{}").format(data_type))
 
-    def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
+    def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:  # noqa: C901
         """按数据类型分发到位/字写入原语。"""
         parsed = parse_toyopuc_address(address)
         if data_type is DataType.BOOL:

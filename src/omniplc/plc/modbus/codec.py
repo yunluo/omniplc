@@ -772,7 +772,7 @@ def parse_rtu_frame(frame: bytes) -> Tuple[int, bytes]:
 # ----------------------------------------------------------------------
 
 
-def expected_response_length(request_pdu: bytes) -> int:
+def expected_response_length(request_pdu: bytes) -> int:  # noqa: C901
     """按请求 PDU 推算正常响应 PDU 的字节数(RTU 收包用)。
     依据:各响应布局见 Modbus 应用协议 V1.1b3 §6.x 对应小节;总帧长受 Modbus 串口链路 V1.02 §2.5.1(印刷页 13)    256 字节上限约束。
     异常响应恒为 2 字节(功能码|0x80 + 异常码),由走线层在读到
