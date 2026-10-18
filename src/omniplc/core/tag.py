@@ -6,6 +6,7 @@ import csv
 import json
 import math
 import os
+import pathlib
 from dataclasses import dataclass
 from typing import Dict, Iterable, Iterator, Mapping, Optional, Union
 
@@ -105,7 +106,7 @@ class TagTable(Mapping[str, Tag]):
         :param encoding: 文件编码,默认 utf-8-sig(兼容 Excel 导出)
         :raises ValueError: 格式错误
         """
-        with open(path, encoding=encoding) as fp:
+        with pathlib.Path(path).open(encoding=encoding) as fp:
             data = json.load(fp)
         if not isinstance(data, list):
             raise ValueError(
@@ -123,7 +124,7 @@ class TagTable(Mapping[str, Tag]):
         :param path: CSV 文件路径
         :param encoding: 文件编码,默认 utf-8-sig
         """
-        with open(path, encoding=encoding, newline="") as fp:
+        with pathlib.Path(path).open(encoding=encoding, newline="") as fp:
             reader = csv.DictReader(fp)
             names = reader.fieldnames or []
             for required in ("tag_id", "address", "data_type"):

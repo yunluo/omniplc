@@ -37,6 +37,7 @@ import contextlib
 import ctypes
 import os
 import platform
+from pathlib import Path
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union
 
 from ..core.base_client import BaseClient, validate_endpoint
@@ -306,14 +307,14 @@ def _resolve_dll(sdk_dir: Optional[str], dll_path: Optional[str]) -> str:
     name = "Fwlib32.dll"
     # 物料常见形态:文件名大小写混排(Fwlib32.dll / fwlib32.dll),两级兜底
     candidates = [
-        os.path.join(sdk_dir, bit_dir, name),
-        os.path.join(sdk_dir, name),
-        os.path.join(sdk_dir, bit_dir, "fwlib32.dll"),
-        os.path.join(sdk_dir, "fwlib32.dll"),
+        Path(sdk_dir) / bit_dir / name,
+        Path(sdk_dir) / name,
+        Path(sdk_dir) / bit_dir / "fwlib32.dll",
+        Path(sdk_dir) / "fwlib32.dll",
     ]
     for candidate in candidates:
-        if os.path.isfile(candidate):
-            return candidate
+        if candidate.is_file():
+            return str(candidate)
     raise OmniPLCInternalError(
         _("SDK 动态库未找到:{}(请确认 sdk_dir 指向含 {} 的目录)").format(name, bit_dir)
     )
@@ -344,7 +345,7 @@ def _load_fwlib(sdk_dir: Optional[str], dll_path: Optional[str]) -> ctypes.CDLL:
             _("FOCAS 封装首批仅支持 Windows(fwlib32.dll);Linux 侧 .so 留后续版本")
         )
     path = _resolve_dll(sdk_dir, dll_path)
-    directory = os.path.dirname(os.path.abspath(path))
+    directory = str(Path(path).absolute().parent)
     env_path = os.environ.get("PATH", "")
     if directory.lower() not in env_path.lower():
         os.environ["PATH"] = directory + os.pathsep + env_path

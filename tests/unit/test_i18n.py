@@ -268,7 +268,7 @@ def test_no_chinese_fstring_raises_in_src() -> None:
     chinese = re.compile(r"[\u4e00-\u9fff]")
     offenders = []
     for path in sorted(src_root.rglob("*.py")):
-        with open(path, encoding="utf-8") as fp:
+        with Path(path).open(encoding="utf-8") as fp:
             for number, line in enumerate(fp, 1):
                 if fstring_raise.search(line) and chinese.search(line):
                     offenders.append(f"{path.name}:{number}")

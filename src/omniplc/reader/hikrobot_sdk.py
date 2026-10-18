@@ -43,6 +43,7 @@ import ctypes
 import os
 import platform
 import struct as _struct
+from pathlib import Path
 from typing import NamedTuple, Optional, Tuple, cast
 
 from ..core.base_client import BaseClient
@@ -576,11 +577,11 @@ def _resolve_dll(sdk_dir: Optional[str], dll_path: Optional[str]) -> str:
         bit_dir = "linux64" if _struct.calcsize("P") == 8 else "linux32"
         name = "libMvCodeReaderCtrl.so"
     for candidate in (
-        os.path.join(sdk_dir, bit_dir, name),
-        os.path.join(sdk_dir, name),
+        Path(sdk_dir) / bit_dir / name,
+        Path(sdk_dir) / name,
     ):
-        if os.path.isfile(candidate):
-            return candidate
+        if candidate.is_file():
+            return str(candidate)
     raise OmniPLCInternalError(
         _("SDK 动态库未找到:{}(请确认 sdk_dir 指向含 {} 的目录)").format(name, bit_dir)
     )
@@ -594,7 +595,7 @@ def _load_sdk(sdk_dir: Optional[str], dll_path: Optional[str]) -> ctypes.CDLL:
     仅尝试直接加载。
     """
     path = _resolve_dll(sdk_dir, dll_path)
-    directory = os.path.dirname(os.path.abspath(path))
+    directory = str(Path(path).absolute().parent)
     if platform.system() == "Windows":
         env_path = os.environ.get("PATH", "")
         if directory.lower() not in env_path.lower():

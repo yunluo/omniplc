@@ -45,6 +45,7 @@
 from __future__ import annotations
 
 import logging
+import pathlib
 import sys
 import threading
 import time
@@ -198,7 +199,7 @@ def export_recorded_frames(path: Optional[str] = None) -> str:
     """
     text = format_frame_records(recorded_frames())
     if path is not None:
-        with open(path, "w", encoding="utf-8") as fp:
+        with pathlib.Path(path).open("w", encoding="utf-8") as fp:
             fp.write(text)
     return text
 

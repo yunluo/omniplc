@@ -19,7 +19,7 @@ from omniplc.transport.base import BaseTransport
 def tags_json(tmp_path: Path) -> Iterator[str]:
     """写入一个示例 JSON 点位表并返回路径。"""
     path = str(tmp_path / "tags.json")
-    with open(path, "w", encoding="utf-8") as fp:
+    with Path(path).open("w", encoding="utf-8") as fp:
         json.dump(
             [
                 {
@@ -49,7 +49,7 @@ def test_from_json(tags_json: str) -> None:
 
 def test_from_csv(tmp_path: Path) -> None:
     path = str(tmp_path / "tags.csv")
-    with open(path, "w", encoding="utf-8-sig", newline="") as fp:
+    with Path(path).open("w", encoding="utf-8-sig", newline="") as fp:
         fp.write("tag_id,address,data_type,scale,offset,remark\n")
         fp.write("pressure,hr0,float,0.01,0,压力\n")
         fp.write("counter,D200,int\n")
@@ -63,7 +63,7 @@ def test_from_csv(tmp_path: Path) -> None:
 
 def test_csv_missing_column(tmp_path: Path) -> None:
     path = str(tmp_path / "bad.csv")
-    with open(path, "w", encoding="utf-8", newline="") as fp:
+    with Path(path).open("w", encoding="utf-8", newline="") as fp:
         fp.write("tag_id,address\n")
     with pytest.raises(ValueError):
         TagTable.from_csv(path)
@@ -220,7 +220,7 @@ def test_write_tag_bool_string_and_scale_zero() -> None:
 def test_from_json_rejects_non_object(tmp_path: Path) -> None:
     """JSON 元素不是对象 → ValueError(而非 TypeError)。"""
     path = str(tmp_path / "bad.json")
-    with open(path, "w", encoding="utf-8") as fp:
+    with Path(path).open("w", encoding="utf-8") as fp:
         json.dump(["not-a-dict"], fp)
     with pytest.raises(ValueError):
         TagTable.from_json(path)
@@ -229,7 +229,7 @@ def test_from_json_rejects_non_object(tmp_path: Path) -> None:
 def test_from_csv_rejects_short_row(tmp_path: Path) -> None:
     """CSV 短行缺列 → ValueError(而非静默变成 "None" 字符串)。"""
     path = str(tmp_path / "short.csv")
-    with open(path, "w", encoding="utf-8", newline="") as fp:
+    with Path(path).open("w", encoding="utf-8", newline="") as fp:
         fp.write("tag_id,address,data_type\n")
         fp.write("only-id\n")
     with pytest.raises(ValueError):
@@ -239,7 +239,7 @@ def test_from_csv_rejects_short_row(tmp_path: Path) -> None:
 def test_from_csv_rejects_bad_number(tmp_path: Path) -> None:
     """scale/offset 单元格非数字 → ValueError。"""
     path = str(tmp_path / "nan.csv")
-    with open(path, "w", encoding="utf-8", newline="") as fp:
+    with Path(path).open("w", encoding="utf-8", newline="") as fp:
         fp.write("tag_id,address,data_type,scale\n")
         fp.write("bad,D0,int,abc\n")
     with pytest.raises(ValueError):
