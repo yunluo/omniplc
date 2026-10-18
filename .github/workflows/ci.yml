@@ -32,13 +32,25 @@ concurrency:
 jobs:
   test:
     # Windows 与本地门禁/真机环境对齐:MX Component(comtypes)等仅 Windows 可用,
-    # 34 个 mx 测试实跑而非跳过;纯 Python 库在 win/linux 行为一致
-    runs-on: windows-latest
+    # 34 个 mx 测试实跑而非跳过;纯 Python 库在 win/linux 行为一致。
+    # review-1043 己-1:声明面(requires-python >=3.7.9、classifiers 3.7~3.12、
+    # OS Independent)与验证面不匹配——补 ubuntu × 3.10/3.11 单测腿(3.7 必保
+    # 底线与 3.12 对齐本地门禁,均留 Windows;Linux 腿仅单测,SDK/comtypes 类
+    # 依赖按平台缺失自动跳过)。
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.7.9", "3.12"]
+        include:
+          - os: windows-latest
+            python-version: "3.7.9"
+          - os: windows-latest
+            python-version: "3.12"
+          - os: ubuntu-latest
+            python-version: "3.10"
+          - os: ubuntu-latest
+            python-version: "3.11"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -66,7 +78,9 @@ jobs:
           UV_PYTHON_DOWNLOADS: never
         # 必须带 --extra dev:否则 `uv run` 会按默认依赖重新同步、把上一步装的
         # extras(含 pytest)卸掉 → "No module named pytest"
-        run: uv run --extra dev --python ${{ matrix.python-version }} python -m pytest tests -q
+        # review-1043 己-2:--cov 只出报告不卡门禁(无 fail-under),覆盖率数字
+        # 供趋势观察与后续建档
+        run: uv run --extra dev --python ${{ matrix.python-version }} python -m pytest tests -q --cov=omniplc --cov-report=term-missing
 
       - name: import under -W error
         env:
