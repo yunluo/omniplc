@@ -13,8 +13,6 @@
 共 18 族协议、**32 个具体同步客户端**(`omniplc.__all__` 里 34 个以 `Client`
 结尾的名字中,`BaseClient`/`ModbusBaseClient` 是抽象基类,不计入)。
 **一次编写,同一套 API。**
-源码:[GitHub](https://github.com/yunluo/omniplc) · [Gitee 镜像](https://gitee.com/yunluo/omniplc) ·
-发布:[PyPI](https://pypi.org/project/omniplc/)
 
 > ⚠️ **安全警示**:PLC 控制着真实的生产设备与执行机构。本库的**写操作**
 > (以及批量写、位软元件读-改-写)会直接改变 PLC 侧数据与输出状态,编程
