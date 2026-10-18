@@ -20,6 +20,7 @@ S7 为**会话型协议**(一连接一 S7 会话,非字节流):``AsyncS7Session`
 
 from __future__ import annotations
 
+import contextlib
 import math
 import struct
 from typing import List, Optional, Sequence, Tuple, Union
@@ -32,7 +33,7 @@ from ..core.constants import (
     S7_WSTRING_DEFAULT_LENGTH,
 )
 from ..core.debug import log_op
-from ..core.errors import DeviceError, TransportClosedError, _CANCELLED_ERRORS
+from ..core.errors import _CANCELLED_ERRORS, DeviceError, TransportClosedError
 from ..core.i18n import _
 from ..core.types import DataType, PrimitiveValue, S7Model
 from ..core.validation import require_bool, require_count, require_float, require_int
@@ -103,9 +104,7 @@ class AsyncS7Session(AsyncBaseTransport):
         """CC 应答回显的对端引用,close 发 COTP DR 时回填(档案
         `docs/protocol/siemens/s7comm/README.md` §10:`_send_cotp_disconnect`
         用 CC 回给的 dst_ref;默认 0,DR 为尽力而为语义)。"""
-        self._debug_label = "s7://{}:{}(机架{}槽位{})".format(
-            ip_address, port, rack, slot
-        )
+        self._debug_label = f"s7://{ip_address}:{port}(机架{rack}槽位{slot})"
 
     @AsyncBaseTransport.receive_timeout.setter  # type: ignore[attr-defined]
     def receive_timeout(self, seconds: float) -> None:
@@ -137,10 +136,8 @@ class AsyncS7Session(AsyncBaseTransport):
         stale = self._tcp
         if stale is not None:  # 防御:重复 connect 先清旧传输防泄漏
             self._tcp = None
-            try:
+            with contextlib.suppress(OSError):
                 stale.close()
-            except OSError:
-                pass
         tcp = AsyncTcpTransport(self._ip_address, self._port)
         try:
             tcp.connect_timeout = self._connect_timeout
@@ -166,15 +163,13 @@ class AsyncS7Session(AsyncBaseTransport):
             self.pdu_size = codec.parse_setup_comm(response, sequence)
         except Exception as exc:
             self._tcp = None
-            try:
+            with contextlib.suppress(OSError):
                 tcp.close()
-            except OSError:
-                pass
             if isinstance(exc, OSError):
                 raise
             # 连接期坏帧按断连语义(基类重试即重连)
             raise OSError(_("S7 握手失败:{}").format(exc)) from exc
-        log_op(self._debug_label, "会话已建立(PDU {}B)".format(self.pdu_size))
+        log_op(self._debug_label, f"会话已建立(PDU {self.pdu_size}B)")
 
     def close(self) -> None:
         """关闭传输,幂等(同步接口;COTP DR 由 client 断开钩子经
@@ -189,10 +184,8 @@ class AsyncS7Session(AsyncBaseTransport):
         tcp, self._tcp = self._tcp, None
         if tcp is None:
             return
-        try:
+        with contextlib.suppress(OSError):
             tcp.close()
-        except OSError:
-            pass
         log_op(self._debug_label, "会话已断开")
 
     async def send_dr(self) -> None:
@@ -375,8 +368,8 @@ class AsyncS7Session(AsyncBaseTransport):
         return name
 
     async def read_multi_vars(
-        self, specs: "Sequence[Tuple[int, int, int, int]]"
-    ) -> "List[bytes]":
+        self, specs: Sequence[Tuple[int, int, int, int]]
+    ) -> List[bytes]:
         """多变量一次读(功能 0x04 多 Item 单 PDU,会话调用)。
 
         :param specs: ``(区码, DB 号, 字节起点, 字节数)`` 列表
@@ -499,10 +492,9 @@ class AsyncSiemensS7Client(AsyncBaseClient):
         """断开实现:先尽力发 COTP DR(会话关闭语义),再走基类清理(内部)。"""
         transport = self._transport
         if isinstance(transport, AsyncS7Session):
-            try:
+            # DR 尽力而为:对端已断/发送失败都不阻断断开流程
+            with contextlib.suppress(Exception):
                 await transport.send_dr()
-            except Exception:
-                pass  # DR 尽力而为:对端已断/发送失败都不阻断断开流程
         return await super()._disconnect_locked()
 
     async def _ping_probe(self) -> str:

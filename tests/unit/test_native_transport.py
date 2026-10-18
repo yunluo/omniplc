@@ -19,11 +19,11 @@ import socket
 from typing import Any
 
 import pytest
+from scripted_async import UdpResponder, close_server, loop_names, make_loop
 
 from omniplc.core.errors import DeviceError, TransportClosedError, TransportTimeoutError
 from omniplc.native.transport import AsyncTcpTransport, AsyncUdpTransport
 from omniplc.transport.udp import UdpTransport
-from scripted_async import UdpResponder, close_server, loop_names, make_loop
 
 
 @pytest.fixture(params=loop_names())

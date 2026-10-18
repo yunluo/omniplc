@@ -105,7 +105,7 @@ def test_no_mixed_auto_manual_numbering_in_any_translation() -> None:
         for key, value in i18n._TRANSLATIONS.items()
         if auto_spec.search(value) and manual_spec.search(value)
     ]
-    assert mixed == [], "自动/手动编号混用的模板:{}".format(mixed)
+    assert mixed == [], f"自动/手动编号混用的模板:{mixed}"
 
 
 @pytest.mark.parametrize(
@@ -118,7 +118,7 @@ def test_no_mixed_auto_manual_numbering_in_any_translation() -> None:
 def test_regressed_mixed_numbering_entries_format_in_en(key: str) -> None:
     """回归:曾混用编号的两条 en 模板在 en 模式下 format 正常(不再抛 ValueError)。"""
     set_lang("en")
-    text = _(key).format("2", 5, "X10")  # noqa: F841 — 不抛即通过
+    text = _(key).format("2", 5, "X10")
     assert isinstance(text, str)
     set_lang("zh")
 
@@ -143,7 +143,7 @@ def test_error_code_tables_fully_translated_in_en() -> None:  # noqa: C901
 
     src_root = Path(__file__).resolve().parents[2] / "src" / "omniplc"
 
-    def _base_of(node: "ast.AST") -> "str | None":
+    def _base_of(node: ast.AST) -> str | None:
         """取表达式基名:``表.get(...)`` / ``表[...]`` / 裸名字。"""
         if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
             return node.value.id
@@ -158,7 +158,7 @@ def test_error_code_tables_fully_translated_in_en() -> None:  # noqa: C901
             return node.id
         return None
 
-    def _targets(node: "ast.AST") -> "list":
+    def _targets(node: ast.AST) -> list:
         if isinstance(node, ast.Assign):
             return [t for t in node.targets if isinstance(t, ast.Name)]
         if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
@@ -193,9 +193,7 @@ def test_error_code_tables_fully_translated_in_en() -> None:  # noqa: C901
                         if target.id != base:
                             var_map.setdefault(target.id, set()).add(base)
 
-        def resolve(
-            name: str, chain: "tuple" = (), _var_map: "dict" = var_map
-        ) -> "set":
+        def resolve(name: str, chain: tuple = (), _var_map: dict = var_map) -> set:
             out = set()
             if name in chain:
                 return out
@@ -223,9 +221,9 @@ def test_error_code_tables_fully_translated_in_en() -> None:  # noqa: C901
                 for name in resolve(base):
                     tables_dir[name] = path
 
-    assert len(tables_dir) >= 12, "码表发现数异常:{}".format(sorted(tables_dir))
+    assert len(tables_dir) >= 12, f"码表发现数异常:{sorted(tables_dir)}"
 
-    def texts_of(value: object) -> "list":
+    def texts_of(value: object) -> list:
         if isinstance(value, dict):
             out: list = []
             for item in value.values():
@@ -245,10 +243,10 @@ def test_error_code_tables_fully_translated_in_en() -> None:  # noqa: C901
             table = getattr(module, name)
             for text in texts_of(table):
                 if _(text) == text:
-                    missing.append("{}:{}".format(name, str(text)[:40]))
+                    missing.append(f"{name}:{str(text)[:40]}")
     finally:
         set_lang("zh")
-    assert missing == [], "码表 en 漏翻(键不在 _TRANSLATIONS):{}".format(missing)
+    assert missing == [], f"码表 en 漏翻(键不在 _TRANSLATIONS):{missing}"
 
 
 def test_no_chinese_fstring_raises_in_src() -> None:
@@ -271,8 +269,8 @@ def test_no_chinese_fstring_raises_in_src() -> None:
         with open(path, encoding="utf-8") as fp:
             for number, line in enumerate(fp, 1):
                 if fstring_raise.search(line) and chinese.search(line):
-                    offenders.append("{}:{}".format(path.name, number))
-    assert offenders == [], "含中文的 f-string raise(无法过 _()):{}".format(offenders)
+                    offenders.append(f"{path.name}:{number}")
+    assert offenders == [], f"含中文的 f-string raise(无法过 _()):{offenders}"
 
 
 def test_all_raise_templates_in_translations() -> None:  # noqa: C901
@@ -285,7 +283,7 @@ def test_all_raise_templates_in_translations() -> None:  # noqa: C901
 
     src_root = Path(__file__).resolve().parents[2] / "src" / "omniplc"
 
-    def _key_of(node: "ast.AST") -> "str | None":
+    def _key_of(node: ast.AST) -> str | None:
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             return node.value
         if isinstance(node, ast.Str) and isinstance(node.s, str):
@@ -323,11 +321,9 @@ def test_all_raise_templates_in_translations() -> None:  # noqa: C901
                 continue  # 非字面量模板(拼接/变量)不经本门禁
             total += 1
             if key not in table:
-                missing.append("{}:{}".format(path.name, key[:40]))
-    assert total > 1000, "AST 扫描零命中:提取逻辑失效(_() 调用共 {})".format(total)
-    assert missing == [], "raise 文案漏入 _TRANSLATIONS(en 模式兜底中文):{}".format(
-        missing
-    )
+                missing.append(f"{path.name}:{key[:40]}")
+    assert total > 1000, f"AST 扫描零命中:提取逻辑失效(_() 调用共 {total})"
+    assert missing == [], f"raise 文案漏入 _TRANSLATIONS(en 模式兜底中文):{missing}"
 
 
 def test_en_mode_core_error_paths_output_english() -> None:
@@ -400,7 +396,7 @@ def test_en_end_to_end_codec_errors() -> None:
     bcc = 0
     for byte in body:
         bcc ^= byte
-    resp = body + "{:02X}".format(bcc).encode() + b"\r"
+    resp = body + f"{bcc:02X}".encode() + b"\r"
 
     def mew_error() -> str:
         try:

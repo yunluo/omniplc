@@ -14,6 +14,7 @@ from __future__ import annotations
 import struct
 
 import pytest
+from scripted import ScriptedTransport
 
 from omniplc import ToyopucTcpClient, ToyopucUdpClient
 from omniplc.core.errors import DeviceError, ErrorCategory, ProtocolFrameError
@@ -24,7 +25,6 @@ from omniplc.plc.toyopuc.address import (
     encode_word_address,
     parse_toyopuc_address,
 )
-from scripted import ScriptedTransport
 
 
 def _chunks(frame: bytes) -> list:

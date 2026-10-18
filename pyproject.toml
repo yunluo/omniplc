@@ -133,7 +133,10 @@ timeout_method = "thread"
 # B 中依赖新语法的规则(如 B905 strict=)不会误报;C90 阈值 12(默认 10
 # 全库噪音过大,见 1045 §五-3「平台化」观察口径)。
 [tool.ruff.lint]
-select = ["E", "F", "B", "C90"]
+select = ["E", "F", "B", "SIM","I","C4","C90","RUF100"]
+ignore = [
+    "E501",  # 行宽交给 formatter 管
+]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 12

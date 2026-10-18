@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import math
 import random
 import socket
@@ -38,6 +39,7 @@ from typing import (
     cast,
 )
 
+from ..transport import BaseTransport
 from .constants import (
     DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_RECEIVE_TIMEOUT,
@@ -67,12 +69,11 @@ from .errors import (
     TransportClosedError,
     TransportTimeoutError,
 )
-from .tag import Tag, TagTable
-from .monitor import Monitor, MonitorEvent
-from .validation import require_count, require_int
-from ..transport import BaseTransport
-from .types import DataType, PrimitiveValue
 from .i18n import _
+from .monitor import Monitor, MonitorEvent
+from .tag import Tag, TagTable
+from .types import DataType, PrimitiveValue
+from .validation import require_count, require_int
 
 _T = TypeVar("_T")
 _C = TypeVar("_C", bound="BaseClient")
@@ -301,7 +302,7 @@ class BaseClient(ABC):
                     None,
                     record=False,
                 )
-                log_event(self._log_label(), "连接退避中:{:.1f} 秒".format(delay))
+                log_event(self._log_label(), f"连接退避中:{delay:.1f} 秒")
                 return False
             # 传输对象创建独立于 try:参数类错误(如未配置串口参数)照常上抛
             transport = self._create_transport()
@@ -331,10 +332,8 @@ class BaseClient(ABC):
                     self._connect_fail_count,
                     _describe(exc),
                 )
-                try:
+                with contextlib.suppress(Exception):
                     transport.close()
-                except Exception:
-                    pass
                 return False
             self._transport = transport
             try:
@@ -348,14 +347,10 @@ class BaseClient(ABC):
                     _extract_code(exc),
                 )
                 # 清理钩子须在关传输**之前**(注销帧要发得出去)
-                try:
+                with contextlib.suppress(Exception):
                     self._after_connect_failure()
-                except Exception:
-                    pass
-                try:
+                with contextlib.suppress(Exception):
                     transport.close()
-                except Exception:
-                    pass
                 self._transport = None
                 self._connected = False
                 return False
@@ -366,7 +361,7 @@ class BaseClient(ABC):
             # 连接生命周期事件(review-1043 戊-1):不受 set_debug 门控,
             # "何时连上 / 失败几次才连上"在应用日志体系里总能查到
             if failures:
-                log_event(self._log_label(), "重连成功({} 次失败后)".format(failures))
+                log_event(self._log_label(), f"重连成功({failures} 次失败后)")
             else:
                 log_event(self._log_label(), "已连接")
             with self._state_lock:
@@ -988,7 +983,7 @@ class BaseClient(ABC):
                 text = _("{} 等 {} 点").format(text, len(addresses))
             marker = _("({} 失败点位:{})").format(api, text)
             if marker not in self._last_error:
-                self._last_error = "{} {}".format(self._last_error, marker)
+                self._last_error = f"{self._last_error} {marker}"
 
     def read_many_strict(
         self, addresses: Sequence[str], data_type: Union[DataType, str]
@@ -1982,10 +1977,8 @@ class BaseClient(ABC):
         """标记断开并静默关闭传输(惰性重连发生在下一次事务,内部方法)。"""
         self._connected = False
         if self._transport is not None:
-            try:
+            with contextlib.suppress(OSError):
                 self._transport.close()
-            except OSError:
-                pass
             self._transport = None
             with self._state_lock:
                 self._counters["disconnect_count"] += 1

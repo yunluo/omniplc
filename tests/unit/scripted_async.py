@@ -13,9 +13,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import socket
 import threading
 from typing import Callable, List, Optional
+
 from omniplc.core.errors import TransportTimeoutError
 from omniplc.native.transport import AsyncBaseTransport
 
@@ -144,16 +146,13 @@ class RawTcpServer:
         for task in pending:
             task.cancel()
         for task in pending:
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
-            except (asyncio.CancelledError, Exception):
-                pass
         if self._server is not None:
             self._server.close()
-            try:
+            # 3.12:连接未由应用侧关净时 wait_closed 会一直等,不再阻塞测试
+            with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(self._server.wait_closed(), 1)
-            except asyncio.TimeoutError:
-                pass  # 3.12:连接未由应用侧关净时 wait_closed 会一直等,不再阻塞测试
             self._server = None
 
     async def _dispatch(
@@ -257,7 +256,5 @@ class UdpResponder:
             self.received.append(data)
             reply = self._transform(data)
             if reply is not None:
-                try:
+                with contextlib.suppress(OSError):
                     self._sock.sendto(reply, addr)
-                except OSError:
-                    pass

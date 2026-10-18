@@ -14,10 +14,10 @@ import socket
 import time
 
 import pytest
+from scripted import ScriptedTransport
 
 from omniplc import ErrorCategory, KeyenceSrClient
 from omniplc.aio import AKeyenceSrClient
-from scripted import ScriptedTransport
 
 
 @pytest.fixture

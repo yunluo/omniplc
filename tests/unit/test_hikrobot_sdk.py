@@ -174,7 +174,7 @@ class _FakeSdk:
 
     def MV_CODEREADER_GetIntValue(self):
         def fn(handle, key, value):
-            self.calls.append("GetInt:{}".format(key.decode()))
+            self.calls.append(f"GetInt:{key.decode()}")
             if self.param_rc:
                 return self.param_rc
             value[0].nCurValue = self.int_values.get(key.decode(), 0)
@@ -184,14 +184,14 @@ class _FakeSdk:
 
     def MV_CODEREADER_SetIntValue(self):
         def fn(handle, key, value):
-            self.calls.append("SetInt:{}={}".format(key.decode(), value))
+            self.calls.append(f"SetInt:{key.decode()}={value}")
             return self.param_rc
 
         return _FakeFn(fn)
 
     def MV_CODEREADER_GetEnumValue(self):
         def fn(handle, key, value):
-            self.calls.append("GetEnum:{}".format(key.decode()))
+            self.calls.append(f"GetEnum:{key.decode()}")
             if self.param_rc:
                 return self.param_rc
             value[0].nCurValue = self.enum_values.get(key.decode(), 0)
@@ -201,14 +201,14 @@ class _FakeSdk:
 
     def MV_CODEREADER_SetEnumValue(self):
         def fn(handle, key, value):
-            self.calls.append("SetEnum:{}={}".format(key.decode(), value))
+            self.calls.append(f"SetEnum:{key.decode()}={value}")
             return self.param_rc
 
         return _FakeFn(fn)
 
     def MV_CODEREADER_GetBoolValue(self):
         def fn(handle, key, value):
-            self.calls.append("GetBool:{}".format(key.decode()))
+            self.calls.append(f"GetBool:{key.decode()}")
             if self.param_rc:
                 return self.param_rc
             value[0] = self.bool_values.get(key.decode(), False)
@@ -218,14 +218,14 @@ class _FakeSdk:
 
     def MV_CODEREADER_SetBoolValue(self):
         def fn(handle, key, value):
-            self.calls.append("SetBool:{}={}".format(key.decode(), value))
+            self.calls.append(f"SetBool:{key.decode()}={value}")
             return self.param_rc
 
         return _FakeFn(fn)
 
     def MV_CODEREADER_GetFloatValue(self):
         def fn(handle, key, value):
-            self.calls.append("GetFloat:{}".format(key.decode()))
+            self.calls.append(f"GetFloat:{key.decode()}")
             if self.param_rc:
                 return self.param_rc
             value[0].fCurValue = self.float_values.get(key.decode(), 0.0)
@@ -235,14 +235,14 @@ class _FakeSdk:
 
     def MV_CODEREADER_SetFloatValue(self):
         def fn(handle, key, value):
-            self.calls.append("SetFloat:{}={}".format(key.decode(), value))
+            self.calls.append(f"SetFloat:{key.decode()}={value}")
             return self.param_rc
 
         return _FakeFn(fn)
 
     def MV_CODEREADER_GetStringValue(self):
         def fn(handle, key, value):
-            self.calls.append("GetString:{}".format(key.decode()))
+            self.calls.append(f"GetString:{key.decode()}")
             if self.param_rc:
                 return self.param_rc
             text = self.string_values.get(key.decode(), "")
@@ -253,14 +253,14 @@ class _FakeSdk:
 
     def MV_CODEREADER_SetStringValue(self):
         def fn(handle, key, value):
-            self.calls.append("SetString:{}={}".format(key.decode(), value.decode()))
+            self.calls.append(f"SetString:{key.decode()}={value.decode()}")
             return self.param_rc
 
         return _FakeFn(fn)
 
     def MV_CODEREADER_SetCommandValue(self):
         def fn(handle, key):
-            self.calls.append("Command:{}".format(key.decode()))
+            self.calls.append(f"Command:{key.decode()}")
             return 0
 
         return _FakeFn(fn)
@@ -550,8 +550,8 @@ def test_ex2_struct_size_matches_header() -> None:
     size = ctypes.sizeof(_MV_CODEREADER_IMAGE_OUT_INFO_EX2)
     expected = 192 if sys.maxsize < 2**32 else 200
     assert size == expected, (
-        "IMAGE_OUT_INFO_EX2 布局与 V2.0.0 头文件不符(实际 {} 期望 {}):"
-        "请对照 MvCodeReaderParams.h L751-823 逐字段核对".format(size, expected)
+        f"IMAGE_OUT_INFO_EX2 布局与 V2.0.0 头文件不符(实际 {size} 期望 {expected}):"
+        "请对照 MvCodeReaderParams.h L751-823 逐字段核对"
     )
     # 两个占位 union 必须在位(缺任何一个都会使 sizeof 偏小 8)
     fields = [name for name, _type in _MV_CODEREADER_IMAGE_OUT_INFO_EX2._fields_]

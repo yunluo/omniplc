@@ -44,9 +44,9 @@ from ..core.errors import (
     OmniPLCInternalError,
     TransportTimeoutError,
 )
-from ..transport import BaseTransport, TcpTransport
-from ..core.types import DataType, PrimitiveValue
 from ..core.i18n import _
+from ..core.types import DataType, PrimitiveValue
+from ..transport import BaseTransport, TcpTransport
 
 
 class KeyenceSrClient(BaseClient):
@@ -138,7 +138,7 @@ class KeyenceSrClient(BaseClient):
         if not ok or text is None:
             return False, None
         text = text.strip()
-        if text == SR_RESP_ERROR or text == SR_RESP_OK or not text:
+        if text in (SR_RESP_ERROR, SR_RESP_OK) or not text:
             # 链路成功但无读出:记错误分类但不计入 device_error_count
             # (扫码枪正常应答,不算设备返回错误码)
             message = (

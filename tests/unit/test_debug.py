@@ -16,8 +16,8 @@ import pytest
 
 from omniplc import MelsecMxClient
 from omniplc.core import debug
-from omniplc.plc.opcua.client import _OpcUaSession
 from omniplc.plc.melsec import mx as mx_module
+from omniplc.plc.opcua.client import _OpcUaSession
 from omniplc.transport import TcpTransport, UdpTransport
 
 
@@ -110,10 +110,10 @@ def test_tcp_frames_logged(
         assert transport.recv(2) == b"\x01\x02"
         transport.close()
     text = "\n".join(record.getMessage() for record in caplog.records)
-    assert "tcp://127.0.0.1:{} 已连接".format(tcp_echo_port) in text
-    assert "tcp://127.0.0.1:{} → 发送 2B: 01 02".format(tcp_echo_port) in text
-    assert "tcp://127.0.0.1:{} ← 接收 2B: 01 02".format(tcp_echo_port) in text
-    assert "tcp://127.0.0.1:{} 已断开".format(tcp_echo_port) in text
+    assert f"tcp://127.0.0.1:{tcp_echo_port} 已连接" in text
+    assert f"tcp://127.0.0.1:{tcp_echo_port} → 发送 2B: 01 02" in text
+    assert f"tcp://127.0.0.1:{tcp_echo_port} ← 接收 2B: 01 02" in text
+    assert f"tcp://127.0.0.1:{tcp_echo_port} 已断开" in text
 
 
 def test_udp_frames_logged(
@@ -128,8 +128,8 @@ def test_udp_frames_logged(
         assert transport.recv(4096) == b"\xaa\x55"
         transport.close()
     text = "\n".join(record.getMessage() for record in caplog.records)
-    assert "udp://127.0.0.1:{} → 发送 2B: AA 55".format(udp_echo_port) in text
-    assert "udp://127.0.0.1:{} ← 接收 2B: AA 55".format(udp_echo_port) in text
+    assert f"udp://127.0.0.1:{udp_echo_port} → 发送 2B: AA 55" in text
+    assert f"udp://127.0.0.1:{udp_echo_port} ← 接收 2B: AA 55" in text
 
 
 # ----------------------------------------------------------------------

@@ -13,13 +13,13 @@ import struct
 from typing import List
 
 import pytest
+from scripted import ScriptedTransport
 
 from omniplc import OmronCipClient
 from omniplc.aio import AOmronCipClient
 from omniplc.core.constants import AB_EIP_DEFAULT_PORT, AB_EIP_ORIGINATOR_VENDOR_ID
 from omniplc.plc.ab import AllenBradleyEthIpClient, codec_cip
 from omniplc.transport import TcpTransport
-from scripted import ScriptedTransport
 
 _SESSION = 0x12345678
 _TO_ID = 0x11112222

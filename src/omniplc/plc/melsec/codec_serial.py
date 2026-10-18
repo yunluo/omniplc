@@ -168,7 +168,7 @@ def build_3c_request(
         station_number, network_number, pc_number, self_station_number
     ).encode("ascii")
     body = _ID_3C_TEXT + route + core
-    checksum_text = "{:02X}".format(checksum(body)).encode("ascii")
+    checksum_text = f"{checksum(body):02X}".encode("ascii")
     return bytes([ENQ]) + body + checksum_text + _CRLF
 
 
@@ -253,7 +253,7 @@ def parse_3c_response(  # noqa: C901
         )
     _check_crlf(response[14 + expected : 16 + expected], "3C 读响应", response)
     # 和校验范围 = 帧识别码 + 路由 + 数据 + ETX(手册 Appendix 7 小计:22BH + 18FH)
-    wanted = "{:02X}".format(checksum(response[1 : 12 + expected])).encode("ascii")
+    wanted = f"{checksum(response[1 : 12 + expected]):02X}".encode("ascii")
     if response[12 + expected : 14 + expected] != wanted:
         raise ProtocolFrameError(
             _("3C 和校验码不符:期望 {},收到 {!r}(收到的原始帧:{})").format(
@@ -408,7 +408,7 @@ def parse_4c_response(
                 "4C 响应和校验前必须是 DLE ETX,收到 0x{:02X} 0x{:02X}(收到的原始帧:{})"
             ).format(trailer[0], trailer[1], format_hex(frame))
         )
-    wanted = "{:02X}".format(checksum(frame[: 3 + body_size])).encode("ascii")
+    wanted = f"{checksum(frame[: 3 + body_size]):02X}".encode("ascii")
     if trailer[2:4] != wanted:
         raise ProtocolFrameError(
             _("4C 和校验码不符:期望 {},收到 {!r}(收到的原始帧:{})").format(
@@ -584,8 +584,8 @@ def _ascii_core(
             _("MC 软元件 {} 编号超出 6 位表示范围:{}").format(address.device, number)
         )
     command = _COMMAND_WRITE_TEXT if is_write else _COMMAND_READ_TEXT
-    subcommand = "{:04X}".format(
-        MC_SUBCOMMAND_BIT_UNITS if is_bit else MC_SUBCOMMAND_WORD_UNITS
+    subcommand = (
+        f"{MC_SUBCOMMAND_BIT_UNITS if is_bit else MC_SUBCOMMAND_WORD_UNITS:04X}"
     )
     device_code = f"{address.device:*<2}"
     number_text = f"{number:06X}" if base == 16 else f"{number:06d}"

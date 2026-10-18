@@ -63,6 +63,21 @@ CNC 机床数采(MTConnect Agent,HTTP/XML 只读;
 
 from __future__ import annotations
 
+from .cnc import FanucFocasClient, MitsubishiEzSocketClient, MTConnectClient
+from .cnc.ezsocket import (
+    EzAlarm,
+    EzAlarmType,
+    EzDeviceStatus,
+    EzFeedSpeedType,
+    EzPositionType,
+    EzProgramBlock,
+    EzProgramFileInfo,
+    EzRunMode,
+    EzRunState,
+    EzRunStatus,
+    EzSocketMachine,
+)
+from .cnc.focas import FocasCncId, FocasDynamic, FocasStatus, FocasSysInfo
 from .core import convert
 from .core.base_client import BaseClient, ClientStats
 from .core.debug import (
@@ -85,49 +100,34 @@ from .core.monitor import (
 )
 from .core.tag import Tag, TagTable
 from .core.types import ByteOrder, DataType, McFrame, S7Model, SerialParity, WordOrder
-from .cnc import FanucFocasClient, MitsubishiEzSocketClient, MTConnectClient
-from .cnc.ezsocket import (
-    EzAlarm,
-    EzAlarmType,
-    EzDeviceStatus,
-    EzFeedSpeedType,
-    EzPositionType,
-    EzProgramBlock,
-    EzProgramFileInfo,
-    EzRunMode,
-    EzRunState,
-    EzRunStatus,
-    EzSocketMachine,
-)
-from .cnc.focas import FocasCncId, FocasDynamic, FocasStatus, FocasSysInfo
-from .plc.modbus import ModbusArea, ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
-from .plc.opcua import OpcUaClient, OpcUaSubscription
-from .plc.melsec import (
-    MelsecMcSerialClient,
-    MelsecMcTcpClient,
-    MelsecMcUdpClient,
-    MelsecMxClient,
-)
-from .plc.siemens import SiemensS7Client
-from .plc.omron import (
-    FinsClock,
-    OmronCipClient,
-    OmronFinsTcpClient,
-    OmronFinsUdpClient,
-)
 from .plc.ab import AbTagEntry, AllenBradleyEthIpClient
-from .plc.panasonic import (
-    PanasonicMcTcpClient,
-    PanasonicMewtocolTcpClient,
-    PanasonicMewtocolUdpClient,
-)
+from .plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
 from .plc.keyence import (
     KeyenceHostLinkTcpClient,
     KeyenceHostLinkUdpClient,
     KeyenceMcTcpClient,
     KeyenceMcUdpClient,
 )
-from .plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
+from .plc.melsec import (
+    MelsecMcSerialClient,
+    MelsecMcTcpClient,
+    MelsecMcUdpClient,
+    MelsecMxClient,
+)
+from .plc.modbus import ModbusArea, ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
+from .plc.omron import (
+    FinsClock,
+    OmronCipClient,
+    OmronFinsTcpClient,
+    OmronFinsUdpClient,
+)
+from .plc.opcua import OpcUaClient, OpcUaSubscription
+from .plc.panasonic import (
+    PanasonicMcTcpClient,
+    PanasonicMewtocolTcpClient,
+    PanasonicMewtocolUdpClient,
+)
+from .plc.siemens import SiemensS7Client
 from .plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
 from .reader import (
     HikrobotIdModbusClient,

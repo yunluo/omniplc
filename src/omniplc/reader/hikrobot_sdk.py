@@ -38,6 +38,7 @@ UnparsedAgvInfo union 并把 nReserved 25→23,见审查 1001 P1-2),差异以头
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import os
 import platform
@@ -132,7 +133,7 @@ code」,指南 §4.2.3 印刷页 79)与三个 NoRead 标记类型(取自头文�
 未归档待核)。review-1036 §四-3:原集合漏了 0,只含 type=0 的帧被当成功条码。"""
 
 
-def _frame_is_noread(frame: "HikrobotSdkFrame") -> bool:
+def _frame_is_noread(frame: HikrobotSdkFrame) -> bool:
     """整帧无有效条码判定(内部方法):无码,或全部为无读出码制。
 
     读码器开启 NoRead 输出时,未读到码的 ROI 会输出 NoRead 标记条码
@@ -147,7 +148,7 @@ def _frame_is_noread(frame: "HikrobotSdkFrame") -> bool:
     )
 
 
-def _noread_message(frame: "HikrobotSdkFrame") -> str:
+def _noread_message(frame: HikrobotSdkFrame) -> str:
     """无读出文案(内部函数):区分"无可识别条码"与"NoRead 标记帧"。"""
     if all(code.code_type == 0 for code in frame.codes):
         return _("读码器无读出(无条码)")
@@ -864,19 +865,13 @@ class _HikrobotSdkSession(BaseTransport):
         handle = self._handle
         if functions is not None and handle is not None:
             if self._grabbing:
-                try:
+                with contextlib.suppress(DeviceError):
                     functions.StopGrabbing(handle)
-                except DeviceError:
-                    pass
                 self._grabbing = False
-            try:
+            with contextlib.suppress(DeviceError):
                 functions.CloseDevice(handle)
-            except DeviceError:
-                pass
-            try:
+            with contextlib.suppress(DeviceError):
                 functions.DestroyHandle(handle)
-            except DeviceError:
-                pass
         self._handle = None
         self._functions = None
 
@@ -1343,7 +1338,7 @@ def _parse_frame(
                     content=content,
                     code_type=item.nBarType,
                     code_type_name=_SDK_CODE_TYPE_NAMES.get(
-                        item.nBarType, "0x{:X}".format(item.nBarType)
+                        item.nBarType, f"0x{item.nBarType:X}"
                     ),
                     length=item.nLen,
                     points=tuple((item.pt[i].x, item.pt[i].y) for i in range(4)),

@@ -11,16 +11,18 @@ from typing import List, Optional
 
 import pytest
 
-from omniplc.core.errors import DeviceError, ErrorCategory, TransportClosedError
+from omniplc.core.base_client import BaseClient, _categorize
 from omniplc.core.errors import (
+    DeviceError,
+    ErrorCategory,
     OmniPLCInternalError,
     ProtocolFrameError,
+    TransportClosedError,
     TransportTimeoutError,
 )
-from omniplc.core.base_client import BaseClient, _categorize
 from omniplc.core.tag import Tag, TagTable
-from omniplc.transport import BaseTransport
 from omniplc.core.types import DataType, PrimitiveValue
+from omniplc.transport import BaseTransport
 
 
 class _ScriptedTransport(BaseTransport):
@@ -300,9 +302,8 @@ class TestContextManager:
 
     def test_enter_failure_raises_connection_error(self) -> None:
         client = _ScriptedClient(fail_connect_times=1)
-        with pytest.raises(ConnectionError):
-            with client:
-                pass
+        with pytest.raises(ConnectionError), client:
+            pass
 
     def test_enter_success_closes_on_exit(self) -> None:
         client = _ScriptedClient()

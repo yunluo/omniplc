@@ -17,11 +17,10 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 import pytest
+from scripted import ChunkSocket
 
 from omniplc import HikrobotIdTcpClient
 from omniplc.reader import hikrobot_tcp
-
-from scripted import ChunkSocket
 
 _CMD_PORT = 9989
 _RESULT_PORT = 9988

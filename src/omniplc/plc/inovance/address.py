@@ -66,8 +66,8 @@ from ...core.constants import (
     INOVANCE_WORD_DEVICES,
     MODBUS_REGISTER_BIT_MAX,
 )
-from ...core.types import DataType
 from ...core.i18n import _
+from ...core.types import DataType
 from ..modbus.address import is_modbus_address
 
 _INOVANCE_ADDRESS_RE = re.compile(
@@ -167,7 +167,7 @@ def to_modbus_address(
     if is_bool and parsed.device in INOVANCE_BIT_DEVICES:
         base, limit = INOVANCE_BIT_DEVICES[parsed.device]
         _check_number(parsed.device, parsed.number, limit)
-        return "c{}".format(base + parsed.number)
+        return f"c{base + parsed.number}"
     if parsed.device in INOVANCE_WORD_DEVICES:
         base, limit = INOVANCE_WORD_DEVICES[parsed.device]
         _check_number(parsed.device, parsed.number, limit)
@@ -179,12 +179,10 @@ def to_modbus_address(
                         "C{}(32 位计数器)不支持位号后缀:{!r}(接点位访问请用 BOOL 读)"
                     ).format(parsed.number, address)
                 )
-            return "hr{}".format(
-                INOVANCE_C32_BASE + 2 * (parsed.number - INOVANCE_C32_FIRST)
-            )
+            return f"hr{INOVANCE_C32_BASE + 2 * (parsed.number - INOVANCE_C32_FIRST)}"
         if parsed.bit is not None:
-            return "hr{}.{}".format(base + parsed.number, parsed.bit)
-        return "hr{}".format(base + parsed.number)
+            return f"hr{base + parsed.number}.{parsed.bit}"
+        return f"hr{base + parsed.number}"
     raise ValueError(_("软元件 {} 为位软元件,不支持字访问").format(parsed.device))
 
 

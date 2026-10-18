@@ -201,7 +201,7 @@ class HikrobotIdModbusClient(ModbusTcpClient):
         # 偏移连续,轮询时经 read_batch 合并为一笔 FC03(状态与结果同快照,
         # 防新旧结果错配)
         self._block_addresses = [
-            ("hr{}".format(HIKROBOT_STATUS_OFFSET + index), DataType.USHORT)
+            (f"hr{HIKROBOT_STATUS_OFFSET + index}", DataType.USHORT)
             for index in range(self._result_words + 1)
         ]
 
@@ -420,9 +420,7 @@ class HikrobotIdModbusClient(ModbusTcpClient):
 
         :raises DeviceError: 事务失败(附 last_error 细节)
         """
-        if not self.write(
-            "hr{}".format(HIKROBOT_CONTROL_OFFSET), DataType.USHORT, value
-        ):
+        if not self.write(f"hr{HIKROBOT_CONTROL_OFFSET}", DataType.USHORT, value):
             raise DeviceError(
                 _("控制字写入失败({}):{}").format(action, self.last_error), 0
             )
@@ -432,7 +430,7 @@ class HikrobotIdModbusClient(ModbusTcpClient):
 
         :raises DeviceError: 事务失败
         """
-        ok, value = self.read("hr{}".format(HIKROBOT_STATUS_OFFSET), DataType.USHORT)
+        ok, value = self.read(f"hr{HIKROBOT_STATUS_OFFSET}", DataType.USHORT)
         if not ok or value is None:
             raise DeviceError(_("状态字读取失败:{}").format(self.last_error), 0)
         return int(value)

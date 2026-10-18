@@ -35,9 +35,6 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
-from ..melsec import codec_qna
-from ..melsec.address import McAddress
-from ..melsec.melsec import MelsecMcTcpClient
 from ...core.constants import (
     MC_DEFAULT_MONITOR_TIMER,
     MC_DEFAULT_NETWORK_NUMBER,
@@ -47,8 +44,11 @@ from ...core.constants import (
     PANASONIC_MC_SD_BASE,
     PANASONIC_MC_SM_LINEAR_BASE,
 )
-from ...core.types import McFrame
 from ...core.i18n import _
+from ...core.types import McFrame
+from ..melsec import codec_qna
+from ..melsec.address import McAddress
+from ..melsec.melsec import MelsecMcTcpClient
 
 # "字号 + 位号"组织的位软元件(帧内编号 = 字号×16 + 位号)
 _WORD_BIT_DEVICES = ("X", "Y", "L", "R")

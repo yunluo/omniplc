@@ -6,10 +6,10 @@ import socket
 import sys
 from typing import Optional
 
-from .base import BaseTransport
 from ..core.debug import RECV_MARK, SEND_MARK, log_frame, log_op, log_warning
 from ..core.errors import DeviceError, TransportClosedError, TransportTimeoutError
 from ..core.i18n import _
+from .base import BaseTransport
 
 # Windows ``recv`` 对超长 UDP 报文抛 WSAEMSGSIZE(errno 10040);库捕获后
 # 与 POSIX 截断分支统一处理(见 :meth:`UdpTransport.recv`)。诊断码取负值,

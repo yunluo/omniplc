@@ -101,7 +101,7 @@ def parse_mewtocol_address(address: str, is_bit: bool) -> MewtocolAddress:
     )
 
 
-def _build_contact(match: "re.Match[str]", address: str) -> MewtocolAddress:
+def _build_contact(match: re.Match[str], address: str) -> MewtocolAddress:
     """构造接点地址(内部函数)。
 
     无点号时数字串**末位恒为位号**(十六进制 0~F),其余为十进制字号:
@@ -131,7 +131,7 @@ def _build_contact(match: "re.Match[str]", address: str) -> MewtocolAddress:
     return MewtocolAddress(area=area, word=word, bit=bit)
 
 
-def _build_data(match: "re.Match[str]", address: str, is_bit: bool) -> MewtocolAddress:
+def _build_data(match: re.Match[str], address: str, is_bit: bool) -> MewtocolAddress:
     """构造数据区地址(内部函数)。"""
     area = match.group(1)
     number = int(match.group(2), 10)

@@ -33,6 +33,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import socket
 import time
 from typing import Optional, Tuple, Union
@@ -300,10 +301,9 @@ class HikrobotIdSerialClient(BaseClient):
             if stopped:
                 return
             stopped = True
-            try:
+            # 停窗失败不产生脏数据
+            with contextlib.suppress(OSError, TransportClosedError):
                 transport.send(self._stop_text.encode("ascii"))
-            except (OSError, TransportClosedError):
-                pass  # 停窗失败不产生脏数据
 
         try:
             transport.send(self._trigger_text.encode("ascii"))

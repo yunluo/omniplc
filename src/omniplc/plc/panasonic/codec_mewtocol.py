@@ -110,7 +110,7 @@ def _check_contact_field(word: int, bit: int) -> None:
         raise ValueError(_("MEWTOCOL 位号超出 1 位字段(0~F),收到:{}").format(bit))
 
 
-def _check_word_field(start: int, count: int, words: "List[int]") -> int:
+def _check_word_field(start: int, count: int, words: List[int]) -> int:
     """校验数据区起止编号(5 位十进制)与字值范围(内部函数),返回结束编号。
 
     :raises ValueError: 数量非法 / 起止越界 / 字值超出 16 位
@@ -144,9 +144,7 @@ def build_write_contact(
 ) -> bytes:
     """构造 WCS 写单接点请求。"""
     _check_contact_field(word, bit)
-    return _assemble(
-        station, "WCS{}{:03d}{:X}{}".format(area, word, bit, 1 if value else 0)
-    )
+    return _assemble(station, f"WCS{area}{word:03d}{bit:X}{1 if value else 0}")
 
 
 def build_read_words(station: str, area: str, start: int, word_count: int) -> bytes:

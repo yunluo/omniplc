@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 from typing import Dict, NamedTuple
+
 from ...core.constants import ADDRESS_CACHE_MAXSIZE
 from ...core.i18n import _
 
@@ -155,9 +156,9 @@ def parse_opcua_nodeid(address: str) -> OpcUaNodeId:  # noqa: C901
             raise ValueError(_bad_nodeid(address))
     parts = []
     if namespace != 0:
-        parts.append("ns={}".format(namespace))
+        parts.append(f"ns={namespace}")
     for extra_key in ("nsu", "srv"):
         if extra_key in extras:
-            parts.append("{}={}".format(extra_key, extras[extra_key]))
-    parts.append("{}={}".format(kind, body))
+            parts.append(f"{extra_key}={extras[extra_key]}")
+    parts.append(f"{kind}={body}")
     return OpcUaNodeId(namespace=namespace, text=";".join(parts))

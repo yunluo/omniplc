@@ -12,6 +12,7 @@ import asyncio
 from typing import List, Optional
 
 import pytest
+from scripted import ScriptedTransport
 
 from omniplc import InovanceMcTcpClient
 from omniplc.aio import AInovanceMcTcpClient
@@ -21,10 +22,9 @@ from omniplc.core.constants import (
     INOVANCE_MC_R_BASE,
     MC_DEFAULT_MONITOR_TIMER,
 )
+from omniplc.core.types import McFrame
 from omniplc.plc.melsec import codec_qna
 from omniplc.plc.melsec.address import parse_mc_address
-from omniplc.core.types import McFrame
-from scripted import ScriptedTransport
 
 
 def _word_read_response(values: list) -> bytes:

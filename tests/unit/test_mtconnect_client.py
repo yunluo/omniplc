@@ -13,9 +13,9 @@ import pytest
 
 from omniplc import MTConnectClient
 from omniplc.aio import AMTConnectClient
-from omniplc.core.errors import ErrorCategory
 from omniplc.cnc import mtconnect as mtc_module
 from omniplc.cnc.mtconnect import _MtConnectSession
+from omniplc.core.errors import ErrorCategory
 
 _CURRENT_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <MTConnectStreams xmlns="urn:mtconnect.org:MTConnectStreams:1.3">

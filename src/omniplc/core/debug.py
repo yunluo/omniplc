@@ -176,23 +176,17 @@ def format_frame_records(records: List[FrameRecord]) -> str:
         ``incident_frames`` 快照
     :return: 多行文本(首行为统计头;空记录返回提示行)
     """
-    lines = ["共 {} 帧".format(len(records))]
+    lines = [f"共 {len(records)} 帧"]
     for record in records:
         stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(record.at))
         lines.append(
-            "{}.{:03d} {} {} ({} 字节)".format(
-                stamp,
-                int(record.at * 1000) % 1000,
-                record.direction,
-                record.label,
-                len(record.data),
-            )
+            f"{stamp}.{int(record.at * 1000) % 1000:03d} {record.direction} {record.label} ({len(record.data)} 字节)"
         )
         # 每行 16 字节缩进转储(与 format_hex 单行形态互补,长帧可读)
         data = record.data
         for offset in range(0, len(data), 16):
             chunk = data[offset : offset + 16]
-            lines.append("    " + " ".join("{:02X}".format(byte) for byte in chunk))
+            lines.append("    " + " ".join(f"{byte:02X}" for byte in chunk))
     return "\n".join(lines)
 
 
@@ -334,7 +328,7 @@ def format_hex(data: bytes) -> str:
     dumped = data[:DEBUG_MAX_DUMP_BYTES]
     text = " ".join(f"{byte:02X}" for byte in dumped)
     if len(data) > len(dumped):
-        text += " …(仅转储前 {}B,共 {}B)".format(DEBUG_MAX_DUMP_BYTES, len(data))
+        text += f" …(仅转储前 {DEBUG_MAX_DUMP_BYTES}B,共 {len(data)}B)"
     return text
 
 

@@ -61,6 +61,8 @@ from ...core.constants import (
 )
 from ...core.debug import format_hex
 from ...core.errors import ProtocolFrameError
+from ...core.i18n import _
+from ...core.types import ByteOrder, DataType, PrimitiveValue
 from ...core.validation import (
     check_int16,
     check_range,
@@ -71,7 +73,6 @@ from ...core.validation import (
     require_int,
 )
 from ...transport import BaseTransport, TcpTransport, UdpTransport
-from ...core.types import ByteOrder, DataType, PrimitiveValue
 from . import codec
 from .address import (
     ToyopucAddress,
@@ -80,7 +81,6 @@ from .address import (
     encode_word_address,
     parse_toyopuc_address,
 )
-from ...core.i18n import _
 
 
 class _ToyopucBase(BaseClient):

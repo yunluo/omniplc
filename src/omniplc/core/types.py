@@ -35,7 +35,7 @@ class DataType(Enum):
     STRING = "string"
 
     @classmethod
-    def coerce(cls, value: "Union[DataType, str]") -> "DataType":
+    def coerce(cls, value: Union[DataType, str]) -> DataType:
         """把枚举成员或名称统一解析为枚举成员。
 
         :param value: :class:`DataType` 成员,或类型名称(如 ``"float"``)
@@ -47,7 +47,7 @@ class DataType(Enum):
         return cls.from_name(value)
 
     @classmethod
-    def from_name(cls, name: str) -> "DataType":
+    def from_name(cls, name: str) -> DataType:
         """按名称解析数据类型。
 
         :param name: 类型名称,如 ``"float"``、``"short"``,不区分大小写

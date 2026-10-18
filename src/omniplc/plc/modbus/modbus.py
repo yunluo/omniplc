@@ -21,8 +21,6 @@ from abc import abstractmethod
 from functools import partial
 from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple, Union, cast
 
-from . import codec
-from .address import ModbusAddress, ModbusArea, parse_address
 from ...core import convert
 from ...core.base_client import BaseClient, validate_endpoint
 from ...core.constants import (
@@ -46,9 +44,9 @@ from ...core.constants import (
     MODBUS_EXCEPTION_FLAG,
     MODBUS_MAX_READ_BITS,
     MODBUS_MAX_READ_REGISTERS,
-    MODBUS_RTU_MAX_ADU_SIZE,
     MODBUS_MAX_WRITE_BITS,
     MODBUS_MAX_WRITE_REGISTERS,
+    MODBUS_RTU_MAX_ADU_SIZE,
     MODBUS_STATION_MAX,
     MODBUS_STATION_MIN,
     SERIAL_DEFAULT_BAUD_RATE,
@@ -60,6 +58,8 @@ from ...core.constants import (
 )
 from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
+from ...core.i18n import _
+from ...core.types import ByteOrder, DataType, PrimitiveValue, SerialParity, WordOrder
 from ...core.validation import (
     check_int16,
     check_uint16,
@@ -69,8 +69,8 @@ from ...core.validation import (
     require_int,
 )
 from ...transport import BaseTransport, SerialConfig, SerialTransport, TcpTransport
-from ...core.types import ByteOrder, DataType, SerialParity, WordOrder, PrimitiveValue
-from ...core.i18n import _
+from . import codec
+from .address import ModbusAddress, ModbusArea, parse_address
 
 
 class ModbusBaseClient(BaseClient):
@@ -298,7 +298,7 @@ class ModbusBaseClient(BaseClient):
         """
         if not items:
             raise ValueError(_("read_batch 至少需要一个 (地址, 数据类型) 项"))
-        parsed: List[Tuple["ModbusAddress", DataType]] = []
+        parsed: List[Tuple[ModbusAddress, DataType]] = []
         for addr, data_type in items:
             coerced = DataType.coerce(data_type)
             parsed.append((_check_address(addr, coerced), coerced))
@@ -412,7 +412,7 @@ class ModbusBaseClient(BaseClient):
 
     def _coalesce_and_read(
         self,
-        items: List[Tuple["ModbusAddress", DataType]],
+        items: List[Tuple[ModbusAddress, DataType]],
     ) -> List[PrimitiveValue]:
         """批量读核心算法(内部方法):分组合并 → 读 → 切片回填。
 
@@ -597,7 +597,7 @@ class ModbusBaseClient(BaseClient):
 
     def _coalesce_and_write(
         self,
-        items: List[Tuple["ModbusAddress", DataType, PrimitiveValue]],
+        items: List[Tuple[ModbusAddress, DataType, PrimitiveValue]],
         fail_fast: bool,
     ) -> List[bool]:
         """批量写核心算法(内部方法):寄存器位走 RMW,其余按组合并。
@@ -1017,7 +1017,7 @@ class ModbusBaseClient(BaseClient):
         :raises ValueError: 广播站号下的只读诊断子功能(仅 0x000A 清计数器
             允许广播——写语义,设备不回包;规范 §6.8 未禁止 FC08 广播)
         """
-        if not (int(sub_function) == 0x000A):
+        if int(sub_function) != 10:
             # 0x000A(清计数器与诊断寄存器)是写语义,广播合法;其余子功能
             # 需要读回数据,广播下设备不回包,等待只会超时
             self._reject_broadcast_read()
@@ -1589,13 +1589,13 @@ class _CoalesceEntry(NamedTuple):
     """
 
     item_index: int
-    parsed: "ModbusAddress"
+    parsed: ModbusAddress
     dtype: DataType
     kind: str
     width: int
 
 
-def _classify(parsed: "ModbusAddress", dtype: DataType) -> Tuple[str, int]:
+def _classify(parsed: ModbusAddress, dtype: DataType) -> Tuple[str, int]:
     """按 (区, 类型) 决定读取粒度:``(kind, width)``(内部函数)。
 
     返回 ``(kind, width)``:
@@ -1687,7 +1687,7 @@ def _coalesce_group(
 
 
 def _read_and_fill(
-    client: "ModbusBaseClient",
+    client: ModbusBaseClient,
     area: ModbusArea,
     kind: str,
     chunk: List[_CoalesceEntry],
@@ -1881,9 +1881,7 @@ def _device_id_to_text(objects: Dict[int, bytes]) -> Dict[str, str]:
     """
     result: Dict[str, str] = {}
     for object_id, raw in objects.items():
-        name = MODBUS_DEVICE_ID_OBJECT_NAMES.get(
-            object_id, "object_0x{:02X}".format(object_id)
-        )
+        name = MODBUS_DEVICE_ID_OBJECT_NAMES.get(object_id, f"object_0x{object_id:02X}")
         result[name] = raw.decode("ascii", "replace")
     return result
 
@@ -1970,7 +1968,7 @@ def _encode_64bit(
 
 
 def _encode_value_for_write(
-    parsed: "ModbusAddress",
+    parsed: ModbusAddress,
     dtype: DataType,
     value: PrimitiveValue,
     word_order: WordOrder,
@@ -2015,7 +2013,7 @@ def _encode_value_for_write(
 
 
 def _write_chunk(
-    client: "ModbusBaseClient",
+    client: ModbusBaseClient,
     area: ModbusArea,
     kind: str,
     chunk: List[Tuple[int, _CoalesceEntry, List[int]]],

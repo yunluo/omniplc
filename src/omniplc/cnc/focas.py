@@ -33,6 +33,7 @@ review-1043 甲-1)——档案 §1 连接 API(Ethernet 段 15117~15128 行)、
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import os
 import platform
@@ -471,7 +472,7 @@ class _FocasSession(BaseTransport):
         self._functions: Optional[_FwlibFunctions] = None
         self._handle: Optional[int] = None
         self._cnc_id: Optional[str] = None
-        self._debug_label = "focas://{}:{}".format(ip_address, port)
+        self._debug_label = f"focas://{ip_address}:{port}"
 
     @property
     def cnc_id(self) -> Optional[str]:
@@ -510,9 +511,7 @@ class _FocasSession(BaseTransport):
                 self._functions.cnc_rdcncid(self._handle, ctypes.pointer(ids)),
                 _("读取 CNC ID"),
             )
-            self._cnc_id = "-".join(
-                "{:08x}".format(ids[i]) for i in range(_CNC_ID_COUNT)
-            )
+            self._cnc_id = "-".join(f"{ids[i]:08x}" for i in range(_CNC_ID_COUNT))
         except (DeviceError, OSError):
             self.close()
             raise
@@ -539,10 +538,8 @@ class _FocasSession(BaseTransport):
         functions = self._functions
         handle = self._handle
         if functions is not None and handle is not None:
-            try:
+            with contextlib.suppress(DeviceError, OSError):
                 functions.cnc_freelibhndl(handle)
-            except (DeviceError, OSError):
-                pass
         self._handle = None
         self._functions = None
         self._cnc_id = None
@@ -846,14 +843,12 @@ class FanucFocasClient(BaseClient):
         if ok:
             transport = self._transport
             if isinstance(transport, _FocasSession):
-                try:
+                # 超时下发尽力而为,失败不阻断建连(吞 OmniPLCInternalError:
+                # _check_rc 的 EW_NODLL/EW_MMCSYS 分支抛该类,不接会从
+                # connect() 逃逸违背 →bool 契约,review-1020 P3-5;
+                # 会话已建立,DLL 级异常留给首个数据操作暴露)
+                with contextlib.suppress(DeviceError, OSError, OmniPLCInternalError):
                     transport.apply_receive_timeout()
-                except (DeviceError, OSError, OmniPLCInternalError):
-                    # 超时下发尽力而为,失败不阻断建连(吞 OmniPLCInternalError:
-                    # _check_rc 的 EW_NODLL/EW_MMCSYS 分支抛该类,不接会从
-                    # connect() 逃逸违背 →bool 契约,review-1020 P3-5;
-                    # 会话已建立,DLL 级异常留给首个数据操作暴露)
-                    pass
         return ok
 
     @property

@@ -43,6 +43,8 @@ from ...core.constants import (
 )
 from ...core.debug import format_hex
 from ...core.errors import ProtocolFrameError
+from ...core.i18n import _
+from ...core.types import DataType, PrimitiveValue
 from ...core.validation import (
     check_int16,
     check_range,
@@ -52,10 +54,8 @@ from ...core.validation import (
     require_int,
 )
 from ...transport import BaseTransport, TcpTransport, UdpTransport
-from ...core.types import DataType, PrimitiveValue
 from . import codec
 from .address import KvAddress, is_bit_device, parse_kv_address
-from ...core.i18n import _
 
 # 字软元件可承载的数值类型(位软元件只走 BOOL)
 _WORD_DATA_TYPES = frozenset(
@@ -419,7 +419,7 @@ class KeyenceHostLinkUdpClient(_KeyenceHostLinkBase):
 
 def _token(parsed: KvAddress, data_format: str) -> str:
     """软元件规范文本 + 数据格式后缀(如 ``"DM100.U"``,内部函数)。"""
-    return "{}{}".format(parsed.to_text(), data_format)
+    return f"{parsed.to_text()}{data_format}"
 
 
 def _require_word(address: str) -> KvAddress:
@@ -450,4 +450,4 @@ def _truncate_hex(data: bytes, limit: int = 64) -> str:
     """
     if len(data) <= limit:
         return format_hex(data)
-    return "{}...(共 {} 字节,其余省略)".format(format_hex(data[:limit]), len(data))
+    return f"{format_hex(data[:limit])}...(共 {len(data)} 字节,其余省略)"

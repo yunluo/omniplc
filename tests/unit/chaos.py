@@ -19,7 +19,7 @@ from __future__ import annotations
 import socket
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from typing import Callable, Iterator, List
 
 Behavior = Callable[[socket.socket], None]
@@ -46,10 +46,8 @@ def chaos_server(behavior: Behavior) -> Iterator[int]:
         except OSError:
             pass
         finally:
-            try:
+            with suppress(OSError):
                 conn.close()
-            except OSError:
-                pass
 
     def accept_loop() -> None:
         while not stop.is_set():
@@ -69,10 +67,8 @@ def chaos_server(behavior: Behavior) -> Iterator[int]:
         yield int(listener.getsockname()[1])
     finally:
         stop.set()
-        try:
+        with suppress(OSError):
             listener.close()
-        except OSError:
-            pass
         thread.join(timeout=5)
         for worker in workers:
             worker.join(timeout=5)

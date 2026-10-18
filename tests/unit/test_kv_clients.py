@@ -15,12 +15,12 @@ import struct
 import time
 
 import pytest
+from scripted import ScriptedTransport
 
 from omniplc import KeyenceHostLinkTcpClient, KeyenceHostLinkUdpClient
 from omniplc.core.errors import DeviceError, ErrorCategory, ProtocolFrameError
 from omniplc.plc.keyence import codec
 from omniplc.plc.keyence.address import parse_kv_address
-from scripted import ScriptedTransport
 
 
 def _chunks(line: bytes) -> list:
@@ -196,9 +196,7 @@ def test_tcp_read_float_two_words(monkeypatch: pytest.MonkeyPatch) -> None:
     client = KeyenceHostLinkTcpClient("127.0.0.1", 8000)
     raw = struct.pack("<f", 3.14)
     words = struct.unpack("<HH", raw)
-    scripted = ScriptedTransport(
-        _chunks(bytes("{} {}\r\n".format(words[0], words[1]), "ascii"))
-    )
+    scripted = ScriptedTransport(_chunks(bytes(f"{words[0]} {words[1]}\r\n", "ascii")))
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
     ok, value = client.read_float("DM100")

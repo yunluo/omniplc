@@ -72,7 +72,7 @@ class FakeActUtlType:
         assert match is not None, "块访问需要十进制字软元件:" + text
         base = int(match.group(2))
         prefix = match.group(1)
-        return [self.get("{}{}".format(prefix, base + i)) for i in range(count)]
+        return [self.get(f"{prefix}{base + i}") for i in range(count)]
 
     def random_read(self, texts: list) -> list:
         return [self.get(text) & 0xFFFF for text in texts]
@@ -108,7 +108,7 @@ def fake(monkeypatch: pytest.MonkeyPatch) -> FakeActUtlType:  # noqa: C901
         for i, word in enumerate(words):
             match = _TEXT_RE.match(text)
             assert match is not None
-            com.put("{}{}".format(match.group(1), int(match.group(2)) + i), word)
+            com.put(f"{match.group(1)}{int(match.group(2)) + i}", word)
 
     def fake_random(com: FakeActUtlType, text: str, count: int) -> list:
         com.calls.append(("ReadDeviceRandom", text, count))
@@ -150,7 +150,7 @@ def fake(monkeypatch: pytest.MonkeyPatch) -> FakeActUtlType:  # noqa: C901
 
     def fake_error_message(com: FakeActUtlType, code: int) -> str:
         com.calls.append(("GetErrorMessage", code))
-        return "出错信息文本 0x{:08X}".format(code & 0xFFFFFFFF)
+        return f"出错信息文本 0x{code & 0xFFFFFFFF:08X}"
 
     monkeypatch.setattr(mx_module, "_com_initialize", lambda: None)
     monkeypatch.setattr(mx_module, "_new_com_object", capture_new)
@@ -236,7 +236,7 @@ def test_read_short_negative(fake: FakeActUtlType) -> None:
 
 def test_read_float_block(fake: FakeActUtlType) -> None:
     for i, word in enumerate(_encode_32(3.14, DataType.FLOAT)):
-        fake.put("D{}".format(100 + i), word)
+        fake.put(f"D{100 + i}", word)
     client = _client()
     client.connect()
     ok, value = client.read_float("D100")
@@ -247,7 +247,7 @@ def test_read_float_block(fake: FakeActUtlType) -> None:
 
 def test_read_double_block(fake: FakeActUtlType) -> None:
     for i, word in enumerate(_encode_64(123.456, DataType.DOUBLE)):
-        fake.put("D{}".format(0 + i), word)
+        fake.put(f"D{0 + i}", word)
     client = _client()
     client.connect()
     ok, value = client.read_double("D0")
@@ -522,7 +522,7 @@ class ComtypesStyleActUtlType:
     ) -> int:
         if lErrorCode == 0xBAD:
             raise comtypes.COMError(-2147024894, "未知出错代码", None)
-        szErrorMessage._obj.value = "出错文本 0x{:08X}".format(lErrorCode & 0xFFFFFFFF)
+        szErrorMessage._obj.value = f"出错文本 0x{lErrorCode & 0xFFFFFFFF:08X}"
         lplRetCode._obj.value = self.get_error_message_code
         return 0
 
@@ -661,7 +661,7 @@ def test_get_error_message_releases_support_msg_control(
 
     class TrackedMsg:
         def __com_GetErrorMessage(self, code: int, message: Any, retcode: Any) -> int:
-            message._obj.value = "出错文本 0x{:08X}".format(code & 0xFFFFFFFF)
+            message._obj.value = f"出错文本 0x{code & 0xFFFFFFFF:08X}"
             retcode._obj.value = 0
             return 0
 
@@ -766,11 +766,11 @@ def test_read_batch_wide_types(fake: FakeActUtlType) -> None:
     """32/64 位条目各走块读(地址原文透传无法安全拆相邻字),顺序保持。"""
     client = _client()
     for index, word in enumerate(_encode_32(-2, DataType.INT)):
-        fake.put("D{}".format(100 + index), word)
+        fake.put(f"D{100 + index}", word)
     for index, word in enumerate(_encode_32(1.5, DataType.FLOAT)):
-        fake.put("D{}".format(110 + index), word)
+        fake.put(f"D{110 + index}", word)
     for index, word in enumerate(_encode_64(-2, DataType.LONG)):
-        fake.put("D{}".format(120 + index), word)
+        fake.put(f"D{120 + index}", word)
     ok, values = client.read_batch(
         [
             ("M10", "bool"),
@@ -797,7 +797,7 @@ def test_read_batch_rejects(fake: FakeActUtlType) -> None:
     with pytest.raises(ValueError):
         client.read_batch([("D100", "string")])
     with pytest.raises(ValueError):
-        client.read_batch([("D{}".format(index), "short") for index in range(961)])
+        client.read_batch([(f"D{index}", "short") for index in range(961)])
 
 
 # ----------------------------------------------------------------------
@@ -822,9 +822,9 @@ def test_read_range_ints_two_words_each(fake: FakeActUtlType) -> None:
     """read_range:D0 起 2 个 INT = ReadDeviceBlock 4 字,按 2 字/元素小端解码。"""
     client = _client()
     for index, word in enumerate(_encode_32(-2, DataType.INT)):
-        fake.put("D{}".format(index), word)
+        fake.put(f"D{index}", word)
     for index, word in enumerate(_encode_32(300, DataType.UINT)):
-        fake.put("D{}".format(2 + index), word)
+        fake.put(f"D{2 + index}", word)
     ok, values = client.read_range("D0", 2, "uint")
     assert ok is True
     assert values == [4294967294, 300]
@@ -880,7 +880,7 @@ def test_write_batch_rejects(fake: FakeActUtlType) -> None:
     with pytest.raises(ValueError):
         client.write_batch([("D100", 3.14)])  # 浮点不支持
     with pytest.raises(ValueError):
-        client.write_batch([("D{}".format(index), 0) for index in range(961)])
+        client.write_batch([(f"D{index}", 0) for index in range(961)])
     assert fake.calls[-1][0] != "WriteDeviceRandom"  # 拒绝路径不发请求
     # 整数值写位软元件合法(1/0)
     assert client.write_batch([("M20", 1)]) is True
@@ -971,7 +971,7 @@ def test_bit_device_table_includes_cc_link_and_long_timers(
         "LSC",
     ):
         assert device in MX_BIT_DEVICES, (
-            "MX_BIT_DEVICES 缺 {!r}(review-1024 §9.2-3 P2)".format(device)
+            f"MX_BIT_DEVICES 缺 {device!r}(review-1024 §9.2-3 P2)"
         )
 
 

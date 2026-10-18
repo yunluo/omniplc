@@ -16,6 +16,8 @@ import struct
 from typing import Any, List
 
 import pytest
+from scripted import ScriptedTransport as _ScriptedTransport
+from scripted import mount_real_tcp
 
 from omniplc import ModbusRtuClient, ModbusTcpClient
 from omniplc.core.base_client import BaseClient
@@ -24,7 +26,6 @@ from omniplc.core.errors import ErrorCategory, ProtocolFrameError, TransportTime
 from omniplc.core.types import DataType
 from omniplc.plc.modbus import codec, parse_address
 from omniplc.transport.base import BaseTransport
-from scripted import ScriptedTransport as _ScriptedTransport, mount_real_tcp
 
 # FC03 读 1 个寄存器、字节计数 2、值 20 的标准响应 PDU
 _RESPONSE_ONE_REGISTER = bytes([3, 2, 0x00, 0x14])
@@ -478,8 +479,8 @@ def test_mask_write_invalid_args() -> None:
 
 def test_mbap_length_field_overflow() -> None:
     """MBAP:长度域超出上限按坏帧拒绝(防止按长收包挂死)。"""
-    from omniplc.core.errors import ProtocolFrameError
     from omniplc.core.constants import MODBUS_MBAP_LENGTH_MAX
+    from omniplc.core.errors import ProtocolFrameError
 
     bad_header = (
         bytes([0, 1, 0, 0]) + (MODBUS_MBAP_LENGTH_MAX + 1).to_bytes(2, "big") + b"\x01"
@@ -1629,7 +1630,7 @@ def test_tcp_read_many_contiguous_over_read_limit_slices(
     )
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
-    results = client.read_many(["hr{}".format(i) for i in range(126)], "ushort")
+    results = client.read_many([f"hr{i}" for i in range(126)], "ushort")
     assert len(results) == 126
     assert all(ok for ok, _ in results)
     assert results[124][1] == 7  # 第 125 个字(第 1 笔)
@@ -1654,7 +1655,7 @@ def test_tcp_read_many_contiguous_coils_over_read_limit_slices(
     )
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
-    results = client.read_many(["c{}".format(i) for i in range(2001)], "bool")
+    results = client.read_many([f"c{i}" for i in range(2001)], "bool")
     assert len(results) == 2001
     assert all(ok and value is True for ok, value in results)
     assert bytes(scripted.sent) == (
@@ -1681,7 +1682,7 @@ def test_tcp_read_many_wide_type_over_read_limit_slices(
     )
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
-    results = client.read_many(["hr{}".format(i * 2) for i in range(64)], "float")
+    results = client.read_many([f"hr{i * 2}" for i in range(64)], "float")
     assert len(results) == 64
     assert all(ok for ok, _ in results)
     assert bytes(scripted.sent) == (
@@ -1708,7 +1709,7 @@ def test_tcp_write_many_contiguous_over_write_limit_slices(
     )
     monkeypatch.setattr(client, "_create_transport", lambda: scripted)
     client.connect()
-    results = client.write_many([("hr{}".format(i), "ushort", i) for i in range(124)])
+    results = client.write_many([(f"hr{i}", "ushort", i) for i in range(124)])
     assert results == [True] * 124  # 不再含有 None 或静默 False
     assert bytes(scripted.sent) == (
         codec.build_mbap(1, 1, codec.build_write_multi_pdu(16, 0, list(range(123))))
@@ -2349,7 +2350,7 @@ def test_tcp_ping_fc08_unsupported_slave_keeps_connection(
 
 
 def _coalesce_entry(address: str, dtype: DataType) -> Any:
-    from omniplc.plc.modbus.modbus import _CoalesceEntry, _classify
+    from omniplc.plc.modbus.modbus import _classify, _CoalesceEntry
 
     parsed = parse_address(address)
     kind, width = _classify(parsed, dtype)
@@ -2364,7 +2365,7 @@ def test_coalesce_group_chunks_slice_group() -> None:
     write 路径按 ``group[pos:pos+len(chunk)]`` 指针切片回填条目,依赖
     此不变量(空洞拆块 / 超上限二切 / 重叠吸收 / 混合宽度逐项核实)。
     """
-    from omniplc.plc.modbus.modbus import _CoalesceEntry, _classify, _coalesce_group
+    from omniplc.plc.modbus.modbus import _classify, _coalesce_group, _CoalesceEntry
 
     group = [
         ("hr100", DataType.SHORT),  # 连续区 100~102

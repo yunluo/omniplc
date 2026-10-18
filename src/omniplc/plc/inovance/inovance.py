@@ -43,6 +43,12 @@ from ...core.constants import (
     SERIAL_DEFAULT_DATA_BITS,
     SERIAL_DEFAULT_PARITY,
 )
+from ...core.types import (
+    ByteOrder,
+    DataType,
+    PrimitiveValue,
+    SerialParity,
+)
 from ..modbus.modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
 from .address import (
     check_counter_word_type,
@@ -50,12 +56,6 @@ from .address import (
     parse_inovance_address,
     to_modbus_address,
     translate_batch_address,
-)
-from ...core.types import (
-    ByteOrder,
-    DataType,
-    PrimitiveValue,
-    SerialParity,
 )
 
 

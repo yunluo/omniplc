@@ -33,7 +33,6 @@ from omniplc.plc.ab import codec_cip
 from omniplc.plc.melsec import mx
 from omniplc.transport import BaseTransport, TcpTransport, UdpTransport
 
-
 # ----------------------------------------------------------------------
 # 测试夹具与脚本化驱动
 # ----------------------------------------------------------------------
@@ -136,7 +135,7 @@ class TestRecvDeadline:
             transport.recv(10)
         elapsed = time.monotonic() - start
         # 应在 receive_timeout 附近抛(允许稍大,但远小于无限)
-        assert elapsed < 1.0, "deadline 失效:耗时 {}s".format(elapsed)
+        assert elapsed < 1.0, f"deadline 失效:耗时 {elapsed}s"
 
 
 # ----------------------------------------------------------------------
@@ -333,7 +332,7 @@ class TestKeepalive:
             sock = transport._socket
             assert sock is not None
             opt = sock.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE)
-            assert opt == 1, "SO_KEEPALIVE 未启用,值={}".format(opt)
+            assert opt == 1, f"SO_KEEPALIVE 未启用,值={opt}"
         finally:
             transport.close()
 
@@ -414,7 +413,7 @@ class TestAioCloseLifecycle:
     def test_close_gate_refuses_new_calls_while_draining(self) -> None:
         """close 起步即关闸:新调用不再排队到关闭之后执行。"""
         sync = _ScriptedSyncForAio()
-        sync._read = lambda _a, _t: (time.sleep(0.15), 1)[1]  # noqa: E731
+        sync._read = lambda _a, _t: (time.sleep(0.15), 1)[1]
         client = aio.AModbusTcpClient.__new__(aio.AModbusTcpClient)
         aio.ABaseClient.__init__(client, sync)
         sync.connect()
@@ -594,7 +593,7 @@ class TestStatsSnapshot:
         client.connect()
 
         # 注入 DeviceError 的 _read:抛 DeviceError
-        client._read = lambda _a, _t: (_ for _ in ()).throw(  # noqa: E731
+        client._read = lambda _a, _t: (_ for _ in ()).throw(
             errors.DeviceError("PLC 错误 0x02", 2)
         )
         ok, _ = client.read_short("hr0")
@@ -611,7 +610,7 @@ class TestStatsSnapshot:
         client.connect()
 
         # _read 抛 OSError → 走 OSError 分支,断开
-        client._read = lambda _a, _t: (_ for _ in ()).throw(OSError("网络中断"))  # noqa: E731
+        client._read = lambda _a, _t: (_ for _ in ()).throw(OSError("网络中断"))
         ok, _ = client.read_short("hr0")
         assert ok is False
         s = client.stats

@@ -560,17 +560,17 @@ def parse_read_response(
                 ),
                 return_code,
             )
-        if transport_size == 0x04:
-            byte_length = bit_length // 8
-        else:
-            byte_length = bit_length
-        if byte_lengths is not None and index < len(byte_lengths):
-            if byte_length != byte_lengths[index]:
-                raise S7ProtocolError(
-                    _(
-                        "S7 读应答第 {} 项数据长 {} 字节与请求期望 {} 字节不符(原始数据:{})"
-                    ).format(index, byte_length, byte_lengths[index], format_hex(data))
-                )
+        byte_length = bit_length // 8 if transport_size == 4 else bit_length
+        if (
+            byte_lengths is not None
+            and index < len(byte_lengths)
+            and byte_length != byte_lengths[index]
+        ):
+            raise S7ProtocolError(
+                _(
+                    "S7 读应答第 {} 项数据长 {} 字节与请求期望 {} 字节不符(原始数据:{})"
+                ).format(index, byte_length, byte_lengths[index], format_hex(data))
+            )
         if offset + byte_length > total:
             raise S7ProtocolError(
                 _("S7 读应答第 {} 项数据被截断(收到的原始数据:{})").format(
@@ -645,10 +645,7 @@ def build_write(
     :raises ValueError: 数据长非元素宽整数倍 / 元素数超出 u16
     """
     transport_size = _WRITE_TRANSPORT_SIZES.get(word_len, 0x04)
-    if transport_size in (0x03, 0x07, 0x09):
-        data_length = len(data)
-    else:
-        data_length = len(data) * 8
+    data_length = len(data) if transport_size in (3, 7, 9) else len(data) * 8
     item_size = _WORD_LEN_ITEM_SIZES.get(word_len, 1)
     if len(data) % item_size:
         raise ValueError(

@@ -8,6 +8,7 @@ import math
 import os
 from dataclasses import dataclass
 from typing import Dict, Iterable, Iterator, Mapping, Optional, Union
+
 from .i18n import _
 
 PathLike = Union[str, os.PathLike]
@@ -88,7 +89,7 @@ class TagTable(Mapping[str, Tag]):
         self._tags[tag.tag_id] = tag
 
     @classmethod
-    def from_json(cls, path: PathLike, encoding: str = "utf-8-sig") -> "TagTable":
+    def from_json(cls, path: PathLike, encoding: str = "utf-8-sig") -> TagTable:
         """从 JSON 文件导入点位表。
 
         文件格式为对象数组::
@@ -104,7 +105,7 @@ class TagTable(Mapping[str, Tag]):
         :param encoding: 文件编码,默认 utf-8-sig(兼容 Excel 导出)
         :raises ValueError: 格式错误
         """
-        with open(path, "r", encoding=encoding) as fp:
+        with open(path, encoding=encoding) as fp:
             data = json.load(fp)
         if not isinstance(data, list):
             raise ValueError(
@@ -113,7 +114,7 @@ class TagTable(Mapping[str, Tag]):
         return cls(_tag_from_record(item) for item in data)
 
     @classmethod
-    def from_csv(cls, path: PathLike, encoding: str = "utf-8-sig") -> "TagTable":
+    def from_csv(cls, path: PathLike, encoding: str = "utf-8-sig") -> TagTable:
         """从 CSV 文件导入点位表。
 
         表头必须为 ``tag_id,address,data_type,scale,offset,remark``,
@@ -122,7 +123,7 @@ class TagTable(Mapping[str, Tag]):
         :param path: CSV 文件路径
         :param encoding: 文件编码,默认 utf-8-sig
         """
-        with open(path, "r", encoding=encoding, newline="") as fp:
+        with open(path, encoding=encoding, newline="") as fp:
             reader = csv.DictReader(fp)
             names = reader.fieldnames or []
             for required in ("tag_id", "address", "data_type"):

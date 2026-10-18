@@ -50,13 +50,13 @@ from __future__ import annotations
 
 import struct
 
+from ...core.constants import AB_EIP_DEFAULT_PORT
+from ...core.errors import DeviceError
+from ...core.i18n import _
+from ...core.types import PrimitiveValue
 from ..ab import AllenBradleyEthIpClient, codec_cip
 from ..ab.ab import _check_bit_range, _single_array_index, _strip_bit, _word_index_path
 from ..ab.address import AbTag, parse_ab_tag
-from ...core.constants import AB_EIP_DEFAULT_PORT
-from ...core.errors import DeviceError
-from ...core.types import PrimitiveValue
-from ...core.i18n import _
 
 
 def _bool_payload(flag: bool) -> bytes:
@@ -109,7 +109,7 @@ class OmronCipClient(AllenBradleyEthIpClient):
         """unconnected 直发:目标即消息路由器,不包 UC Send(内部方法)。"""
         return cip_request
 
-    def list_tags(self):  # noqa: ANN201 —— 返回形状与基类一致,由类型标注层覆盖
+    def list_tags(self):
         """NJ/NX 不支持 Logix 符号点位枚举(显式拒绝,覆写 AB 基类)。
 
         服务 0x55 / Symbol Object(0x6B20)是 Logix 私有面,NJ/NX 的

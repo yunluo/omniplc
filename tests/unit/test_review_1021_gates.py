@@ -20,6 +20,7 @@ import asyncio
 from typing import List, Tuple
 
 import pytest
+from scripted import ScriptedTransport
 
 import omniplc
 from omniplc import (
@@ -50,8 +51,6 @@ from omniplc.native import (
 )
 from omniplc.plc.modbus import codec as modbus_codec
 from omniplc.transport import BaseTransport
-from scripted import ScriptedTransport
-
 
 # ----------------------------------------------------------------------
 # 基类契约用例的脚本化桩(同 test_write_safety 手法)
@@ -519,8 +518,8 @@ class TestWriteMethodRegistry:
                     or name.startswith("set_")
                 )
                 if hit and name not in _WRITE_METHOD_REGISTRY:
-                    unknown.append("{}.{}".format(cls.__name__, name))
-        assert unknown == [], "新增写方法未登记写安全面:{}".format(unknown)
+                    unknown.append(f"{cls.__name__}.{name}")
+        assert unknown == [], f"新增写方法未登记写安全面:{unknown}"
 
     def test_read_only_property_present_everywhere(self) -> None:
         """全部客户端类都有 read_only/write_whitelist 闸(含继承)。"""

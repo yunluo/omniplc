@@ -31,6 +31,7 @@ v0.8 范围:匿名/NoSecurity 连接下的节点读写;v0.35 新增 Browse +
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 import struct
@@ -61,6 +62,8 @@ from ...core.errors import (
     OmniPLCInternalError,
     TransportClosedError,
 )
+from ...core.i18n import _
+from ...core.types import DataType, PrimitiveValue
 from ...core.validation import (
     check_range,
     check_uint16,
@@ -68,10 +71,8 @@ from ...core.validation import (
     require_float,
     require_int,
 )
-from ...core.types import DataType, PrimitiveValue
 from ...transport.base import BaseTransport
 from .address import parse_opcua_nodeid
-from ...core.i18n import _
 
 _VARIANT_TYPE_NAMES = {
     DataType.BOOL: "Boolean",
@@ -308,10 +309,8 @@ class _OpcUaSession(BaseTransport):
 
 def _safe_disconnect(client: Any) -> None:
     """尽力断开会话(回收后台事件循环线程),静默失败(内部函数)。"""
-    try:
+    with contextlib.suppress(Exception):
         client.disconnect()
-    except Exception:
-        pass
 
 
 # ----------------------------------------------------------------------
@@ -328,7 +327,7 @@ _UA_LOGGER = logging.getLogger("omniplc.plc.opcua")
 
 
 def _handle_subscription_status(
-    client: "OpcUaClient", status: Any, handle_cell: Optional[List[Any]]
+    client: OpcUaClient, status: Any, handle_cell: Optional[List[Any]]
 ) -> None:
     """订阅状态回调的公共处理(内部函数,DataChange / Event 两个 handler 共用)。
 
@@ -346,16 +345,14 @@ def _handle_subscription_status(
     if not bad or name == "BadShutdown":
         return
     code = int(getattr(status, "value", 0) or 0)
-    client._set_error(  # noqa: SLF001
+    client._set_error(
         _("OPC-UA 订阅失效({}):服务端停止推送,句柄已标记失效").format(name or code),
         ErrorCategory.DEVICE,
         code or None,
     )
     for handle in list(handle_cell or ()):
-        try:
-            handle._invalidate()  # noqa: SLF001
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            handle._invalidate()
 
 
 class _DataChangeHandler:
@@ -372,7 +369,7 @@ class _DataChangeHandler:
 
     def __init__(
         self,
-        client: "OpcUaClient",
+        client: OpcUaClient,
         on_change: Callable[[Any, str, Optional[float]], None],
         handle_cell: Optional[List[Any]] = None,
     ) -> None:
@@ -398,14 +395,12 @@ class _DataChangeHandler:
             # 用户回调异常:不杀订阅;三件套照写但**独立计数**
             # (review-1043 戊-9:原走 _set_error 默认 record=True,应用自身
             # 回调写错会计入 error_count,现场看着像「链路在坏」)
-            try:
-                self._client._record_callback_error(  # noqa: SLF001
+            with contextlib.suppress(Exception):
+                self._client._record_callback_error(
                     _("OPC-UA DataChange 回调异常:{}:{}").format(
                         type(exc).__name__, exc
                     )
                 )
-            except Exception:
-                pass
             _UA_LOGGER.exception("OPC-UA DataChange 回调异常")
 
     def status_change_notification(self, status: Any) -> None:
@@ -430,7 +425,7 @@ class _EventHandler:
 
     def __init__(
         self,
-        client: "OpcUaClient",
+        client: OpcUaClient,
         on_event: Callable[[dict, str, Optional[float]], None],
         handle_cell: Optional[List[Any]] = None,
     ) -> None:
@@ -457,10 +452,8 @@ class _EventHandler:
             except Exception:
                 fields = {"raw": str(event)}
             node_id = ""
-            try:
+            with contextlib.suppress(Exception):
                 node_id = str(event.SourceNode)
-            except Exception:
-                pass
             ts = None
             try:
                 src = event.Time
@@ -472,13 +465,12 @@ class _EventHandler:
                 ts = None
             self._on_event(fields, node_id, ts)
         except Exception as exc:
-            try:
-                # 同 DataChange:独立计数,不计连接健康账(review-1043 戊-9)
-                self._client._record_callback_error(  # noqa: SLF001
+            # 同 DataChange:独立计数,不计连接健康账(review-1043 戊-9);
+            # _record_callback_error 自身异常静默(尽力而为)
+            with contextlib.suppress(Exception):
+                self._client._record_callback_error(
                     _("OPC-UA Event 回调异常:{}:{}").format(type(exc).__name__, exc)
                 )
-            except Exception:
-                pass
             _UA_LOGGER.exception("OPC-UA Event 回调异常")
 
     def status_change_notification(self, status: Any) -> None:
@@ -766,10 +758,8 @@ class OpcUaClient(BaseClient):
             handles = list(self._active_subscriptions.values())
             self._active_subscriptions.clear()
         for handle in handles:
-            try:
+            with contextlib.suppress(Exception):
                 handle.release()
-            except Exception:
-                pass
         return super().disconnect()
 
     def _mark_disconnected(self) -> None:
@@ -1203,23 +1193,17 @@ class OpcUaClient(BaseClient):
                     0,
                 )
         except DeviceError:
-            try:
+            with contextlib.suppress(Exception):
                 ua_sub.delete()
-            except Exception:
-                pass
             raise
         except OSError:
-            try:
+            with contextlib.suppress(Exception):
                 ua_sub.delete()
-            except Exception:
-                pass
             # 传输类异常原样上抛(同 create_subscription 分支,review-1037 §3.2)
             raise
         except Exception as exc:
-            try:
+            with contextlib.suppress(Exception):
                 ua_sub.delete()
-            except Exception:
-                pass
             raise _translate_ua_error(exc) from exc
         sub_id = int(getattr(ua_sub, "subscription_id", id(ua_sub)))
         spec: Dict[str, Any] = {
@@ -1348,16 +1332,12 @@ class OpcUaClient(BaseClient):
             handle_ev = ua_sub.subscribe_events(node, evfilter=event_filter)
             monitored = [handle_ev]
         except OSError:
-            try:
+            with contextlib.suppress(Exception):
                 ua_sub.delete()
-            except Exception:
-                pass
             raise
         except Exception as exc:
-            try:
+            with contextlib.suppress(Exception):
                 ua_sub.delete()
-            except Exception:
-                pass
             raise _translate_ua_error(exc) from exc
         sub_id = int(getattr(ua_sub, "subscription_id", id(ua_sub)))
         spec: Dict[str, Any] = {

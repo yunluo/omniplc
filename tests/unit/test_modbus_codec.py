@@ -14,7 +14,6 @@ import pytest
 from omniplc.core.errors import ProtocolFrameError
 from omniplc.plc.modbus import codec
 
-
 # ----------------------------------------------------------------------
 # 地址空间校验(规范 §6.1 状态图:Starting Address + Quantity)
 # ----------------------------------------------------------------------

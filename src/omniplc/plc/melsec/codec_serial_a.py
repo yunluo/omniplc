@@ -173,19 +173,17 @@ def build_1c_request(
             )
         )
     head = code_text + _number_text(spec, number)
-    points_text = (
-        "00" if points == MC_1C_MAX_BIT_READ_POINTS else "{:02X}".format(points)
-    )
+    points_text = "00" if points == MC_1C_MAX_BIT_READ_POINTS else f"{points:02X}"
     body_text = (
         _route_text(station_number, pc_number)
         + command
-        + "{:X}".format(check_message_wait(message_wait))
+        + f"{check_message_wait(message_wait):X}"
         + head
         + points_text
         + _data_text(address, points, is_bit, is_write, data)
     )
     body = body_text.encode("ascii")
-    checksum_text = "{:02X}".format(codec_serial.checksum(body)).encode("ascii")
+    checksum_text = f"{codec_serial.checksum(body):02X}".encode("ascii")
     return bytes([codec_serial.ENQ]) + body + checksum_text + codec_serial._CRLF
 
 
@@ -260,9 +258,7 @@ def parse_1c_response(  # noqa: C901
         response[8 + expected : 10 + expected], "1C 读响应", response
     )
     # 和校验范围 = 站号/PC 号回显 + 数据 + ETX(含 ETX,与 3C 格式 4 同规则)
-    wanted = "{:02X}".format(codec_serial.checksum(response[1 : 6 + expected])).encode(
-        "ascii"
-    )
+    wanted = f"{codec_serial.checksum(response[1 : 6 + expected]):02X}".encode("ascii")
     if response[6 + expected : 8 + expected] != wanted:
         raise ProtocolFrameError(
             _("1C 和校验码不符:期望 {},收到 {!r}(收到的原始帧:{})").format(
@@ -346,10 +342,7 @@ def _number_text(spec: _Spec, number: int) -> str:
 
 def _route_text(station_number: int, pc_number: int) -> str:
     """格式化并校验站号/PC 号回显域(内部函数)。"""
-    return "{:02X}{:02X}".format(
-        codec_serial.check_station_number(station_number),
-        codec_serial.check_pc_number(pc_number),
-    )
+    return f"{codec_serial.check_station_number(station_number):02X}{codec_serial.check_pc_number(pc_number):02X}"
 
 
 def _data_text(
@@ -373,7 +366,7 @@ def _data_text(
     for word in values:
         if not 0 <= word <= 0xFFFF:
             raise ValueError(_("字写数据超出范围 0~65535:{}").format(word))
-    return "".join("{:04X}".format(word) for word in values)
+    return "".join(f"{word:04X}" for word in values)
 
 
 def _data_chars(points: int, is_bit: bool) -> int:

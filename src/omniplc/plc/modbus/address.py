@@ -26,8 +26,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from functools import lru_cache
 from enum import Enum
+from functools import lru_cache
 from typing import Optional
 
 from ...core.constants import ADDRESS_CACHE_MAXSIZE, MODBUS_REGISTER_BIT_MAX

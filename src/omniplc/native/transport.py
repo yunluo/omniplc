@@ -43,6 +43,7 @@ code=-10040,与同步层契约统一)。``received == size`` 时记一条 WARNIN
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import errno
 import math
 import socket
@@ -52,13 +53,13 @@ from typing import Awaitable, List, Optional, Tuple, TypeVar
 from ..core.constants import DEFAULT_CONNECT_TIMEOUT, DEFAULT_RECEIVE_TIMEOUT
 from ..core.debug import RECV_MARK, SEND_MARK, log_frame, log_op, log_warning
 from ..core.errors import (
+    _CANCELLED_ERRORS,
     DeviceError,
     TransportClosedError,
     TransportTimeoutError,
-    _CANCELLED_ERRORS,
 )
-from ..transport.tcp import _enable_keepalive
 from ..core.i18n import _
+from ..transport.tcp import _enable_keepalive
 
 # Windows ``recv`` 对超长 UDP 报文抛 ``WSAEMSGSIZE``(errno 10040)。诊断码
 # 取**负值**与同步层(transport/udp.py)契约统一:负码避开真实协议错误码
@@ -241,7 +242,7 @@ class AsyncBaseTransport(ABC):
         """
         return 0
 
-    async def __aenter__(self) -> "AsyncBaseTransport":
+    async def __aenter__(self) -> AsyncBaseTransport:
         await self.connect()
         return self
 
@@ -287,10 +288,9 @@ class AsyncTcpTransport(AsyncBaseTransport):
         reader, writer = opened[1]
         sock = writer.get_extra_info("socket")
         if sock is not None:
-            try:
+            # 平台不支持时静默降级
+            with contextlib.suppress(OSError):
                 sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            except OSError:
-                pass  # 平台不支持时静默降级
             _enable_keepalive(sock)
         self._reader = reader
         self._writer = writer
@@ -307,10 +307,8 @@ class AsyncTcpTransport(AsyncBaseTransport):
         self._reader = None
         self._writer = None
         if writer is not None:
-            try:
+            with contextlib.suppress(Exception):
                 writer.close()
-            except Exception:
-                pass
             log_op(self._debug_label, "已断开")
 
     async def send(self, data: bytes) -> None:

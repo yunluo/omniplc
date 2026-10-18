@@ -12,18 +12,18 @@ import socket
 from typing import Any, Dict, NamedTuple, Optional, Sequence, Tuple
 
 import pytest
+from scripted import ScriptedTransport
+from scripted_async import ScriptedAsyncTransport, loop_names, make_loop
 
 from omniplc import OmronFinsTcpClient, OmronFinsUdpClient
 from omniplc.core.errors import ErrorCategory
+from omniplc.core.tag import Tag, TagTable
+from omniplc.core.types import DataType, PrimitiveValue
 from omniplc.native import AsyncOmronFinsTcpClient, AsyncOmronFinsUdpClient
+from omniplc.native import omron as native_omron_module
 from omniplc.plc.omron import codec
 from omniplc.plc.omron import omron as omron_module
 from omniplc.plc.omron.address import parse_fins_address
-from omniplc.native import omron as native_omron_module
-from omniplc.core.tag import Tag, TagTable
-from omniplc.core.types import DataType, PrimitiveValue
-from scripted import ScriptedTransport
-from scripted_async import ScriptedAsyncTransport, loop_names, make_loop
 
 # 请求/响应里的路由字段(用例统一显式指定节点号,避免依赖本机出口 IP)
 _DEST_NODE = 5
@@ -631,7 +631,7 @@ def test_udp_auto_nodes_from_hostname_without_blocking_dns(
     """
 
     def _boom(host: str) -> str:
-        raise AssertionError("事件循环里不应出现阻塞解析:{}".format(host))
+        raise AssertionError(f"事件循环里不应出现阻塞解析:{host}")
 
     monkeypatch.setattr(socket, "gethostbyname", _boom)
 
@@ -826,7 +826,7 @@ def _call_ext(client: Any, case: ExtCase) -> Any:
         return client.read_many(*args)
     if op == "read_batch":
         return client.read_batch(*args)
-    raise AssertionError("未知扩展用例操作:{}".format(op))
+    raise AssertionError(f"未知扩展用例操作:{op}")
 
 
 @pytest.mark.parametrize("case", _EXT_CASES, ids=[case.name for case in _EXT_CASES])

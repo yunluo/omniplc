@@ -93,9 +93,7 @@ def _numeric_roundtrip(client: object, cases: list) -> None:
         written = write(address, expected)
         got = read(address)
         if written is not True or got != (True, expected):
-            mismatches.append(
-                "{}@{} 写={} 读={}".format(type_name, address, written, got)
-            )
+            mismatches.append(f"{type_name}@{address} 写={written} 读={got}")
     assert not mismatches, ";".join(mismatches)
 
 
@@ -120,7 +118,7 @@ def _discover_servers() -> dict:
     """拉网关服务器清单,返回 ``{服务器类型: (端口, 网络模式)}``。"""
     if _SERVER_CACHE:
         return _SERVER_CACHE
-    url = "http://{}:{}/api/servers".format(GATEWAY_HOST, GATEWAY_PORT)
+    url = f"http://{GATEWAY_HOST}:{GATEWAY_PORT}/api/servers"
     with urllib.request.urlopen(url, timeout=2) as resp:
         payload = json.loads(resp.read().decode("utf-8"))
     for item in payload.get("servers", []):
@@ -139,7 +137,7 @@ def _skip_if_missing(server_type: str):
     """
     port, mode = _require_server(server_type)
     if mode == "udp":
-        pytest.skip("{} 为 UDP 走线,本用例仅覆盖 TCP".format(server_type))
+        pytest.skip(f"{server_type} 为 UDP 走线,本用例仅覆盖 TCP")
     return port
 
 
@@ -147,7 +145,7 @@ def _udp_port(server_type: str) -> int:
     """取 UDP 走线虚拟服务器的端口(不在则 skip)。"""
     port, mode = _require_server(server_type)
     if mode != "udp":
-        pytest.skip("{} 当前为 TCP 走线,本用例仅覆盖 UDP".format(server_type))
+        pytest.skip(f"{server_type} 当前为 TCP 走线,本用例仅覆盖 UDP")
     return port
 
 
@@ -159,7 +157,7 @@ def _require_server(server_type: str):
         pytest.skip("模拟器网关未运行(127.0.0.1:8731)")
     info = _discover_servers().get(server_type)
     if info is None:
-        pytest.skip("模拟器未创建 {} 虚拟服务器".format(server_type))
+        pytest.skip(f"模拟器未创建 {server_type} 虚拟服务器")
     return info
 
 
@@ -400,7 +398,7 @@ def test_allen_bradley_server_tag() -> None:
     assert client.connect() is True, client.last_error
     try:
         first = client.read_short("A")
-        assert first[0] is True, "首读 {}".format(first)
+        assert first[0] is True, f"首读 {first}"
         assert client.write_short("A", 1234) is True
         assert client.read_short("A") == (True, 1234)
     finally:
@@ -418,7 +416,7 @@ def test_omron_cip_server_tag() -> None:
     assert client.connect() is True, client.last_error
     try:
         first = client.read_short("A")
-        assert first[0] is True, "首读 {}".format(first)
+        assert first[0] is True, f"首读 {first}"
         client.write_short("A", 4321)
         assert client.read_short("A") == (True, 4321)
     finally:

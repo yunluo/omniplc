@@ -12,10 +12,9 @@ import socket
 import struct
 import time
 
-from omniplc import MelsecMcTcpClient, ModbusTcpClient
-
 from chaos import chaos_server, recv_request
 
+from omniplc import MelsecMcTcpClient, ModbusTcpClient
 
 # ----------------------------------------------------------------------
 # Modbus TCP:错长度头 / 断管后惰性重连

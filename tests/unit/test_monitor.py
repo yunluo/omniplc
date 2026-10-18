@@ -14,11 +14,11 @@ import time
 from typing import List, Optional, Tuple
 
 import pytest
+from scripted import ScriptedTransport, wait_until
 
 from omniplc import ModbusTcpClient, Monitor, MonitorQuality, PointSnapshot
 from omniplc.core import monitor as monitor_mod
 from omniplc.core.tag import Tag, TagTable
-from scripted import ScriptedTransport, wait_until
 
 
 def _client() -> ModbusTcpClient:

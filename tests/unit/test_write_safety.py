@@ -34,7 +34,6 @@ from omniplc.core.types import DataType, PrimitiveValue
 from omniplc.native import AsyncModbusTcpClient
 from omniplc.transport import BaseTransport
 
-
 # ----------------------------------------------------------------------
 # 脚本化驱动(同 test_base_client 手法;读写值可注入)
 # ----------------------------------------------------------------------

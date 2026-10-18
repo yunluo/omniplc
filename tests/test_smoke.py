@@ -30,8 +30,8 @@ from omniplc.aio import (
     AOmronFinsTcpClient,
     AOmronFinsUdpClient,
 )
-from omniplc.transport import BaseTransport, SerialTransport, TcpTransport, UdpTransport
 from omniplc.core.types import DataType, McFrame
+from omniplc.transport import BaseTransport, SerialTransport, TcpTransport, UdpTransport
 
 
 class TestInheritance:
@@ -97,9 +97,8 @@ class TestContextManager:
     def test_refused_connection_raises(self) -> None:
         # 端口 1 在本机回环上通常无人监听 → 连接被拒
         client = ModbusTcpClient("127.0.0.1", 1, 1)
-        with pytest.raises(ConnectionError):
-            with client:
-                pass
+        with pytest.raises(ConnectionError), client:
+            pass
         assert client.last_error is not None
 
     def test_normal_cycle(self, tcp_echo_port: int) -> None:

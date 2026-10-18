@@ -17,7 +17,6 @@ from omniplc.plc.siemens import codec
 from omniplc.plc.siemens.address import parse_s7_address, translate_v_address
 from omniplc.plc.siemens.client import _S7Session, resolve_s7_connection
 
-
 # ----------------------------------------------------------------------
 # codec 纯函数:黄金帧(参考实现字节锁定)
 # ----------------------------------------------------------------------
@@ -330,7 +329,7 @@ def _negotiate_ack(sequence: int, pdu_size: int = 480) -> bytes:
 
 
 def _read_ack(
-    sequence: int, blobs: List[bytes], wire_bits: "List[int] | None" = None
+    sequence: int, blobs: List[bytes], wire_bits: List[int] | None = None
 ) -> bytes:
     """读应答:单项/多项(自动加奇数填充;参数区条目数按实际项数)。
 

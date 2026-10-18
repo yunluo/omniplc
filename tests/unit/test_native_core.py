@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import socket
 import threading
 import time
@@ -24,9 +25,9 @@ import pytest
 
 from omniplc.core.constants import RECONNECT_BACKOFF_MAX
 from omniplc.core.errors import TransportTimeoutError
+from omniplc.core.types import DataType
 from omniplc.native import AsyncModbusTcpClient
 from omniplc.native.transport import AsyncBaseTransport
-from omniplc.core.types import DataType
 
 # FC03 读 1 寄存器 = 20 的完整 MBAP 响应(tid=1)
 _RESP_TID1 = bytes([0x00, 0x01, 0x00, 0x00, 0x00, 0x05, 0x01, 0x03, 0x02, 0x00, 0x14])
@@ -639,10 +640,8 @@ def test_concurrent_cross_loop_use_raises_runtime_error() -> None:
         started.set()
         await asyncio.get_event_loop().run_in_executor(None, release.wait, 5.0)
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
         await client.close()
 
     thread = threading.Thread(target=lambda: asyncio.run(busy_loop()), daemon=True)
@@ -799,10 +798,8 @@ def test_heartbeat_backoff_window_does_not_count_fail() -> None:
         task = asyncio.get_running_loop().create_task(client._heartbeat_loop())
         await asyncio.sleep(0.15)  # ≥ 7 个间隔,修复前必已累计多次 fail
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
         assert client.stats["heartbeat_fail"] == 0
         assert client.stats["last_heartbeat_at"] is None
 
@@ -893,9 +890,7 @@ def test_heartbeat_setter_reaps_cancelled_task() -> None:
         assert old.done() and old.cancelled()
         assert not new.done()  # 新任务在跑
         new.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await new
-        except asyncio.CancelledError:
-            pass
 
     asyncio.run(scenario())

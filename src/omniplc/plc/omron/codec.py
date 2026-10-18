@@ -24,7 +24,6 @@ import datetime
 import struct
 from typing import Dict, List, NamedTuple, Sequence, Tuple
 
-from .address import FinsAddress
 from ...core.constants import (
     FINS_COMMAND_AREA_READ,
     FINS_COMMAND_AREA_WRITE,
@@ -59,6 +58,7 @@ from ...core.constants import (
 from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
 from ...core.i18n import _
+from .address import FinsAddress
 
 
 def memory_codes(area: str, bank: int = 0) -> Tuple[int, int]:
@@ -400,7 +400,7 @@ class FinsClock(NamedTuple):
     day_of_week: int
 
     @classmethod
-    def from_datetime(cls, value: datetime.datetime) -> "FinsClock":
+    def from_datetime(cls, value: datetime.datetime) -> FinsClock:
         """从 :class:`datetime.datetime` 构造(年取右两位,星期按周日 = 0 换算)。"""
         return cls(
             year=value.year % 100,

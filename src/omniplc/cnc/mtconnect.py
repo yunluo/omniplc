@@ -60,9 +60,9 @@ from ..core.constants import (
 )
 from ..core.debug import log_op
 from ..core.errors import DeviceError, ProtocolFrameError, TransportClosedError
+from ..core.i18n import _
 from ..core.types import DataType, PrimitiveValue
 from ..transport.base import BaseTransport
-from ..core.i18n import _
 
 _CURRENT_PATH = "/current"
 _PROBE_PATH = "/probe"

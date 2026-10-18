@@ -6,9 +6,9 @@
 
 from __future__ import annotations
 
-from .constants import INT16_MAX, INT16_MIN, UINT16_MAX, UINT8_MAX
-from .types import PrimitiveValue
+from .constants import INT16_MAX, INT16_MIN, UINT8_MAX, UINT16_MAX
 from .i18n import _
+from .types import PrimitiveValue
 
 
 def require_bool(value: PrimitiveValue) -> bool:

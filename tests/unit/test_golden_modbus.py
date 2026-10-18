@@ -82,7 +82,7 @@ _DEVICE_ID_CASES: List[
 
 def _load(stem: str) -> Dict[str, Any]:
     """读取一个黄金样本 JSON。"""
-    with (GOLDEN_DIR / "{}.json".format(stem)).open("r", encoding="utf-8") as handle:
+    with (GOLDEN_DIR / f"{stem}.json").open("r", encoding="utf-8") as handle:
         return json.load(handle)
 
 

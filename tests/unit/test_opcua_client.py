@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sys
 import threading as _threading
 import time as _time
@@ -24,15 +25,15 @@ import pytest
 from omniplc import OpcUaClient
 from omniplc.aio import AOpcUaClient
 from omniplc.core.errors import DeviceError, ErrorCategory, OmniPLCInternalError
+from omniplc.core.types import DataType
 from omniplc.plc.opcua.address import parse_opcua_nodeid
 from omniplc.plc.opcua.client import (
     OpcUaSubscription,
-    _OpcUaSession,
     _coerce_read,
+    _OpcUaSession,
     _translate_ua_error,
     _validate_endpoint_url,
 )
-from omniplc.core.types import DataType
 
 # 真 asyncua 服务端/慢用例放宽 120s 硬顶(review-1021 P1-11,脚本化用例不受影响)
 pytestmark = [pytest.mark.timeout(300)]
@@ -554,7 +555,7 @@ def test_translate_ua_error_without_code_reports_no_status(
 class _RaisingChildren:
     """``get_children`` 必抛异常的假节点(browse 静默失败回归用)。"""
 
-    def __init__(self, exc: BaseException, children: "list | None" = None) -> None:
+    def __init__(self, exc: BaseException, children: list | None = None) -> None:
         self._exc = exc
         self._children = children or []
 
@@ -724,7 +725,7 @@ if _HAVE_ASYNCUA:
     _tmp_sock.bind(("127.0.0.1", 0))
     _OPCUA_TEST_PORT = _tmp_sock.getsockname()[1]
     _tmp_sock.close()
-    _TEST_ENDPOINT = "opc.tcp://127.0.0.1:{}/test/".format(_OPCUA_TEST_PORT)
+    _TEST_ENDPOINT = f"opc.tcp://127.0.0.1:{_OPCUA_TEST_PORT}/test/"
 
     @pytest.fixture(scope="module")
     def _opcua_server_module():
@@ -750,10 +751,8 @@ if _HAVE_ASYNCUA:
         done = _threading.Event()
 
         def _run():
-            try:
+            with contextlib.suppress(Exception):
                 server.stop()
-            except Exception:
-                pass
             done.set()
 
         t = _threading.Thread(target=_run, daemon=True)
@@ -820,7 +819,7 @@ def test_browse_root_top_level(opcua_client: OpcUaClient) -> None:
 def test_browse_recursive_finds_variable(_opcua_server_module) -> None:
     """browse 递归能走到我添加的 Variable 节点。"""
     server, idx = _opcua_server_module
-    name = "BrowseRecursive_{}".format(_time.time_ns())
+    name = f"BrowseRecursive_{_time.time_ns()}"
     node, node_id = _make_variable(server, idx, name, 100)
 
     client = OpcUaClient(
@@ -844,9 +843,7 @@ def test_browse_recursive_finds_variable(_opcua_server_module) -> None:
                     _flatten(v["children"])
 
         _flatten(tree)
-        assert node_id in flat, "变量 {} 未在递归树中找到, 树:{}".format(
-            node_id, flat[:10]
-        )
+        assert node_id in flat, f"变量 {node_id} 未在递归树中找到, 树:{flat[:10]}"
     finally:
         client.disconnect()
 
@@ -924,7 +921,7 @@ class _FakeBrowseNode:
         return _Class()
 
     def __str__(self) -> str:
-        return "node{}".format(self._remaining)
+        return f"node{self._remaining}"
 
 
 def test_browse_none_max_depth_uses_default_cap() -> None:
@@ -954,7 +951,7 @@ def test_browse_none_max_depth_uses_default_cap() -> None:
 def test_subscribe_data_change_receives_update(_opcua_server_module) -> None:
     """订阅成功 + 服务端写入触发回调。"""
     server, idx = _opcua_server_module
-    name = "SubDC_{}".format(_time.time_ns())
+    name = f"SubDC_{_time.time_ns()}"
     node, node_id = _make_variable(server, idx, name, 0)
 
     received: list = []
@@ -983,9 +980,7 @@ def test_subscribe_data_change_receives_update(_opcua_server_module) -> None:
         # 服务端写入(直接用建节点时拿到的节点对象;裸名 get_child 匹配不上带 ns 前缀的 browse name)
         node.write_value(99)
         # 等待回调触发(<=2s)
-        assert event.wait(timeout=3.0), "DataChange 回调未触发, received={}".format(
-            received
-        )
+        assert event.wait(timeout=3.0), f"DataChange 回调未触发, received={received}"
         # 检查收到的回调
         assert any(v == 99 for v, _, _ in received)
     finally:
@@ -1001,7 +996,7 @@ def test_subscribe_data_change_deadband_filter(_opcua_server_module) -> None:
     订阅被删 + 整条会话被拆(每次死区订阅必打死连接)。
     """
     server, idx = _opcua_server_module
-    name = "SubDeadband_{}".format(_time.time_ns())
+    name = f"SubDeadband_{_time.time_ns()}"
     node, node_id = _make_variable(server, idx, name, 0)
 
     received: list = []
@@ -1023,9 +1018,7 @@ def test_subscribe_data_change_deadband_filter(_opcua_server_module) -> None:
         assert client.connected is True
         _time.sleep(0.2)
         node.write_value(99)  # 超出死区 → 应触发回调
-        assert event.wait(timeout=3.0), "死区订阅回调未触发, received={}".format(
-            received
-        )
+        assert event.wait(timeout=3.0), f"死区订阅回调未触发, received={received}"
         assert any(v == 99 for v, _, _ in received)
     finally:
         client.disconnect()
@@ -1035,7 +1028,7 @@ def test_subscribe_data_change_deadband_filter(_opcua_server_module) -> None:
 def test_subscribe_data_change_unsubscribe_idempotent(_opcua_server_module) -> None:
     """unsubscribe 幂等:二次返回 False。"""
     server, idx = _opcua_server_module
-    name = "SubUnsub_{}".format(_time.time_ns())
+    name = f"SubUnsub_{_time.time_ns()}"
     _, node_id = _make_variable(server, idx, name, 0)
 
     received: list = []
@@ -1058,7 +1051,7 @@ def test_subscribe_data_change_unsubscribe_idempotent(_opcua_server_module) -> N
 def test_subscribe_data_change_callback_exception_logged(_opcua_server_module) -> None:
     """用户回调抛异常 → last_error 记录,订阅继续(不杀订阅)。"""
     server, idx = _opcua_server_module
-    name = "SubBoom_{}".format(_time.time_ns())
+    name = f"SubBoom_{_time.time_ns()}"
     node, node_id = _make_variable(server, idx, name, 0)
 
     boom_count = [0]
@@ -1129,12 +1122,12 @@ def test_subscribe_event_receives_notification(_opcua_server_module) -> None:
         assert isinstance(sub, OpcUaSubscription)
         _time.sleep(0.2)
         evgen.trigger()
-        assert done.wait(timeout=3.0), "Event 回调未触发, received={}".format(received)
+        assert done.wait(timeout=3.0), f"Event 回调未触发, received={received}"
         assert received, "Event 回调数据为空"
         # 字段提取必须是真实字段字典(回归:原实现对 Event 调 keys()/
         # __getitem__,其纯属性对象并无此接口 → 恒走 {"raw": repr} 兜底)
         fields, node_id, ts = received[0]
-        assert "raw" not in fields, "字段提取仍走兜底:{}".format(fields)
+        assert "raw" not in fields, f"字段提取仍走兜底:{fields}"
         assert isinstance(fields, dict)
     finally:
         client.disconnect()
@@ -1173,10 +1166,10 @@ def test_subscribe_event_fields_contain_standard_fields(_opcua_server_module) ->
         assert done.wait(timeout=3.0), "Event 回调未触发"
         assert received, "Event 回调数据为空"
         fields, node_id, ts = received[0]
-        assert "raw" not in fields, "字段提取仍走兜底:{}".format(sorted(fields))
+        assert "raw" not in fields, f"字段提取仍走兜底:{sorted(fields)}"
         # 标准字段(BaseEventType 属性)在字段字典中,Message 值透传
         for key in ("EventId", "EventType", "SourceName", "Message", "Severity"):
-            assert key in fields, "缺标准字段 {}:{}".format(key, sorted(fields))
+            assert key in fields, f"缺标准字段 {key}:{sorted(fields)}"
         message = fields["Message"]
         if hasattr(message, "Text"):
             message = message.Text
@@ -1197,7 +1190,7 @@ def test_subscribe_event_fields_contain_standard_fields(_opcua_server_module) ->
 def test_disconnect_clears_active_subscriptions(_opcua_server_module) -> None:
     """disconnect() 清空活跃订阅(服务端资源释放)。"""
     server, idx = _opcua_server_module
-    name = "SubDisconnect_{}".format(_time.time_ns())
+    name = f"SubDisconnect_{_time.time_ns()}"
     _, node_id = _make_variable(server, idx, name, 0)
 
     client = OpcUaClient(
@@ -1220,7 +1213,7 @@ def test_multiple_subscribes_same_node_get_separate_handles(
 ) -> None:
     """同一节点多次订阅 → 多个独立 handle。"""
     server, idx = _opcua_server_module
-    name = "SubMulti_{}".format(_time.time_ns())
+    name = f"SubMulti_{_time.time_ns()}"
     _, node_id = _make_variable(server, idx, name, 0)
 
     client = OpcUaClient(
@@ -1246,7 +1239,7 @@ def test_multiple_subscribes_same_node_get_separate_handles(
 def test_reconnect_does_not_auto_resubscribe(_opcua_server_module) -> None:
     """断开重连后订阅句柄不再 active(不自动重订)。"""
     server, idx = _opcua_server_module
-    name = "SubReconnect_{}".format(_time.time_ns())
+    name = f"SubReconnect_{_time.time_ns()}"
     _, node_id = _make_variable(server, idx, name, 0)
 
     client = OpcUaClient(
@@ -1288,7 +1281,7 @@ def test_auto_resubscribe_rebuilds_after_reconnect(_opcua_server_module) -> None
     回到 1;重建后的订阅真实收得到数据变化(不是只建了壳)。
     """
     server, idx = _opcua_server_module
-    name = "SubResub_{}".format(_time.time_ns())
+    name = f"SubResub_{_time.time_ns()}"
     node, node_id = _make_variable(server, idx, name, 0)
 
     received: list = []
@@ -1320,7 +1313,7 @@ def test_auto_resubscribe_rebuilds_after_reconnect(_opcua_server_module) -> None
         # 重建后的订阅真实可用
         _time.sleep(0.2)
         node.write_value(77)
-        assert done.wait(timeout=3.0), "重订后回调未触发, received={}".format(received)
+        assert done.wait(timeout=3.0), f"重订后回调未触发, received={received}"
     finally:
         client.disconnect()
 
@@ -1333,7 +1326,7 @@ def test_auto_resubscribe_on_lazy_reconnect(_opcua_server_module) -> None:
     重订必须在读事务内一并完成(而不是只在用户显式 connect 时)。
     """
     server, idx = _opcua_server_module
-    name = "SubResubLazy_{}".format(_time.time_ns())
+    name = f"SubResubLazy_{_time.time_ns()}"
     node, node_id = _make_variable(server, idx, name, 0)
 
     client = OpcUaClient(
@@ -1360,7 +1353,7 @@ def test_auto_resubscribe_on_lazy_reconnect(_opcua_server_module) -> None:
 def test_auto_resubscribe_unsubscribe_removes_intent(_opcua_server_module) -> None:
     """显式 unsubscribe 同时移除重订意图:重连后不再重建。"""
     server, idx = _opcua_server_module
-    name = "SubResubUnsub_{}".format(_time.time_ns())
+    name = f"SubResubUnsub_{_time.time_ns()}"
     _, node_id = _make_variable(server, idx, name, 0)
 
     client = OpcUaClient(
@@ -1382,7 +1375,7 @@ def test_auto_resubscribe_unsubscribe_removes_intent(_opcua_server_module) -> No
 def test_auto_resubscribe_event_subscription(_opcua_server_module) -> None:
     """事件订阅同样进入意图表并在重连后重建。"""
     server, idx = _opcua_server_module
-    name = "SubResubEvent_{}".format(_time.time_ns())
+    name = f"SubResubEvent_{_time.time_ns()}"
     _make_variable(server, idx, name, 0)
 
     client = OpcUaClient(
@@ -1403,7 +1396,7 @@ def test_auto_resubscribe_event_subscription(_opcua_server_module) -> None:
 def test_auto_resubscribe_default_off_contract(_opcua_server_module) -> None:
     """默认关:显式重连后不重建(既有契约保持,与重订用例互为对照)。"""
     server, idx = _opcua_server_module
-    name = "SubResubOff_{}".format(_time.time_ns())
+    name = f"SubResubOff_{_time.time_ns()}"
     _, node_id = _make_variable(server, idx, name, 0)
 
     client = OpcUaClient("127.0.0.1", _OPCUA_TEST_PORT, endpoint=_TEST_ENDPOINT)
@@ -1430,7 +1423,7 @@ def test_aio_subscribe_data_change_callback_on_loop(_opcua_server_module) -> Non
     import asyncio as _asyncio
 
     server, idx = _opcua_server_module
-    name = "AioDC_{}".format(_time.time_ns())
+    name = f"AioDC_{_time.time_ns()}"
     node, node_id = _make_variable(server, idx, name, 0)
 
     async def scenario() -> None:

@@ -13,16 +13,16 @@ import struct
 from typing import Any, Dict, NamedTuple, Optional, Sequence, Tuple
 
 import pytest
+from scripted import ScriptedTransport
+from scripted_async import ScriptedAsyncTransport, TcpResponder, loop_names, make_loop
 
 from omniplc import ModbusTcpClient
 from omniplc.core.errors import ErrorCategory
-from omniplc.plc.modbus import codec
-from omniplc.native import AsyncModbusTcpClient
 from omniplc.core.tag import Tag, TagTable
-from omniplc.transport.base import BaseTransport
 from omniplc.core.types import DataType, PrimitiveValue
-from scripted import ScriptedTransport
-from scripted_async import ScriptedAsyncTransport, TcpResponder, loop_names, make_loop
+from omniplc.native import AsyncModbusTcpClient
+from omniplc.plc.modbus import codec
+from omniplc.transport.base import BaseTransport
 
 # 黄金响应 PDU(与同步侧同一批样本口径)
 _RESP_ONE_REGISTER = bytes([3, 2, 0x00, 0x14])  # FC03 读 1 寄存器 = 20
@@ -869,7 +869,7 @@ def _call_ext(client: Any, case: ExtCase, is_async: bool = False) -> Any:  # noq
         return client.write_file_record(*args)
     if op == "fc24":
         return client.read_fifo_queue(*args)
-    raise AssertionError("未知扩展用例操作:{}".format(op))
+    raise AssertionError(f"未知扩展用例操作:{op}")
 
 
 def _frame_pdus(data: bytes) -> list:

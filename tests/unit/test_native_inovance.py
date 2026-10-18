@@ -11,15 +11,15 @@ import asyncio
 from typing import Any, Dict
 
 import pytest
+from scripted import ScriptedTransport
+from scripted_async import ScriptedAsyncTransport, loop_names, make_loop
 
 from omniplc import InovanceMcTcpClient, InovanceTcpClient
+from omniplc.core.constants import MC_DEFAULT_MONITOR_TIMER
+from omniplc.core.types import DataType
 from omniplc.native import AsyncInovanceMcTcpClient, AsyncInovanceTcpClient
 from omniplc.plc.melsec import codec_qna
 from omniplc.plc.melsec.address import parse_mc_address
-from omniplc.core.constants import MC_DEFAULT_MONITOR_TIMER
-from omniplc.core.types import DataType
-from scripted import ScriptedTransport
-from scripted_async import ScriptedAsyncTransport, loop_names, make_loop
 
 
 @pytest.fixture(params=loop_names())
@@ -530,6 +530,6 @@ def test_async_methods_are_coroutines() -> None:
                 continue
             func = getattr(member, "func", member)
             if inspect.isfunction(func):
-                assert inspect.iscoroutinefunction(func), "{}.{} 不是协程".format(
-                    cls.__name__, attr
+                assert inspect.iscoroutinefunction(func), (
+                    f"{cls.__name__}.{attr} 不是协程"
                 )

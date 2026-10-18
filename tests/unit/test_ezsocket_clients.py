@@ -20,6 +20,7 @@ from __future__ import annotations
 import struct
 
 import pytest
+from scripted import ScriptedTransport
 
 from omniplc import (
     EzDeviceStatus,
@@ -41,7 +42,6 @@ from omniplc.cnc.ezsocket import (
     parse_giop_response,
 )
 from omniplc.core.errors import ProtocolFrameError
-from scripted import ScriptedTransport
 
 _RID = 0x1234
 

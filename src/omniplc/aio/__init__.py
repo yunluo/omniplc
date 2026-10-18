@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime
 from concurrent.futures import ThreadPoolExecutor
 from types import TracebackType
@@ -39,10 +40,6 @@ from typing import (
     Union,
 )
 
-from ..core.base_client import BaseClient, ClientStats
-from ..core.debug import FrameRecord
-from ..core.errors import ErrorCategory, _CANCELLED_ERRORS
-from ..core.monitor import Monitor, MonitorEvent
 from ..cnc import FanucFocasClient, MitsubishiEzSocketClient, MTConnectClient
 from ..cnc.ezsocket import (
     EZSOCKET_DEFAULT_PORT,
@@ -53,12 +50,21 @@ from ..cnc.ezsocket import (
     EzSocketMachine,
 )
 from ..cnc.focas import FOCAS_DEFAULT_PORT
+from ..core.base_client import BaseClient, ClientStats
 from ..core.constants import (
     AB_EIP_DEFAULT_PORT,
     AB_EIP_DEFAULT_RPI_US,
     AB_EIP_DEFAULT_SLOT,
     DEFAULT_STRING_ENCODING,
     FINS_DEFAULT_PORT,
+    HIKROBOT_MODBUS_STATION_DEFAULT,
+    HIKROBOT_NOREAD_TEXT,
+    HIKROBOT_RESULT_MAX_FRAME,
+    HIKROBOT_RESULT_SETTLE_INTERVAL,
+    HIKROBOT_RESULT_WORDS_DEFAULT,
+    HIKROBOT_SERIAL_BAUD_DEFAULT,
+    HIKROBOT_SERIAL_STOP_TEXT,
+    HIKROBOT_SERIAL_TRIGGER_TEXT,
     INOVANCE_MC_DEFAULT_PORT,
     INOVANCE_SERIAL_DEFAULT_STOP_BITS,
     KEYENCE_MC_DEFAULT_PORT,
@@ -77,41 +83,38 @@ from ..core.constants import (
     MEWTOCOL_DEFAULT_STATION,
     MODBUS_DEFAULT_PORT,
     MODBUS_DEFAULT_STATION,
+    MTCONNECT_DEFAULT_PORT,
     MX_DEFAULT_LOGICAL_STATION,
     OPCUA_DEFAULT_PORT,
     OPCUA_DEFAULT_SAMPLING_INTERVAL_MS,
-    MTCONNECT_DEFAULT_PORT,
-    S7_DEFAULT_PORT,
-    S7_WSTRING_DEFAULT_LENGTH,
     PANASONIC_MC_DEFAULT_PORT,
     READ_STRING_DEFAULT_LENGTH,
-    SR_DEFAULT_PORT,
-    SR_DEFAULT_SCAN_DWELL,
-    HIKROBOT_MODBUS_STATION_DEFAULT,
-    HIKROBOT_NOREAD_TEXT,
-    HIKROBOT_RESULT_WORDS_DEFAULT,
-    HIKROBOT_RESULT_MAX_FRAME,
-    HIKROBOT_RESULT_SETTLE_INTERVAL,
-    HIKROBOT_SERIAL_BAUD_DEFAULT,
-    HIKROBOT_SERIAL_STOP_TEXT,
-    HIKROBOT_SERIAL_TRIGGER_TEXT,
+    S7_DEFAULT_PORT,
+    S7_WSTRING_DEFAULT_LENGTH,
     SERIAL_DEFAULT_BAUD_RATE,
     SERIAL_DEFAULT_DATA_BITS,
     SERIAL_DEFAULT_PARITY,
     SERIAL_DEFAULT_STOP_BITS,
+    SR_DEFAULT_PORT,
+    SR_DEFAULT_SCAN_DWELL,
     TOYOPUC_DEFAULT_PORT,
 )
-from ..plc.modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
-from ..plc.modbus.modbus import _coerce_word_order
-from ..plc.ab import AllenBradleyEthIpClient
-from ..plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
-from ..plc.siemens import SiemensS7Client
-from ..plc.opcua import OpcUaClient, OpcUaSubscription
-from ..plc.panasonic import (
-    PanasonicMcTcpClient,
-    PanasonicMewtocolTcpClient,
-    PanasonicMewtocolUdpClient,
+from ..core.debug import FrameRecord
+from ..core.errors import _CANCELLED_ERRORS, ErrorCategory
+from ..core.i18n import _
+from ..core.monitor import Monitor, MonitorEvent
+from ..core.tag import Tag, TagTable
+from ..core.types import (
+    ByteOrder,
+    DataType,
+    McFrame,
+    PrimitiveValue,
+    S7Model,
+    SerialParity,
+    WordOrder,
 )
+from ..plc.ab import AllenBradleyEthIpClient, codec_cip
+from ..plc.inovance import InovanceMcTcpClient, InovanceRtuClient, InovanceTcpClient
 from ..plc.keyence import (
     KeyenceHostLinkTcpClient,
     KeyenceHostLinkUdpClient,
@@ -124,6 +127,17 @@ from ..plc.melsec import (
     MelsecMcUdpClient,
     MelsecMxClient,
 )
+from ..plc.modbus import ModbusBaseClient, ModbusRtuClient, ModbusTcpClient
+from ..plc.modbus.modbus import _coerce_word_order
+from ..plc.omron import OmronCipClient, OmronFinsTcpClient, OmronFinsUdpClient
+from ..plc.omron import codec as _omron_codec
+from ..plc.opcua import OpcUaClient, OpcUaSubscription
+from ..plc.panasonic import (
+    PanasonicMcTcpClient,
+    PanasonicMewtocolTcpClient,
+    PanasonicMewtocolUdpClient,
+)
+from ..plc.siemens import SiemensS7Client
 from ..plc.toyopuc import ToyopucTcpClient, ToyopucUdpClient
 from ..reader import (
     HikrobotIdModbusClient,
@@ -133,20 +147,6 @@ from ..reader import (
     HikrobotStatus,
     KeyenceSrClient,
 )
-from ..plc.omron import OmronCipClient, OmronFinsTcpClient, OmronFinsUdpClient
-from ..plc.omron import codec as _omron_codec
-from ..plc.ab import codec_cip
-from ..core.tag import Tag, TagTable
-from ..core.types import (
-    ByteOrder,
-    DataType,
-    McFrame,
-    PrimitiveValue,
-    SerialParity,
-    S7Model,
-    WordOrder,
-)
-from ..core.i18n import _
 
 _T = TypeVar("_T")
 _A = TypeVar("_A", bound="ABaseClient")
@@ -634,14 +634,14 @@ class ABaseClient:
     @property
     def write_audit_hook(
         self,
-    ) -> "Optional[Callable[[str, str, Any, bool], None]]":
+    ) -> Optional[Callable[[str, str, Any, bool], None]]:
         """写审计回调(转发同步实例;语义见同步 :attr:`write_audit_hook`)。"""
         return self._sync.write_audit_hook
 
     @write_audit_hook.setter
     def write_audit_hook(
         self,
-        hook: "Optional[Callable[[str, str, Any, bool], None]]",
+        hook: Optional[Callable[[str, str, Any, bool], None]],
     ) -> None:
         self._sync.write_audit_hook = hook
 
@@ -2076,11 +2076,9 @@ class AOpcUaClient(ABaseClient):
         loop = asyncio.get_running_loop()
 
         def _bridge(value: Any, node_id_str: str, ts: Optional[float]) -> None:
-            try:
+            # loop 已关闭(典型:客户端 disconnect 后)时静默,尽力而为
+            with contextlib.suppress(RuntimeError):
                 loop.call_soon_threadsafe(on_change, value, node_id_str, ts)
-            except RuntimeError:
-                # loop 已关闭(典型:客户端 disconnect 后)
-                pass
 
         return await self._run(
             lambda: sync.subscribe_data_change(
@@ -2104,10 +2102,8 @@ class AOpcUaClient(ABaseClient):
         loop = asyncio.get_running_loop()
 
         def _bridge(fields: dict, node_id_str: str, ts: Optional[float]) -> None:
-            try:
+            with contextlib.suppress(RuntimeError):
                 loop.call_soon_threadsafe(on_event, fields, node_id_str, ts)
-            except RuntimeError:
-                pass
 
         return await self._run(
             lambda: sync.subscribe_event(node_text, _bridge, event_filter=event_filter)
@@ -2179,12 +2175,12 @@ class _AFinsRoutingClient(ABaseClient):
         """读 CPU 单元运行状态(0601,零副作用;语义同同步版)。"""
         return await self._run(self._fins.read_cpu_unit_status)
 
-    async def read_clock(self) -> Tuple[bool, Optional["_omron_codec.FinsClock"]]:
+    async def read_clock(self) -> Tuple[bool, Optional[_omron_codec.FinsClock]]:
         """读 PLC 时钟(0701;语义同同步版)。"""
         return await self._run(self._fins.read_clock)
 
     async def write_clock(
-        self, clock: Union["_omron_codec.FinsClock", datetime.datetime]
+        self, clock: Union[_omron_codec.FinsClock, datetime.datetime]
     ) -> bool:
         """写 PLC 时钟(0702;语义同同步版)。
 
@@ -2336,7 +2332,7 @@ class AOmronCipClient(ABaseClient):
         sync = self._typed(OmronCipClient)
         return sync.slot
 
-    async def list_tags(self) -> Tuple[bool, Optional[List["codec_cip.AbTagEntry"]]]:
+    async def list_tags(self) -> Tuple[bool, Optional[List[codec_cip.AbTagEntry]]]:
         """NJ/NX 不支持 Logix 符号点位枚举(显式拒绝;语义同同步版覆写)。"""
         sync = self._typed(OmronCipClient)
         return await self._run(sync.list_tags)
@@ -2818,7 +2814,7 @@ class AAllenBradleyEthIpClient(ABaseClient):
         sync = self._typed(AllenBradleyEthIpClient)
         return sync.connection_size
 
-    async def list_tags(self) -> Tuple[bool, Optional[List["codec_cip.AbTagEntry"]]]:
+    async def list_tags(self) -> Tuple[bool, Optional[List[codec_cip.AbTagEntry]]]:
         """枚举控制器域全部点位(0x55 自动分页;语义同同步版)。"""
         sync = self._typed(AllenBradleyEthIpClient)
         return await self._run(sync.list_tags)

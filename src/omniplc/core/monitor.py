@@ -253,7 +253,7 @@ class Monitor:
 
     def __init__(  # noqa: C901
         self,
-        client: "BaseClient",
+        client: BaseClient,
         points: Union[Mapping[str, Sequence[str]], TagTable],
         interval: float = 1.0,
         on_change: Optional[Callable[[MonitorEvent], None]] = None,
@@ -297,7 +297,7 @@ class Monitor:
         # 也不 disconnect」会让该客户端永不回收,监控线程按 interval 永久发包、
         # 连接常驻(句柄已丢,连 stop() 都调不到)。心跳早有同款弱引用防线,
         # 监控此前没有。
-        self._client_ref: "weakref.ReferenceType[Any]" = weakref.ref(client)
+        self._client_ref: weakref.ReferenceType[Any] = weakref.ref(client)
         self._interval = float(interval)
         self._jitter = float(jitter)
         self._on_change = on_change
@@ -340,9 +340,7 @@ class Monitor:
         # 死区锚点 = 该点"上次报告值"(最近一次事件里的 new 值):死区判定
         # 与它比而非与上一拍快照比——否则缓慢漂移的单步差永远压在死区内,
         # 值漂到天边也不响(OPC-UA DataChangeFilter「与上次发送值比」同款口径)
-        self._anchors: Dict[str, Optional[PrimitiveValue]] = {
-            tag_id: None for tag_id in self._points
-        }
+        self._anchors: Dict[str, Optional[PrimitiveValue]] = dict.fromkeys(self._points)
         self._counters: Dict[str, int] = {
             "cycle_count": 0,
             "fail_count": 0,
@@ -357,7 +355,7 @@ class Monitor:
             "last_duration": None,
         }
         # 周期耗时样本窗口(百分位用;deque append 原子,快照取 list 排序)
-        self._durations: "deque[float]" = deque(maxlen=self._DURATION_WINDOW)
+        self._durations: deque[float] = deque(maxlen=self._DURATION_WINDOW)
         # 组读取异常告警合并账(review-1020 §七丁2):连续异常次数与被压制条数,
         # 一个无异常周期即复位(恢复后下次异常立即告警)
         self._group_error_count = 0

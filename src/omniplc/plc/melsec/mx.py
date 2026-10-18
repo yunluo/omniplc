@@ -1250,4 +1250,4 @@ def _reject_non_bool_access(
 
 def _format_code(code: int) -> str:
     """把 MX 出错代码格式化为十六进制(内部函数)。"""
-    return "0x{:08X}".format(code & 0xFFFFFFFF)
+    return f"0x{code & 0xFFFFFFFF:08X}"

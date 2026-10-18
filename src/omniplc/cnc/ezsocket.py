@@ -566,7 +566,7 @@ def decode_get_data(payload: bytes, request_type: int) -> Any:  # noqa: C901
                 "GIOP 响应数据段不足以按类型 0x{:02X} 解码:需 {} 字节,实际 {} 字节(原始数据:{})"
             ).format(data_type, required, len(data), format_hex(payload))
         )
-    if data_type == _T_CHAR or data_type == _T_UCHAR:
+    if data_type in (_T_CHAR, _T_UCHAR):
         return data[0]
     if data_type == _T_SHORT:
         return struct.unpack("<h", data[:2])[0]
@@ -594,7 +594,7 @@ def decode_get_data(payload: bytes, request_type: int) -> Any:  # noqa: C901
     )
 
 
-def decode_alarms(payload: bytes) -> List["EzAlarm"]:
+def decode_alarms(payload: bytes) -> List[EzAlarm]:
     """解码报警数组(内部函数;定长 264 字节逐条,C 库 alarm_string)。"""
     count = len(payload) // _ALARM_STRUCT_SIZE
     alarms = []
@@ -608,7 +608,7 @@ def decode_alarms(payload: bytes) -> List["EzAlarm"]:
     return alarms
 
 
-def decode_prog_block(payload: bytes) -> "EzProgramBlock":
+def decode_prog_block(payload: bytes) -> EzProgramBlock:
     """解码程序块首条(内部函数;C 库 prog_block,响应可能含多行,
     首批取首条——多行布局待真机核)。"""
     if len(payload) < _PROG_BLOCK_STRUCT_SIZE:
@@ -759,10 +759,7 @@ class MitsubishiEzSocketClient(BaseClient):
     def _check_device_error(self, error_code: int, action: str) -> None:
         """三菱侧错误码分流(内部方法):链路段拆连,其余 DeviceError。"""
         text = EZ_ERROR_TEXT.get(error_code)
-        if text:
-            detail = _(text)
-        else:
-            detail = _("未知错误码 0x{:08X}").format(error_code)
+        detail = _(text) if text else _("未知错误码 0x{:08X}").format(error_code)
         if error_code in _LINK_ERROR_CODES:
             raise OSError(_("{}失败:{}(链路故障,将重连)").format(action, detail))
         raise DeviceError(

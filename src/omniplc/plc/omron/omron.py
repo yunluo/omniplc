@@ -19,8 +19,6 @@ import socket
 from abc import abstractmethod
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
-from . import codec
-from .address import FinsAddress, parse_fins_address
 from ...core import convert
 from ...core.base_client import BaseClient, validate_endpoint
 from ...core.constants import (
@@ -44,6 +42,8 @@ from ...core.constants import (
     FINS_UNSUPPORTED_AREA_CODE,
 )
 from ...core.errors import DeviceError
+from ...core.i18n import _
+from ...core.types import ByteOrder, DataType, PrimitiveValue
 from ...core.validation import (
     check_int16,
     check_range,
@@ -52,8 +52,8 @@ from ...core.validation import (
     require_count,
 )
 from ...transport import BaseTransport, TcpTransport, UdpTransport
-from ...core.types import ByteOrder, DataType, PrimitiveValue
-from ...core.i18n import _
+from . import codec
+from .address import FinsAddress, parse_fins_address
 
 
 def _node_from_host(host: str) -> int:

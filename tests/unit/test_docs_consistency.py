@@ -67,12 +67,12 @@ def test_readme_skill_examples_client_counts() -> None:
     for rel in ("README.md", "SKILL.md", "docs/examples.md"):
         text = _text(rel)
         for m in re.findall(r"(\d+) 个具体同步客户端", text):
-            assert int(m) == sync_concrete, "{}: {} 个具体同步客户端".format(rel, m)
+            assert int(m) == sync_concrete, f"{rel}: {m} 个具体同步客户端"
         for m in re.findall(r"(\d+) 个具体客户端", text):
-            assert int(m) == sync_concrete, "{}: {} 个具体客户端".format(rel, m)
+            assert int(m) == sync_concrete, f"{rel}: {m} 个具体客户端"
         # 旧的"34 个同步客户端"口径已废弃(含两个抽象基类):出现即报
         assert "个同步客户端" not in text or "个具体同步客户端" in text, (
-            "{} 仍用「N 个同步客户端」口径(应写「N 个具体同步客户端」)".format(rel)
+            f"{rel} 仍用「N 个同步客户端」口径(应写「N 个具体同步客户端」)"
         )
 
 
@@ -142,7 +142,7 @@ def test_docs_client_names_are_importable() -> None:
             if name in exported or name in allowed:
                 continue
             offenders.setdefault(name, []).append(path.name)
-    assert not offenders, "docs 引用了库内不存在的客户端名:{}".format(offenders)
+    assert not offenders, f"docs 引用了库内不存在的客户端名:{offenders}"
 
 
 def test_architecture_version_matches_package() -> None:
@@ -168,9 +168,7 @@ def test_examples_python_blocks_parse_and_clients_exported() -> None:
                 and isinstance(node.func, ast.Name)
                 and node.func.id.endswith("Client")
             ):
-                assert node.func.id in exported, "examples 使用未导出类:{}".format(
-                    node.func.id
-                )
+                assert node.func.id in exported, f"examples 使用未导出类:{node.func.id}"
 
 
 def test_protocol_dirs_all_indexed() -> None:
@@ -180,7 +178,7 @@ def test_protocol_dirs_all_indexed() -> None:
     subdirs = sorted(d.name for d in pdir.iterdir() if d.is_dir())
     assert subdirs
     for name in subdirs:
-        assert name in readme, "protocol 子目录未在 README 索引:{}".format(name)
+        assert name in readme, f"protocol 子目录未在 README 索引:{name}"
 
 
 _EXPECTED_DRIVERS = (
@@ -222,4 +220,4 @@ def test_expected_drivers_all_smoked() -> None:
     listed = set(re.findall(r'"driver": "(\w+)"', smoke))
     assert listed, "冒烟清单未解析出驱动"
     missing = set(_EXPECTED_DRIVERS) - listed
-    assert not missing, "冒烟清单缺驱动:{}".format(sorted(missing))
+    assert not missing, f"冒烟清单缺驱动:{sorted(missing)}"

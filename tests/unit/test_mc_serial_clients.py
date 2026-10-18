@@ -14,15 +14,15 @@ import time
 from typing import List
 
 import pytest
+from scripted import ScriptedTransport
 
 from omniplc import MelsecMcSerialClient, MelsecMcTcpClient, MelsecMcUdpClient
 from omniplc.aio import AMelsecMcSerialClient
 from omniplc.core.debug import format_hex
 from omniplc.core.errors import ErrorCategory, ProtocolFrameError
+from omniplc.core.types import McFrame
 from omniplc.plc.melsec import codec_serial, codec_serial_a
 from omniplc.plc.melsec.address import parse_mc_address
-from omniplc.core.types import McFrame
-from scripted import ScriptedTransport
 
 _ROUTE = "0000FF00"
 """连接站默认路由文本:站号 00 + 网络号 00 + PC 号 FF + 本站号 00。"""
@@ -47,10 +47,7 @@ def _resp_3c(data_text: str, route: str = _ROUTE) -> bytes:
     """构造 3C 读响应(STX + 数据 + ETX + 和校验 + CR LF)。"""
     body = b"F9" + route.encode("ascii") + data_text.encode("ascii") + b"\x03"
     return (
-        b"\x02"
-        + body
-        + "{:02X}".format(codec_serial.checksum(body)).encode("ascii")
-        + b"\r\n"
+        b"\x02" + body + f"{codec_serial.checksum(body):02X}".encode("ascii") + b"\r\n"
     )
 
 
@@ -72,10 +69,7 @@ def _resp_1c(data_text: str, route: str = _ROUTE_1C) -> bytes:
     """构造 1C 读响应(STX + 回显 + 数据 + ETX + 和校验 + CR LF)。"""
     body = route.encode("ascii") + data_text.encode("ascii") + b"\x03"
     return (
-        b"\x02"
-        + body
-        + "{:02X}".format(codec_serial.checksum(body)).encode("ascii")
-        + b"\r\n"
+        b"\x02" + body + f"{codec_serial.checksum(body):02X}".encode("ascii") + b"\r\n"
     )
 
 
@@ -102,7 +96,7 @@ def _wire_4c(values: List[int], end_code: int = 0) -> bytes:
     length = len(body)
     payload = _stuff(length.to_bytes(2, "little")) + _stuff(body)
     total = codec_serial.checksum(length.to_bytes(2, "little") + body)
-    return b"\x10\x02" + payload + b"\x10\x03" + "{:02X}".format(total).encode("ascii")
+    return b"\x10\x02" + payload + b"\x10\x03" + f"{total:02X}".encode("ascii")
 
 
 def _chunks_4c(wire: bytes) -> List[bytes]:
@@ -481,7 +475,7 @@ def test_4c_read_bool_bit_units(monkeypatch: pytest.MonkeyPatch) -> None:
     length = len(body)
     payload = _stuff(length.to_bytes(2, "little")) + _stuff(body)
     total = codec_serial.checksum(length.to_bytes(2, "little") + body)
-    wire = b"\x10\x02" + payload + b"\x10\x03" + "{:02X}".format(total).encode("ascii")
+    wire = b"\x10\x02" + payload + b"\x10\x03" + f"{total:02X}".encode("ascii")
     scripted = ScriptedTransport(_chunks_4c(wire))
     _mount(monkeypatch, client, scripted)
     client.connect()
@@ -609,7 +603,7 @@ def test_string_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     client = MelsecMcSerialClient()
     encoded = "AB".encode("ascii")
     words = int.from_bytes(encoded, "little")
-    read_response = _resp_3c("{:04X}".format(words))
+    read_response = _resp_3c(f"{words:04X}")
     write_response = _ack_3c()
     scripted = ScriptedTransport(
         [write_response[:1], write_response[1:], read_response[:1], read_response[1:]]
@@ -864,7 +858,7 @@ def test_1c_string_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     client = MelsecMcSerialClient(frame=McFrame.FRAME_1C)
     encoded = "AB".encode("ascii")
     words = int.from_bytes(encoded, "little")
-    read_response = _resp_1c("{:04X}".format(words))
+    read_response = _resp_1c(f"{words:04X}")
     write_response = _ack_1c()
     scripted = ScriptedTransport(
         [write_response[:1], write_response[1:], read_response[:1], read_response[1:]]

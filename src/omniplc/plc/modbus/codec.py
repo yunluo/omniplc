@@ -32,10 +32,11 @@ import struct
 from enum import IntEnum
 from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple
 
-from ...core.convert import crc16
 from ...core.constants import (
     MBAP_HEADER_SIZE,
     MODBUS_ADDRESS_MAX,
+    MODBUS_COIL_OFF,
+    MODBUS_COIL_ON,
     MODBUS_COMMAND_DIAGNOSTICS,
     MODBUS_COMMAND_GET_COMM_EVENT_COUNTER,
     MODBUS_COMMAND_GET_COMM_EVENT_LOG,
@@ -47,8 +48,6 @@ from ...core.constants import (
     MODBUS_COMMAND_READ_WRITE_MULTIPLE,
     MODBUS_COMMAND_REPORT_SERVER_ID,
     MODBUS_COMMAND_WRITE_FILE_RECORD,
-    MODBUS_COIL_OFF,
-    MODBUS_COIL_ON,
     MODBUS_DEVICE_ID_CODE_BASIC,
     MODBUS_DEVICE_ID_CODE_INDIVIDUAL,
     MODBUS_DEVICE_ID_FIXED_HEAD_SIZE,
@@ -79,6 +78,7 @@ from ...core.constants import (
     MODBUS_SERVER_ID_MIN_BYTE_COUNT,
     MODBUS_STATION_MAX,
 )
+from ...core.convert import crc16
 from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
 from ...core.i18n import _
@@ -205,7 +205,7 @@ def build_write_multi_pdu(
                 raise ValueError(_("寄存器写入值超出范围 0~65535:{}").format(value))
         return struct.pack(
             ">BHHB", function_code, offset, len(values), len(values) * 2
-        ) + struct.pack(">{:d}H".format(len(values)), *values)
+        ) + struct.pack(f">{len(values):d}H", *values)
     raise ValueError(_("批量写功能码必须是 15 或 16,收到:{}").format(function_code))
 
 
@@ -408,7 +408,7 @@ def build_read_write_registers_pdu(
         len(values),
         len(values) * 2,
     )
-    return head + struct.pack(">{:d}H".format(len(values)), *values)
+    return head + struct.pack(f">{len(values):d}H", *values)
 
 
 def parse_read_write_registers_response(pdu: bytes, read_count: int) -> List[int]:
@@ -1058,7 +1058,7 @@ def _check_file_record_fields(
         raise ValueError(_("记录长度必须为 1~65535:{}").format(record_length))
 
 
-def build_read_file_record_pdu(requests: "Sequence[Tuple[int, int, int]]") -> bytes:
+def build_read_file_record_pdu(requests: Sequence[Tuple[int, int, int]]) -> bytes:
     """构造读文件记录请求 PDU(FC20)。
     依据:Modbus 应用协议 V1.1b3 §6.14(印刷页 32~33):子请求 = 引用类型(1)+文件号(2)    +记录号(2)+记录长度(2);byte count 0x07~0xF5、子请求 ≤ 35    (= 0xF5 // 7,p.32)。
     :param requests: ``(文件号, 起始记录号, 记录长度[寄存器数])`` 序列
@@ -1121,7 +1121,7 @@ def _read_file_record_response_length(request_pdu: bytes) -> int:
 
 
 def parse_read_file_record_response(
-    pdu: bytes, requests: "Sequence[Tuple[int, int, int]]"
+    pdu: bytes, requests: Sequence[Tuple[int, int, int]]
 ) -> List[List[int]]:
     """解析 FC20 响应,按子请求顺序返回逐条寄存器列表。
     依据:Modbus 应用协议 V1.1b3 §6.14(印刷页 32~33):子响应 = File resp. length(1,= 1+2×记录长度)    + 引用类型(1,恒 0x06)+ 寄存器数据。
@@ -1170,7 +1170,7 @@ def parse_read_file_record_response(
         result.append(
             # 上一句已钉死 len(chunk) == 2 * record_length(必偶),
             # 一次 struct.unpack 替代逐字切片(review-1044)
-            list(struct.unpack(">{}H".format(len(chunk) // 2), chunk))
+            list(struct.unpack(f">{len(chunk) // 2}H", chunk))
         )
         offset += 1 + file_resp_len
     if offset != len(body):
@@ -1179,7 +1179,7 @@ def parse_read_file_record_response(
 
 
 def build_write_file_record_pdu(
-    records: "Sequence[Tuple[int, int, List[int]]]",
+    records: Sequence[Tuple[int, int, List[int]]],
 ) -> bytes:
     """构造写文件记录请求 PDU(FC21)。
     依据:Modbus 应用协议 V1.1b3 §6.15(印刷页 34~35):子请求 = 引用类型+文件号+记录号    +记录长度+寄存器数据;data length 0x09~0xFB(p.34)。
@@ -1203,7 +1203,7 @@ def build_write_file_record_pdu(
                 )
         # 校验遍保留,装配一次 struct.pack(review-1044):校验通过后 >H 序列
         # 拼接与逐值 sub += 逐字节相同,且省去每值一次 pack 调用
-        sub += struct.pack(">{}H".format(len(values)), *values)
+        sub += struct.pack(f">{len(values)}H", *values)
     if not 0x09 <= len(sub) <= MODBUS_MAX_WRITE_FILE_BYTES:
         raise ValueError(
             _("FC21 请求数据长超出范围 0x09~0x{:02X}:{}").format(
@@ -1277,7 +1277,7 @@ def parse_read_fifo_response(pdu: bytes) -> List[int]:
                 byte_count, expected_byte_count, fifo_count, len(pdu), format_hex(pdu)
             )
         )
-    return list(struct.unpack(">{:d}H".format(fifo_count), pdu[5 : 5 + fifo_count * 2]))
+    return list(struct.unpack(f">{fifo_count:d}H", pdu[5 : 5 + fifo_count * 2]))
 
 
 def _check_offset(offset: int) -> None:

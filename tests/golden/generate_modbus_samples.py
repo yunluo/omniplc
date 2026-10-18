@@ -320,7 +320,7 @@ def main() -> None:
 
     for sample in samples:
         filename = sample.pop("file")
-        path = HERE / "{}.json".format(filename)
+        path = HERE / f"{filename}.json"
         # 字节写(LF,不经平台行尾翻译):库内存储为 LF,`write_text` 在
         # Windows 会把 \n 翻成 \r\n,再生成门禁("重跑生成器逐字节比对")
         # 在 LF 检出(CI/新克隆)上必红——本地 CRLF 检出反而掩盖

@@ -20,13 +20,12 @@ import time
 from typing import List, Tuple
 
 import pytest
-
-from omniplc import HikrobotIdModbusClient, HikrobotStatus
-from omniplc.core.errors import DeviceError, TransportTimeoutError
-from omniplc.plc.modbus import codec
 from scripted import ScriptedTransport as _ScriptedTransport
 
 import omniplc.reader.hikrobot as hikrobot_module
+from omniplc import HikrobotIdModbusClient, HikrobotStatus
+from omniplc.core.errors import DeviceError, TransportTimeoutError
+from omniplc.plc.modbus import codec
 
 _STATION = 0
 _RESULT_WORDS = 100
@@ -471,7 +470,7 @@ def test_constructor_defaults_station_zero() -> None:
     """构造期缺省:站号默认 0(读码器默认 255 或 0,本库按规范取 0)。"""
     client = HikrobotIdModbusClient("127.0.0.1")
     assert client.station == 0
-    assert client._ip_address == "127.0.0.1"  # noqa: SLF001 私有属性直读(构造缺省断言)
+    assert client._ip_address == "127.0.0.1"
 
 
 def test_ping_reads_status_word(monkeypatch: pytest.MonkeyPatch) -> None:

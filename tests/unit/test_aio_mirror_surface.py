@@ -27,7 +27,7 @@ def _public(cls: type) -> set:
 def test_base_client_surface_mirrored() -> None:
     """基类面:BaseClient 公开名在 ABaseClient 全部可见(含 close)。"""
     missing = sorted(_public(pkg.BaseClient) - _public(aio.ABaseClient))
-    assert not missing, "ABaseClient 缺少基类镜像:{}".format(missing)
+    assert not missing, f"ABaseClient 缺少基类镜像:{missing}"
 
 
 def test_async_methods_are_coroutines() -> None:
@@ -48,9 +48,7 @@ def test_async_methods_are_coroutines() -> None:
                 continue
             func = getattr(member, "func", member)
             if inspect.isfunction(func):
-                assert inspect.iscoroutinefunction(func), "{}.{} 不是协程".format(
-                    name, attr
-                )
+                assert inspect.iscoroutinefunction(func), f"{name}.{attr} 不是协程"
 
 
 def test_concrete_clients_mirror_sync_extensions() -> None:
@@ -64,7 +62,7 @@ def test_concrete_clients_mirror_sync_extensions() -> None:
         a_cls = getattr(aio, "A" + name)
         missing = sorted((_public(s_cls) - base_s) - _public(a_cls))
         if missing:
-            problems.append("{} 缺:{}".format(name, missing))
+            problems.append(f"{name} 缺:{missing}")
     assert not problems, "异步镜像缺口:{}".format("; ".join(problems))
 
 
@@ -90,17 +88,13 @@ def test_constructors_match_sync_twin() -> None:
         async_sig = inspect.signature(getattr(aio, "A" + name).__init__)
         if list(sync_sig.parameters) != list(async_sig.parameters):
             problems.append(
-                "{} 构造参数名不符:同步 {} vs 异步 {}".format(
-                    name,
-                    list(sync_sig.parameters),
-                    list(async_sig.parameters),
-                )
+                f"{name} 构造参数名不符:同步 {list(sync_sig.parameters)} vs 异步 {list(async_sig.parameters)}"
             )
             continue
         if [p.default for p in sync_sig.parameters.values()] != [
             p.default for p in async_sig.parameters.values()
         ]:
-            problems.append("{} 构造默认值不符".format(name))
+            problems.append(f"{name} 构造默认值不符")
     assert not problems, "异步构造签名缺口:{}".format("; ".join(problems))
 
 
@@ -137,14 +131,12 @@ def test_method_signatures_match_sync_twin() -> None:
             a_sig = inspect.signature(a_m)
             if list(s_sig.parameters) != list(a_sig.parameters):
                 problems.append(
-                    "{}.{} 参数名不符:同步 {} vs 异步 {}".format(
-                        name, attr, list(s_sig.parameters), list(a_sig.parameters)
-                    )
+                    f"{name}.{attr} 参数名不符:同步 {list(s_sig.parameters)} vs 异步 {list(a_sig.parameters)}"
                 )
             elif [p.default for p in s_sig.parameters.values()] != [
                 p.default for p in a_sig.parameters.values()
             ]:
-                problems.append("{}.{} 默认值不符".format(name, attr))
+                problems.append(f"{name}.{attr} 默认值不符")
     assert not problems, "异步方法签名漂移:{}".format("; ".join(problems))
 
 

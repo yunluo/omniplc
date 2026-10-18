@@ -8,14 +8,14 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from scripted import ScriptedTransport
 
 from omniplc import InovanceRtuClient, InovanceTcpClient
 from omniplc.aio import AInovanceRtuClient, AInovanceTcpClient
 from omniplc.core import convert
-from omniplc.plc.modbus import codec
-from omniplc.plc.inovance.address import parse_inovance_address, to_modbus_address
 from omniplc.core.types import WordOrder
-from scripted import ScriptedTransport
+from omniplc.plc.inovance.address import parse_inovance_address, to_modbus_address
+from omniplc.plc.modbus import codec
 
 _RESPONSE_ONE_REGISTER = bytes([3, 2, 0x00, 0x14])
 _RESPONSE_TWO_REGISTERS = bytes([3, 4, 0x00, 0x0D, 0x00, 0x04])

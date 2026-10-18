@@ -116,13 +116,9 @@ def parse_kv_address(address: str) -> KvAddress:
 def format_kv_device(device: str, number: int) -> str:
     """把软元件与编号还原为规范文本(组帧用)。"""
     if device in KV_BIT_BANK_DEVICES:
-        return "{}{}{:02d}".format(
-            device, number // KV_BIT_BANK_PACK, number % KV_BIT_BANK_PACK
-        )
+        return f"{device}{number // KV_BIT_BANK_PACK}{number % KV_BIT_BANK_PACK:02d}"
     if device in ("X", "Y"):
-        return "{}{}{:X}".format(
-            device, number // KV_BITS_PER_GROUP, number % KV_BITS_PER_GROUP
-        )
+        return f"{device}{number // KV_BITS_PER_GROUP}{number % KV_BITS_PER_GROUP:X}"
     if device in KV_HEX_NUMBER_DEVICES:
         return device + format(number, "X")
     return f"{device}{number}"

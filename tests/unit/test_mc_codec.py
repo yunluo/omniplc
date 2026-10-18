@@ -39,7 +39,7 @@ _ERROR_CASES: List[Tuple[str, str, int]] = [
 
 def _load(stem: str) -> Dict[str, Any]:
     """读取一个黄金样本 JSON。"""
-    with (GOLDEN_DIR / "{}.json".format(stem)).open("r", encoding="utf-8") as handle:
+    with (GOLDEN_DIR / f"{stem}.json").open("r", encoding="utf-8") as handle:
         return json.load(handle)
 
 
@@ -316,7 +316,7 @@ def test_1e_device_info_rejects_still_unsupported() -> None:
     message = str(exc.value)
     # 支持集提示需含新加的 7 类(便于用户查错)
     for token in ("F", "TS", "TC", "TN", "CS", "CC", "CN"):
-        assert token in message, "支持集提示缺 {!r}: {}".format(token, message)
+        assert token in message, f"支持集提示缺 {token!r}: {message}"
 
 
 def test_build_random_read_response_budget() -> None:
@@ -477,7 +477,7 @@ def test_mc_device_code_table_l_is_92_and_no_collisions() -> None:
     collisions = {
         hex(code): devices for code, devices in by_code.items() if len(devices) > 1
     }
-    assert not collisions, "MC 设备码重码:{}".format(collisions)
+    assert not collisions, f"MC 设备码重码:{collisions}"
 
 
 # 跨表重码守卫白名单:同码=**手册明确的别名/共享码**,非缺陷
@@ -528,7 +528,7 @@ def test_all_device_code_tables_have_no_duplicate_codes(name: str, table: dict) 
         for code, devices in by_code.items()
         if len(devices) > 1 and _CODE_TABLE_ALIASES.get((name, code)) != set(devices)
     }
-    assert not bad, "{} 设备码重码(非已登记别名):{}".format(name, bad)
+    assert not bad, f"{name} 设备码重码(非已登记别名):{bad}"
 
 
 def test_mc_timer_counter_device_codes_match_manual() -> None:

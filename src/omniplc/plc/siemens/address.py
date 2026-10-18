@@ -157,10 +157,10 @@ def translate_v_address(address: str) -> str:
         )
     kind, index, byte_index, bit_text = match.groups()
     if kind is not None:
-        return "DB1.DB{}{}".format(kind.upper(), index)
+        return f"DB1.DB{kind.upper()}{index}"
     if bit_text is not None:
-        return "DB1.DBX{}.{}".format(byte_index, bit_text)
-    return "DB1.DBB{}".format(byte_index)
+        return f"DB1.DBX{byte_index}.{bit_text}"
+    return f"DB1.DBB{byte_index}"
 
 
 def _check_bit(bit: int, address: str) -> None:

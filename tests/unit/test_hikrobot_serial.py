@@ -13,10 +13,10 @@ V1.1.2 §4.6.1/§4.6.2(串口触发文本 start/stop)与《工业读码器通信
 from __future__ import annotations
 
 import pytest
+from scripted import ScriptedTransport as _ScriptedTransport
 
 from omniplc import HikrobotIdSerialClient
 from omniplc.core.errors import TransportTimeoutError
-from scripted import ScriptedTransport as _ScriptedTransport
 
 
 def _make_client(
@@ -40,7 +40,7 @@ def test_scan_success_sequence(monkeypatch: pytest.MonkeyPatch) -> None:
     """scan() 全时序:start → 结果行 → stop,发送字节逐段断言。"""
     client = _make_client(monkeypatch, [b"ABC123\r\n"])
     assert client.scan(timeout=2.0) == (True, "ABC123")
-    assert bytes(client._transport.sent) == b"startstop"  # noqa: SLF001 事务内发送序列
+    assert bytes(client._transport.sent) == b"startstop"
 
 
 def test_scan_lf_only_line(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -85,7 +85,7 @@ def test_read_result_passive(monkeypatch: pytest.MonkeyPatch) -> None:
     """read_result():不发送任何触发文本,被动收结果行。"""
     client = _make_client(monkeypatch, [b"IO-CODE\r\n"])
     assert client.read_result(timeout=2.0) == (True, "IO-CODE")
-    assert bytes(client._transport.sent) == b""  # noqa: SLF001
+    assert bytes(client._transport.sent) == b""
 
 
 def test_trigger_read_stop_orchestration(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -95,7 +95,7 @@ def test_trigger_read_stop_orchestration(monkeypatch: pytest.MonkeyPatch) -> Non
     assert client.read_result(timeout=2.0) == (True, "CODE-1")
     assert client.read_result(timeout=2.0) == (True, "CODE-2")
     assert client.stop() is True
-    assert bytes(client._transport.sent) == b"startstop"  # noqa: SLF001 发送端仅触发/停止文本
+    assert bytes(client._transport.sent) == b"startstop"
 
 
 def test_custom_trigger_stop_text(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -109,7 +109,7 @@ def test_custom_trigger_stop_text(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.trigger_text == "TRIG"
     assert client.stop_text == "HALT!"
     assert client.scan(timeout=2.0) == (True, "OK-CODE")
-    assert bytes(client._transport.sent) == b"TRIGHALT!"  # noqa: SLF001
+    assert bytes(client._transport.sent) == b"TRIGHALT!"
 
 
 def test_constructor_text_validation() -> None:
@@ -130,9 +130,9 @@ def test_configure_serial_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     """configure_serial 落位:库缺省 115200(出厂默认 9600,手册 §4.6.2 印刷页 48)。"""
     client = HikrobotIdSerialClient()
     client.configure_serial("COM5")
-    assert client._serial_config is not None  # noqa: SLF001
-    assert client._serial_config.baud_rate == 115200  # noqa: SLF001
-    assert client._serial_config.port_name == "COM5"  # noqa: SLF001
+    assert client._serial_config is not None
+    assert client._serial_config.baud_rate == 115200
+    assert client._serial_config.port_name == "COM5"
     # 未配置串口直接 scan:参数期快速失败
     client2 = HikrobotIdSerialClient()
     with pytest.raises(ValueError, match="configure_serial"):

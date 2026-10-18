@@ -20,12 +20,12 @@ import asyncio
 from typing import Any, Callable, List, Tuple
 
 import pytest
+from scripted import ScriptedTransport
+from scripted_async import ScriptedAsyncTransport
 
 import omniplc as pkg
 import omniplc.native as native
 from omniplc.core.types import DataType
-from scripted import ScriptedTransport
-from scripted_async import ScriptedAsyncTransport
 
 Outcome = Tuple[str, ...]
 _Op = Callable[[Any], Any]
@@ -150,7 +150,7 @@ def _sync_outcome(family: str, cls_name: str, op: _Op) -> Outcome:
     client.connect()
     try:
         value = op(client)
-    except Exception as exc:  # noqa: BLE001 - 探针就是要看异常类型与文案
+    except Exception as exc:
         return ("error", type(exc).__name__, str(exc))
     return ("value", repr(value))
 
@@ -162,7 +162,7 @@ def _async_outcome(family: str, cls_name: str, op: _Op) -> Outcome:
         await client.connect()
         try:
             value = await op(client)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return ("error", type(exc).__name__, str(exc))
         return ("value", repr(value))
 
@@ -172,7 +172,7 @@ def _async_outcome(family: str, cls_name: str, op: _Op) -> Outcome:
 @pytest.mark.parametrize(
     "family, sync_name, async_name, case_name, op",
     _cases(),
-    ids=["{}-{}".format(case[0], case[3]) for case in _cases()],
+    ids=[f"{case[0]}-{case[3]}" for case in _cases()],
 )
 def test_edge_input_parity(
     family: str, sync_name: str, async_name: str, case_name: str, op: _Op
@@ -180,4 +180,4 @@ def test_edge_input_parity(
     """同一边界入参在两层必须给出完全相同的可观察结果。"""
     sync_out = _sync_outcome(family, sync_name, op)
     async_out = _async_outcome(family, async_name, op)
-    assert sync_out == async_out, "{} 两层结果不一致".format(case_name)
+    assert sync_out == async_out, f"{case_name} 两层结果不一致"

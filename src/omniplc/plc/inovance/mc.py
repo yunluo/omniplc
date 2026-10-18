@@ -59,9 +59,6 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
-from ..melsec import codec_qna
-from ..melsec.address import McAddress
-from ..melsec.melsec import MelsecMcTcpClient
 from ...core.constants import (
     INOVANCE_MC_DEFAULT_PORT,
     INOVANCE_MC_DEVICE_CODES,
@@ -70,8 +67,11 @@ from ...core.constants import (
     MC_DEFAULT_NETWORK_NUMBER,
     MC_DEFAULT_PC_NUMBER,
 )
-from ...core.types import McFrame
 from ...core.i18n import _
+from ...core.types import McFrame
+from ..melsec import codec_qna
+from ..melsec.address import McAddress
+from ..melsec.melsec import MelsecMcTcpClient
 
 
 def _to_melsec_address(parsed: McAddress) -> McAddress:

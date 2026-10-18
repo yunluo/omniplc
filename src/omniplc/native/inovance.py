@@ -34,8 +34,6 @@ from __future__ import annotations
 
 from typing import List, Optional, Sequence, Tuple, Union
 
-from .modbus import AsyncModbusTcpClient
-from .melsec import AsyncMelsecMcTcpClient
 from ..core.constants import (
     INOVANCE_MC_DEFAULT_PORT,
     INOVANCE_MC_DEVICE_CODES,
@@ -55,6 +53,8 @@ from ..plc.inovance.address import (
 from ..plc.inovance.mc import _to_melsec_address
 from ..plc.melsec import codec_qna
 from ..plc.melsec.address import McAddress
+from .melsec import AsyncMelsecMcTcpClient
+from .modbus import AsyncModbusTcpClient
 
 
 class AsyncInovanceTcpClient(AsyncModbusTcpClient):

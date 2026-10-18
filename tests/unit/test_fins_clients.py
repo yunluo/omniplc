@@ -5,14 +5,14 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from scripted import ScriptedTransport
 
 from omniplc import OmronFinsTcpClient, OmronFinsUdpClient
 from omniplc.aio import AOmronFinsUdpClient
 from omniplc.core.debug import format_hex
 from omniplc.plc.omron import codec
-from omniplc.plc.omron.address import parse_fins_address
 from omniplc.plc.omron import omron as omron_module
-from scripted import ScriptedTransport
+from omniplc.plc.omron.address import parse_fins_address
 
 _FINS_ECHO_HEAD = b"\xc0\x00\x02\x00\x0a\x00\x00\x05\x00"
 
@@ -520,7 +520,7 @@ def test_read_batch_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(ValueError):
         client.read_batch([("D100.3", "short")])
     with pytest.raises(ValueError):
-        client.read_batch([("D{}".format(index), "short") for index in range(168)])
+        client.read_batch([(f"D{index}", "short") for index in range(168)])
 
 
 def test_async_mirror_read_batch() -> None:
@@ -746,10 +746,7 @@ def _fins_clock_response(
 ) -> bytes:
     """构造 0701 时钟读响应(测试脚手架;布局依 W342 §5-3-19 印刷页 198)。"""
     fields = [year, month, day, hour, minute, second, day_of_week]
-    if bcd:
-        data = bytes((v // 10) << 4 | (v % 10) for v in fields)
-    else:
-        data = bytes(fields)
+    data = bytes(v // 10 << 4 | v % 10 for v in fields) if bcd else bytes(fields)
     return (
         _FINS_ECHO_HEAD
         + bytes([sid])

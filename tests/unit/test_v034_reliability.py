@@ -7,6 +7,7 @@ import threading
 from typing import List
 
 import pytest
+from scripted import wait_until
 
 import omniplc.core.base_client as base_client_mod
 from omniplc.core.base_client import BaseClient
@@ -18,9 +19,8 @@ from omniplc.core.errors import (
     TransportClosedError,
     TransportTimeoutError,
 )
-from omniplc.transport import BaseTransport
 from omniplc.core.types import DataType, PrimitiveValue
-from scripted import wait_until
+from omniplc.transport import BaseTransport
 
 
 class _ScriptedTransport(BaseTransport):
@@ -234,9 +234,8 @@ class TestReconnectBackoff:
         monkeypatch.setattr(base_client_mod.random, "uniform", lambda a, b: 0.25)
         client = _ScriptedClient(fail_connect_times=1)
         assert client.connect() is False  # 真实失败,武装门控
-        with pytest.raises(ConnectionError) as ei:
-            with client:
-                pass
+        with pytest.raises(ConnectionError) as ei, client:
+            pass
         assert "退避" in str(ei.value)
 
     def test_gate_does_not_count_error(self, monkeypatch: pytest.MonkeyPatch) -> None:

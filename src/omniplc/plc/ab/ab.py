@@ -28,13 +28,11 @@ UDT 整体读取、分片读写在 v1.x 规划。
 
 from __future__ import annotations
 
+import contextlib
 import random
 import struct
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
-from . import codec_cip
-from .codec_cip import CIP_CLASS_IDENTITY, CIP_INSTANCE_IDENTITY
-from .address import AbTag, parse_ab_tag
 from ...core.base_client import (
     BaseClient,
     _categorize,
@@ -55,10 +53,13 @@ from ...core.constants import (
 )
 from ...core.debug import format_hex, log_op
 from ...core.errors import DeviceError, OmniPLCInternalError, ProtocolFrameError
+from ...core.i18n import _
+from ...core.types import DataType, PrimitiveValue
 from ...core.validation import require_bool
 from ...transport import BaseTransport, TcpTransport
-from ...core.types import DataType, PrimitiveValue
-from ...core.i18n import _
+from . import codec_cip
+from .address import AbTag, parse_ab_tag
+from .codec_cip import CIP_CLASS_IDENTITY, CIP_INSTANCE_IDENTITY
 
 
 class AllenBradleyEthIpClient(BaseClient):
@@ -235,8 +236,8 @@ class AllenBradleyEthIpClient(BaseClient):
             status = codec_cip.parse_forward_close_reply(self._recv_frame())
             if status != 0:
                 log_op(
-                    "ab://{}:{}".format(self._ip_address, self._port),
-                    "forward-close 非 0 状态 0x{:02X}".format(status),
+                    f"ab://{self._ip_address}:{self._port}",
+                    f"forward-close 非 0 状态 0x{status:02X}",
                 )
         except (OSError, OmniPLCInternalError):
             pass
@@ -253,10 +254,8 @@ class AllenBradleyEthIpClient(BaseClient):
         self._session_handle = 0
         if transport is None or not handle:
             return
-        try:
+        with contextlib.suppress(OSError, OmniPLCInternalError):
             transport.send(codec_cip.build_unregister_session(handle))
-        except (OSError, OmniPLCInternalError):
-            pass
 
     def _recv_frame(self) -> bytes:
         """按 ENIP 长度域收完整帧:24 字节头 + 声明长度(内部方法)。
@@ -399,7 +398,7 @@ class AllenBradleyEthIpClient(BaseClient):
             is_write = service not in codec_cip.CIP_READ_ONLY_SERVICES
         if is_write:
             self._check_non_address_write(
-                "generic_message(CIP 服务 0x{:02X})".format(service), dangerous
+                f"generic_message(CIP 服务 0x{service:02X})", dangerous
             )
         request = codec_cip._service_request(
             service,

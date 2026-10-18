@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import socket
 import time
 from typing import Optional
 
-from .base import BaseTransport
 from ..core.constants import (
     TCP_KEEPALIVE_COUNT,
     TCP_KEEPALIVE_IDLE,
@@ -15,6 +15,7 @@ from ..core.constants import (
 from ..core.debug import RECV_MARK, SEND_MARK, log_frame, log_op
 from ..core.errors import TransportClosedError
 from ..core.i18n import _
+from .base import BaseTransport
 
 
 class TcpTransport(BaseTransport):
@@ -121,10 +122,8 @@ class TcpTransport(BaseTransport):
                 received += len(chunk)
         finally:
             # 恢复 socket 超时:否则下一事务 sendall 会继承本次残留的极小超时
-            try:
+            with contextlib.suppress(OSError):
                 sock.settimeout(self._receive_timeout)
-            except OSError:
-                pass
         frame = b"".join(chunks)
         log_frame(self._debug_label, RECV_MARK, frame)
         return frame

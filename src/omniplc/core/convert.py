@@ -21,6 +21,8 @@ from .constants import (
     UINT32_MAX,
     UINT64_MAX,
 )
+from .i18n import _
+from .types import ByteOrder, DataType, PrimitiveValue, WordOrder
 from .validation import (
     check_int16,
     check_range,
@@ -28,8 +30,6 @@ from .validation import (
     require_float,
     require_int,
 )
-from .types import ByteOrder, DataType, PrimitiveValue, WordOrder
-from .i18n import _
 
 BytesLike = Union[bytes, bytearray, Sequence[int]]
 
@@ -453,7 +453,7 @@ def registers_to_canonical(
             raise ValueError(_("寄存器值超出 0~65535 范围:{}").format(number))
     # 校验遍保留,装配一次 struct.pack(review-1044):校验通过后 int(reg) & 0xFFFF
     # 恒等于原值,故 >nH 与逐字 to_bytes 拼接逐字节相同
-    raw = struct.pack(">{}H".format(len(numbers)), *numbers)
+    raw = struct.pack(f">{len(numbers)}H", *numbers)
     return _reorder_bytes(raw, word_order)
 
 
@@ -564,7 +564,7 @@ def _canonical_to_registers(data: bytes, word_order: WordOrder) -> Tuple[int, ..
     raw = _reorder_bytes(data, word_order)
     # 一次 struct.unpack(逐字切片 + from_bytes 换出,review-1044);调用方恒为
     # 4/8 字节(32/64 位数值的 struct.pack 产物),长度必偶,故 >nH 全域等价
-    return struct.unpack(">{}H".format(len(raw) // 2), raw)
+    return struct.unpack(f">{len(raw) // 2}H", raw)
 
 
 def _reorder_bytes(data: bytes, word_order: WordOrder) -> bytes:

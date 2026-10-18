@@ -30,6 +30,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import math
 import random
 import time
@@ -51,7 +52,6 @@ from typing import (
     cast,
 )
 
-from .transport import AsyncBaseTransport
 from ..core.base_client import (
     ClientStats,
     _categorize,
@@ -61,13 +61,6 @@ from ..core.base_client import (
     _narrow_int,
     _verify_value_equal,
 )
-from ..core.debug import (
-    FrameRecord,
-    frame_recorder_enabled,
-    log_warning,
-    recorded_frames,
-)
-from ..core.validation import require_count, require_int
 from ..core.constants import (
     DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_RECEIVE_TIMEOUT,
@@ -80,24 +73,32 @@ from ..core.constants import (
     RECONNECT_BACKOFF_MAX_EXPONENT,
     process_read_only,
 )
+from ..core.debug import (
+    FrameRecord,
+    frame_recorder_enabled,
+    log_warning,
+    recorded_frames,
+)
 from ..core.errors import (
+    _CANCELLED_ERRORS,
     DeviceError,
     ErrorCategory,
     OmniPLCInternalError,
     ProtocolFrameError,
     TransportClosedError,
     TransportTimeoutError,
-    _CANCELLED_ERRORS,
 )
+from ..core.i18n import _
 from ..core.tag import Tag, TagTable
 from ..core.types import DataType, PrimitiveValue
-from ..core.i18n import _
+from ..core.validation import require_count, require_int
+from .transport import AsyncBaseTransport
 
 _T = TypeVar("_T")
 _C = TypeVar("_C", bound="AsyncBaseClient")
 
 
-async def _heartbeat_loop_weak(client_ref: "weakref.ref[Any]") -> None:
+async def _heartbeat_loop_weak(client_ref: weakref.ref[Any]) -> None:
     """心跳循环主体(弱引用宿主,模块级协程;review-1004 P1-1)。
 
     任务是循环唯一的强引用链——宿主客户端无他处引用(用户丢弃且未
@@ -214,7 +215,7 @@ class AsyncBaseClient(ABC):
         # 应用层心跳(asyncio 任务形态):connect 成功后启动,_disconnect_locked
         # 中取消;间隔与语义与同步基类一致(见其「心跳保活」节)
         self._heartbeat_interval: float = HEARTBEAT_INTERVAL_DEFAULT
-        self._heartbeat_task: Optional["asyncio.Task[None]"] = None
+        self._heartbeat_task: Optional[asyncio.Task[None]] = None
         # 写安全(review-1020 §七甲):只读模式 + 写白名单,默认全关
         self._read_only = False
         self._write_whitelist = False
@@ -248,7 +249,7 @@ class AsyncBaseClient(ABC):
             self._ensure_open()
             return await self._connect_locked()
 
-    async def _connect_locked(self) -> bool:  # noqa: C901
+    async def _connect_locked(self) -> bool:
         """连接实现(内部方法,**调用方须已持有事务锁**)。"""
         if self._connected:
             return True
@@ -270,10 +271,8 @@ class AsyncBaseClient(ABC):
             await transport.connect()
         except _CANCELLED_ERRORS:
             # 取消必须传播:半开传输直接关掉(尚未发过字节,链路无需重同步)
-            try:
+            with contextlib.suppress(Exception):
                 transport.close()
-            except Exception:
-                pass
             raise
         except Exception as exc:
             # 建连失败:任何异常都清理为"未连接"(防脏 socket/传输逃逸)
@@ -286,19 +285,15 @@ class AsyncBaseClient(ABC):
                 _categorize(exc),
                 _extract_code(exc),
             )
-            try:
+            with contextlib.suppress(Exception):
                 transport.close()
-            except Exception:
-                pass
             return False
         self._transport = transport
         try:
             await self._after_connect()
         except _CANCELLED_ERRORS:
-            try:
+            with contextlib.suppress(Exception):
                 transport.close()
-            except Exception:
-                pass
             self._transport = None
             raise
         except Exception as exc:
@@ -320,10 +315,8 @@ class AsyncBaseClient(ABC):
                 cancelled = cancel_exc
             except Exception:
                 pass
-            try:
+            with contextlib.suppress(Exception):
                 transport.close()
-            except Exception:
-                pass
             self._transport = None
             self._connected = False
             if cancelled is not None:
@@ -507,7 +500,7 @@ class AsyncBaseClient(ABC):
             _heartbeat_loop_weak(client_ref)
         )
 
-    def _reap_task(self, task: "asyncio.Task[None]") -> None:
+    def _reap_task(self, task: asyncio.Task[None]) -> None:
         """为已取消的旧心跳任务挂一次性收割(内部方法,同步上下文用)。
 
         cancel 只投递请求,任务实际退出在下个挂起点;setter 是同步属性
@@ -519,10 +512,9 @@ class AsyncBaseClient(ABC):
             return
 
         async def _reap() -> None:
-            try:
+            # _CANCELLED_ERRORS 是跨 3.7/3.8+ 元组,解包成 suppress 位置参数
+            with contextlib.suppress(*_CANCELLED_ERRORS):
                 await task
-            except _CANCELLED_ERRORS:
-                pass
 
         asyncio.get_running_loop().create_task(_reap())
 
@@ -1438,10 +1430,8 @@ class AsyncBaseClient(ABC):
         """标记断开并静默关闭传输(惰性重连发生在下一次事务,内部方法)。"""
         self._connected = False
         if self._transport is not None:
-            try:
+            with contextlib.suppress(OSError):
                 self._transport.close()
-            except OSError:
-                pass
             self._transport = None
             self._counters["disconnect_count"] += 1
 

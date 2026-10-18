@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 import pytest
-
 from test_manual_common_smoke import _build, _connections
 
 

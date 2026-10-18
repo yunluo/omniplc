@@ -20,6 +20,7 @@ import pathlib
 from typing import Tuple
 
 import pytest
+from scripted import ScriptedTransport
 
 from omniplc import (
     AllenBradleyEthIpClient,
@@ -46,7 +47,6 @@ from omniplc.aio import (
     ASiemensS7Client,
     AToyopucUdpClient,
 )
-from scripted import ScriptedTransport
 
 AIO_INIT = (
     pathlib.Path(__file__).resolve().parents[2]
@@ -92,11 +92,11 @@ class TestAsyncWiringGuard:
                 and n.func.id.endswith("Client")
             }
             expected = cls.name[1:]
-            assert called == {expected}, "{} 注入 {} != {{{}}}".format(
-                cls.name, sorted(called), expected
+            assert called == {expected}, (
+                f"{cls.name} 注入 {sorted(called)} != {{{expected}}}"
             )
             checked += 1
-        assert checked >= 25, "接线守卫覆盖类数异常:{}".format(checked)
+        assert checked >= 25, f"接线守卫覆盖类数异常:{checked}"
 
 
 # ----------------------------------------------------------------------
@@ -149,7 +149,7 @@ _EDGE_CASES = [
 
 def _signature(outcome: object) -> Tuple[str, str]:
     if isinstance(outcome, BaseException):
-        return ("raise", "{}:{}".format(type(outcome).__name__, str(outcome)))
+        return ("raise", f"{type(outcome).__name__}:{str(outcome)}")
     return ("return", repr(outcome))
 
 
@@ -181,7 +181,7 @@ class TestAioSyncEdgeParity:
                 except BaseException as exc:
                     aio_out = exc
                 assert _signature(sync_out) == _signature(aio_out), (
-                    "{}-{} 两层签名不一致".format(family, case_name)
+                    f"{family}-{case_name} 两层签名不一致"
                 )
 
 

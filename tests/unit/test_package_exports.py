@@ -22,7 +22,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 def test_root_all_names_importable() -> None:
     """根包 __all__ 每个名字都真实存在(改名/删类后同步 __all__)。"""
     for name in omniplc.__all__:
-        assert getattr(omniplc, name, None) is not None, "根包导出缺失:{}".format(name)
+        assert getattr(omniplc, name, None) is not None, f"根包导出缺失:{name}"
 
 
 def test_version_matches_pyproject() -> None:
@@ -36,7 +36,7 @@ def test_version_matches_pyproject() -> None:
 def test_description_covers_supported_protocols() -> None:
     """__description__ 与 pyproject 描述同步(不残留旧协议清单)。"""
     for token in ("Modbus", "三菱 MC", "FINS", "OPC-UA", "MTConnect", "S7"):
-        assert token in omniplc.__description__, "__description__ 缺:{}".format(token)
+        assert token in omniplc.__description__, f"__description__ 缺:{token}"
 
 
 def test_uv_lock_is_gitignored() -> None:
@@ -89,13 +89,13 @@ def test_public_result_types_exported_at_root() -> None:
         "FrameRecord",
     )
     missing = [name for name in required if name not in omniplc.__all__]
-    assert not missing, "根包缺少公共返回类型导出:{}".format(missing)
+    assert not missing, f"根包缺少公共返回类型导出:{missing}"
 
 
 def test_aio_star_import_surface() -> None:
     """aio 星号导入面 == __all__:同步客户端/常量/内部名不得公开。"""
     namespace: dict = {}
-    exec("from omniplc.aio import *", namespace)  # noqa: S102 - 导出面测试本体
+    exec("from omniplc.aio import *", namespace)
     exported = {key for key in namespace if not key.startswith("__")}
     assert exported == set(aio_pkg.__all__)
     # 卫生抽查:同步客户端与 stdlib 名不得借星号导入泄漏

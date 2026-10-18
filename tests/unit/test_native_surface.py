@@ -59,13 +59,13 @@ def _public(cls: type) -> set:
 def test_native_all_names_importable() -> None:
     """``omniplc.native.__all__`` 每个名字都真实存在。"""
     for name in native.__all__:
-        assert getattr(native, name, None) is not None, "原生包导出缺失:{}".format(name)
+        assert getattr(native, name, None) is not None, f"原生包导出缺失:{name}"
 
 
 def test_native_clients_stay_out_of_root_namespace() -> None:
     """原生客户端不进根包 ``__all__``(否则破坏 aio 镜像守卫)。"""
     stray = [name for name in pkg.__all__ if name.startswith("Async")]
-    assert not stray, "根包 __all__ 不应含原生客户端:{}".format(stray)
+    assert not stray, f"根包 __all__ 不应含原生客户端:{stray}"
     assert "native" not in pkg.__all__, "根包不导出 native 子包(避免 __all__ 守卫误判)"
 
 
@@ -73,9 +73,7 @@ def test_sync_base_surface_mirrored_or_pending() -> None:
     """同步基类公开面 = 原生已镜像面 ∪ 声明的未到批次表(不多不少)。"""
     gap = _public(pkg.BaseClient) - _public(native.AsyncBaseClient)
     assert gap == _SYNC_BASE_PENDING, (
-        "原生基类与同步基类的公开面差异变了:实际 {},声明 {}".format(
-            sorted(gap), sorted(_SYNC_BASE_PENDING)
-        )
+        f"原生基类与同步基类的公开面差异变了:实际 {sorted(gap)},声明 {sorted(_SYNC_BASE_PENDING)}"
     )
 
 
@@ -83,9 +81,7 @@ def test_modbus_client_surface_mirrored_or_pending() -> None:
     """Modbus TCP 客户端公开面 = 原生已镜像面 ∪ 声明的未到批次表。"""
     gap = _public(pkg.ModbusTcpClient) - _public(native.AsyncModbusTcpClient)
     assert gap == _MODBUS_PENDING, (
-        "原生 Modbus 客户端与同步版的公开面差异变了:实际 {},声明 {}".format(
-            sorted(gap), sorted(_MODBUS_PENDING)
-        )
+        f"原生 Modbus 客户端与同步版的公开面差异变了:实际 {sorted(gap)},声明 {sorted(_MODBUS_PENDING)}"
     )
 
 
@@ -96,9 +92,7 @@ def test_melsec_clients_surface_mirrored_or_pending() -> None:
         (pkg.MelsecMcUdpClient, native.AsyncMelsecMcUdpClient),
     ):
         gap = _public(sync_cls) - _public(async_cls)
-        assert gap == _MELSEC_PENDING, "{},实际 {}".format(
-            sync_cls.__name__, sorted(gap)
-        )
+        assert gap == _MELSEC_PENDING, f"{sync_cls.__name__},实际 {sorted(gap)}"
 
 
 def test_fins_clients_surface_mirrored_or_pending() -> None:
@@ -108,13 +102,13 @@ def test_fins_clients_surface_mirrored_or_pending() -> None:
         (pkg.OmronFinsUdpClient, native.AsyncOmronFinsUdpClient),
     ):
         gap = _public(sync_cls) - _public(async_cls)
-        assert gap == _FINS_PENDING, "{},实际 {}".format(sync_cls.__name__, sorted(gap))
+        assert gap == _FINS_PENDING, f"{sync_cls.__name__},实际 {sorted(gap)}"
 
 
 def test_s7_client_surface_mirrored_or_pending() -> None:
     """S7 客户端公开面 = 原生已镜像面 ∪ 声明的未到批次表(会话型首个入原生层)。"""
     gap = _public(pkg.SiemensS7Client) - _public(native.AsyncSiemensS7Client)
-    assert gap == _S7_PENDING, "S7,实际 {}".format(sorted(gap))
+    assert gap == _S7_PENDING, f"S7,实际 {sorted(gap)}"
 
 
 def test_inovance_clients_surface_mirrored_or_pending() -> None:
@@ -128,9 +122,7 @@ def test_inovance_clients_surface_mirrored_or_pending() -> None:
         (pkg.InovanceMcTcpClient, native.AsyncInovanceMcTcpClient),
     ):
         gap = _public(sync_cls) - _public(async_cls)
-        assert gap == _INOVANCE_PENDING, "{},实际 {}".format(
-            sync_cls.__name__, sorted(gap)
-        )
+        assert gap == _INOVANCE_PENDING, f"{sync_cls.__name__},实际 {sorted(gap)}"
 
 
 def test_melsec_native_supports_ethernet_frames_only() -> None:
@@ -163,9 +155,7 @@ def test_native_async_methods_are_coroutines() -> None:
                 continue
             func = getattr(member, "func", member)
             if inspect.isfunction(func):
-                assert inspect.iscoroutinefunction(func), "{}.{} 不是协程".format(
-                    name, attr
-                )
+                assert inspect.iscoroutinefunction(func), f"{name}.{attr} 不是协程"
 
 
 def test_after_connect_failure_hook_mirrored() -> None:
@@ -217,14 +207,12 @@ def test_method_signatures_match_sync_twin() -> None:
             a_sig = inspect.signature(a_m)
             if list(s_sig.parameters) != list(a_sig.parameters):
                 problems.append(
-                    "{}.{} 参数名不符:同步 {} vs 原生 {}".format(
-                        sync_name, name, list(s_sig.parameters), list(a_sig.parameters)
-                    )
+                    f"{sync_name}.{name} 参数名不符:同步 {list(s_sig.parameters)} vs 原生 {list(a_sig.parameters)}"
                 )
             elif [p.default for p in s_sig.parameters.values()] != [
                 p.default for p in a_sig.parameters.values()
             ]:
-                problems.append("{}.{} 默认值不符".format(sync_name, name))
+                problems.append(f"{sync_name}.{name} 默认值不符")
     assert not problems, "原生方法签名漂移:{}".format("; ".join(problems))
 
 

@@ -11,6 +11,7 @@ import struct
 from typing import List
 
 import pytest
+from scripted import ScriptedTransport, mount_real_tcp
 
 from omniplc import AllenBradleyEthIpClient, DataType
 from omniplc.aio import AAllenBradleyEthIpClient
@@ -21,7 +22,6 @@ from omniplc.core.constants import (
 from omniplc.core.errors import TransportClosedError
 from omniplc.plc.ab import codec_cip
 from omniplc.transport import TcpTransport
-from scripted import ScriptedTransport, mount_real_tcp
 
 _SESSION = 0x12345678
 
@@ -914,7 +914,7 @@ def test_get_attribute_list_decodes_identity_attributes(
     _mount(monkeypatch, client, scripted)
     ok, decoded = client.get_attribute_list(0x01, 0x01, (1, 2, 3, 4, 5, 6, 7))
     if not ok:
-        raise AssertionError("last_error={!r}".format(client.last_error))
+        raise AssertionError(f"last_error={client.last_error!r}")
     assert ok is True
     assert decoded is not None
     assert [(a, v) for a, v in decoded] == [
@@ -1196,7 +1196,7 @@ def test_read_batch_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(ValueError):
         client.read_batch([])
 
-    tags = ["T{}".format(index) for index in range(40)]
+    tags = [f"T{index}" for index in range(40)]
     requests = [
         codec_cip.build_tag_read(codec_cip.tag_type_path(parse_ab_tag(tag)), 1)
         for tag in tags

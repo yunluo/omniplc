@@ -97,7 +97,7 @@ def _build(conn: Dict[str, Any]) -> Any:  # noqa: C901
         return MelsecMxClient(p.get("logical_station_number", 0))
     if d == "omron_fins_tcp":
         # local_node 缺省 None = 握手自动推导(库默认);传 0 会禁用自动
-        return OmronFinsTcpClient(ip, port or 9600, p.get("local_node", None))
+        return OmronFinsTcpClient(ip, port or 9600, p.get("local_node"))
     if d == "omron_fins_udp":
         return OmronFinsUdpClient(ip, port or 9600)
     if d == "omron_cip":
@@ -162,7 +162,7 @@ def _build(conn: Dict[str, Any]) -> Any:  # noqa: C901
         return OpcUaClient(ip, port or 4840, p.get("path", ""), p.get("endpoint", ""))
     if d == "mtconnect":
         return MTConnectClient(ip, port or 5000)
-    raise ValueError("未知 driver:{!r}".format(d))
+    raise ValueError(f"未知 driver:{d!r}")
 
 
 def _connections() -> List[Dict[str, Any]]:

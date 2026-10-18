@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 import pytest
+from scripted import ScriptedTransport as _ScriptedTransport
 
 from omniplc import ModbusRtuClient, ModbusTcpClient
 from omniplc.core.errors import ErrorCategory
@@ -18,7 +19,6 @@ from omniplc.core.types import DataType
 from omniplc.native import AsyncModbusTcpClient
 from omniplc.native.transport import AsyncBaseTransport
 from omniplc.plc.modbus import codec
-from scripted import ScriptedTransport as _ScriptedTransport
 
 # FC02 读 1 个离散输入、字节计数 1、值 0b00001010 的标准响应 PDU
 _RESPONSE_ONE_DISCRETE = bytes([2, 1, 0x0B])
@@ -212,7 +212,7 @@ def test_tcp_write_bits_1968_top_and_1969_slices(
     """write_many 连续位:1968 位(FC15 写位上限)一笔;1969 位切两笔
     (1968 + 1),各自独立事务、逐笔回显校验。"""
     client = ModbusTcpClient("127.0.0.1", 502, 1)
-    items = [("c{}".format(i), "bool", True) for i in range(1969)]
+    items = [(f"c{i}", "bool", True) for i in range(1969)]
     pdu_top = codec.build_write_multi_pdu(15, 0, [1] * 1968)
     pdu_tail = codec.build_write_multi_pdu(15, 1968, [1])
     scripted = _ScriptedTransport(
@@ -254,7 +254,7 @@ def test_modbus_golden_samples_reproducible() -> None:
     (README 曾鼓励)而实现未变时,本门禁红。"""
     golden = Path(__file__).resolve().parents[1] / "golden"
     names = sorted(p.name for p in golden.glob("modbus_*.json"))
-    assert len(names) >= 15, "黄金样本异常:{}".format(names)
+    assert len(names) >= 15, f"黄金样本异常:{names}"
     before = {name: (golden / name).read_bytes() for name in names}
     try:
         runpy.run_path(str(golden / "generate_modbus_samples.py"), run_name="__main__")
@@ -297,7 +297,5 @@ class _NativeScripted(AsyncBaseTransport):
 
     async def recv(self, size: int) -> bytes:
         chunk = self._queue.pop(0)
-        assert len(chunk) == size, "分片长度与 recv 期望不符:{} vs {}".format(
-            len(chunk), size
-        )
+        assert len(chunk) == size, f"分片长度与 recv 期望不符:{len(chunk)} vs {size}"
         return chunk

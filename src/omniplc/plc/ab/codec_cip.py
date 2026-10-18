@@ -56,7 +56,6 @@ from __future__ import annotations
 import struct
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
-from .address import AbTag
 from ...core.constants import (
     AB_CIP_EXTENDED_STATUS_TEXT,
     AB_CIP_STATUS_TEXT,
@@ -68,6 +67,8 @@ from ...core.constants import (
 )
 from ...core.debug import format_hex
 from ...core.errors import DeviceError, ProtocolFrameError
+from ...core.i18n import _
+from ...core.types import DataType, PrimitiveValue
 from ...core.validation import (
     check_int16,
     check_range,
@@ -75,8 +76,7 @@ from ...core.validation import (
     require_float,
     require_int,
 )
-from ...core.types import DataType, PrimitiveValue
-from ...core.i18n import _
+from .address import AbTag
 
 # ---- ENIP 封装(报文常量) ----
 EIP_COMMAND_REGISTER_SESSION: int = 0x0065
@@ -152,7 +152,7 @@ CIP_SERVICE_GET_INSTANCE_ATTRIBUTE_LIST: int = 0x55
 手册库暂缺该册(见 docs/protocol/README.md「待补」);帧面经 同类开源参考实现
 1.2.16 与 同类开源参考实现(1.1.6 快照) 双参考实现逐字节对照裁决(2026-10-03)。"""
 
-CIP_READ_ONLY_SERVICES: "frozenset[int]" = frozenset(
+CIP_READ_ONLY_SERVICES: frozenset[int] = frozenset(
     {
         CIP_SERVICE_GET_ATTRIBUTES_ALL,  # 0x01
         CIP_SERVICE_GET_ATTRIBUTE_LIST,  # 0x03
@@ -199,14 +199,14 @@ AB_SYMBOL_OBJECT_CLASS: int = 0x6B
 同类开源参考实现 的 ``ClassCode.symbol_object = b'k'``(0x6B)同理。线上段编码 =
 8 位类段 ``0x20`` + 类码 ``0x6B``,与两参考实现逐字节一致(review-1007
 P0-1:曾误把 0x6B20 当真类码按 16 位段组帧,真机必失败)。"""
-AB_TAG_LIST_ATTRIBUTES: "tuple" = (0x0001, 0x0002, 0x0008)
+AB_TAG_LIST_ATTRIBUTES: tuple = (0x0001, 0x0002, 0x0008)
 """0x55 请求的属性集:1=符号名 / 2=符号类型 / 8=数组维度(同类开源参考实现 同款
 最小集;同类开源参考实现 的 7 属性含未公开语义字段,不取)。**应答只含所请求的
 属性**(同类开源参考实现 请求同款 3 属性、条目步长 = 名长 + 20 字节且真机可用;
 同类开源参考实现 请求 7 属性其应答多 3 个地址类 UDINT——两源布局各与自己的请求集
 自洽,不作全量假设)。"""
 AB_TAG_LIST_BODY: bytes = struct.pack(
-    "<{}H".format(len(AB_TAG_LIST_ATTRIBUTES) + 1),
+    f"<{len(AB_TAG_LIST_ATTRIBUTES) + 1}H",
     len(AB_TAG_LIST_ATTRIBUTES),
     *AB_TAG_LIST_ATTRIBUTES,
 )
@@ -216,7 +216,7 @@ import 期算一次(review-1044),免每次请求重算——属性数与属性�
 AB_TAG_LIST_MAX_PAGES: int = 1000
 """0x55 分页轮数上限(防不收敛)。每页受 unconnected 包 ~500 字节约束约
 十几~几十条,上限内可枚举数万点位;更大规模请按程序域分批(待真机核证)。"""
-_CONNECTION_RESET_STATUSES: "frozenset" = frozenset(
+_CONNECTION_RESET_STATUSES: frozenset = frozenset(
     (CIP_STATUS_CONNECTION_FAILURE, CIP_STATUS_CONNECTION_LOST)
 )
 
@@ -588,7 +588,7 @@ def build_get_attribute_list(
     return _service_request(
         CIP_SERVICE_GET_ATTRIBUTE_LIST,
         build_class_instance_path(class_id, instance),
-        struct.pack("<{}H".format(len(attributes) + 1), len(attributes), *attributes),
+        struct.pack(f"<{len(attributes) + 1}H", len(attributes), *attributes),
     )
 
 
@@ -681,11 +681,7 @@ def _parse_service_payload_with_status(
     status = cip[2]
     if status != 0 and status != CIP_STATUS_PARTIAL_TRANSFER:
         ext = _extended_status_text(status, cip)
-        msg = (
-            _status_text(status)
-            if ext is None
-            else "{} — {}".format(_status_text(status), ext)
-        )
+        msg = _status_text(status) if ext is None else f"{_status_text(status)} — {ext}"
         raise DeviceError(msg, status)
     return status, cip[_service_data_offset(cip) :]
 
@@ -1313,11 +1309,7 @@ def _parse_service_payload(cip: bytes, request_service: int) -> bytes:
     status = cip[2]
     if status != 0:
         ext = _extended_status_text(status, cip)
-        msg = (
-            _status_text(status)
-            if ext is None
-            else "{} — {}".format(_status_text(status), ext)
-        )
+        msg = _status_text(status) if ext is None else f"{_status_text(status)} — {ext}"
         raise DeviceError(msg, status)
     return cip[_service_data_offset(cip) :]
 

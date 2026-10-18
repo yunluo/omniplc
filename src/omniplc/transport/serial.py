@@ -11,7 +11,6 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional, Union
 
-from .base import BaseTransport
 from ..core.constants import (
     SERIAL_DEFAULT_BAUD_RATE,
     SERIAL_DEFAULT_DATA_BITS,
@@ -20,9 +19,10 @@ from ..core.constants import (
 )
 from ..core.debug import RECV_MARK, SEND_MARK, log_frame, log_op
 from ..core.errors import TransportClosedError, TransportTimeoutError
-from ..core.types import PrimitiveValue, SerialParity
 from ..core.i18n import _
+from ..core.types import PrimitiveValue, SerialParity
 from ..core.validation import require_int
+from .base import BaseTransport
 
 
 @dataclass

@@ -10,9 +10,9 @@ import pytest
 
 from omniplc.core.debug import LOGGER_NAME
 from omniplc.core.errors import DeviceError, TransportClosedError
+from omniplc.core.types import SerialParity
 from omniplc.transport import SerialConfig, TcpTransport, UdpTransport
 from omniplc.transport import udp as udp_module
-from omniplc.core.types import SerialParity
 
 # UDP 超长报文的两条平台分支(内核行为互斥,单机无法同时复现):
 # - POSIX:``recv`` 静默截断,库用 ``MSG_TRUNC`` 探真长并记 WARNING
@@ -220,9 +220,10 @@ class TestUdpTransport:
         transport = UdpTransport("127.0.0.1", 9600)
         transport._socket = TruncatingSocket()  # type: ignore[assignment]
         try:
-            with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
-                with pytest.raises(DeviceError) as excinfo:
-                    transport.recv(1024)
+            with caplog.at_level(logging.WARNING, logger=LOGGER_NAME), pytest.raises(
+                DeviceError
+            ) as excinfo:
+                transport.recv(1024)
         finally:
             transport.close()
         assert excinfo.value.code == -10040

@@ -42,9 +42,6 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
-from ..melsec import codec_qna
-from ..melsec.address import McAddress
-from ..melsec.melsec import MelsecMcTcpClient, MelsecMcUdpClient, _MelsecMcBase
 from ...core.constants import (
     KEYENCE_MC_DEFAULT_PORT,
     KEYENCE_MC_DEVICE_CODES,
@@ -53,6 +50,9 @@ from ...core.constants import (
     MC_DEFAULT_PC_NUMBER,
 )
 from ...core.types import McFrame
+from ..melsec import codec_qna
+from ..melsec.address import McAddress
+from ..melsec.melsec import MelsecMcTcpClient, MelsecMcUdpClient, _MelsecMcBase
 
 
 class _KeyenceMcCodeMixin(_MelsecMcBase):

@@ -37,29 +37,30 @@ SZL 全家、时钟留后续版本。
 
 from __future__ import annotations
 
+import contextlib
 import math
 import struct
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from ...core import convert
-from ...core.base_client import BaseClient, DEFAULT_STRING_ENCODING, validate_endpoint
+from ...core.base_client import DEFAULT_STRING_ENCODING, BaseClient, validate_endpoint
 from ...core.constants import (
-    S7_MODEL_PRESETS,
     S7_DEFAULT_PORT,
     S7_MAX_MULTI_VARS,
+    S7_MODEL_PRESETS,
     S7_RACK_MAX,
     S7_SLOT_MAX,
     S7_WSTRING_DEFAULT_LENGTH,
 )
 from ...core.debug import log_op
 from ...core.errors import DeviceError, TransportClosedError
-from ...core.validation import require_bool, require_count, require_float, require_int
+from ...core.i18n import _
 from ...core.types import DataType, PrimitiveValue, S7Model
+from ...core.validation import require_bool, require_count, require_float, require_int
 from ...transport.base import BaseTransport
 from ...transport.tcp import TcpTransport
-from .address import S7Address, area_code, parse_s7_address, translate_v_address
 from . import codec
-from ...core.i18n import _
+from .address import S7Address, area_code, parse_s7_address, translate_v_address
 
 _V_MODELS: Tuple[S7Model, ...] = (S7Model.S7_200, S7Model.S7_200_SMART)
 """V 区记号放行的型号(经典 S7-200 与 200 SMART;V 存储器 = DB1)。"""
@@ -200,9 +201,7 @@ class _S7Session(BaseTransport):
         """CC 应答回显的对端引用,close 发 COTP DR 时回填(档案
         `docs/protocol/siemens/s7comm/README.md` §10:`_send_cotp_disconnect`
         用 CC 回给的 dst_ref;默认 0,DR 为尽力而为语义)。"""
-        self._debug_label = "s7://{}:{}(机架{}槽位{})".format(
-            ip_address, port, rack, slot
-        )
+        self._debug_label = f"s7://{ip_address}:{port}(机架{rack}槽位{slot})"
 
     @BaseTransport.receive_timeout.setter  # type: ignore[attr-defined]
     def receive_timeout(self, seconds: float) -> None:
@@ -235,10 +234,8 @@ class _S7Session(BaseTransport):
         stale = self._tcp
         if stale is not None:  # 防御:重复 connect 先清旧传输防泄漏
             self._tcp = None
-            try:
+            with contextlib.suppress(OSError):
                 stale.close()
-            except OSError:
-                pass
         tcp = TcpTransport(self._ip_address, self._port)
         try:
             tcp.connect_timeout = self._connect_timeout
@@ -262,15 +259,13 @@ class _S7Session(BaseTransport):
             self.pdu_size = codec.parse_setup_comm(response, sequence)
         except Exception as exc:
             self._tcp = None
-            try:
+            with contextlib.suppress(OSError):
                 tcp.close()
-            except OSError:
-                pass
             if isinstance(exc, OSError):
                 raise
             # 连接期坏帧按断连语义(基类重试即重连)
             raise OSError(_("S7 握手失败:{}").format(exc)) from exc
-        log_op(self._debug_label, "会话已建立(PDU {}B)".format(self.pdu_size))
+        log_op(self._debug_label, f"会话已建立(PDU {self.pdu_size}B)")
 
     def close(self) -> None:
         """尽力发 COTP DR 后关闭传输,幂等。"""
@@ -288,10 +283,8 @@ class _S7Session(BaseTransport):
             tcp.send(codec.build_tpkt(dr))
         except OSError:
             pass
-        try:
+        with contextlib.suppress(OSError):
             tcp.close()
-        except OSError:
-            pass
         log_op(self._debug_label, "会话已断开")
 
     def _next_sequence(self) -> int:
@@ -451,8 +444,8 @@ class _S7Session(BaseTransport):
         return name
 
     def read_multi_vars(
-        self, specs: "Sequence[Tuple[int, int, int, int]]"
-    ) -> "List[bytes]":
+        self, specs: Sequence[Tuple[int, int, int, int]]
+    ) -> List[bytes]:
         """多变量一次读(功能 0x04 多 Item 单 PDU,会话调用)。
 
         :param specs: ``(区码, DB 号, 字节起点, 字节数)`` 列表

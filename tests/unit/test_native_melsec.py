@@ -954,7 +954,7 @@ def _call_ext(client: Any, case: ExtCase) -> Any:
         return client.random_write(*args)
     if op == "get_cpu_type":
         return client.get_cpu_type()
-    raise AssertionError("未知扩展用例操作:{}".format(op))
+    raise AssertionError(f"未知扩展用例操作:{op}")
 
 
 @pytest.mark.parametrize("case", _EXT_CASES, ids=[case.name for case in _EXT_CASES])

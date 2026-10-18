@@ -13,14 +13,11 @@ import struct
 from typing import Any, Callable, Dict, List
 
 import pytest
-
-from omniplc import S7Model, SiemensS7Client
-from omniplc.core.errors import _CANCELLED_ERRORS
-from omniplc.native import AsyncSiemensS7Client
+from scripted_async import loop_names, make_loop
 from test_siemens_s7_clients import (
-    _FakeS7Tcp,
     _cotp_cc,
     _dt,
+    _FakeS7Tcp,
     _negotiate_ack,
     _read_ack,
     _szl_ack,
@@ -28,7 +25,10 @@ from test_siemens_s7_clients import (
     _tpkt,
     _write_ack,
 )
-from scripted_async import loop_names, make_loop
+
+from omniplc import S7Model, SiemensS7Client
+from omniplc.core.errors import _CANCELLED_ERRORS
+from omniplc.native import AsyncSiemensS7Client
 
 
 @pytest.fixture(params=loop_names())
@@ -479,8 +479,8 @@ def test_read_batch_rejects_over_pdu_capacity(
         fake.queue(_tpkt(_dt(_negotiate_ack(1))))
         assert await client.connect() is True
         client._session().pdu_size = 240  # 模拟老 S7-300/400
-        items20 = [("DB1.DBB{}".format(i), "SHORT") for i in range(20)]
-        items19 = [("DB1.DBB{}".format(i), "SHORT") for i in range(19)]
+        items20 = [(f"DB1.DBB{i}", "SHORT") for i in range(20)]
+        items19 = [(f"DB1.DBB{i}", "SHORT") for i in range(19)]
         with pytest.raises(ValueError):
             await client.read_batch(items20)
         with pytest.raises(ValueError):

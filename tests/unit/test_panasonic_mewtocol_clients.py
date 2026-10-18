@@ -12,6 +12,7 @@ import socket
 from typing import Any, List
 
 import pytest
+from scripted import ScriptedTransport
 
 from omniplc import PanasonicMewtocolTcpClient, PanasonicMewtocolUdpClient
 from omniplc.aio import APanasonicMewtocolTcpClient
@@ -23,20 +24,19 @@ from omniplc.core.debug import format_hex
 from omniplc.core.errors import DeviceError, ErrorCategory
 from omniplc.plc.panasonic import codec_mewtocol
 from omniplc.transport import TcpTransport
-from scripted import ScriptedTransport
 
 _STATION = "01"
 
 
 def _resp(head: str, data: str = "", station: str = _STATION) -> bytes:
     """构造正常响应帧:%HH$CC + 数据 + BCC + CR(测试脚手架)。"""
-    body = "%{}${}{}".format(station, head, data)
+    body = f"%{station}${head}{data}"
     return (body + codec_mewtocol.bcc(body) + "\r").encode("ascii")
 
 
 def _err(code: str) -> bytes:
     """构造错误响应帧:%HH!CC + BCC + CR(测试脚手架)。"""
-    body = "%{}!{}".format(_STATION, code)
+    body = f"%{_STATION}!{code}"
     return (body + codec_mewtocol.bcc(body) + "\r").encode("ascii")
 
 

@@ -39,6 +39,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import socket
 import time
 from typing import Optional, Tuple
@@ -121,10 +122,8 @@ class _HikrobotIdSession(BaseTransport):
         for name in ("_command_sock", "_result_sock"):
             sock = getattr(self, name)
             if sock is not None:
-                try:
+                with contextlib.suppress(OSError):
                     sock.close()
-                except OSError:
-                    pass
                 setattr(self, name, None)
 
     def send(self, data: bytes) -> None:
@@ -202,10 +201,8 @@ class _HikrobotIdSession(BaseTransport):
         except (socket.timeout, BlockingIOError, OSError, ValueError):
             peeked = b""
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 sock.settimeout(previous_timeout)
-            except OSError:
-                pass
         stripped = peeked.lstrip()
         if stripped.startswith(b"invalid"):
             # 逐字节消费前导空白 + 词身——缓冲里可能还有**下一条**应答
@@ -524,9 +521,7 @@ class HikrobotIdTcpClient(BaseClient):
         # Get 按读事务
         is_write = cmd_type in ("Set", "Exec")
         if is_write:
-            self._check_non_address_write(
-                "command({}, {})".format(cmd_type, cmd), dangerous
-            )
+            self._check_non_address_write(f"command({cmd_type}, {cmd})", dangerous)
         return self._execute(
             lambda: self._command_exchange(cmd_type, cmd, param),
             is_write=is_write,
@@ -596,9 +591,9 @@ class HikrobotIdTcpClient(BaseClient):
                 _("传输对象不是读码器会话:{!r}").format(type(session).__name__)
             )
         if param is None:
-            payload = "<{},{}>".format(cmd_type, cmd)
+            payload = f"<{cmd_type},{cmd}>"
         else:
-            payload = "<{},{},{}>".format(cmd_type, cmd, param)
+            payload = f"<{cmd_type},{cmd},{param}>"
         session.send(payload.encode("ascii"))
         try:
             reply = session.recv_command_reply(self._receive_timeout)

@@ -26,8 +26,6 @@ import struct
 from abc import abstractmethod
 from typing import List, Optional, Sequence, Tuple, Union
 
-from . import codec_mewtocol
-from .address import MewtocolAddress, parse_mewtocol_address
 from ...core import convert
 from ...core.base_client import BaseClient, validate_endpoint
 from ...core.constants import (
@@ -39,10 +37,12 @@ from ...core.constants import (
     MEWTOCOL_WORD_FIELD_MAX,
 )
 from ...core.errors import ProtocolFrameError
+from ...core.i18n import _
+from ...core.types import ByteOrder, DataType, PrimitiveValue
 from ...core.validation import check_int16, check_uint16, require_bool, require_count
 from ...transport import BaseTransport, TcpTransport, UdpTransport
-from ...core.types import ByteOrder, DataType, PrimitiveValue
-from ...core.i18n import _
+from . import codec_mewtocol
+from .address import MewtocolAddress, parse_mewtocol_address
 
 
 def _recv_until_cr(transport: BaseTransport, limit: int) -> bytes:
