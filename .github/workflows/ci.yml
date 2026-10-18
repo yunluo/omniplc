@@ -45,8 +45,10 @@ jobs:
         include:
           - os: windows-latest
             python-version: "3.7.9"
+            cov: "--cov=omniplc --cov-report=term-missing"
           - os: windows-latest
             python-version: "3.12"
+            cov: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -76,7 +78,12 @@ jobs:
         # extras(含 pytest)卸掉 → "No module named pytest"
         # review-1043 己-2:--cov 只出报告不卡门禁(无 fail-under),覆盖率数字
         # 供趋势观察与后续建档
-        run: uv run --extra dev --python ${{ matrix.python-version }} python -m pytest tests -q --cov=omniplc --cov-report=term-missing
+        # 3.12 腿不带 --cov(2026-10-19 修复):coverage 7.x(3.12 必选新版)与
+        # asyncua 1.1.5 `sync.Server()` 死锁——`tloop.post` 120s 超时挂起,
+        # OPC-UA 22 测试 setup 全卡 → 15 分钟 job 超时被砍(3.12 腿自 v0.56.3
+        # 起从未绿,本地 3.12 不带 --cov 52s 全绿)。coverage 6.x(3.7 腿自动选)
+        # 无此问题,覆盖率报告仍由 3.7 腿产出。
+        run: uv run --extra dev --python ${{ matrix.python-version }} python -m pytest tests -q ${{ matrix.cov }}
 
       - name: import under -W error
         env:
