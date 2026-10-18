@@ -607,7 +607,7 @@ class AllenBradleyEthIpClient(BaseClient):
         base = parsed.base
         cached = self._known_types.get(base)
         if cached is not None:
-            return cached
+            return int(cached)
         request = codec_cip.build_tag_read(
             codec_cip.tag_type_path(parsed, zero_last_index=True), 1
         )

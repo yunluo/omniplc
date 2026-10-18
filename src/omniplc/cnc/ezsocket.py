@@ -527,7 +527,7 @@ def _parse_error_body(body: bytes) -> int:
             )
         )
     (code,) = struct.unpack_from("<I", body, code_offset + 3)
-    return code
+    return int(code)
 
 
 def decode_get_data(payload: bytes, request_type: int) -> Any:

@@ -116,7 +116,7 @@ def _com_error() -> Type[BaseException]:
     """取 comtypes.COMError 类型(延迟导入,内部函数)。"""
     import comtypes
 
-    return comtypes.COMError
+    return cast(Type[BaseException], comtypes.COMError)
 
 
 def _return_code(result: Any) -> int:
@@ -147,7 +147,7 @@ def _locate_raw_com_attr(com_type: Any, method: str) -> str:
     for klass in com_type.__mro__:
         for key in vars(klass):
             if key.lower().endswith(suffix):
-                return key
+                return str(key)
     raise OmniPLCInternalError(
         _(
             "MX Component 接口缺少原始方法 {}(COM 控件未按类型库绑定,块读写无法走原始 vtable 通道)"

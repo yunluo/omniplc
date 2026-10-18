@@ -312,7 +312,7 @@ def registers_to_float32(
 ) -> float:
     """把 2 个寄存器按指定字序解码为 32 位浮点数(float32)。"""
     _require_register_count(registers, 2, "registers_to_float32")
-    return struct.unpack(">f", registers_to_canonical(registers, word_order))[0]
+    return float(struct.unpack(">f", registers_to_canonical(registers, word_order))[0])
 
 
 def float32_to_registers(
@@ -344,7 +344,7 @@ def registers_to_float64(
     BADC→BADCFEHG、DCBA→HGFEDCBA。
     """
     _require_register_count(registers, 4, "registers_to_float64")
-    return struct.unpack(">d", registers_to_canonical(registers, word_order))[0]
+    return float(struct.unpack(">d", registers_to_canonical(registers, word_order))[0])
 
 
 def float64_to_registers(
@@ -505,9 +505,9 @@ def words_to_value(
     raw = words_to_bytes(seq, byteorder)
     order = _byteorder(byteorder)
     if data_type is DataType.FLOAT:
-        return struct.unpack(("<f" if order == "little" else ">f"), raw)[0]
+        return float(struct.unpack(("<f" if order == "little" else ">f"), raw)[0])
     if data_type is DataType.DOUBLE:
-        return struct.unpack(("<d" if order == "little" else ">d"), raw)[0]
+        return float(struct.unpack(("<d" if order == "little" else ">d"), raw)[0])
     signed = data_type in (DataType.SHORT, DataType.INT, DataType.LONG)
     return int.from_bytes(raw, order, signed=signed)
 

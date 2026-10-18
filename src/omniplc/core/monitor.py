@@ -575,7 +575,7 @@ class Monitor:
         点数);超预算时 :meth:`stop` 先返回、线程仍在收尾最后一个周期,
         随后自然退出,无害。
         """
-        return (
+        return float(
             self._interval
             + (self._client.retries + 1) * self._client.receive_timeout
             + 1.0

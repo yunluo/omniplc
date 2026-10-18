@@ -798,17 +798,17 @@ def expected_response_length(request_pdu: bytes) -> int:
     ):
         raise ProtocolFrameError(_("读请求 PDU 长度不足:{}").format(len(request_pdu)))
     if function_code in _READ_BIT_FUNCTIONS:
-        count = struct.unpack(">H", request_pdu[3:5])[0]
+        count = int(struct.unpack(">H", request_pdu[3:5])[0])
         return 2 + (count + 7) // 8
     if function_code in _READ_REGISTER_FUNCTIONS:
-        count = struct.unpack(">H", request_pdu[3:5])[0]
+        count = int(struct.unpack(">H", request_pdu[3:5])[0])
         return 2 + count * 2
     if function_code == ModbusFunction.READ_WRITE_MULTIPLE_REGISTERS:
         if len(request_pdu) < 5:
             raise ProtocolFrameError(
                 _("FC23 请求 PDU 长度不足:{}").format(len(request_pdu))
             )
-        read_count = struct.unpack(">H", request_pdu[3:5])[0]
+        read_count = int(struct.unpack(">H", request_pdu[3:5])[0])
         return 2 + read_count * 2
     if function_code in (
         ModbusFunction.WRITE_SINGLE_COIL,

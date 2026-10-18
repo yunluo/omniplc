@@ -259,13 +259,13 @@ class _KeyenceHostLinkBase(BaseClient):
             return self._read_word_token(parsed, ".D")
         if data_type is DataType.FLOAT:
             words = self._read_consecutive(parsed, 2)
-            return struct.unpack("<f", convert.words_to_bytes(words)[:4])[0]
+            return float(struct.unpack("<f", convert.words_to_bytes(words)[:4])[0])
         if data_type in (DataType.LONG, DataType.ULONG):
             words = self._read_consecutive(parsed, 4)
             raw = convert.words_to_bytes(words)[:8]
             return int.from_bytes(raw, "little", signed=data_type is DataType.LONG)
         words = self._read_consecutive(parsed, 4)
-        return struct.unpack("<d", convert.words_to_bytes(words)[:8])[0]
+        return float(struct.unpack("<d", convert.words_to_bytes(words)[:8])[0])
 
     def _write_word(
         self, parsed: KvAddress, data_type: DataType, value: PrimitiveValue

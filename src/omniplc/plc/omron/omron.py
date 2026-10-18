@@ -79,7 +79,7 @@ def _local_ip_for(host: str, port: int) -> str:
     """
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
         probe.connect((host, port))
-        return probe.getsockname()[0]
+        return str(probe.getsockname()[0])
 
 
 class _OmronFinsBase(BaseClient):

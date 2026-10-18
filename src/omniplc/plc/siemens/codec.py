@@ -176,7 +176,7 @@ def parse_tpkt_header(header: bytes) -> int:
         raise S7ProtocolError(_("TPKT 版本非法:{}(应为 3)").format(version))
     if length < 7:
         raise S7ProtocolError(_("TPKT 帧长非法:{}(至少 7)").format(length))
-    return length
+    return int(length)
 
 
 def build_cotp_cr(
@@ -258,7 +258,7 @@ def parse_cotp_cc(payload: bytes, expected_remote_tsap: Optional[int] = None) ->
                     )
                 break
             cursor += length
-    return struct.unpack(">H", payload[2:4])[0]
+    return int(struct.unpack(">H", payload[2:4])[0])
 
 
 def build_cotp_dt(data: bytes) -> bytes:
@@ -407,7 +407,7 @@ def parse_setup_comm(pdu: bytes, sequence: int) -> int:
                 function, len(parameters)
             )
         )
-    return struct.unpack(">H", parameters[6:8])[0]
+    return int(struct.unpack(">H", parameters[6:8])[0])
 
 
 # ---------------------------------------------------------------- 地址规范

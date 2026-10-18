@@ -384,7 +384,7 @@ def parse_register_session(reply: bytes) -> int:
         raise ProtocolFrameError(
             _("RegisterSession 应答长度不足:{} 字节").format(len(reply))
         )
-    return struct.unpack_from("<I", reply, 4)[0]
+    return int(struct.unpack_from("<I", reply, 4)[0])
 
 
 def build_unregister_session(session_handle: int) -> bytes:
@@ -1638,7 +1638,7 @@ def decode_word(data: bytes, cip_type: int) -> int:
         raise ValueError(_("不支持的位访问类型:0x{:02X}").format(cip_type))
     if len(data) < size:
         raise ProtocolFrameError(_("应答数据不足:{} 字节").format(size))
-    return struct.unpack_from(fmt, data, 0)[0]
+    return int(struct.unpack_from(fmt, data, 0)[0])
 
 
 def decode_string_payload(data: bytes, encoding: str) -> str:

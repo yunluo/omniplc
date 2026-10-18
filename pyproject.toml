@@ -151,6 +151,10 @@ check_untyped_defs = true
 no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
+# review-1043 己-4 严格化第一档(2026-10-18):禁止从 Any 返回值静默外溢——
+# 协议解析/转换里 3.7 下 struct.unpack/getsockname/getattr 返回 Any,29 处
+# 已逐个显式收口(int()/float()/str()/cast,值类型运行期 no-op)。
+warn_return_any = true
 
 # 可选运行时依赖 serial(串口扩展)/comtypes(MX Component 扩展)/
 # asyncua(OPC-UA 扩展)

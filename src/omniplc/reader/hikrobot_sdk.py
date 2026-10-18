@@ -42,7 +42,7 @@ import ctypes
 import os
 import platform
 import struct as _struct
-from typing import NamedTuple, Optional, Tuple
+from typing import NamedTuple, Optional, Tuple, cast
 
 from ..core.base_client import BaseClient
 from ..core.errors import (
@@ -850,7 +850,7 @@ class _HikrobotSdkSession(BaseTransport):
                     info.nTLayerType == _MV_CODEREADER_GIGE_DEVICE
                     and info.SpecialInfo.stGigEInfo.nCurrentIp == target
                 ):
-                    return info
+                    return cast(_MV_CODEREADER_DEVICE_INFO, info)
         raise DeviceError(
             _(
                 "枚举未找到目标设备 {}(私有协议与 GigE/USB 枚举均未命中,请核对 IP 与网口)"
@@ -909,8 +909,8 @@ class _HikrobotSdkSession(BaseTransport):
         前置:TriggerMode=On(MvCodeReaderParams.h 行 843-847),否则设备按
         GenICam 语义返回错误码。
         """
-        return self._require_functions().SetCommandValue(
-            self._handle, b"TriggerSoftware"
+        return int(
+            self._require_functions().SetCommandValue(self._handle, b"TriggerSoftware")
         )
 
     def get_one_frame_ex2(self, data_ptr: object, info: object, timeout_ms: int) -> int:
@@ -918,8 +918,10 @@ class _HikrobotSdkSession(BaseTransport):
 
         超时无帧返回 ``MV_CODEREADER_E_NODATA``(指南 §3.3.3 印刷页 27-28)。
         """
-        return self._require_functions().GetOneFrameTimeoutEx2(
-            self._handle, data_ptr, info, timeout_ms
+        return int(
+            self._require_functions().GetOneFrameTimeoutEx2(
+                self._handle, data_ptr, info, timeout_ms
+            )
         )
 
     def set_enum_value(self, key: str, value: int) -> None:

@@ -638,9 +638,9 @@ class SiemensS7Client(BaseClient):
             # 前置校验已保证 bit 非空,or 0 仅供类型收窄
             return bool((data[0] >> (parsed.bit or 0)) & 1)
         if data_type is DataType.FLOAT:
-            return struct.unpack(">f", data)[0]
+            return float(struct.unpack(">f", data)[0])
         if data_type is DataType.DOUBLE:
-            return struct.unpack(">d", data)[0]
+            return float(struct.unpack(">d", data)[0])
         return int.from_bytes(
             data,
             "big",

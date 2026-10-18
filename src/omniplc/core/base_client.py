@@ -2105,7 +2105,7 @@ class BaseClient(ABC):
         :param attr: 内部计数器字段名(以下划线开头,如 ``"_serial"``)
         :param bits: 位宽(默认 16,即 0~65535 循环)
         """
-        current = getattr(self, attr)
+        current = int(getattr(self, attr))
         next_val = (current + 1) & ((1 << bits) - 1)
         setattr(self, attr, next_val)
         return next_val
