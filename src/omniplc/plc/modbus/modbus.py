@@ -78,8 +78,9 @@ class ModbusBaseClient(BaseClient):
     走线子类只需实现 :meth:`_create_transport`(传输挂载)与
     :meth:`_transact`(帧装拆:MBAP 或 RTU)。
 
-    广播语义:RTU 站号 0 为广播地址,设备不回包——写操作发送后
-    不等响应直接成功,读操作直接拒绝;TCP 无广播概念(Unit ID 为
+    广播语义(依据:Modbus 串口链路 V1.02 §2.4.2 印刷页 10,
+    Slave State Diagram):RTU 站号 0 为广播地址,设备不回包——写操作
+    发送后不等响应直接成功,读操作直接拒绝;TCP 无广播概念(Unit ID 为
     路由字段),站号 0 照常收发。
 
     **广播写的返回语义(review-1043 乙-8 抬头)**:
@@ -516,7 +517,10 @@ class ModbusBaseClient(BaseClient):
         返回与基类一致:`List[bool]`,与 items 顺序对应——同一合并
         chunk 内的条目共享 ok(全部成功或全部失败),跨 chunk 各自独立。
         寄存器位写(``hr0.3`` 这类位号后缀)**不入合并**,走"读-改-写"
-        两段事务(FC 03 + FC 06),与基类逐点行为一致。
+        两段事务(FC 03 + FC 06),与基类逐点行为一致;同批内同址
+        ``hr0`` 与 ``hr0.3`` 混写时,合并字块写(FC 16)恒在 RMW 之后
+        执行,**字写无条件覆盖同址位写结果**(两条均返回 ``True``,
+        与 :meth:`write_batch` 同口径披露,review-1042 §10.3)。
 
         失败语义:
 

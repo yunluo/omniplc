@@ -184,7 +184,10 @@ MODBUS_DEVICE_ID_OBJECT_NAMES: Dict[int, str] = {
     0x05: "model_name",
     0x06: "user_application_name",
 }
-"""FC43 标准标识对象号 → 名称(0x07~0x7F 保留,0x80~0xFF 厂商私有)。"""
+"""FC43 标准标识对象号 → 库内 snake_case 名(规范为 CamelCase:VendorName /
+ProductCode / MajorMinorRevision / VendorUrl / ProductName / ModelName /
+UserApplicationName)。依据:Modbus 应用协议 V1.1b3 §6.21(印刷页 43~44)
+对象表;0x07~0x7F 保留、0x80~0xFF 厂商私有。"""
 MODBUS_DEVICE_ID_RESERVED_MIN: int = 0x07
 """FC43 保留对象号下界(标准对象 0x00~0x06 之后)。"""
 MODBUS_DEVICE_ID_RESERVED_MAX: int = 0x7F
