@@ -7,12 +7,15 @@
 子进程 import 冒烟(import omniplc / aio / native)。
 
 pyi 说明(2026-10-19 方案 B 拍板):pyd 轮无源码,消费方 IDE 零补全/零类型;
-构建期用 ``uvx stubgen``(--include-docstrings --no-import,纯 AST 解析)从
-当前 src 现生成全量 pyi 打入轮子——与 pyd 同源必然一致、零漂移、零手动
-维护;py.typed 随之保留(有 pyi 即可注类型标记)。stubgen 走 uvx 隔离环境
-(最新 mypy),3.7 腿免装 mypy 1.4.1(其 typed-ast 依赖无 cp37-win32 轮、
-源码编译脆弱且有中文 tokenizer 前科);pyi 为纯文本与解释器版本无关,两腿
-产物一致。
+构建期用 ``uvx --python 3.12 --from mypy stubgen``(--include-docstrings
+--no-import,纯 AST 解析)从当前 src 现生成全量 pyi 打入轮子——与 pyd
+同源必然一致、零漂移、零手动维护;py.typed 随之保留(有 pyi 即可注类型
+标记)。stubgen 走 uvx 隔离环境,**强制 ``--python 3.12``**(最新 mypy,
+纯 Python 轮零编译):3.7 腿若让 uvx 落到系统 3.7,myPy 会解析成 3.7
+兼容最后一版 1.4.1 + typed-ast(C 扩展源码编译,其 stubgen.exe 在 3.7
+上执行崩 SyntaxError——2026-10-19 CI 实踩;typed-ast 无 cp37-win32 轮
+且中文 tokenizer 有前科),显式钉 3.12 由 uv 下载托管解释器绕开;pyi 为
+纯文本与解释器版本无关,两腿产物一致。
 
 用法(目标解释器里先装 cython/setuptools/wheel):
 
@@ -118,6 +121,10 @@ def generate_stubs():
     subprocess.check_call(
         [
             "uvx",
+            "--python",
+            "3.12",  # 强制托管 3.12:3.7 腿若用系统 3.7 会让 mypy 解析成
+            # 1.4.1 + typed-ast(源码编译,stubgen.exe 在 3.7 上执行崩
+            # SyntaxError,2026-10-19 CI 实踩),最新 mypy 纯 Python 轮无此问题
             "--from",
             "mypy",
             "stubgen",

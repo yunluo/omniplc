@@ -73,10 +73,11 @@ jobs:
         run: python -m pip install ${{ matrix.tools }}
 
       - name: Install uv (stubgen)
-        # build_pyd.py 用 `uvx stubgen` 现生成 pyi(方案 B,2026-10-19):
-        # pyd 轮无源码,构建期从当前 src 生成全量 pyi 打入轮子。走 uvx 隔离
-        # 环境装最新 mypy,3.7 腿免装 mypy 1.4.1(typed-ast 无 cp37-win32 轮、
-        # 源码编译脆弱且有中文 tokenizer 前科);pyi 纯文本与解释器无关,两腿一致
+        # build_pyd.py 用 `uvx --python 3.12 --from mypy stubgen` 现生成 pyi
+        # (方案 B,2026-10-19):pyd 轮无源码,构建期从当前 src 生成全量 pyi
+        # 打入轮子。stubgen 显式钉 3.12(uv 下载托管解释器)——3.7 腿若落到
+        # 系统 3.7,mypy 会解析成 1.4.1 + typed-ast(源码编译,stubgen.exe
+        # 执行崩 SyntaxError,CI 实踩);pyi 纯文本与解释器无关,两腿一致
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
 
       - name: Build pyd wheel
