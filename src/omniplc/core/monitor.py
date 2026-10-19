@@ -572,11 +572,18 @@ class Monitor:
         ``(retries + 1) × receive_timeout``(基类逐点 ``read_many`` 时再乘
         点数);超预算时 :meth:`stop` 先返回、线程仍在收尾最后一个周期,
         随后自然退出,无害。
+
+        宿主客户端已被回收时 :attr:`_client` 为 ``None``(弱引用,review-1043
+        丙-1),取不到 ``retries``/``receive_timeout``——旧实现直接解引用,
+        ``monitor.stop()`` 抛 ``AttributeError``(review-1046 C4)。此时采集
+        循环下一拍就会看到宿主消失并自行收尾,故按「一个周期 + 1 秒」给
+        线程留出那一拍的退出时间。
         """
+        client = self._client
+        if client is None:
+            return float(self._interval + 1.0)
         return float(
-            self._interval
-            + (self._client.retries + 1) * self._client.receive_timeout
-            + 1.0
+            self._interval + (client.retries + 1) * client.receive_timeout + 1.0
         )
 
     # ------------------------------------------------------------------

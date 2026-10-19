@@ -778,6 +778,40 @@ def test_monitor_does_not_keep_client_alive() -> None:
     assert wait_until(lambda: not monitor.running)
 
 
+def test_stop_after_host_collected_does_not_raise() -> None:
+    """review-1046 C4:宿主被回收后 ``monitor.stop()`` 不得抛 AttributeError。
+
+    ``_client`` 是弱引用解引用,宿主回收后为 ``None``;旧 ``_join_budget``
+    直接取 ``self._client.retries`` → ``AttributeError('NoneType' object has
+    no attribute 'retries')``,而 ``stop()`` 是**现场收尾必经调用**
+    (atexit/析构/上下文管理器),收尾路径上炸异常会把"最后一步清理"
+    变成新的现场噪声。
+    """
+    import gc
+    import weakref
+
+    client = _client()
+    client.read_many = lambda addresses, data_type: (
+        [  # type: ignore[method-assign]
+            (True, 1)
+        ]
+        * len(addresses)
+    )
+    monitor = client.create_monitor({"a": ("hr0", "ushort")}, interval=0.05)
+    monitor.start()
+    assert wait_until(lambda: monitor.running)
+
+    client_ref = weakref.ref(client)
+    del client
+    gc.collect()
+    assert client_ref() is None
+    assert monitor._client is None  # 宿主确已回收(前置条件)
+
+    monitor.stop()  # 旧实现此处 AttributeError
+    assert not monitor.running
+    assert monitor._join_budget() > 0
+
+
 def test_stop_keeps_registry_entry() -> None:
     """工厂登记 + stop 保留(review-1006 P1 翻转):在册 = 未终态,重启
     无需重登记;仅 disconnect 联动终停并清空。未启动过的监视器 stop 幂等。"""

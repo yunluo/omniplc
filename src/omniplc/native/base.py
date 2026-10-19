@@ -1232,10 +1232,7 @@ class AsyncBaseClient(ABC):
         """写入并回读校验(与同步 :meth:`~omniplc.core.BaseClient.write_and_verify`
         同契约,参数与返回值语义见彼处)。"""
         data_type_enum = DataType.coerce(data_type)
-        if not await self.write(address, data_type_enum, value):
-            return False, None
-        if not verify:
-            return True, None
+        # 回读宽度校验前移到写入之前(与同步层同口径,review-1046 C2)
         if readback_type is not None:
             reread_enum = DataType.coerce(readback_type)
             if reread_enum.byte_size != data_type_enum.byte_size:
@@ -1254,6 +1251,10 @@ class AsyncBaseClient(ABC):
                 )
         else:
             reread_enum = data_type_enum
+        if not await self.write(address, data_type_enum, value):
+            return False, None
+        if not verify:
+            return True, None
         ok, actual = await self.read(address, reread_enum)
         if not ok or actual is None:
             return False, None

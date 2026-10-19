@@ -351,6 +351,39 @@ class TestBatchErrorAddressContext:
         assert client.write_many([("hr1", "ushort", 1)]) == [False]
         assert client.last_error is not None and "hr1" in client.last_error
 
+    def test_mid_batch_failure_not_masked_by_later_success(self) -> None:
+        """review-1046 C1:中点失败 + 末点成功时 ``last_error`` 不能变回 ``None``。
+
+        基类 ``read_many``/``write_many`` 是逐点独立事务,后一次**成功**会
+        ``_clear_error()``;旧实现在这种组合下 ``last_error is None``,而
+        ``_annotate_error_context`` 又对 ``None`` 直接返回——批量结果里有
+        ``False`` 却拿不到任何原因(现场只能二分法手工试)。
+        """
+        client = _ScriptedClient()
+        client.script_failure(
+            DeviceError("Modbus 异常码 0x02(ILLEGAL DATA ADDRESS)", 2)
+        )
+        results = client.read_many(["hr0", "hr1", "hr2"], "ushort")
+        assert results[0] == (False, None)
+        assert results[1] == (True, 1) and results[2] == (True, 1)
+        assert client.last_error is not None
+        assert "hr0" in client.last_error
+        assert "read_many 失败点位" in client.last_error
+        # 三件套整体回写(不只剩一句文案),且不重复计入失败统计
+        assert client.last_error_code == 2
+        assert client.stats["error_count"] == 1
+
+    def test_write_many_mid_failure_keeps_reason(self) -> None:
+        """写侧同口径:第一个失败点的原因不被后续成功写清掉。"""
+        client = _ScriptedClient()
+        client.script_failure(DeviceError("写被拒", 3))
+        assert client.write_many(
+            [("hr0", "ushort", 1), ("hr1", "ushort", 2), ("hr2", "ushort", 3)]
+        ) == [False, True, True]
+        assert client.last_error is not None and "hr0" in client.last_error
+        assert client.last_error_code == 3
+        assert client.stats["error_count"] == 1
+
     def test_long_list_truncated(self) -> None:
         """点位很多时只列前 3 个 + "等 N 点"(不把 last_error 撑爆)。"""
         client = _ScriptedClient()
@@ -552,6 +585,28 @@ class TestWriteAndVerify:
         client.readback = 100
         with pytest.raises(ValueError, match="异型回读"):
             client.write_and_verify("hr0", "long", 100, readback_type="ushort")
+
+    def test_cross_type_readback_rejected_before_write(self) -> None:
+        """review-1046 C2:异型回读在**写之前**拒绝,零字节下发。
+
+        旧实现先 ``self.write`` 再校验宽度,于是"参数非法"的异常是在设备
+        已经被改写之后才抛出的;``verify=False`` 时更彻底——校验整段被跳过,
+        非法 ``readback_type`` 静默忽略。参数错误一律零发送期拒绝。
+        """
+        client = _ScriptedClient()
+        client.readback = 100
+        with pytest.raises(ValueError, match="异型回读"):
+            client.write_and_verify("hr0", "long", 100, readback_type="ushort")
+        assert client.written == []  # 零下发
+        with pytest.raises(ValueError, match="异型回读"):
+            client.write_and_verify(
+                "hr0", "long", 100, verify=False, readback_type="ushort"
+            )
+        assert client.written == []
+        # 同宽回读(readback_type 与写入类型等宽)照常写+读
+        ok, value = client.write_and_verify("hr0", "long", 100, readback_type="ulong")
+        assert ok is True and value == 100
+        assert client.written == [100]
 
 
 # ----------------------------------------------------------------------

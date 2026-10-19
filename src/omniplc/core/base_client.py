@@ -952,14 +952,55 @@ class BaseClient(ABC):
         :param addresses: 地址列表
         :param data_type: 数据类型,推荐用 :class:`omniplc.core.types.DataType` 枚举
         :return: 与地址顺序对应的 ``[(是否成功, 值)]`` 列表
+
+        .. note::
+            本方法逐点独立事务(**不覆写的基类路径**),循环中后续点的
+            **成功**会清掉 ``last_error``;故收尾时把**首个失败点**的根因
+            写回,再追加失败点位标注(review-1046 C1:原实现在「中点失败、
+            末点成功」时 ``last_error`` 为 ``None``——调用方只看到结果里
+            有 ``False``,拿不到任何原因)。统计计数不重复累加。
         """
-        results = [self.read(address, data_type) for address in addresses]
-        failed = [
-            address for address, (ok, _value) in zip(addresses, results) if not ok
-        ]
+        results: List[Tuple[bool, Optional[PrimitiveValue]]] = []
+        failed: List[str] = []
+        first_error: Optional[Tuple[str, Optional[ErrorCategory], Optional[int]]] = None
+        for address in addresses:
+            result = self.read(address, data_type)
+            results.append(result)
+            if not result[0]:
+                failed.append(address)
+                if first_error is None:
+                    first_error = self._error_snapshot()
         if failed:
+            if first_error is not None:
+                self._restore_error(first_error)
             self._annotate_error_context("read_many", failed)
         return results
+
+    def _error_snapshot(
+        self,
+    ) -> Optional[Tuple[str, Optional[ErrorCategory], Optional[int]]]:
+        """取 ``last_error`` 三件套快照(内部方法;状态锁保护,review-1046 C1)。"""
+        with self._state_lock:
+            if self._last_error is None:
+                return None
+            return (
+                self._last_error,
+                self._last_error_category,
+                self._last_error_code,
+            )
+
+    def _restore_error(
+        self, snapshot: Tuple[str, Optional[ErrorCategory], Optional[int]]
+    ) -> None:
+        """把批量入口捕获的失败快照写回 ``last_error`` 三件套(内部方法)。
+
+        ``record=False`` 语义:失败统计在失败当时已经记过,回写不重复累加
+        (review-1046 C1)。
+        """
+        with self._state_lock:
+            self._last_error, self._last_error_category, self._last_error_code = (
+                snapshot
+            )
 
     def _annotate_error_context(self, api: str, addresses: Sequence[str]) -> None:
         """批量入口失败时把**地址上下文**追加进 ``last_error``(内部方法)。
@@ -1079,16 +1120,29 @@ class BaseClient(ABC):
         :return: 与 items 顺序对应的布尔结果列表
         :raises RuntimeError: 只读模式(:attr:`read_only`)
         :raises ValueError: 任一地址/类型/值非法或白名单拒绝(零字节发送)
+
+        .. note::
+            与 :meth:`read_many` 同口径(review-1046 C1):事务期"中点失败、
+            末点成功"时把**首个失败**的根因写回 ``last_error``,并追加失败
+            地址标注,不让后续成功把原因清空。
         """
         for address, data_type, value in items:
             data_type_enum = DataType.coerce(data_type)
             self._validate_value(data_type_enum, value)
             self._check_write_allowed(address, data_type_enum)
-        results = [
-            self.write(address, data_type, value) for address, data_type, value in items
-        ]
-        failed = [address for (address, _dt, _v), ok in zip(items, results) if not ok]
+        results: List[bool] = []
+        failed: List[str] = []
+        first_error: Optional[Tuple[str, Optional[ErrorCategory], Optional[int]]] = None
+        for address, data_type, value in items:
+            ok = self.write(address, data_type, value)
+            results.append(ok)
+            if not ok:
+                failed.append(address)
+                if first_error is None:
+                    first_error = self._error_snapshot()
         if failed:
+            if first_error is not None:
+                self._restore_error(first_error)
             self._annotate_error_context("write_many", failed)
         return results
 
@@ -1667,10 +1721,10 @@ class BaseClient(ABC):
             或回读类型与写入类型宽度不同
         """
         data_type_enum = DataType.coerce(data_type)
-        if not self.write(address, data_type_enum, value):
-            return False, None
-        if not verify:
-            return True, None
+        # review-1046 C2:回读类型的宽度校验必须**先于写入**——旧实现先
+        # self.write 再校验,异型回读在"已经写进 PLC"之后才抛 ValueError,
+        # 调用方拿到异常却已被改了设备;verify=False 时更是完全不校验、
+        # 静默忽略非法 readback_type。参数错误一律零发送期拒绝。
         if readback_type is not None:
             reread_enum = DataType.coerce(readback_type)
             if reread_enum.byte_size != data_type_enum.byte_size:
@@ -1689,6 +1743,10 @@ class BaseClient(ABC):
                 )
         else:
             reread_enum = data_type_enum
+        if not self.write(address, data_type_enum, value):
+            return False, None
+        if not verify:
+            return True, None
         ok, actual = self.read(address, reread_enum)
         if not ok or actual is None:
             return False, None
