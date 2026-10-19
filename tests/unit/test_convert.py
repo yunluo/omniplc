@@ -117,6 +117,21 @@ class TestWordOrder32:
             1, WordOrder.ABCD
         )
 
+    def test_word_order_normalization_matches_client_setter(self) -> None:
+        """review-1046 C8:字符串归一化口径与驱动 ``word_order`` setter 一致。
+
+        旧实现只做 ``WordOrder(word_order)`` 精确匹配:``"cdab"`` / ``" CDAB "``
+        在 ``client.word_order = ...`` 被接受,在 ``convert.*`` 被拒——同一个
+        字符串两种口径。现两处都是「去空白 + 转大写」。
+        """
+        expected = convert.int32_to_registers(0x00010002, WordOrder.CDAB)
+        for spelling in ("CDAB", "cdab", " Cdab ", "  cdab"):
+            assert convert.int32_to_registers(0x00010002, spelling) == expected  # type: ignore[arg-type]
+        assert convert.registers_to_int32(list(expected), "cdab") == 0x00010002  # type: ignore[arg-type]
+        for bad in ("DCAB", "", "  ", "ＡＢＣＤ"):  # 全角不算合法字序
+            with pytest.raises(ValueError, match="字序"):
+                convert.int32_to_registers(1, bad)  # type: ignore[arg-type]
+
     def test_float32_out_of_range_raises_value_error(self) -> None:
         """float32_to_registers 越界收口为 ValueError(review-1043 乙-7):
         原实现让 struct.pack 抛 OverflowError,批量入口只 catch ValueError 时

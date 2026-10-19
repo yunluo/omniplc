@@ -572,11 +572,18 @@ def _reorder_bytes(data: bytes, word_order: WordOrder) -> bytes:
 
     四种字序变换都是对合变换(做两次回到自身),因此编解码共用。
 
+    ``word_order`` 归一化口径与驱动面的 ``word_order`` setter 一致
+    (review-1046 C8):大小写不敏感、允许首尾空白(``" cdab "`` ≡
+    ``WordOrder.CDAB``),非法值抛 ``ValueError``。旧实现只做
+    ``WordOrder(word_order)`` 精确匹配,于是同一个字符串在
+    ``client.word_order = "cdab"`` 被接受、在 ``convert.registers_to_int32(..., "cdab")``
+    被拒——两处口径漂移。
+
     :raises ValueError: ``word_order`` 非 :class:`WordOrder` 且无法归一化
     """
     if not isinstance(word_order, WordOrder):
         try:
-            word_order = WordOrder(word_order)
+            word_order = WordOrder(str(word_order).strip().upper())
         except (ValueError, TypeError) as exc:
             raise ValueError(
                 _("非法字序:{!r}(可选 ABCD/CDAB/BADC/DCBA)").format(word_order)
