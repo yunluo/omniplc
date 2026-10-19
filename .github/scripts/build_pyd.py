@@ -1,9 +1,18 @@
 # -*- coding: utf-8 -*-
 """构建 pyd 无源二进制轮(防源码泄露交付形态,只挂 GitHub Release 附件,不发 PyPI)。
 
-流程:``src/omniplc`` 拷到编译现场 → 剥 PEP563 导入 → Cython 全模块出 .c →
-**删除全部源 .py** → ``bdist_wheel`` 出无源轮(只剩 .pyd + dist-info)→
-pip 装入本解释器 → ``-I`` 干净子进程冒烟(import omniplc / aio / native)。
+流程:``src/omniplc`` 拷到编译现场 → 剥 PEP563 导入 → **stubgen 出全量 pyi**
+→ Cython 全模块出 .c → **删除全部源 .py** → ``bdist_wheel`` 出无源轮
+(只剩 .pyd + .pyi + py.typed + dist-info)→ pip 装入本解释器 → ``-I`` 干净
+子进程 import 冒烟(import omniplc / aio / native)。
+
+pyi 说明(2026-10-19 方案 B 拍板):pyd 轮无源码,消费方 IDE 零补全/零类型;
+构建期用 ``uvx stubgen``(--include-docstrings --no-import,纯 AST 解析)从
+当前 src 现生成全量 pyi 打入轮子——与 pyd 同源必然一致、零漂移、零手动
+维护;py.typed 随之保留(有 pyi 即可注类型标记)。stubgen 走 uvx 隔离环境
+(最新 mypy),3.7 腿免装 mypy 1.4.1(其 typed-ast 依赖无 cp37-win32 轮、
+源码编译脆弱且有中文 tokenizer 前科);pyi 为纯文本与解释器版本无关,两腿
+产物一致。
 
 用法(目标解释器里先装 cython/setuptools/wheel):
 
@@ -32,6 +41,7 @@ cp37-win32 轮运行;2026-09 的 0.29.37 配方因**不支持 typing.NamedTuple 
   ``PYTHONIOENCODING=cp1252`` 条件复现)——脚本开头已把自身 stdout/stderr
   ``reconfigure`` 成 UTF-8 并给子进程兜底 ``PYTHONIOENCODING``(勿删)。
 """
+
 import argparse
 import os
 import re
@@ -75,9 +85,8 @@ def prepare_staging():
         shutil.rmtree(STAGING)
     STAGING.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(SRC, STAGING)
-    typed = STAGING / "py.typed"
-    if typed.exists():
-        typed.unlink()  # pyd-only 轮不带类型标记(无源可注,留之反让检查器困惑)
+    # py.typed 保留(2026-10-19 起):pyd 轮提供全量 pyi,类型标记不再误导
+    # (此前的注释口径「无源可注,留之反让检查器困惑」随方案 B 撤销)
     stripped = 0
     touched = 0
     for py in sorted(STAGING.rglob("*.py")):
@@ -94,6 +103,52 @@ def prepare_staging():
             touched += 1
     print("staging:", STAGING)
     print("剥 PEP563:{} 处(涉 {} 文件)".format(stripped, touched))
+
+
+def generate_stubs():
+    """stubgen 从当前 src 现生成全量 pyi 拷入 staging(方案 B,2026-10-19)。
+
+    走 ``uvx stubgen``(隔离环境装最新 mypy),不污染构建解释器;``--no-import``
+    纯 AST 解析不 import omniplc(3.7 腿也无需运行时);``--include-docstrings``
+    保留中文文档。pyi 纯文本与解释器无关,两腿产物一致。产出校验:pyi 文件数
+    与源 .py 数相等。
+    """
+    out = BUILD_ROOT / "stubs-out"
+    out.mkdir(parents=True, exist_ok=True)
+    subprocess.check_call(
+        [
+            "uvx",
+            "--from",
+            "mypy",
+            "stubgen",
+            str(SRC),
+            "--include-docstrings",
+            "--no-import",
+            "-o",
+            str(out),
+        ]
+    )
+    # stubgen 输出布局:<out>/omniplc/<模块>.pyi → 拷入 STAGING(包根)
+    stubs_root = out / "omniplc"
+    if not stubs_root.is_dir():
+        raise SystemExit("stubgen 输出未按预期布局:{}".format(stubs_root))
+    copied = 0
+    for pyi in sorted(stubs_root.rglob("*.pyi")):
+        rel = pyi.relative_to(stubs_root)
+        dest = STAGING / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(pyi, dest)
+        copied += 1
+    src_count = len(list(SRC.rglob("*.py")))
+    if copied != src_count:
+        raise SystemExit(
+            "pyi 数 {} != 源模块数 {}——stubgen 输出不完整".format(copied, src_count)
+        )
+    total = sum(
+        len(p.read_text(encoding="utf-8").splitlines())
+        for p in stubs_root.rglob("*.pyi")
+    )
+    print("stubgen:{} 个 pyi / {} 行(含 docstring)已入 staging".format(copied, total))
 
 
 def module_name(rel_path):
@@ -133,7 +188,11 @@ def drop_sources():
     leftovers = list(STAGING.rglob("*.py"))
     if leftovers:
         raise SystemExit("产物树仍残留 .py:{}".format(leftovers[:5]))
-    print("已删源 .py:{} 个(产物树仅剩 .c/.pyd,无源可泄)".format(len(sources)))
+    print(
+        "已删源 .py:{} 个(产物树仅剩 .c/.pyd + .pyi + py.typed,无源码可泄)".format(
+            len(sources)
+        )
+    )
 
 
 def build_wheel(extensions, version, compiler):
@@ -193,16 +252,88 @@ def find_wheel():
     return wheels[0]
 
 
+def inject_stubs(wheel):
+    """向 wheel 注入 pyi + py.typed(方案 B,2026-10-19)。
+
+    bdist_wheel 的 ``packages=[]`` 只收 ext 编译产物,.pyi/py.typed 不在其列;
+    构建后按 zip 追加 + 同步更新 RECORD(uninstall 能干净清掉,规范自洽)。
+    两遍重建:一遍加文件,一遍替换 RECORD 内容。
+    """
+    import base64
+    import hashlib
+    import zipfile
+
+    inject = [
+        (pyi, Path("omniplc") / pyi.relative_to(STAGING).as_posix())
+        for pyi in sorted(STAGING.rglob("*.pyi"))
+    ]
+    typed = STAGING / "py.typed"
+    if typed.exists():
+        inject.append((typed, Path("omniplc") / "py.typed"))
+    if not inject:
+        print("注入:无 pyi/py.typed(未生成?)")
+        return
+
+    def _record_hash(data):
+        digest = hashlib.sha256(data).digest()
+        return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+    record_name = None
+    record_lines = None
+    # 第一遍:全部文件(含新 pyi)写出到临时轮
+    tmp1 = wheel.with_name(wheel.name + ".tmp1")
+    with zipfile.ZipFile(wheel, "r") as zin, zipfile.ZipFile(tmp1, "w") as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            zout.writestr(item, data)
+            if item.filename.endswith(".dist-info/RECORD"):
+                record_name = item.filename
+                record_lines = data.decode("utf-8").splitlines()
+        for src, arc in inject:
+            zout.writestr(arc.as_posix(), src.read_bytes())
+    # 第二遍:用更新后的 RECORD 重建(替换内容)
+    for arc, src in inject:
+        data = src.read_bytes()
+        record_lines.append(
+            "{},sha256={},{}".format(arc.as_posix(), _record_hash(data), len(data))
+        )
+    new_record = ("\n".join(record_lines) + "\n").encode("utf-8")
+    tmp2 = wheel.with_name(wheel.name + ".tmp2")
+    with zipfile.ZipFile(tmp1, "r") as zin, zipfile.ZipFile(tmp2, "w") as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == record_name:
+                data = new_record
+            zout.writestr(item, data)
+    tmp1.unlink()
+    tmp2.replace(wheel)
+    print("注入:{} 个 pyi + py.typed 已入 wheel,RECORD 已更新".format(len(inject)))
+
+
 def smoke(wheel):
     """装轮 + 干净子进程冒烟:二合一验证(轮元数据/平台标签被 pip 接受 + 运行可用)。"""
     subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "--no-deps", "--force-reinstall", str(wheel)]
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "--force-reinstall",
+            str(wheel),
+        ]
     )
     neutral = BUILD_ROOT / "smoke-cwd"
     neutral.mkdir(parents=True, exist_ok=True)
     code = (
         "import omniplc, omniplc.aio, omniplc.native\n"
         "assert omniplc.__file__.endswith('.pyd'), omniplc.__file__\n"
+        "import importlib.util\n"
+        "site = importlib.util.find_spec('omniplc').submodule_search_locations\n"
+        "root = next(iter(site))\n"
+        "assert (root / 'py.typed').is_file(), 'py.typed 缺失'\n"
+        "assert (root / '__init__.pyi').is_file(), '__init__.pyi 缺失'\n"
+        "assert len(list(root.rglob('*.pyi'))) >= 80, 'pyi 数量不足'\n"
         "print('pyd smoke ok:', omniplc.__file__)\n"
     )
     subprocess.check_call([sys.executable, "-I", "-c", code], cwd=str(neutral))
@@ -219,7 +350,7 @@ def main():
 
     print(
         "builder: {} | {}-bit".format(
-            sys.version.replace("\n", " "), 64 if sys.maxsize > 2 ** 32 else 32
+            sys.version.replace("\n", " "), 64 if sys.maxsize > 2**32 else 32
         )
     )
     if OUT.exists():
@@ -230,11 +361,13 @@ def main():
         shutil.rmtree(BUILD_ROOT)
     version = parse_version()
     prepare_staging()
+    generate_stubs()
     extensions = cythonize_staging()
     drop_sources()
     build_wheel(extensions, version, args.compiler)
     wheel = find_wheel()
     print("wheel:{} | {} bytes".format(wheel.name, wheel.stat().st_size))
+    inject_stubs(wheel)
     smoke(wheel)
     print("DONE:", wheel.name)
 
