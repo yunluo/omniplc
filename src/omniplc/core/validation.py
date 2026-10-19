@@ -55,10 +55,16 @@ def check_range(value: int, low: int, high: int, name: str) -> int:
 
     供各驱动 32/64 位等定点范围校验复用(16 位请用 :func:`check_int16`/
     :func:`check_uint16`,它们还带换算语义)。
+
+    入口先过 :func:`require_int`(review-1046 C7):本函数 docstring 一直自称
+    "校验**整数**",实现却只比大小——``check_range(1.5, 0, 10, "x")`` 曾原样
+    放行 ``1.5``,``True`` 也被当 1 收下,与 :func:`require_int`/
+    :func:`check_byte_field` 的口径不一致。
     """
-    if not low <= value <= high:
+    number = require_int(value)
+    if not low <= number <= high:
         raise ValueError(_("{} 超出范围 {}~{}:{}").format(name, low, high, value))
-    return value
+    return number
 
 
 def check_byte_field(name: str, value: int, maximum: int = UINT8_MAX) -> int:

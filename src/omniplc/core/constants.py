@@ -278,22 +278,33 @@ MC_4E_RESPONSE_HEAD_SIZE: int = 13
 MC_1E_RESPONSE_HEAD_SIZE: int = 2
 """1E 响应头:副头部(1) + 结束代码(1)。"""
 MC_1E_MAX_POINTS: int = 256
-"""1E 位单位成批读点数上限(SH-080008 Appendix 5 印刷页 466:0401 成批读
-位单位 A 列 = 256 点;原保守取 255,review-1009 P2-1/P3-9 订正)。点数线上
-为「1 字节点数 + 1 字节恒零域」(印刷页 402 §18.4:二进制发 1 字节数值、
-256 点指定 00H;印刷页 403 Fixed value 恒 0)——256 = 低字节 00 + 恒零 00,
-非 2 字节小端 00 01(review-1020 P1-6 订正 review-1009「00 01 可编码」
-误口径)。字单位上限另行分口,见 :data:`MC_1E_MAX_WORD_READ_POINTS`
-(字单位 A 列 = 64 点)。"""
+"""1E 位单位成批读点数上限(SH-080008 Appendix 5 印刷页 470「Commands for
+1E frame」:Batch read Bit units 00H = 256 points;原保守取 255,review-1009
+P2-1/P3-9 订正)。点数线上为「1 字节点数 + 1 字节恒零域」(印刷页 402 §18.4:
+二进制发 1 字节数值、256 点指定 00H;印刷页 403 Fixed value 恒 0)——
+256 = 低字节 00 + 恒零 00,非 2 字节小端 00 01(review-1020 P1-6 订正
+review-1009「00 01 可编码」误口径)。字单位上限另行分口,见
+:data:`MC_1E_MAX_WORD_READ_POINTS` 与 :data:`MC_1E_MAX_BITDEV_WORD_READ`
+(review-1046 C9:旧尾句「字单位 A 列 = 64 点」引的是印刷页 466 的 4C/3C/4E
+表,与紧随其后的 256 直接对立)。"""
 MC_1E_MAX_WORD_READ_POINTS: int = 256
-"""1E 字单位成批读字数上限(SH-080008 Appendix 5 印刷页 470:Commands for
-1E frame,Batch read Word units 01H Word device = 256 points;位软元件按字
-单位读上限 128 字单列,见 :data:`MC_1E_MAX_BIT_WORD_READ_POINTS`)。
+"""1E 字单位成批读**字软元件**的字数上限(SH-080008 Appendix 5 印刷页 470:
+Commands for 1E frame,Batch read Word units 01H Word device = 256 points;
+位软元件按字单位读更紧,单列见 :data:`MC_1E_MAX_BITDEV_WORD_READ`)。
 
 review-1024 §8.1 P1:历史注释引「印刷页 466」系用错表——自印 466 是 4C/3C/
 4E/3E 命令表(A 列 = A 系列模块经**该帧**访问的限制,经 1E 帧的字成批读
 就显示 64),1E 自己的命令表在自印 470,01H 字软元件成批读 = 256 点。原值 64
 把 65~256 的合法成批读在入参期直接拒绝,review-1024 P1-A 修。"""
+MC_1E_MAX_BITDEV_WORD_READ: int = 128
+"""1E 字单位成批读**位软元件**的字数上限(SH-080008 Appendix 5 印刷页 470:
+Commands for 1E frame,Batch read Word units 01H Bit device = 128 words
+(2048 points))。
+
+位软元件按 16 点/字打包,故上限比字软元件(256 字)更紧;review-1046 C9
+补:原实现位/字软元件共用 ``MC_1E_MAX_WORD_READ_POINTS``,129~256 字
+(2048~4096 点)的请求在入参期放行、到 PLC 才被结束码拒绝,违反
+``read_range`` 的入参期收口口径。"""
 MC_1E_ERROR_EXTRA: int = 0x5B
 """1E 该结束码的响应后跟**1 字节**异常细分码(SH-080008 §18.2 印刷页 395:
 二进制结束代码为 1 字节,算例 ``5BH 10H`` = 5B 后跟 PC 号错 10H;

@@ -34,6 +34,17 @@ from omniplc.plc.melsec.melsec import _encode_32, _encode_64
 # ----------------------------------------------------------------------
 
 
+class _WordAccessMelsecMcTcpClient(AsyncMelsecMcTcpClient):
+    """允许位软元件按字单位访问的测试子类(松下 MC 兼容口径)。
+
+    正式层里只有 :class:`~omniplc.plc.panasonic.mc.PanasonicMcTcpClient`
+    把 ``_bit_device_word_access_allowed`` 置 True(且仅 3E 帧),故 1E 的
+    「位软元件按字单位读」上限(review-1046 C9)只能由测试子类覆盖。
+    """
+
+    _bit_device_word_access_allowed = True
+
+
 def _qna_read_response(
     values: Sequence[int], serial: int = 0, end_code: int = 0
 ) -> bytes:
@@ -1213,5 +1224,12 @@ def test_read_range_1e_and_rejects(monkeypatch: pytest.MonkeyPatch, loop: Any) -
             await one_e.read_range("D100", 129, DataType.INT)
         with pytest.raises(ValueError, match="点数超上限"):
             await one_e.read_range("M0", 257, DataType.BOOL)
+        # review-1046 C9:1E 字单位读位软元件上限 128 字(印刷页 470
+        # 01H Bit device = 128 words),比字软元件的 256 字紧
+        word_access = _WordAccessMelsecMcTcpClient("127.0.0.1", 2000, "1E")
+        with pytest.raises(ValueError, match="字数超上限"):
+            await word_access.read_range("M0", 129, DataType.SHORT)
+        with pytest.raises(ValueError, match="字数超上限"):
+            await word_access.read_range("M0", 65, DataType.INT)  # 65×2=130 字
 
     loop.run_until_complete(scenario())

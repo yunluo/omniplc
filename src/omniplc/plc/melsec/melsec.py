@@ -28,6 +28,7 @@ from ...core.constants import (
     MC_1C_MAX_WORD_POINTS,
     MC_1E_ERROR_EXTRA,
     MC_1E_ERROR_EXTRA_SIZE,
+    MC_1E_MAX_BITDEV_WORD_READ,
     MC_1E_MAX_POINTS,
     MC_1E_MAX_WORD_READ_POINTS,
     MC_1E_RESPONSE_HEAD_SIZE,
@@ -405,6 +406,14 @@ class _MelsecMcBase(BaseClient):
                     ).format(parsed.device, parsed.number)
                 )
             width = data_type_enum.register_size
+            if self._frame is McFrame.FRAME_1E and is_bit_device:
+                # review-1046 C9:1E 帧字单位成批读对**位软元件**另有更紧的
+                # 上限——Appendix 5 印刷页 470「Commands for 1E frame」01H
+                # Bit device = 128 words(2048 points);位软元件按 16 点/字
+                # 打包,故比字软元件的 256 字紧。旧实现两者共用 256,129~256
+                # 字在入参期放行、发到 PLC 才被结束码拒(与上位"入参期收口"
+                # 口径相反)
+                word_limit = MC_1E_MAX_BITDEV_WORD_READ
             if count * width > word_limit:
                 raise ValueError(
                     _("MC read_range 字数超上限 {}(帧型 {}):{}×{}={}").format(

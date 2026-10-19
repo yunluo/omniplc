@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, Iterator, Mapping, Optional, Union
 
 from .i18n import _
+from .types import DataType
 
 PathLike = Union[str, os.PathLike]
 
@@ -33,6 +34,39 @@ class Tag:
     scale: float = 1.0
     offset: float = 0.0
     remark: str = ""
+
+
+def check_tag_scaling(tag_id: str, scale: object, offset: object) -> None:
+    """校验点位的线性缩放参数,非法抛 :class:`ValueError`(内部无状态纯函数)。
+
+    三个入口共用同一份口径(review-1046 C5/C15):
+
+    - :meth:`TagTable._validate_and_insert`(点位表构造期);
+    - ``BaseClient.read_tag``(直接传 ``Tag`` 实例时**完全绕过**点位表,
+      旧实现读侧连有限性都不查:``scale=nan`` 原样交付 ``nan``、
+      ``scale=0`` 静默交付 ``offset``,与写侧口径不对称);
+    - ``BaseClient.write_tag`` 与 native 镜像层的同名方法。
+
+    ``scale``/``offset`` 必须是数字(排除 ``bool``——``True`` 当 1.0 用是笔误)、
+    有限数(``inf`` 逆缩放恒 0、``nan`` 全毒),且 ``scale != 0``(无法反算)。
+
+    :param tag_id: 点位标识,仅用于报错文案
+    :param scale: 线性缩放系数
+    :param offset: 线性偏移量
+    """
+    for name, value in (("scale", scale), ("offset", offset)):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(
+                _("点位 {!r} 的 {} 必须是数字,收到:{!r}").format(tag_id, name, value)
+            )
+        if not math.isfinite(value):
+            raise ValueError(
+                _(
+                    "点位 {!r} 的 scale/offset 必须为有限数:scale={!r}, offset={!r}"
+                ).format(tag_id, scale, offset)
+            )
+    if scale == 0:
+        raise ValueError(_("点位 {!r} 的 scale 不能为 0,无法按比例缩放").format(tag_id))
 
 
 class TagTable(Mapping[str, Tag]):
@@ -62,29 +96,33 @@ class TagTable(Mapping[str, Tag]):
                 self._validate_and_insert(tag)
 
     def _validate_and_insert(self, tag: Tag) -> None:
-        """校验一个点位并写入内部字典(内部方法,仅构造期调用)。"""
-        if not tag.tag_id or not tag.tag_id.strip():
+        """校验一个点位并写入内部字典(内部方法,仅构造期调用)。
+
+        review-1046 C15:构造期是唯一能挡住"坏点位表"的地方,旧实现只查空串
+        与 ``scale``/``offset`` 的有限性,于是 ``scale="2"`` 抛 ``TypeError``、
+        ``tag_id=5`` 抛 ``AttributeError``、``data_type="falt"`` 一路放行到首次
+        ``read_tag`` 才炸。现按库内约定统一为 ``ValueError``,并把
+        ``data_type`` 在构造期就过一遍 :meth:`DataType.coerce`。
+        """
+        if not isinstance(tag.tag_id, str):
+            raise ValueError(
+                _("点位字段 {!r} 必须是字符串,收到:{!r}").format("tag_id", tag.tag_id)
+            )
+        if not tag.tag_id.strip():
             raise ValueError(_("点位标识不能为空"))
-        if not tag.address or not tag.address.strip():
+        if not isinstance(tag.address, str):
+            raise ValueError(
+                _("点位字段 {!r} 必须是字符串,收到:{!r}").format("address", tag.address)
+            )
+        if not tag.address.strip():
             raise ValueError(_("点位 {!r} 的地址不能为空").format(tag.tag_id))
-        if not math.isfinite(tag.scale):
-            # NaN == 0 / inf == 0 均为 False,`scale == 0` 拦不住;
-            # scale=inf 会把整数点位逆缩放成 0 静默写入,NaN 写 nan
+        try:
+            DataType.coerce(tag.data_type)
+        except ValueError as exc:
             raise ValueError(
-                _("点位 {!r} 的 scale 必须为有限数,收到:{!r}").format(
-                    tag.tag_id, tag.scale
-                )
-            )
-        if tag.scale == 0:
-            raise ValueError(
-                _("点位 {!r} 的 scale 不能为 0(写入无法逆缩放)").format(tag.tag_id)
-            )
-        if not math.isfinite(tag.offset):
-            raise ValueError(
-                _("点位 {!r} 的 offset 必须为有限数,收到:{!r}").format(
-                    tag.tag_id, tag.offset
-                )
-            )
+                _("点位 {!r} 的 data_type 非法:{}").format(tag.tag_id, exc)
+            ) from exc
+        check_tag_scaling(tag.tag_id, tag.scale, tag.offset)
         if tag.tag_id in self._tags:
             raise ValueError(_("点位标识重复:{!r}").format(tag.tag_id))
         self._tags[tag.tag_id] = tag

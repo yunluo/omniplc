@@ -181,6 +181,60 @@ def test_read_tag_failure_and_binding() -> None:
         client.read_tag("pressure")  # 标识不存在
 
 
+@pytest.mark.parametrize("bad_scale", [0.0, float("nan"), float("inf")])
+def test_read_tag_rejects_bad_scaling(bad_scale: float) -> None:
+    """review-1046 C5:直传 Tag 的读侧缩放参数与写侧同口径。
+
+    点位表构造期已校验,但 ``read_tag(Tag(...))`` 完全绕过该路径;旧读侧
+    连有限性都不查——``scale=nan`` 把 nan 当读数交付、``scale=0`` 静默交付
+    ``offset``,现场只会看到"点位永远是同一个数"。
+    """
+    client = _recording_client()
+    client.reads = {"D100": 12345.0}
+    tag = Tag("bad", "D100", "float", scale=bad_scale)
+    with pytest.raises(ValueError, match="scale"):
+        client.read_tag(tag)
+    # 恒等缩放(默认 scale=1/offset=0)不做校验、不发包前拦截
+    assert client.read_tag(Tag("ok", "D100", "float")) == (True, 12345.0)
+    # BOOL/STRING 不参与缩放,不应被 scale 配置拦住
+    client.reads["M10"] = True
+    assert client.read_tag(Tag("bit", "M10", "bool", scale=bad_scale)) == (True, True)
+
+
+def test_write_tag_rejects_non_numeric_scaling() -> None:
+    """review-1046 C5:``scale="2"`` 这类非数字必须在缩放校验处抛 ValueError。"""
+    client = _recording_client()
+    tag = Tag("bad", "D9", "int", scale="2")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="数字"):
+        client.write_tag(tag, 1)
+    assert client.writes == []
+
+
+def test_tag_table_rejects_bad_field_types() -> None:
+    """review-1046 C15:损坏点位表在**构造期**以 ValueError 收口。
+
+    旧实现:``scale="2"`` → ``TypeError``(math.isfinite)、``tag_id=5`` →
+    ``AttributeError``(.strip)、``data_type="falt"`` 一路放行到首次
+    ``read_tag`` 才炸——三种异常类型都不是库内约定的 ``ValueError``。
+    """
+    cases = [
+        Tag(5, "D0", "short"),  # type: ignore[arg-type]
+        Tag("x", 5, "short"),  # type: ignore[arg-type]
+        Tag("x", "D0", "falt"),
+        Tag("x", "D0", "short", scale="2"),  # type: ignore[arg-type]
+        Tag("x", "D0", "short", offset="0"),  # type: ignore[arg-type]
+        Tag("x", "D0", "short", scale=True),  # type: ignore[arg-type]
+        Tag("x", "D0", "short", offset=float("nan")),
+        Tag("x", "D0", "short", scale=0),
+    ]
+    for tag in cases:
+        with pytest.raises(ValueError):
+            TagTable([tag])
+    # 合法表照常通过,且 data_type 不区分大小写(与 DataType.from_name 同口径)
+    table = TagTable([Tag("ok", "D0", " SHORT ")])
+    assert table["ok"].data_type == " SHORT "
+
+
 def test_write_tag_int_result_restored() -> None:
     """回归:逆缩放还原整数,整数点位不再被底层 require_int 拒收。"""
     client = _recording_client()

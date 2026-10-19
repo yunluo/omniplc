@@ -659,6 +659,36 @@ def test_read_range_frame_specific_limits(monkeypatch: pytest.MonkeyPatch) -> No
     assert boundary.read_range("M0", 256, "bool") == (False, None)  # 位侧恰在上限
 
 
+def test_tcp_1e_bit_device_word_read_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """review-1046 C9:1E 帧字单位成批读**位软元件**上限 128 字。
+
+    SH-080008 Appendix 5 印刷页 470「Commands for 1E frame」:01H Batch read
+    Word units / Bit device = 128 words(2048 points),Word device = 256
+    points。位软元件按 16 点/字打包,故两者不能共用 256——旧实现共用,
+    129~256 字(2048~4096 点)在入参期放行,发到 PLC 才被结束码拒。
+    """
+
+    class _WordAccessMc(MelsecMcTcpClient):
+        """松下 MC 兼容口径:允许位软元件按字单位访问。
+
+        正式层只有 :class:`~omniplc.plc.panasonic.mc.PanasonicMcTcpClient`
+        置位该开关(且仅 3E 帧),1E 场景由本测试子类覆盖。
+        """
+
+        _bit_device_word_access_allowed = True
+
+    client = _WordAccessMc("127.0.0.1", 2000, frame="1E")
+    with pytest.raises(ValueError, match="字数超上限"):
+        client.read_range("M0", 129, "short")
+    with pytest.raises(ValueError, match="字数超上限"):
+        client.read_range("M0", 65, "int")  # 65×2 = 130 字
+    # 边界放行:挂无应答脚本传输,只证入口不拒(整批仍 (False, None))
+    _mount(monkeypatch, client, ScriptedTransport([]))
+    client.connect()
+    assert client.read_range("M0", 128, "short") == (False, None)  # 恰在 128
+    assert client.read_range("D100", 128, "int") == (False, None)  # 256 字
+
+
 def test_tcp_1e_read_range_words(monkeypatch: pytest.MonkeyPatch) -> None:
     """read_range:1E 帧走字单位成批读(副头部 0x01),与单点读同命令。"""
     client = MelsecMcTcpClient("127.0.0.1", 2000, frame="1E")

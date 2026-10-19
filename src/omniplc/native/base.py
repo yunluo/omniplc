@@ -89,7 +89,7 @@ from ..core.errors import (
     TransportTimeoutError,
 )
 from ..core.i18n import _
-from ..core.tag import Tag, TagTable
+from ..core.tag import Tag, TagTable, check_tag_scaling
 from ..core.types import DataType, PrimitiveValue
 from ..core.validation import require_count, require_int
 from .transport import AsyncBaseTransport
@@ -988,6 +988,9 @@ class AsyncBaseClient(ABC):
             return True, value
         if resolved.scale == 1.0 and resolved.offset == 0.0:
             return True, value
+        # 与同步层 read_tag 同口径(review-1046 C5):直传 Tag 实例绕过点位表
+        # 构造期校验,读侧也必须拦非有限/为 0 的缩放参数
+        check_tag_scaling(resolved.tag_id, resolved.scale, resolved.offset)
         if (
             isinstance(value, int)
             and not isinstance(value, bool)
@@ -1015,18 +1018,9 @@ class AsyncBaseClient(ABC):
         """
         resolved = self._resolve_tag(tag)
         if isinstance(value, (int, float)) and not isinstance(value, bool):
-            if not math.isfinite(resolved.scale) or not math.isfinite(resolved.offset):
-                # TagTable 构造校验拦不住直传 Tag 实例:scale=inf 时逆缩放
-                # 结果恒 0(静默写 0 触发设备动作)、NaN 写 nan(与同步层同守卫)
-                raise ValueError(
-                    _(
-                        "点位 {!r} 的 scale/offset 必须为有限数:scale={!r}, offset={!r}"
-                    ).format(resolved.tag_id, resolved.scale, resolved.offset)
-                )
-            if resolved.scale == 0:
-                raise ValueError(
-                    _("点位 {!r} 的 scale 不能为 0,无法逆缩放").format(resolved.tag_id)
-                )
+            # TagTable 构造校验拦不住直传 Tag 实例,公共校验在此复检
+            # (与同步层同守卫,review-1046 C5)
+            check_tag_scaling(resolved.tag_id, resolved.scale, resolved.offset)
             if resolved.scale == 1.0 and resolved.offset == 0.0:
                 # 恒等缩放不过 float64 往返(保 64 位整数精度);但整数值 float
                 # 仍要还原为 int——现场"算得 float 再写整数点位"依赖该行为

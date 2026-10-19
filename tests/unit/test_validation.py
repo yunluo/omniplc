@@ -91,6 +91,21 @@ def test_check_range_inclusive_boundary() -> None:
             check_range(bad, 1, 10, "x")
 
 
+def test_check_range_rejects_non_int() -> None:
+    """review-1046 C7:范围闸先过 ``require_int``——真值比较不是类型校验。
+
+    旧实现只比大小,``1.5``/``True`` 原样通过(``1.5`` 随后落到
+    ``struct.pack``/``to_bytes`` 才炸 ``struct.error``/``OverflowError``,
+    ``True`` 被当 1 静默收下),与 :func:`require_int`/:func:`check_byte_field`
+    的类型口径不一致。
+    """
+    for bad in (1.5, True, "5", None):
+        with pytest.raises(ValueError, match="int"):
+            check_range(bad, 0, 10, "x")  # type: ignore[arg-type]
+    # 合法 int 行为不变(含负数区间)
+    assert check_range(-5, -10, 0, "x") == -5
+
+
 def test_check_byte_field_excludes_bool_and_overflow() -> None:
     """单字节路由字段:0~255;bool/float 不再被 int() 静默收窄。"""
     assert check_byte_field("pc", 0) == 0

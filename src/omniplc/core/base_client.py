@@ -71,7 +71,7 @@ from .errors import (
 )
 from .i18n import _
 from .monitor import Monitor, MonitorEvent
-from .tag import Tag, TagTable
+from .tag import Tag, TagTable, check_tag_scaling
 from .types import DataType, PrimitiveValue
 from .validation import require_count, require_int
 
@@ -1321,6 +1321,10 @@ class BaseClient(ABC):
             return True, value
         if resolved.scale == 1.0 and resolved.offset == 0.0:
             return True, value
+        # review-1046 C5:直传 Tag 实例可绕过点位表构造期校验,读侧旧实现连
+        # 有限性都不查(scale=nan 原样交付 nan、scale=0 静默交付 offset);
+        # 与 write_tag 共用同一份校验,只在实际要缩放时才拦(恒等缩放零成本)
+        check_tag_scaling(resolved.tag_id, resolved.scale, resolved.offset)
         if (
             isinstance(value, int)
             and not isinstance(value, bool)
@@ -1361,18 +1365,9 @@ class BaseClient(ABC):
         """
         resolved = self._resolve_tag(tag)
         if isinstance(value, (int, float)) and not isinstance(value, bool):
-            if not math.isfinite(resolved.scale) or not math.isfinite(resolved.offset):
-                # TagTable 校验只覆盖表构造路径;直接传 Tag 实例可绕过——
-                # scale=inf 时逆缩放结果恒 0(静默写 0 触发设备动作)、NaN 写 nan
-                raise ValueError(
-                    _(
-                        "点位 {!r} 的 scale/offset 必须为有限数:scale={!r}, offset={!r}"
-                    ).format(resolved.tag_id, resolved.scale, resolved.offset)
-                )
-            if resolved.scale == 0:
-                raise ValueError(
-                    _("点位 {!r} 的 scale 不能为 0,无法逆缩放").format(resolved.tag_id)
-                )
+            # TagTable 构造期校验只覆盖表路径;直接传 Tag 实例可绕过,
+            # 故此处(与 read_tag 同)再走一遍公共校验(review-1046 C5)
+            check_tag_scaling(resolved.tag_id, resolved.scale, resolved.offset)
             if resolved.scale == 1.0 and resolved.offset == 0.0:
                 # 恒等缩放不过 float64 往返(保 64 位整数精度);但整数值 float
                 # 仍要还原为 int——现场"算得 float 再写整数点位"依赖该行为

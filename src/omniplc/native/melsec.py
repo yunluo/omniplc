@@ -30,6 +30,7 @@ from ..core.base_client import validate_endpoint
 from ..core.constants import (
     MC_1E_ERROR_EXTRA,
     MC_1E_ERROR_EXTRA_SIZE,
+    MC_1E_MAX_BITDEV_WORD_READ,
     MC_1E_MAX_POINTS,
     MC_1E_MAX_WORD_READ_POINTS,
     MC_1E_RESPONSE_HEAD_SIZE,
@@ -338,6 +339,10 @@ class AsyncMelsecMcBase(AsyncBaseClient):
                 ).format(parsed.device, parsed.number)
             )
         width = data_type_enum.register_size
+        if self._frame is McFrame.FRAME_1E and is_bit_device:
+            # 与同步层同口径(review-1046 C9):1E 字单位成批读位软元件上限
+            # 128 字(Appendix 5 印刷页 470,01H Bit device = 128 words)
+            word_limit = MC_1E_MAX_BITDEV_WORD_READ
         if count * width > word_limit:
             raise ValueError(
                 _("MC read_range 字数超上限 {}(帧型 {}):{}×{}={}").format(

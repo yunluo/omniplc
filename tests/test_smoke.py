@@ -118,6 +118,20 @@ class TestDataTypeNames:
         with pytest.raises(ValueError):
             DataType.from_name("int128")
 
+    def test_coerce_rejects_non_str(self) -> None:
+        """review-1046 C6:非 str 入参必须是 ValueError,不能是 AttributeError。
+
+        旧实现把 ``3`` 直接交给 ``name.strip()``,抛
+        ``AttributeError('int' object has no attribute 'strip')``——它不在
+        ``_execute`` 的异常转换集合里,会以"编程错误"姿态从公共 API 逃逸,
+        与 ``coerce`` docstring 声明的 ``ValueError`` 契约相反。
+        """
+        for bad in (3, 3.5, None, ["int"]):
+            with pytest.raises(ValueError, match="DataType"):
+                DataType.coerce(bad)  # type: ignore[arg-type]
+        assert DataType.coerce(" short ") is DataType.SHORT
+        assert DataType.coerce(DataType.BOOL) is DataType.BOOL
+
 
 class TestAsyncMirror:
     """异步镜像类。"""

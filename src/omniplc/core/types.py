@@ -40,10 +40,21 @@ class DataType(Enum):
 
         :param value: :class:`DataType` 成员,或类型名称(如 ``"float"``)
         :return: :class:`DataType` 成员
-        :raises ValueError: 名称未知时抛出
+        :raises ValueError: 入参既非 :class:`DataType` 也非名称字符串(如
+            ``client.read("hr0", 3)``),或名称未知时抛出
         """
         if isinstance(value, DataType):
             return value
+        if not isinstance(value, str):
+            # review-1046 C6:本方法声明只抛 ValueError,旧实现直接把它交给
+            # ``name.strip()`` → AttributeError('int' object has no attribute
+            # 'strip'),且该异常不在 ``_execute`` 的转换集合里,会以"编程错误"
+            # 姿态逃逸(契约错)。显式转成调用方错误。
+            from .i18n import _
+
+            raise ValueError(
+                _("数据类型必须是 DataType 或名称字符串,收到:{!r}").format(value)
+            )
         return cls.from_name(value)
 
     @classmethod
