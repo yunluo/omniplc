@@ -41,23 +41,6 @@ INT64_MAX: int = 0x7FFFFFFFFFFFFFFF
 """64 位有符号整数上限(9223372036854775807)。"""
 
 
-def bits_to_bytes(n: int) -> int:
-    """位软元件数 → 字节数(向上取整):``(n + 7) // 8``。
-
-    :param n: 位数(非负)
-    :return: 容纳 n 位的最小字节数
-    """
-    return (n + 7) // 8
-
-
-def pad_even_bytes(n: int) -> int:
-    """字节数对齐到偶数(向上):``(n + 1) // 2 * 2``。
-
-    Modbus 字符串按"寄存器数"= ``(length + 1) // 2`` 折算的等价工具。
-    """
-    return (n + 1) // 2 * 2
-
-
 # ---------------------------------------------------------------- TCP keepalive
 TCP_KEEPALIVE_IDLE: int = 30
 """TCP keepalive 空闲秒数(平台支持时尽力启用,检测 PLC 断电/断网的空闲半开连接)。"""
@@ -636,8 +619,6 @@ MEWTOCOL_MAX_LINE: int = 32
 # ---------------------------------------------------------------- 欧姆龙 FINS
 FINS_DEFAULT_DESTINATION_NETWORK: int = 0
 """默认目标网络号(0 = 本网络)。"""
-FINS_DEFAULT_DESTINATION_NODE: int = 0
-"""默认目标节点号(0 = 握手自动获取;手工配置常用 PLC IP 地址末位)。"""
 FINS_DEFAULT_DESTINATION_UNIT: int = 0
 """默认目标单元号(0 = CPU 单元)。"""
 FINS_DEFAULT_SOURCE_NETWORK: int = 0
@@ -680,12 +661,6 @@ FINS_COMMAND_CPU_UNIT_STATUS_READ: int = 0x0601
 
 读 CPU 运行状态(RUN/停止、运行模式、致命/非致命错误字),命令帧仅
 命令码两字节、无参数——零副作用,用作 FINS 探活命令。"""
-FINS_STATUS_PROGRAM: int = 0x00
-"""0601 应答 Mode 值:PROGRAM(W342 §5-3-17 p.195)。"""
-FINS_STATUS_MONITOR: int = 0x02
-"""0601 应答 Mode 值:MONITOR。"""
-FINS_STATUS_RUN: int = 0x04
-"""0601 应答 Mode 值:RUN。"""
 FINS_COMMAND_CLOCK_READ: int = 0x0701
 """CLOCK READ 命令(MRC=07, SRC=01;W342 §5-3-19 印刷页 197-198)。
 
@@ -734,14 +709,8 @@ FINS_MEMORY_AREA_MAX: Dict[str, int] = {
 """FINS 存储区字地址上限(CS/CJ/CP/NSJ 系列;W342 §5-2-2 p.165-166 地址表
 「Memory area address」列:CIO 17FF/A 03BF/D·EM 7FFF/T·C 0FFF)。A 区
 447 以下只读为固有能力,本表只收字地址上界。"""
-"""多存储区读单命令条目上限(W342 §5-3-5:Ethernet/Controller Link 167,
-SYSMAC LINK/DeviceNet 89,本库为以太网走线取 167 口径)。"""
 FINS_END_CODE_SIZE: int = 2
 """结束码长度(大端两字节,紧跟 MRC/SRC)。"""
-FINS_END_CODE_OK: int = 0
-"""结束码:正常完成(主/子码 00;bit6/7 标志随正常完成返回时亦视为成功,
-见 :func:`omniplc.plc.omron.codec._is_normal_end_code`,W342 §5-1-3 p.161)。"""
-"""结束码:正常完成。"""
 FINS_END_CODE_RELAY_ERROR_FLAG: int = 0x8000
 """结束码标志位:bit15 = 网络中继错误(W342 5-1-3;查主/子码表前须屏蔽)。"""
 FINS_END_CODE_CPU_ERROR_FLAGS: int = 0x00C0
@@ -1063,8 +1032,6 @@ HIKROBOT_CONTROL_OFFSET: int = 0
 """控制区保持寄存器偏移(§3.5 印刷页 39-40,REG0;服务端模式偏移地址固定)。"""
 HIKROBOT_STATUS_OFFSET: int = 1
 """状态区保持寄存器偏移(§3.5 印刷页 40,REG1;服务端模式偏移地址固定)。"""
-HIKROBOT_RESULT_OFFSET: int = 2
-"""结果区保持寄存器起始偏移(§3.5 印刷页 41,REG2 起;服务端模式偏移地址固定)。"""
 HIKROBOT_RESULT_WORDS_DEFAULT: int = 100
 """结果区默认大小(寄存器数,§3.5 印刷页 41:「4~500 个寄存器可配置,默认 100 个」;
 含首寄存器 Result Length,ASCII 数据容量 = 大小 - 1 字 = 2*(大小-1) 字符。
@@ -1427,10 +1394,6 @@ MTCONNECT_READ_CHUNK: int = 65536
 # ---------------------------------------------------------------- 西门子 S7
 S7_DEFAULT_PORT: int = 102
 """S7 ISO-on-TCP 默认端口。"""
-S7_DEFAULT_RACK: int = 0
-"""默认机架号(单机架部署绝大多数为 0)。"""
-S7_DEFAULT_SLOT: int = 1
-"""默认槽位号(S7-1200/1500 常用 1;S7-300/400 的 CPU 常在 2,按实际硬件调整)。"""
 S7_RACK_MAX: int = 7
 """S7 机架号上限(ISO-on-TCP/S7comm 客户端约定)。"""
 S7_SLOT_MAX: int = AB_EIP_SLOT_MAX

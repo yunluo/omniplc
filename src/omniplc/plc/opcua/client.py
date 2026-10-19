@@ -602,7 +602,7 @@ class OpcUaClient(BaseClient):
 
     地址为标准 NodeId 字符串(``ns=2;s=Device.Tag``/``i=2258``,
     见 :mod:`omniplc.plc.opcua.address`)。数据类型显式指定
-    (推荐 :class:`~omniplc.types.DataType` 枚举),写入按对应
+    (推荐 :class:`~omniplc.core.types.DataType` 枚举),写入按对应
     VariantType 编码,读取按该类型校验返回值。
 
     构造入口与其他客户端一致(IP + 端口);OPC-UA 端点 URL 由此组装,

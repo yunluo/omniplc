@@ -171,7 +171,7 @@ class HikrobotIdSerialClient(BaseClient):
         :param baud_rate: 波特率,默认 115200
         :param data_bits: 数据位 5~8(手册:7/8,8 位才支持十六进制触发)
         :param stop_bits: 停止位 1/1.5/2
-        :param parity: 校验位,推荐 :class:`~omniplc.types.SerialParity` 枚举,
+        :param parity: 校验位,推荐 :class:`~omniplc.core.types.SerialParity` 枚举,
             也兼容 ``"N"``/``"E"``/``"O"`` 字符串
         :raises ValueError: 参数非法
         """

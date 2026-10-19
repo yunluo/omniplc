@@ -889,7 +889,7 @@ class BaseClient(ABC):
         """按数据类型读取一个点。
 
         :param address: 协议地址,语法由驱动定义,如 ``"hr0"``、``"D100"``
-        :param data_type: 数据类型,推荐用 :class:`omniplc.types.DataType`
+        :param data_type: 数据类型,推荐用 :class:`omniplc.core.types.DataType`
             枚举(IDE 可自动补全),如 ``DataType.FLOAT``;也兼容名称字符串
         :return: ``(是否成功, 值)``
         :raises ValueError: 地址/类型参数非法(参数校验错误直接抛出)
@@ -903,7 +903,7 @@ class BaseClient(ABC):
         """按数据类型写入一个点。
 
         :param address: 协议地址
-        :param data_type: 数据类型,推荐用 :class:`omniplc.types.DataType` 枚举
+        :param data_type: 数据类型,推荐用 :class:`omniplc.core.types.DataType` 枚举
         :param value: 待写入值
         :return: 是否成功
         :raises RuntimeError: 只读模式(:attr:`read_only`)下拒绝一切写
@@ -950,7 +950,7 @@ class BaseClient(ABC):
         (整批容错,见各驱动 ``read_many`` docstring)。
 
         :param addresses: 地址列表
-        :param data_type: 数据类型,推荐用 :class:`omniplc.types.DataType` 枚举
+        :param data_type: 数据类型,推荐用 :class:`omniplc.core.types.DataType` 枚举
         :return: 与地址顺序对应的 ``[(是否成功, 值)]`` 列表
         """
         results = [self.read(address, data_type) for address in addresses]
@@ -998,7 +998,7 @@ class BaseClient(ABC):
         逐点事务上只做「无失败才交付」的快照门。
 
         :param addresses: 地址列表
-        :param data_type: 数据类型,推荐用 :class:`omniplc.types.DataType` 枚举
+        :param data_type: 数据类型,推荐用 :class:`omniplc.core.types.DataType` 枚举
         :return: ``(是否全部成功, 与地址顺序对应的值列表)``;任一点失败
             为 ``(False, None)``
         :raises ValueError: 地址/类型参数非法(经 :meth:`read_many` 抛出)
@@ -1045,7 +1045,7 @@ class BaseClient(ABC):
         :param address: 起始协议地址(语法由驱动定义,如 ``"hr0"``、``"D100"``)
         :param count: 连续元素个数(按 ``data_type`` 计,如 FLOAT×10 = 10 个
             浮点;必须 ≥ 1)
-        :param data_type: 数据类型,推荐用 :class:`omniplc.types.DataType` 枚举
+        :param data_type: 数据类型,推荐用 :class:`omniplc.core.types.DataType` 枚举
         :return: ``(是否成功, 与地址升序对应的值列表)``;失败为 ``(False, None)``
         :raises ValueError: ``count`` 非正整数 / 类型非法 / 当前驱动未实现
             连续批量读
@@ -1289,7 +1289,7 @@ class BaseClient(ABC):
         同时为**写白名单**(:attr:`write_whitelist`)缓存可写地址集
         (表构造后只读,绑定时快照;重复绑定按新表刷新)。
 
-        :param table: :class:`omniplc.tag.TagTable` 实例
+        :param table: :class:`omniplc.core.tag.TagTable` 实例
         """
         self._tag_table = table
         self._write_allow_addresses = frozenset(
@@ -1310,7 +1310,7 @@ class BaseClient(ABC):
         ``scale=1.0`` 且 ``offset=0.0``(默认)时原值直通,不做 float64
         往返,保留 64 位整数(``LONG``/``ULONG``)精度。
 
-        :param tag: :class:`omniplc.tag.Tag` 实例,或已绑定表中的点位标识
+        :param tag: :class:`omniplc.core.tag.Tag` 实例,或已绑定表中的点位标识
         :raises ValueError: 传入标识但未绑定 TagTable,或标识不存在
         """
         resolved = self._resolve_tag(tag)
@@ -1458,11 +1458,28 @@ class BaseClient(ABC):
     ) -> Optional[Callable[[str, str, Any, bool], None]]:
         """写审计回调(可选):``Callable[[地址, 类型名, 值, 是否成功], None]``。
 
-        设了回调后,每次 :meth:`write` 事务完成(成功/失败)各调一次;
-        ``write_many``/``write_and_verify`/驱动特有写入口最终都经 :meth:`write`,
-        故均被覆盖。回调内部异常被库吞掉(只 ``log_warning``),不影响写事务
-        自身的结果与计数(review-1043 乙-4:应用层终于有「谁什么时候把哪个
-        地址写成了什么」的第一手入口)。
+        设了回调后,每次 :meth:`write` 事务完成(成功/失败)各调一次。回调内部
+        异常被库吞掉(只 ``log_warning``),不影响写事务自身的结果与计数
+        (review-1043 乙-4:应用层终于有「谁什么时候把哪个地址写成了什么」的
+        第一手入口)。
+
+        .. warning::
+
+            覆盖面**仅限经 :meth:`write` 的写入口**——``write_bool``/``write_int``
+            等类型化写、``write_tag``、``write_and_verify``、以及各驱动**未覆写**
+            ``write_many`` 时的基类批量写。以下入口自行组帧、不经 :meth:`write`,
+            故**不**触发本回调(对应 :attr:`write_count` / :attr:`last_write_at`
+            同样不计):
+
+            - :meth:`write_string`(本类,直调 ``_execute``)
+            - Modbus / 汇川系列覆写的 ``write_many`` / ``write_batch`` /
+              ``write_mask_register`` / ``read_write_registers`` /
+              ``write_file_record``
+            - MX Component :meth:`write_batch`、S7 :meth:`write_wstring`、
+              OPC-UA ``write_value`` 等驱动特有写入口
+
+            (review-1046 C3:原文「``write_many``/``write_and_verify``/驱动特有写
+            入口最终都经 :meth:`write`,故均被覆盖」与实现不符。)
 
         :example: ::
 
@@ -1495,7 +1512,7 @@ class BaseClient(ABC):
         同宽**(review-1043 乙-2:原判据只比地址字面量,点位表写
         ``D100 = ushort`` 并不能拦住 ``write("D100", "double")`` 这类从该地址
         起连写 4 字、覆盖邻点的操作——而"点位表里类型写错"正是现场最常见的
-        误操作形态)。宽度按 :attr:`~omniplc.types.DataType.byte_size` 比较,
+        误操作形态)。宽度按 :attr:`~omniplc.core.types.DataType.byte_size` 比较,
         不比同宽类型之间的数值语义(如 SHORT↔USHORT 不拦,那是范围问题,
         由驱动/类型转换层负责)。
 
@@ -1894,14 +1911,6 @@ class BaseClient(ABC):
                         continue
                 try:
                     value = operation()
-                    with self._state_lock:
-                        if not heartbeat:
-                            # 心跳 tick 成功不清业务 last_error、不刷成功戳
-                            # (review-1002 P1-2:监测字段语义不被心跳劫持)
-                            self._clear_error()
-                            self._timestamps["last_success_at"] = time.monotonic()
-                            self._timestamps["last_rtt"] = time.perf_counter() - started
-                    return True, value
                 except TransportTimeoutError as exc:
                     # 超时但 0 字节已读:链路无残渣,不拆连也不计设备错误码;
                     # 与其他传输失败一致进入重试(串口/UDP 与 TCP 口径统一)。
@@ -1948,6 +1957,16 @@ class BaseClient(ABC):
                     )
                     self._mark_disconnected()
                 else:
+                    # 成功路径(review-1046 C17:原实现把本段放 ``try`` 内并让
+                    # ruff TRY300 要求补一个 ``else: return True, value``,那行
+                    # 永不可达;现按 TRY300 本意把成功记账搬进 ``else``)
+                    with self._state_lock:
+                        if not heartbeat:
+                            # 心跳 tick 成功不清业务 last_error、不刷成功戳
+                            # (review-1002 P1-2:监测字段语义不被心跳劫持)
+                            self._clear_error()
+                            self._timestamps["last_success_at"] = time.monotonic()
+                            self._timestamps["last_rtt"] = time.perf_counter() - started
                     return True, value
             return False, None
 

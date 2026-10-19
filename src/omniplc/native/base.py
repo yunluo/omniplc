@@ -653,7 +653,7 @@ class AsyncBaseClient(ABC):
         """按数据类型读取一个点。
 
         :param address: 协议地址,语法由驱动定义,如 ``"hr0"``、``"D100"``
-        :param data_type: 数据类型,推荐用 :class:`omniplc.types.DataType`
+        :param data_type: 数据类型,推荐用 :class:`omniplc.core.types.DataType`
             枚举;也兼容名称字符串
         :return: ``(是否成功, 值)``
         :raises ValueError: 地址/类型参数非法(参数校验错误直接抛出)
@@ -701,7 +701,7 @@ class AsyncBaseClient(ABC):
         同一客户端上的并发仍由事务锁串行 FIFO。
 
         :param addresses: 地址列表
-        :param data_type: 数据类型,推荐 :class:`omniplc.types.DataType` 枚举
+        :param data_type: 数据类型,推荐 :class:`omniplc.core.types.DataType` 枚举
         :return: 与地址顺序对应的 ``[(是否成功, 值)]`` 列表
         :raises ValueError: 地址/类型参数非法(任一点非法即抛出)
         """
@@ -946,7 +946,7 @@ class AsyncBaseClient(ABC):
         同时为**写白名单**(:attr:`write_whitelist`)缓存可写地址集
         (与同步 :meth:`~omniplc.core.BaseClient.bind_tags` 同口径)。
 
-        :param table: :class:`omniplc.tag.TagTable` 实例
+        :param table: :class:`omniplc.core.tag.TagTable` 实例
         """
         self._tag_table = table
         self._write_allow_addresses = frozenset(
@@ -977,7 +977,7 @@ class AsyncBaseClient(ABC):
         ``scale=1.0`` 且 ``offset=0.0``(默认)时原值直通,不做 float64
         往返,保留 64 位整数(``LONG``/``ULONG``)精度。
 
-        :param tag: :class:`omniplc.tag.Tag` 实例,或已绑定表中的点位标识
+        :param tag: :class:`omniplc.core.tag.Tag` 实例,或已绑定表中的点位标识
         :raises ValueError: 传入标识但未绑定 TagTable,或标识不存在
         """
         resolved = self._resolve_tag(tag)

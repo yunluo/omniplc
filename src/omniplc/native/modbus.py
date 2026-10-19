@@ -339,7 +339,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         - 地址 / 类型非法 → 同步抛 :class:`ValueError`,不进入事务锁(零字节发送)
 
         :param addresses: 地址列表(全部使用同一 ``data_type``)
-        :param data_type: 数据类型,推荐 :class:`omniplc.types.DataType` 枚举
+        :param data_type: 数据类型,推荐 :class:`omniplc.core.types.DataType` 枚举
         :return: 与地址顺序对应的 ``[(是否成功, 值)]`` 列表
         :raises ValueError: ``data_type`` 非法 / 任一地址无法解析
         """
@@ -781,7 +781,7 @@ class AsyncModbusTcpClient(AsyncBaseClient):
         :param and_mask: AND 掩码(0~65535)
         :param or_mask: OR 掩码(0~65535)
         :param byte_order: 掩码字节序(``"big"``/``"little"`` 或
-            :class:`~omniplc.types.ByteOrder`)
+            :class:`~omniplc.core.types.ByteOrder`)
         :return: 是否成功
         :raises RuntimeError: 只读模式(:attr:`read_only`)下拒绝一切写
         :raises ValueError: 地址/掩码/字节序非法,或写白名单开启时地址不在

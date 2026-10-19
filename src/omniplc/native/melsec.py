@@ -99,7 +99,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
 
         :param ip_address: PLC 的 IP 或主机名
         :param port: 端口(MELSEC 以太网模块常用 2000,调试器场景 6000)
-        :param frame: 帧型,推荐 :class:`omniplc.types.McFrame` 枚举
+        :param frame: 帧型,推荐 :class:`omniplc.core.types.McFrame` 枚举
             (``FRAME_3E`` 为 QnA 兼容、``FRAME_1E`` 为 A 兼容、
             ``FRAME_4E`` 为 QnA 兼容 4E 序列号帧);也兼容
             ``"3E"``/``"1E"``/``"4E"`` 字符串
@@ -128,7 +128,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
 
     @property
     def frame(self) -> McFrame:
-        """当前帧型(:class:`omniplc.types.McFrame` 枚举)。"""
+        """当前帧型(:class:`omniplc.core.types.McFrame` 枚举)。"""
         return self._frame
 
     @property

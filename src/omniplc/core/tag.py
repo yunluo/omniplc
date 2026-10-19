@@ -21,7 +21,7 @@ class Tag:
 
     :param tag_id: 点位标识(项目内唯一,一般用字母/数字),如 ``"furnace_temp"``
     :param address: 协议地址,如 ``"D100"``、``"hr0"``,语法由协议决定
-    :param data_type: 数据类型名称,见 :class:`omniplc.types.DataType`
+    :param data_type: 数据类型名称,见 :class:`omniplc.core.types.DataType`
     :param scale: 线性缩放系数,读取后 ``值 = 原始值 * scale + offset``
     :param offset: 线性偏移量
     :param remark: 备注说明(一般为中文,供人员查看记录,可选),如 ``"炉温"``

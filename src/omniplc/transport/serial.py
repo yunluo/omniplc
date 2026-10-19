@@ -38,7 +38,7 @@ class SerialConfig:
     :param baud_rate: 波特率,默认 9600(必须是 >0 的整数)
     :param data_bits: 数据位 5~8,默认 8(整数)
     :param stop_bits: 停止位 1/1.5/2,默认 1
-    :param parity: 校验位,推荐 :class:`omniplc.types.SerialParity` 枚举,
+    :param parity: 校验位,推荐 :class:`omniplc.core.types.SerialParity` 枚举,
         也兼容 ``"N"``/``"E"``/``"O"`` 字符串
 
     :raises ValueError: 参数非法(review-1038 §7.2:原校验用裸比较,

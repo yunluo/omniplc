@@ -123,7 +123,7 @@ class _MelsecMcBase(BaseClient):
 
         :param ip_address: PLC 的 IP 或主机名
         :param port: 端口(MELSEC 以太网模块常用 2000,调试器场景 6000)
-        :param frame: 帧型,推荐 :class:`omniplc.types.McFrame` 枚举
+        :param frame: 帧型,推荐 :class:`omniplc.core.types.McFrame` 枚举
             (``McFrame.FRAME_3E``/``FRAME_4E`` 为 QnA 兼容,
             ``FRAME_1E`` 为 A 兼容);也兼容 ``"3E"``/``"4E"``/``"1E"`` 字符串
         :param network_number: 网络编号(仅 3E/4E 使用)
@@ -171,7 +171,7 @@ class _MelsecMcBase(BaseClient):
 
     @property
     def frame(self) -> McFrame:
-        """当前帧型(:class:`omniplc.types.McFrame` 枚举)。"""
+        """当前帧型(:class:`omniplc.core.types.McFrame` 枚举)。"""
         return self._frame
 
     @property
@@ -1046,7 +1046,7 @@ class MelsecMcTcpClient(_MelsecMcBase):
 
         :param ip_address: PLC 的 IP 或主机名
         :param port: 端口(MELSEC 以太网模块常用 2000,调试器场景 6000)
-        :param frame: 帧型,推荐 :class:`omniplc.types.McFrame` 枚举
+        :param frame: 帧型,推荐 :class:`omniplc.core.types.McFrame` 枚举
             (``McFrame.FRAME_3E``/``FRAME_4E`` 为 QnA 兼容,
             ``FRAME_1E`` 为 A 兼容);也兼容 ``"3E"``/``"4E"``/``"1E"`` 字符串
         :param network_number: 网络编号(仅 3E/4E 使用)
@@ -1076,7 +1076,7 @@ class MelsecMcUdpClient(_MelsecMcBase):
 
         :param ip_address: PLC 的 IP 或主机名
         :param port: 端口(MELSEC 以太网模块常用 2000,调试器场景 6000)
-        :param frame: 帧型,推荐 :class:`omniplc.types.McFrame` 枚举
+        :param frame: 帧型,推荐 :class:`omniplc.core.types.McFrame` 枚举
             (``McFrame.FRAME_3E``/``FRAME_4E`` 为 QnA 兼容,
             ``FRAME_1E`` 为 A 兼容);也兼容 ``"3E"``/``"4E"``/``"1E"`` 字符串
         :param network_number: 网络编号(仅 3E/4E 使用)
@@ -1192,7 +1192,7 @@ class MelsecMcSerialClient(_MelsecMcBase):
         :param baud_rate: 波特率,默认 9600(须与 C24 传送设定一致)
         :param data_bits: 数据位 5~8,默认 8
         :param stop_bits: 停止位 1/1.5/2,默认 1
-        :param parity: 校验位,推荐 :class:`omniplc.types.SerialParity` 枚举,
+        :param parity: 校验位,推荐 :class:`omniplc.core.types.SerialParity` 枚举,
             也兼容 ``"N"``/``"E"``/``"O"`` 字符串
         :raises ValueError: 参数非法
         """

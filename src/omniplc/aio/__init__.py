@@ -774,7 +774,7 @@ class AModbusBaseClient(ABaseClient):
 
     @property
     def word_order(self) -> WordOrder:
-        """多寄存器字序(与同步版一致返回 :class:`~omniplc.types.WordOrder`
+        """多寄存器字序(与同步版一致返回 :class:`~omniplc.core.types.WordOrder`
         枚举——跨层迁移时 ``== WordOrder.CDAB`` 比较不再因 str/枚举错位)。"""
         return self._modbus.word_order
 
@@ -938,7 +938,7 @@ class AModbusRtuClient(AModbusBaseClient):
         stop_bits: float = SERIAL_DEFAULT_STOP_BITS,
         parity: Union[SerialParity, str] = SERIAL_DEFAULT_PARITY,
     ) -> None:
-        """配置串口参数(转发到同步实例,推荐 :class:`~omniplc.types.SerialParity` 枚举)。"""
+        """配置串口参数(转发到同步实例,推荐 :class:`~omniplc.core.types.SerialParity` 枚举)。"""
         sync = self._typed(ModbusRtuClient)
         sync.configure_serial(port_name, baud_rate, data_bits, stop_bits, parity)
 
@@ -1093,7 +1093,7 @@ class AMelsecMcTcpClient(ABaseClient):
 
         :param ip_address: PLC 的 IP 或主机名
         :param port: 端口(MELSEC 以太网模块常用 2000,调试器场景 6000)
-        :param frame: 帧型,推荐 :class:`omniplc.types.McFrame` 枚举
+        :param frame: 帧型,推荐 :class:`omniplc.core.types.McFrame` 枚举
             (``McFrame.FRAME_3E``/``FRAME_4E`` 为 QnA 兼容,
             ``FRAME_1E`` 为 A 兼容);也兼容 ``"3E"``/``"4E"``/``"1E"`` 字符串
         :param network_number: 网络编号(仅 3E/4E 使用)
@@ -1111,7 +1111,7 @@ class AMelsecMcTcpClient(ABaseClient):
 
     @property
     def frame(self) -> McFrame:
-        """当前帧型(:class:`omniplc.types.McFrame` 枚举)。"""
+        """当前帧型(:class:`omniplc.core.types.McFrame` 枚举)。"""
         return self._typed(MelsecMcTcpClient).frame
 
     @property
@@ -1171,7 +1171,7 @@ class AMelsecMcUdpClient(ABaseClient):
 
         :param ip_address: PLC 的 IP 或主机名
         :param port: 端口(MELSEC 以太网模块常用 2000,调试器场景 6000)
-        :param frame: 帧型,推荐 :class:`omniplc.types.McFrame` 枚举
+        :param frame: 帧型,推荐 :class:`omniplc.core.types.McFrame` 枚举
             (``McFrame.FRAME_3E``/``FRAME_4E`` 为 QnA 兼容,
             ``FRAME_1E`` 为 A 兼容);也兼容 ``"3E"``/``"4E"``/``"1E"`` 字符串
         :param network_number: 网络编号(仅 3E/4E 使用)
@@ -1188,7 +1188,7 @@ class AMelsecMcUdpClient(ABaseClient):
 
     @property
     def frame(self) -> McFrame:
-        """当前帧型(:class:`omniplc.types.McFrame` 枚举)。"""
+        """当前帧型(:class:`omniplc.core.types.McFrame` 枚举)。"""
         return self._typed(MelsecMcUdpClient).frame
 
     @property
@@ -1347,13 +1347,13 @@ class AMelsecMcSerialClient(ABaseClient):
         stop_bits: float = SERIAL_DEFAULT_STOP_BITS,
         parity: Union[SerialParity, str] = SERIAL_DEFAULT_PARITY,
     ) -> None:
-        """配置串口参数(转发到同步实例,推荐 :class:`~omniplc.types.SerialParity` 枚举)。"""
+        """配置串口参数(转发到同步实例,推荐 :class:`~omniplc.core.types.SerialParity` 枚举)。"""
         sync = self._typed(MelsecMcSerialClient)
         sync.configure_serial(port_name, baud_rate, data_bits, stop_bits, parity)
 
     @property
     def frame(self) -> McFrame:
-        """当前帧型(:class:`omniplc.types.McFrame` 枚举)。"""
+        """当前帧型(:class:`omniplc.core.types.McFrame` 枚举)。"""
         return self._typed(MelsecMcSerialClient).frame
 
     @property
@@ -1914,7 +1914,7 @@ class AHikrobotIdSerialClient(ABaseClient):
         stop_bits: float = SERIAL_DEFAULT_STOP_BITS,
         parity: Union[SerialParity, str] = SERIAL_DEFAULT_PARITY,
     ) -> None:
-        """配置串口参数(转发同步实例,推荐 :class:`~omniplc.types.SerialParity` 枚举)。"""
+        """配置串口参数(转发同步实例,推荐 :class:`~omniplc.core.types.SerialParity` 枚举)。"""
         self._reader().configure_serial(
             port_name, baud_rate, data_bits, stop_bits, parity
         )

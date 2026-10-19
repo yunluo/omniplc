@@ -221,3 +221,38 @@ def test_expected_drivers_all_smoked() -> None:
     assert listed, "冒烟清单未解析出驱动"
     missing = set(_EXPECTED_DRIVERS) - listed
     assert not missing, f"冒烟清单缺驱动:{sorted(missing)}"
+
+
+_STALE_CORE_REFS = (
+    "omniplc.types.",
+    "omniplc.tag.",
+    "omniplc.convert.",
+    "omniplc.validation.",
+    "omniplc.monitor.",
+    "omniplc.constants.",
+    "omniplc.errors.",
+    "omniplc.debug.",
+    "omniplc.base_client.",
+    "omniplc.i18n.",
+)
+"""陈旧交叉引用前缀:v0.46.0 起 ``types``/``tag``/``convert`` 等叶子模块已迁入
+``omniplc.core``,根包只剩 ``__init__.py`` 与子包。"""
+
+
+def test_src_has_no_stale_core_module_refs() -> None:
+    """src 内不得再有 ``omniplc.<叶子模块>.`` 形式的陈旧交叉引用(review-1046 C16)。
+
+    review-1046 实测 36 处 ``:class:`omniplc.types.X``` 未随 v0.46.0 的模块迁移
+    更新(另有 ``omniplc.tag.`` 4 处),而 ``src/omniplc/types.py`` 早已不存在
+    ——Sphinx/IDE 都解析不到,读者按 docstring 写 import 会直接 ImportError。
+    本守卫把「叶子模块一律 core 前缀」锁死(纯注释/docstring 面,零运行影响);
+    ``docs/architecture.md`` 的版本履历行是有意的历史记载,不在守卫半径内。
+    """
+    offenders = {}
+    for path in sorted((ROOT / "src" / "omniplc").rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        for token in _STALE_CORE_REFS:
+            count = text.count(token)
+            if count:
+                offenders.setdefault(path.name, {})[token] = count
+    assert not offenders, f"src 存在陈旧 core 模块引用(应为 omniplc.core.*):{offenders}"

@@ -328,6 +328,94 @@ def test_all_raise_templates_in_translations() -> None:  # noqa: C901
     assert missing == [], f"raise 文案漏入 _TRANSLATIONS(en 模式兜底中文):{missing}"
 
 
+def test_no_dead_translation_keys() -> None:  # noqa: C901
+    """反盲区守卫:``_TRANSLATIONS`` 的每个键都必须能在 src 源码里找到字面量。
+
+    与 :func:`test_all_raise_templates_in_translations`(缺键方向)互补,本守卫
+    守**死键**方向——"表内有、src 无"的键是"重命名文案后旧键未清"的沉积:
+    review-1046 C13 清理前实测 20 条(扣 i18n 自身取词用的
+    ``不支持的语言:{!r},支持:{}`` 后 19 条),而原守卫只查缺键、不查死键。
+
+    口径 = 「表键 − src 全库字符串字面量(f-string 片段、docstring 亦计)= 死键」;
+    码表文本经变量传入 ``_()`` 时其**字面量**仍在 src 里,故不会被误判为死键。
+    扫描 i18n.py 自身时排除 ``_TRANSLATIONS`` 字典子树(否则任何键都在表内命中)。
+    """
+    import ast
+    from pathlib import Path
+
+    src_root = Path(__file__).resolve().parents[2] / "src" / "omniplc"
+    i18n_path = src_root / "core" / "i18n.py"
+    i18n_tree = ast.parse(i18n_path.read_text(encoding="utf-8"))
+
+    def _key_of(node: object) -> str | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.Str) and isinstance(node.s, str):
+            return node.s
+        return None
+
+    table = set()
+    table_subtree = set()
+    for node in ast.walk(i18n_tree):
+        if isinstance(node, ast.Dict):
+            for key in node.keys:
+                text = _key_of(key)
+                if text is not None:
+                    table.add(text)
+            for inner in ast.walk(node):
+                table_subtree.add(id(inner))
+    assert len(table) > 1000, f"未解析出 _TRANSLATIONS 键({len(table)})"
+
+    literals = set()
+    for path in sorted(src_root.rglob("*.py")):
+        # i18n.py 复用已解析的树:节点 id 只在同一棵树上可比,重新 parse 会让
+        # ``table_subtree`` 的 id 全部失效(死键守卫会因此静默永不命中)
+        is_i18n = path == i18n_path
+        tree = i18n_tree if is_i18n else ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if is_i18n and id(node) in table_subtree:
+                continue
+            text = _key_of(node)
+            if text is not None:
+                literals.add(text)
+
+    dead = sorted(key for key in table if key not in literals)
+    assert dead == [], f"表内死键(清理 _TRANSLATIONS 或修正源码文案):{dead}"
+
+
+def test_translation_placeholders_align_with_source() -> None:
+    """全表扫描:每条 en 译文的占位符 ``(conversion, format_spec)`` 序列必须与
+    中文键一致(review-1046 C14)。
+
+    实测两条译文把 ``!r`` 落到了另一个实参上——``S7 位号必须在 0~7 之间,收到:
+    {!r} 的 {}`` 的 en 曾写 ``got {0} of {1!r}``(repr 从参数 0 跑到参数 1,en
+    模式输出 ``got DB1.DBX10.9 of 9``);``CSV 缺少必需列:{!r},表头:{}`` 的 en
+    曾丢 ``!r``(``'tag_id'`` 变 ``tag_id``,字符串与列表形态不可辨)。
+
+    字段**序号**可以不同(译文常用显式 ``{0}``/``{1}`` 重排语序,另有
+    :func:`test_no_mixed_auto_manual_numbering_in_any_translation` 守混用),
+    故只逐位比较 conversion 与 format_spec。
+    """
+    from string import Formatter
+
+    formatter = Formatter()
+    offenders = []
+    for zh, en in i18n._TRANSLATIONS.items():
+        zh_specs = [
+            (conversion, spec)
+            for _literal, name, spec, conversion in formatter.parse(zh)
+            if name is not None
+        ]
+        en_specs = [
+            (conversion, spec)
+            for _literal, name, spec, conversion in formatter.parse(en)
+            if name is not None
+        ]
+        if zh_specs != en_specs:
+            offenders.append(f"{zh[:30]}: zh={zh_specs} en={en_specs}")
+    assert offenders == [], f"译文占位符与源码错位:{offenders}"
+
+
 def test_en_mode_core_error_paths_output_english() -> None:
     """en 端到端抽查:core 两处曾裸文案的错误路径在 en 模式输出英文。"""
     from omniplc.core.types import DataType

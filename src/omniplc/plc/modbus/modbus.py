@@ -251,7 +251,7 @@ class ModbusBaseClient(BaseClient):
         - 地址 / 类型非法 → 同步抛 :class:`ValueError`,不进入事务锁(零字节发送)
 
         :param addresses: 地址列表(全部使用同一 ``data_type``)
-        :param data_type: 数据类型,推荐 :class:`omniplc.types.DataType` 枚举
+        :param data_type: 数据类型,推荐 :class:`omniplc.core.types.DataType` 枚举
         :return: 与地址顺序对应的 ``[(是否成功, 值)]`` 列表;失败为全
             ``(False, None)``
         :raises ValueError: ``data_type`` 非法 / 任一地址无法解析
@@ -829,7 +829,7 @@ class ModbusBaseClient(BaseClient):
         :param and_mask: AND 掩码(0~65535)
         :param or_mask: OR 掩码(0~65535)
         :param byte_order: 掩码字节序(``"big"``/``"little"`` 或
-            :class:`~omniplc.types.ByteOrder`);规范为 big,部分施耐德机型
+            :class:`~omniplc.core.types.ByteOrder`);规范为 big,部分施耐德机型
             按 little 解释掩码,需现场核对
         :return: 是否成功
         :raises RuntimeError: 只读模式(:attr:`read_only`)下拒绝一切写
@@ -1465,7 +1465,7 @@ class ModbusRtuClient(ModbusBaseClient):
         :param baud_rate: 波特率,默认 9600
         :param data_bits: 数据位 5~8
         :param stop_bits: 停止位 1/1.5/2
-        :param parity: 校验位,推荐 :class:`omniplc.types.SerialParity` 枚举,
+        :param parity: 校验位,推荐 :class:`omniplc.core.types.SerialParity` 枚举,
             也兼容 ``"N"``/``"E"``/``"O"`` 字符串
         :raises ValueError: 参数非法
         """

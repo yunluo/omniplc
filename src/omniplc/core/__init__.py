@@ -17,6 +17,7 @@ from .errors import (
     OmniPLCInternalError,
     ProtocolFrameError,
     TransportClosedError,
+    TransportTimeoutError,
 )
 
 __all__ = [
@@ -27,6 +28,7 @@ __all__ = [
     "DEFAULT_RECEIVE_TIMEOUT",
     "OmniPLCInternalError",
     "TransportClosedError",
+    "TransportTimeoutError",
     "ProtocolFrameError",
     "DeviceError",
     "ErrorCategory",

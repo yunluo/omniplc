@@ -377,8 +377,6 @@ _TRANSLATIONS: Dict[str, str] = {
     "MTConnect 响应体超过 {} 字节上限": "The MTConnect response body exceeds the {}-byte limit",
     "MTConnect 数据项不是数值:{} ← {!r}": "The MTConnect data item is not a number: {0} ← {1!r}",
     "ip_address 不能为空": "ip_address must not be empty",
-    "当前驱动暂不支持字符串读取": "The current driver does not yet support string reads",
-    "当前驱动暂不支持字符串写入": "The current driver does not yet support string writes",
     "通信超时": "Communication timed out",
     "value 不能为空字符串": "value must not be an empty string",
     "连接未建立": "The connection is not established",
@@ -432,14 +430,13 @@ _TRANSLATIONS: Dict[str, str] = {
     "JSON 点位表必须是数组,收到:{}": "The JSON tag table must be an array, got: {}",
     "点位记录缺少必需字段:{},记录:{}": "Tag record is missing required field {0}, record: {1}",
     "点位数值字段格式错误:{!r}": "Malformed tag value field: {!r}",
-    "CSV 缺少必需列:{!r},表头:{}": "CSV is missing required column {0}, header: {1}",
+    "CSV 缺少必需列:{!r},表头:{}": "CSV is missing required column {0!r}, header: {1}",
     "布尔量必须是 bool,收到:{}": "Boolean must be bool, got: {}",
     "read_only 必须为布尔值,收到:{!r}": "read_only must be a boolean, got: {!r}",
     "write_whitelist 必须为布尔值,收到:{!r}": "write_whitelist must be a boolean, got: {!r}",
     "write_audit_hook 必须是可调用对象或 None,收到:{!r}": (
         "write_audit_hook must be callable or None, got: {!r}"
     ),
-    "写审计回调异常:{}": "Write audit hook raised: {}",
     "无法解析 OPC-UA NodeId:{!r}(示例:ns=2;s=Device.Tag / ns=4;i=100 / i=2258)": (
         "Cannot parse the OPC-UA NodeId: {0!r} (examples: ns=2;s=Device.Tag /"
         " ns=4;i=100 / i=2258)"
@@ -488,7 +485,6 @@ _TRANSLATIONS: Dict[str, str] = {
         " review-1043 乙-6)"
     ),
     "predicate 必须为可调用对象,收到:{!r}": "predicate must be callable, got: {!r}",
-    "interval 必须大于 0,收到:{}": "interval must be greater than 0, got: {}",
     "整数必须是 int,收到:{}": "Integer must be int, got: {}",
     "浮点量必须是数字,收到:{}": "Float must be a number, got: {}",
     "short 超出范围 {}~{}:{}": "short out of range {0}~{1}: {2}",
@@ -638,7 +634,6 @@ _TRANSLATIONS: Dict[str, str] = {
     "布尔写仅支持线圈区(c)或寄存器位号后缀(hr0.3),收到:{}({})": "Boolean writes only support the coil area (c) or a register bit-index suffix (hr0.3), got: {0} ({1})",
     "{} 区只读,不可写:{!r}": "The {0} area is read-only and not writable: {1!r}",
     "设备标识层次未知:{!r},支持 basic / regular / extended(单个对象请用 read_device_object)": "Unknown device identification level: {0!r}, supported: basic / regular / extended (use read_device_object for a single object)",
-    "{};部分网关/老设备不支持跨段 FC23(读、写地址分属不同网段),可改用 write_many + read_many": "{0}; some gateways/older devices do not support cross-segment FC23 (read and write addresses in different segments); use write_many + read_many instead",
     "FC12 响应长度 {} 超出 Modbus RTU ADU 上限 {}": "FC12 response length {} exceeds the Modbus RTU ADU limit {}",
     "FC24 响应长度 {} 超出 Modbus RTU ADU 上限 {}": "FC24 response length {} exceeds the Modbus RTU ADU limit {}",
     "FC17 响应长度 {} 超出 Modbus RTU ADU 上限 {}": "FC17 response length {} exceeds the Modbus RTU ADU limit {}",
@@ -713,7 +708,6 @@ _TRANSLATIONS: Dict[str, str] = {
     "reference_type_id 须为命名空间 0 的数字标识符(如 i=33):{!r}": "reference_type_id must be a numeric identifier in namespace 0 (e.g. i=33): {!r}",
     "OPC-UA DataChange 回调异常:{}:{}": "Exception in the OPC-UA DataChange callback: {0}: {1}",
     "OPC-UA Event 回调异常:{}:{}": "Exception in the OPC-UA Event callback: {0}: {1}",
-    "OPC-UA 订阅被服务端拒绝:{}": "The OPC-UA subscription was rejected by the server: {}",
     "OPC-UA 订阅被服务端拒绝:{}({})": (
         "The OPC-UA subscription was rejected by the server: {0}({1})"
     ),
@@ -800,8 +794,6 @@ _TRANSLATIONS: Dict[str, str] = {
     "ListIdentity 应答 Item 数须为 1,收到:{}": "The ListIdentity response must contain exactly 1 item, got: {}",
     "ListIdentity 应答 Item 类型须为 0x000C,收到:0x{:04X}": "The ListIdentity response item type must be 0x000C, got: 0x{:04X}",
     "ListIdentity Item 长度域 {} 超出载荷 {} 字节": "The ListIdentity item length field {} exceeds the payload of {} bytes",
-    "ListIdentity Item 数据不足(应有版本 2 + SocketAddr 16 + Identity):{} 字节": "ListIdentity item data too short (expected version 2 + SocketAddr 16 + Identity): {} bytes",
-    "Identity Object 应答载荷不足:{} 字节": "Identity Object response payload too short: {} bytes",
     "GetAttributeList 属性数不符:声明 {},期望 {}": "GetAttributeList attribute count mismatch: declared {0}, expected {1}",
     "SHORT_STRING 属性值截断:声明 {} 字符,可用 {} 字节": "SHORT_STRING attribute value truncated: {0} characters declared, {1} bytes available",
     "应答数据不足:期望 {} 字节,实际 {} 字节": "Response data too short: expected {} bytes, got {} bytes",
@@ -911,11 +903,9 @@ _TRANSLATIONS: Dict[str, str] = {
     "MC CPU 型号名含非 ASCII 字节:{}(收到的原始帧:{})": "The MC CPU model name contains non-ASCII bytes: {0} (raw frame received: {1})",
     "MC 序列号不匹配:期望 {},收到 {}(收到的原始帧:{})": "MC serial number mismatch: expected {0}, got {1} (raw frame received: {2})",
     "3C 响应为空(未收到任何字节)": "The 3C response is empty (no bytes received)",
-    "站号必须在 0~{} 之间,收到:{}": "The station number must be between 0 and {}, got: {}",
     "站号必须在 0~{} 或 0xFF 之间,收到:{}": (
         "The station number must be in 0~{} or 0xFF (global function), got: {}"
     ),
-    "PC 编号必须是 0~120 或 0xFF,收到:{}": "The PC number must be 0~120 or 0xFF, got: {}",
     "PC 编号必须是 1~120 或 {{0xFF,0xFE,0x7D,0x7E}},收到:{}": (
         "The PC number must be 1~120 or one of 0xFF, 0xFE, 0x7D, 0x7E, got: {}"
     ),
@@ -936,7 +926,6 @@ _TRANSLATIONS: Dict[str, str] = {
     "{}必须以 CR LF 结尾(收到的原始帧:{})": "{0} must end with CR LF (raw frame received: {1})",
     "{}路由回显不符:期望 {!r},收到 {!r}(收到的原始帧:{})": "{0} routing echo mismatch: expected {1!r}, got {2!r} (raw frame received: {3})",
     "MC 软元件 {} 编号超出 6 位表示范围:{}": "MC device {0} number exceeds the 6-digit range: {1}",
-    "3C 异常响应不完整:期望 17 字节,实际 {}(收到的原始帧:{})": "3C error response incomplete: expected 17 bytes, got {} (raw frame received: {})",
     "3C 异常响应长度不符:期望 17 字节,实际 {}(收到的原始帧:{})": "3C error response length mismatch: expected 17 bytes, got {} (raw frame received: {})",
     "3C 数据段含非 ASCII 字节:{}(收到的原始帧:{})": "3C data segment contains non-ASCII bytes: {0} (raw frame received: {1})",
     "1C 数据段含非 ASCII 字节:{}(收到的原始帧:{})": "1C data segment contains non-ASCII bytes: {0} (raw frame received: {1})",
@@ -973,7 +962,6 @@ _TRANSLATIONS: Dict[str, str] = {
     "write_batch 至少需要一个 (地址, 值) 项": "write_batch requires at least one (address, value) item",
     "MX Component {} 失败:返回码 {}": "MX Component {0} failed: return code {1}",
     "MX Component {} COM 调用失败:HRESULT 0x{:08X}": "MX Component {0} COM call failed: HRESULT 0x{1:08X}",
-    "MX Component GetCpuType 返回形态未识别:{!r}": "Unrecognized MX Component GetCpuType return shape: {!r}",
     "MX Component 不支持的数据类型:{}": "Unsupported MX Component data type: {}",
     "MX Component 不支持 create_monitor——COM 通道在 connect 线程 初始化为 STA 假设,监视器自建线程会破坏该假设(真机未核证, 见 docs/real-machine-checklist.md §MX 监视器)。 用业务线程 sleep 轮询 + read_*() 替代。": (
         "MX Component does not support create_monitor: the COM channel is"
@@ -992,7 +980,6 @@ _TRANSLATIONS: Dict[str, str] = {
     "MX Component WriteDeviceRandom 失败:{}": "MX Component WriteDeviceRandom failed: {}",
     "MX Component GetCpuType 失败:{}": "MX Component GetCpuType failed: {}",
     "MX Component GetClockData 失败:{}": "MX Component GetClockData failed: {}",
-    "MX Component GetClockData 返回形态未识别:{!r}": "Unrecognized MX Component GetClockData return shape: {!r}",
     "MX Component SetClockData 失败:{}": "MX Component SetClockData failed: {}",
     "MX Component ActSupportMsg 控件创建失败:{}(请确认已安装 MX Component 运行时并执行 pip install omniplc[mx])": "Failed to create the MX Component ActSupportMsg control: {0} (make sure the MX Component runtime is installed and run pip install omniplc[mx])",
     "MX Component Open 失败(逻辑站号 {}):返回码 {}": "MX Component Open failed (logical station number {0}): return code {1}",
@@ -1099,13 +1086,12 @@ _TRANSLATIONS: Dict[str, str] = {
     "MEWTOCOL UDP 长读超出整包缓冲:预算响应 {} 字节 > {}(UDP 侧请减小单次字数或改 TCP 走线)": "MEWTOCOL UDP long read exceeds the whole-datagram buffer: budgeted response {0} bytes > {1} (reduce the words per read or switch to TCP)",
     "S7 地址非法:{!r}(示例:DB1.DBX0.3 / DB1.DBD6 / M10.2 / MW10 / IW64)": "Invalid S7 address: {!r} (examples: DB1.DBX0.3 / DB1.DBD6 / M10.2 / MW10 / IW64)",
     "S7 多变量读 {} 项超出协商 PDU {}B 容量(请求 {}B / 应答 {}B;上限 {} 项,review-1034 §4.1)": "S7 multi-variable read: {0} items exceed the negotiated PDU {1}B capacity (request {2}B / response {3}B; limit {4} items)",
-    "S7 位号必须在 0~7 之间,收到:{!r} 的 {}": "The S7 bit index must be between 0 and 7, got {0} of {1!r}",
+    "S7 位号必须在 0~7 之间,收到:{!r} 的 {}": "The S7 bit index must be between 0 and 7, got {0!r} of {1}",
     "S7 字节起点必须在 0~{} 之间,收到:{!r}": "The S7 byte start must be between 0 and {0}, got: {1!r}",
     "S7 DB 编号必须在 1~{} 之间,收到:{!r}": "The S7 DB number must be between 1 and {0}, got: {1!r}",
     "DB 位地址需要位号:{!r}(示例:DB1.DBX0.3)": "A DB bit address requires a bit index: {0!r} (example: DB1.DBX0.3)",
     "字节起点地址不带位号:{!r}(位访问用 DBX,如 DB1.DBX0.3)": "A byte-start address carries no bit index: {0!r} (use DBX for bit access, e.g. DB1.DBX0.3)",
     "S7 走会话通道,无字节流收发": "S7 uses a session channel; there is no byte stream",
-    "S7 错误:{}": "S7 error: {}",
     "(按绝对地址访问 DB 失败:若为 S7-1200/1500,请确认该 DB ": "(absolute DB access failed: for S7-1200/1500, make sure the DB ",
     "已在 TIA 中取消 Optimized block access)": "has Optimized block access disabled in TIA)",
     "S7 会话未建立": "The S7 session is not established",
@@ -1186,8 +1172,6 @@ _TRANSLATIONS: Dict[str, str] = {
     "{}失败:{}(请确认运行环境)": "{0} failed: {1} (check the runtime environment)",
     "{}失败:{}(链路/会话故障,将重连)": "{0} failed: {1} (link/session failure, will reconnect)",
     "{}失败:{}": "{0} failed: {1}",
-    "内部错误:传输对象不是 S7 会话": "Internal error: the transport object is not an S7 session",
-    "S7 连接已断:{}": "The S7 connection is down: {}",
     "机架号必须在 0~{} 之间,收到:{}": "The rack number must be between 0 and {}, got: {}",
     "槽位号必须在 0~{} 之间,收到:{}": "The slot number must be between 0 and {}, got: {}",
     "model 必须是 S7Model 枚举成员,收到:{!r}": "model must be an S7Model enum member, got: {!r}",
@@ -1203,8 +1187,6 @@ _TRANSLATIONS: Dict[str, str] = {
     "S7 WString 响应过短:{}": "S7 WString response too short: {}",
     "S7 WString 仅支持 BMP 字符(不含代理对):{!r}": "S7 WString only supports BMP characters (no surrogate pairs): {!r}",
     "S7 WString 写入值超出 PLC 侧声明长:{} > {} 字符({!r})": "The S7 WString write value exceeds the PLC-side declared length: {0} > {1} characters ({2!r})",
-    "S7 连接失败:{}(可能原因:① IP/机架/槽位不符;② 网络/防火墙阻断 ISO-on-TCP 102;③ 1200/1500 未开启 PUT/GET 访问授权)": "S7 connection failed: {0} (possible causes: (1) wrong IP/rack/slot; (2) network/firewall blocking ISO-on-TCP 102; (3) PUT/GET access not enabled on the 1200/1500)",
-    "S7 多变量读条目 {} 失败,错误码 0x{:08X}": "S7 multi-variable read item {} failed, error code 0x{:08X}",
     "S7 按位读取需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)": "S7 bit reads require a bit address: {0!r} (examples: M10.2 / DB1.DBX0.3)",
     "S7 按位写入需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)": "S7 bit writes require a bit address: {0!r} (examples: M10.2 / DB1.DBX0.3)",
     "S7 批量读取不支持的数据类型:{}": "Unsupported S7 batch-read data type: {}",
@@ -1381,7 +1363,6 @@ _TRANSLATIONS: Dict[str, str] = {
     # ---- review-1021 P1-5:字符串能力缺失口径统一为 ValueError ----
     "当前驱动 {} 暂不支持字符串读取": "Driver {0} does not support string reads",
     "当前驱动 {} 暂不支持字符串写入": "Driver {0} does not support string writes",
-    "count 必须是 ≥1 的整数,收到:{!r}": "count must be an integer >= 1, got: {0!r}",
     "{} 必须是 ≥1 的整数,收到:{!r}": "{0} must be an integer >= 1, got: {1!r}",
     "read_range 不支持 STRING,请用 read_string": "read_range does not support STRING; use read_string",
     "TCP/UDP Unit ID 必须在 {}~255 之间,收到:{}": "TCP/UDP Unit ID must be within {0}-255, got: {1}",

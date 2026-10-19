@@ -182,7 +182,7 @@ def bytes_to_short(
 
     :param data: 原始字节(长度必须恰为 2——驱动切片错位时在源头报错,
         不静默解出错值)
-    :param byteorder: 字节序,推荐 :class:`omniplc.types.ByteOrder` 枚举
+    :param byteorder: 字节序,推荐 :class:`omniplc.core.types.ByteOrder` 枚举
     :raises ValueError: 长度不是 2
     """
     if len(data) != 2:
@@ -196,7 +196,7 @@ def bytes_to_ushort(
     """按指定字节序把 2 字节解码为 16 位无符号整数。
 
     :param data: 原始字节(长度必须恰为 2)
-    :param byteorder: 字节序,推荐 :class:`omniplc.types.ByteOrder` 枚举
+    :param byteorder: 字节序,推荐 :class:`omniplc.core.types.ByteOrder` 枚举
     :raises ValueError: 长度不是 2
     """
     if len(data) != 2:
@@ -480,7 +480,7 @@ def words_to_value(
         在前,同 Modbus ``read_string``),读文本请显式传 ``ByteOrder.BIG``
     :param reverse_words: True = 先反转子序(低字在前、字内大端协议用)
     :param encoding: ``STRING`` 的字符编码(默认 ascii,同各 ``read_string``)
-    :raises ValueError: ``data_type`` 不是 :class:`~omniplc.types.DataType`
+    :raises ValueError: ``data_type`` 不是 :class:`~omniplc.core.types.DataType`
         成员,或字数与类型尺寸不符
 
     :example: ``words_to_value([0x4F4D, 0x4E49], DataType.STRING,
