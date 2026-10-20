@@ -352,6 +352,19 @@ _GET_DATA_TYPE_MIN_SIZE: Dict[int, int] = {
     _T_STR: 4,
 }
 
+# 标量类型的 struct 格式(小端;T_FLOATBIN/T_STR 为复合布局,单独分支)。
+# 尺寸与上面 _GET_DATA_TYPE_MIN_SIZE 一致,解码函数按表查一次即得。
+_GET_DATA_SCALAR_FORMATS: Dict[int, str] = {
+    _T_CHAR: "B",
+    _T_UCHAR: "B",
+    _T_SHORT: "h",
+    _T_USHORT: "H",
+    _T_LONG: "i",
+    _T_UINT32: "I",
+    _T_DLONG: "q",
+    _T_DOUBLE: "d",
+}
+
 
 # --------------------------------------------------------------------------
 # codec 纯函数(编解码与传输解耦,黄金帧测试直接打点)
@@ -530,7 +543,7 @@ def _parse_error_body(body: bytes) -> int:
     return int(code)
 
 
-def decode_get_data(payload: bytes, request_type: int) -> Any:  # noqa: C901
+def decode_get_data(payload: bytes, request_type: int) -> Any:
     """解码 mochaGetData 数据段(内部函数)。
 
     数据头 = C 库 get_data_response_header(L107~110):u32(0)+
@@ -566,20 +579,9 @@ def decode_get_data(payload: bytes, request_type: int) -> Any:  # noqa: C901
                 "GIOP 响应数据段不足以按类型 0x{:02X} 解码:需 {} 字节,实际 {} 字节(原始数据:{})"
             ).format(data_type, required, len(data), format_hex(payload))
         )
-    if data_type in (_T_CHAR, _T_UCHAR):
-        return data[0]
-    if data_type == _T_SHORT:
-        return struct.unpack("<h", data[:2])[0]
-    if data_type == _T_USHORT:
-        return struct.unpack("<H", data[:2])[0]
-    if data_type == _T_LONG:
-        return struct.unpack("<i", data[:4])[0]
-    if data_type == _T_UINT32:
-        return struct.unpack("<I", data[:4])[0]
-    if data_type == _T_DLONG:
-        return struct.unpack("<q", data[:8])[0]
-    if data_type == _T_DOUBLE:
-        return struct.unpack("<d", data[:8])[0]
+    format_text = _GET_DATA_SCALAR_FORMATS.get(data_type)
+    if format_text is not None:
+        return struct.unpack_from("<" + format_text, data, 0)[0]
     if data_type == _T_FLOATBIN:
         int_nos, dec_nos, option, value = struct.unpack("<hhId", data[:16])
         return value
