@@ -58,8 +58,9 @@ from ..plc.melsec.melsec import (
     _coerce_frame,
     _decode_32,
     _decode_64,
+    _decode_batch_read,
     _decode_dword,
-    _merge_bit_blocks,
+    _plan_batch_read,
 )
 from .base import AsyncBaseClient
 from .transport import AsyncBaseTransport, AsyncTcpTransport, AsyncUdpTransport
@@ -383,7 +384,7 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         )
         return self._pack_read_results(addresses, values)
 
-    async def read_batch(  # noqa: C901
+    async def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """多块批量读取:0406 单事务混读多个字/位软元件(仅 3E/4E 帧)。
@@ -391,72 +392,20 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         一帧内软元件/类型可各不相同(SH-080008 §8.4);BOOL 位软元件按"同软元件
         且编号连续合并为一个位块(1 点 = 16 位)"规划,BOOL 字软元件占 1 个字块
         后本地提位;字块 + 位块总数上限 120。规划与解码**复用同步侧同一套助手**
-        (:func:`~omniplc.plc.melsec.melsec._merge_bit_blocks`、
-        ``codec_qna.build_random_read`` / ``parse_random_read_response``)。
+        (:func:`~omniplc.plc.melsec.melsec._plan_batch_read` /
+        ``_decode_batch_read``),本层只保留异步事务形态。
 
         :param items: ``(地址, 数据类型)`` 序列
         :return: ``(是否成功, 与 items 顺序对应的值列表)``
         :raises ValueError: 列表为空/帧型不支持/地址或类型非法
         """
-        if not items:
-            raise ValueError(_("read_batch 至少需要一个 (地址, 数据类型) 项"))
-        if self._frame not in (McFrame.FRAME_3E, McFrame.FRAME_4E):
-            raise ValueError(
-                _("多块批量读仅支持 3E/4E 帧,当前帧型:{}").format(self._frame.value)
-            )
-        word_blocks: List[Tuple[int, int, int]] = []
-        bit_requests: List[Tuple[int, int, int]] = []  # (软元件码, 起始编号, plan 下标)
-        plan: List[Tuple[str, int, int, DataType]] = []
-        word_index = 0
-        for address, data_type in items:
-            data_type_enum = DataType.coerce(data_type)
-            parsed = self._translate_address(parse_mc_address(address))
-            if data_type_enum is not DataType.BOOL and parsed.bit is not None:
-                raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
-            code, is_bit_device, base = self._device_info(parsed.device)
-            if (
-                is_bit_device
-                and data_type_enum is not DataType.BOOL
-                and not self._bit_device_word_access_allowed
-            ):
-                raise ValueError(
-                    _(
-                        "MC 批量读:位软元件 {}{} 只支持 BOOL,字单位请改用字软元件"
-                        "(如 D)或逐点读取"
-                    ).format(parsed.device, parsed.number)
-                )
-            number = codec_qna.device_number(parsed.device, parsed.number, base)
-            if data_type_enum is DataType.BOOL:
-                if is_bit_device:
-                    codec_qna.reject_bit_suffix_on_bit_device(parsed)
-                    plan_index = len(plan)
-                    plan.append(("bit", 0, 0, data_type_enum))  # 占位,合并后回填
-                    bit_requests.append((code, number, plan_index))
-                else:
-                    word_blocks.append((code, number, 1))
-                    plan.append(
-                        ("wordbit", word_index, parsed.bit or 0, data_type_enum)
-                    )
-                    word_index += 1
-                continue
-            if data_type_enum in (DataType.SHORT, DataType.USHORT):
-                word_blocks.append((code, number, 1))
-                plan.append(("word", word_index, 1, data_type_enum))
-                word_index += 1
-            elif data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
-                word_blocks.append((code, number, 2))
-                plan.append(("word", word_index, 2, data_type_enum))
-                word_index += 2
-            elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
-                word_blocks.append((code, number, 4))
-                plan.append(("word", word_index, 4, data_type_enum))
-                word_index += 4
-            else:
-                raise ValueError(
-                    _("MC 批量读取不支持的数据类型:{}").format(data_type_enum)
-                )
-        word_points = word_index
-        bit_blocks, bit_points = _merge_bit_blocks(bit_requests, plan)
+        batch = _plan_batch_read(
+            items,
+            self._frame,
+            self._translate_address,
+            self._device_info,
+            self._bit_device_word_access_allowed,
+        )
 
         async def operation() -> List[PrimitiveValue]:
             request = codec_qna.build_random_read(
@@ -465,33 +414,17 @@ class AsyncMelsecMcBase(AsyncBaseClient):
                 self._network_number,
                 self._pc_number,
                 MC_DEFAULT_MONITOR_TIMER,
-                word_blocks,
-                bit_blocks,
+                batch.word_blocks,
+                batch.bit_blocks,
             )
             words, bits = codec_qna.parse_random_read_response(
                 await self._transact(request),
                 self._frame.value,
-                word_points,
-                bit_points,
+                batch.word_points,
+                batch.bit_points,
                 expected_serial=self._serial,
             )
-            values: List[PrimitiveValue] = []
-            for kind, index, extra, item_type in plan:
-                if kind == "bit":
-                    values.append(bool(bits[index] >> extra & 1))
-                elif kind == "wordbit":
-                    values.append(bool(convert.get_bit(words[index], extra)))
-                elif item_type in (DataType.SHORT, DataType.USHORT):
-                    values.append(
-                        words[index]
-                        if item_type is DataType.USHORT
-                        else convert.to_signed(words[index], 16)
-                    )
-                elif item_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
-                    values.append(_decode_32(words[index : index + 2], item_type))
-                else:
-                    values.append(_decode_64(words[index : index + 4], item_type))
-            return values
+            return _decode_batch_read(batch.plan, words, bits)
 
         return await self._execute(operation)
 

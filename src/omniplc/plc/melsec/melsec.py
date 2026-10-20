@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import time
 from abc import abstractmethod
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
 from ...core import convert
 from ...core.base_client import BaseClient, validate_endpoint
@@ -457,7 +457,7 @@ class _MelsecMcBase(BaseClient):
         )
         return self._pack_read_results(addresses, values)
 
-    def read_batch(  # noqa: C901
+    def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """多块批量读取:0406 单事务混读多个字/位软元件(仅 3E/4E 帧)。
@@ -473,68 +473,13 @@ class _MelsecMcBase(BaseClient):
         :return: ``(是否成功, 与 items 顺序对应的值列表)``
         :raises ValueError: 列表为空/帧型不支持/地址或类型非法
         """
-        if not items:
-            raise ValueError(_("read_batch 至少需要一个 (地址, 数据类型) 项"))
-        if self._frame not in (McFrame.FRAME_3E, McFrame.FRAME_4E):
-            raise ValueError(
-                _("多块批量读仅支持 3E/4E 帧,当前帧型:{}").format(self._frame.value)
-            )
-        word_blocks: List[Tuple[int, int, int]] = []
-        bit_requests: List[Tuple[int, int, int]] = []  # (软元件码, 起始编号, plan 下标)
-        # 解码计划:(类别, 字/位索引, 位号或字数, 数据类型)
-        plan: List[Tuple[str, int, int, DataType]] = []
-        word_index = 0
-        for address, data_type in items:
-            data_type_enum = DataType.coerce(data_type)
-            parsed = self._translate_address(parse_mc_address(address))
-            if data_type_enum is not DataType.BOOL and parsed.bit is not None:
-                raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
-            code, is_bit_device, base = self._device_info(parsed.device)
-            if (
-                is_bit_device
-                and data_type_enum is not DataType.BOOL
-                and not self._bit_device_word_access_allowed
-            ):
-                # 位软元件塞进 0406 字块会被 PLC 拒绝或按 16 点/字错读;
-                # 位软元件只用 BOOL,字单位请改字软元件(如 D)
-                raise ValueError(
-                    _(
-                        "MC 批量读:位软元件 {}{} 只支持 BOOL,字单位请改用字软元件"
-                        "(如 D)或逐点读取"
-                    ).format(parsed.device, parsed.number)
-                )
-            number = codec_qna.device_number(parsed.device, parsed.number, base)
-            if data_type_enum is DataType.BOOL:
-                if is_bit_device:
-                    codec_qna.reject_bit_suffix_on_bit_device(parsed)
-                    plan_index = len(plan)
-                    plan.append(("bit", 0, 0, data_type_enum))  # 占位,合并后回填
-                    bit_requests.append((code, number, plan_index))
-                else:
-                    word_blocks.append((code, number, 1))
-                    plan.append(
-                        ("wordbit", word_index, parsed.bit or 0, data_type_enum)
-                    )
-                    word_index += 1
-                continue
-            if data_type_enum in (DataType.SHORT, DataType.USHORT):
-                word_blocks.append((code, number, 1))
-                plan.append(("word", word_index, 1, data_type_enum))
-                word_index += 1
-            elif data_type_enum in (DataType.INT, DataType.UINT, DataType.FLOAT):
-                word_blocks.append((code, number, 2))
-                plan.append(("word", word_index, 2, data_type_enum))
-                word_index += 2
-            elif data_type_enum in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
-                word_blocks.append((code, number, 4))
-                plan.append(("word", word_index, 4, data_type_enum))
-                word_index += 4
-            else:
-                raise ValueError(
-                    _("MC 批量读取不支持的数据类型:{}").format(data_type_enum)
-                )
-        word_points = word_index
-        bit_blocks, bit_points = _merge_bit_blocks(bit_requests, plan)
+        batch = _plan_batch_read(
+            items,
+            self._frame,
+            self._translate_address,
+            self._device_info,
+            self._bit_device_word_access_allowed,
+        )
 
         def operation() -> List[PrimitiveValue]:
             request = codec_qna.build_random_read(
@@ -543,35 +488,19 @@ class _MelsecMcBase(BaseClient):
                 self._network_number,
                 self._pc_number,
                 MC_DEFAULT_MONITOR_TIMER,
-                word_blocks,
-                bit_blocks,
+                batch.word_blocks,
+                batch.bit_blocks,
                 self._module_io,
                 self._module_station,
             )
             words, bits = codec_qna.parse_random_read_response(
                 self._transact(request),
                 self._frame.value,
-                word_points,
-                bit_points,
+                batch.word_points,
+                batch.bit_points,
                 expected_serial=self._serial,
             )
-            values: List[PrimitiveValue] = []
-            for kind, index, extra, item_type in plan:
-                if kind == "bit":
-                    values.append(bool(bits[index] >> extra & 1))
-                elif kind == "wordbit":
-                    values.append(bool(convert.get_bit(words[index], extra)))
-                elif item_type in (DataType.SHORT, DataType.USHORT):
-                    values.append(
-                        words[index]
-                        if item_type is DataType.USHORT
-                        else convert.to_signed(words[index], 16)
-                    )
-                elif item_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
-                    values.append(_decode_32(words[index : index + 2], item_type))
-                else:
-                    values.append(_decode_64(words[index : index + 4], item_type))
-            return values
+            return _decode_batch_read(batch.plan, words, bits)
 
         return self._execute(operation)
 
@@ -1513,6 +1442,114 @@ def _merge_bit_blocks(
         base_word += points
         index = follow
     return bit_blocks, base_word
+
+
+class _BatchReadPlan(NamedTuple):
+    """0406 多块批量读的规划结果(同步层与 native 层共用,内部类型)。"""
+
+    word_blocks: List[Tuple[int, int, int]]
+    bit_blocks: List[Tuple[int, int, int]]
+    plan: List[Tuple[str, int, int, DataType]]
+    word_points: int
+    bit_points: int
+
+
+def _plan_batch_read(
+    items: Sequence[Tuple[str, Union[DataType, str]]],
+    frame: McFrame,
+    translate: Callable[[McAddress], McAddress],
+    device_info: Callable[[str], Tuple[int, bool, int]],
+    bit_word_access_allowed: bool,
+) -> _BatchReadPlan:
+    """把 read_batch 的 ``(地址, 数据类型)`` 列表规划成 0406 请求块与解码计划。
+
+    字软元件按 :attr:`DataType.register_size` 取字数(16 位 1 字 / 32 位 2 字 /
+    64 位 4 字),与单点 :meth:`_read` 同口径;位软元件 BOOL 交给
+    :func:`_merge_bit_blocks` 合并成位块(SH-080008 §8.4 印刷页 113-114:
+    1 点 = 16 位软元件);位软元件按字单位访问受 ``bit_word_access_allowed``
+    门控(与单点读同防线,review-1018 P2-2)。
+
+    本函数与 :func:`_decode_batch_read` 是同步层与 native 层 0406 的全部
+    公共逻辑,两层只保留各自的 ``operation``(事务与 await 形态不同)。
+
+    :param items: ``(地址, 数据类型)`` 序列
+    :param frame: 当前帧型(仅 3E/4E 支持 0406 多块读)
+    :param translate: 地址改写钩子(品牌别名,一般为 ``self._translate_address``)
+    :param device_info: 软元件信息查询(一般为 ``self._device_info``)
+    :param bit_word_access_allowed: 是否允许位软元件按字单位访问
+    :raises ValueError: 列表为空/帧型不支持/地址或类型非法
+    """
+    if not items:
+        raise ValueError(_("read_batch 至少需要一个 (地址, 数据类型) 项"))
+    if frame not in (McFrame.FRAME_3E, McFrame.FRAME_4E):
+        raise ValueError(_("多块批量读仅支持 3E/4E 帧,当前帧型:{}").format(frame.value))
+    word_blocks: List[Tuple[int, int, int]] = []
+    bit_requests: List[Tuple[int, int, int]] = []  # (软元件码, 起始编号, plan 下标)
+    # 解码计划:(类别, 字/位索引, 位号或字数, 数据类型)
+    plan: List[Tuple[str, int, int, DataType]] = []
+    word_index = 0
+    for address, data_type in items:
+        data_type_enum = DataType.coerce(data_type)
+        parsed = translate(parse_mc_address(address))
+        if data_type_enum is not DataType.BOOL and parsed.bit is not None:
+            raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
+        code, is_bit_device, base = device_info(parsed.device)
+        if (
+            is_bit_device
+            and data_type_enum is not DataType.BOOL
+            and not bit_word_access_allowed
+        ):
+            # 位软元件塞进 0406 字块会被 PLC 拒绝或按 16 点/字错读;
+            # 位软元件只用 BOOL,字单位请改字软元件(如 D)
+            raise ValueError(
+                _(
+                    "MC 批量读:位软元件 {}{} 只支持 BOOL,字单位请改用字软元件"
+                    "(如 D)或逐点读取"
+                ).format(parsed.device, parsed.number)
+            )
+        number = codec_qna.device_number(parsed.device, parsed.number, base)
+        if data_type_enum is DataType.BOOL:
+            if is_bit_device:
+                codec_qna.reject_bit_suffix_on_bit_device(parsed)
+                plan_index = len(plan)
+                plan.append(("bit", 0, 0, data_type_enum))  # 占位,合并后回填
+                bit_requests.append((code, number, plan_index))
+            else:
+                word_blocks.append((code, number, 1))
+                plan.append(("wordbit", word_index, parsed.bit or 0, data_type_enum))
+                word_index += 1
+            continue
+        if data_type_enum is DataType.STRING:
+            raise ValueError(_("MC 批量读取不支持的数据类型:{}").format(data_type_enum))
+        width = data_type_enum.register_size
+        word_blocks.append((code, number, width))
+        plan.append(("word", word_index, width, data_type_enum))
+        word_index += width
+    bit_blocks, bit_points = _merge_bit_blocks(bit_requests, plan)
+    return _BatchReadPlan(word_blocks, bit_blocks, plan, word_index, bit_points)
+
+
+def _decode_batch_read(
+    plan: Sequence[Tuple[str, int, int, DataType]],
+    words: Sequence[int],
+    bits: Sequence[int],
+) -> List[PrimitiveValue]:
+    """按解码计划还原 0406 响应,返回与 read_batch 请求顺序一致的值列表。
+
+    ``plan`` 第三项对位项是块内位号、对字项是字数,故字项按该字数切片后交
+    :func:`convert.words_to_value`(MC 小端字序),与单点解码同口径。
+    """
+    values: List[PrimitiveValue] = []
+    for kind, index, extra, item_type in plan:
+        if kind == "bit":
+            values.append(bool(bits[index] >> extra & 1))
+        elif kind == "wordbit":
+            values.append(bool(convert.get_bit(words[index], extra)))
+        else:
+            values.append(
+                convert.words_to_value(words[index : index + extra], item_type)
+            )
+    return values
 
 
 def _coerce_frame(value: Union[McFrame, str]) -> McFrame:
