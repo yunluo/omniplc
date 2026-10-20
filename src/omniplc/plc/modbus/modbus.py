@@ -1482,7 +1482,7 @@ class ModbusRtuClient(ModbusBaseClient):
             raise ValueError(_("请先调用 configure_serial() 配置串口参数"))
         return SerialTransport(self._serial_config)
 
-    def _transact(self, pdu: bytes, expect_response: bool = True) -> bytes:  # noqa: C901
+    def _transact(self, pdu: bytes, expect_response: bool = True) -> bytes:
         """RTU 事务:站号+PDU+CRC16 → 发送 → 按功能码推算长度收 → 校验 CRC。
 
         异常响应(功能码 | 0x80)恒为 2 字节 PDU,读到功能码后先行分支;
@@ -1513,38 +1513,10 @@ class ModbusRtuClient(ModbusBaseClient):
             frame = head + transport.recv(3)
         elif pdu[0] == codec.ModbusFunction.READ_DEVICE_IDENTIFICATION:
             frame = head + _recv_device_id_tail(transport)
-        elif pdu[0] == codec.ModbusFunction.GET_COMM_EVENT_LOG:
-            # FC12 响应长度随事件字节数变化:先读 byte count 再收其余(含 CRC)
-            byte_count = transport.recv(1)
-            if 3 + byte_count[0] + 2 > MODBUS_RTU_MAX_ADU_SIZE:
-                raise ProtocolFrameError(
-                    _("FC12 响应长度 {} 超出 Modbus RTU ADU 上限 {}").format(
-                        byte_count[0] + 5, MODBUS_RTU_MAX_ADU_SIZE
-                    )
-                )
-            frame = head + byte_count + transport.recv(byte_count[0] + 2)
-        elif pdu[0] == codec.ModbusFunction.READ_FIFO_QUEUE:
-            # FC24 响应长度随 FIFO 计数变化:先读 byte count(2) 再收其余(含 CRC)
-            # byte count = 2 + 2×N → 剩余 = FIFO 计数(2) + 值(2N) + CRC(2) = byte_count + 2
-            byte_count = transport.recv(2)
-            byte_count_value = int.from_bytes(byte_count, "big")
-            if 4 + byte_count_value + 2 > MODBUS_RTU_MAX_ADU_SIZE:
-                raise ProtocolFrameError(
-                    _("FC24 响应长度 {} 超出 Modbus RTU ADU 上限 {}").format(
-                        byte_count_value + 6, MODBUS_RTU_MAX_ADU_SIZE
-                    )
-                )
-            frame = head + byte_count + transport.recv(byte_count_value + 2)
-        elif pdu[0] == codec.ModbusFunction.REPORT_SERVER_ID:
-            # FC17 响应长度随附加数据变化:先读 byte count 再收其余(含 CRC)
-            byte_count = transport.recv(1)
-            if 3 + byte_count[0] + 2 > MODBUS_RTU_MAX_ADU_SIZE:
-                raise ProtocolFrameError(
-                    _("FC17 响应长度 {} 超出 Modbus RTU ADU 上限 {}").format(
-                        byte_count[0] + 5, MODBUS_RTU_MAX_ADU_SIZE
-                    )
-                )
-            frame = head + byte_count + transport.recv(byte_count[0] + 2)
+        elif pdu[0] in _INCREMENTAL_RESPONSE_LAYOUT:
+            # FC12/FC17/FC24:响应长度随内容变化,先读字节计数域再收其余(含
+            # CRC);计数域声明超 ADU 上限时在发 recv 前按坏帧拒绝
+            frame = _recv_incremental(transport, head, pdu[0])
         else:
             frame = head + transport.recv(codec.expected_response_length(pdu) + 1)
         received_station, response_pdu = codec.parse_rtu_frame(frame)
@@ -1884,6 +1856,48 @@ def _device_id_to_text(objects: Dict[int, bytes]) -> Dict[str, str]:
         name = MODBUS_DEVICE_ID_OBJECT_NAMES.get(object_id, f"object_0x{object_id:02X}")
         result[name] = raw.decode("ascii", "replace")
     return result
+
+
+# RTU 增量收包布局(FC12/FC17/FC24):功能码 → (计数域宽度, 计数域及之前的
+# 固定字节数, 帧内标签)。固定字节数 = 站号(1) + 功能码(1) + 计数域(1/2),
+# 全长 = 固定字节数 + 计数 + CRC(2)。
+# 依据:Modbus 应用协议 V1.1b3 §6.10 印刷页 26-27(FC12 事件日志)、§6.13
+# 印刷页 31(FC17 报告从站 ID)、§6.18 印刷页 40-41(FC24 读 FIFO 队列)的
+# 响应布局;总帧长 256 字节上限依据串口链路 V1.02 §2.5.1 印刷页 13
+_INCREMENTAL_RESPONSE_LAYOUT: Dict[int, Tuple[int, int, str]] = {
+    codec.ModbusFunction.GET_COMM_EVENT_LOG: (1, 3, "FC12"),
+    codec.ModbusFunction.REPORT_SERVER_ID: (1, 3, "FC17"),
+    codec.ModbusFunction.READ_FIFO_QUEUE: (2, 4, "FC24"),
+}
+
+
+def _recv_incremental(
+    transport: BaseTransport, head: bytes, function_code: int
+) -> bytes:
+    """按响应自带的字节计数域增量收包(内部函数,RTU 走线专用)。
+
+    FC12/FC17/FC24 的响应长度随内容变化,无法按请求推算:先按
+    :data:`_INCREMENTAL_RESPONSE_LAYOUT` 收计数域(1 或 2 字节,大端),
+    再按计数收其余数据并补 CRC。计数域声明超 ``MODBUS_RTU_MAX_ADU_SIZE``
+    时在发 recv 前按坏帧拒绝——噪声/畸形响应不得让读循环消费超一帧。
+
+    :param transport: 已连接走线
+    :param head: 已收的 2 字节帧头(站号 + 功能码)
+    :param function_code: 请求功能码(必须在本表内)
+    :return: 完整 ADU(含 CRC,交由走线层统一校验)
+    :raises ProtocolFrameError: 计数域声明的长度超出 ADU 上限
+    """
+    width, head_size, label = _INCREMENTAL_RESPONSE_LAYOUT[function_code]
+    count_raw = transport.recv(width)
+    count = int.from_bytes(count_raw, "big")
+    total = head_size + count + 2
+    if total > MODBUS_RTU_MAX_ADU_SIZE:
+        raise ProtocolFrameError(
+            _("{} 响应长度 {} 超出 Modbus RTU ADU 上限 {}").format(
+                label, total, MODBUS_RTU_MAX_ADU_SIZE
+            )
+        )
+    return head + count_raw + transport.recv(count + 2)
 
 
 def _recv_device_id_tail(transport: BaseTransport) -> bytes:
