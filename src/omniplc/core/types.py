@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Union
+from typing import Dict, Union
 
 PrimitiveValue = Union[bool, int, float, str]
 """读写方法接受的 Python 原生值类型。"""
@@ -78,21 +78,31 @@ class DataType(Enum):
     @property
     def byte_size(self) -> int:
         """该类型的字节长度(STRING 返回 0,表示长度由调用方指定)。"""
-        if self is DataType.STRING:
-            return 0
-        if self is DataType.BOOL:
-            return 1
-        if self in (DataType.SHORT, DataType.USHORT):
-            return 2
-        if self in (DataType.INT, DataType.UINT, DataType.FLOAT):
-            return 4
-        return 8
+        return _BYTE_SIZES[self]
 
     @property
     def register_size(self) -> int:
         """该类型占用的 16 位寄存器个数(BOOL 返回 1 占位;实际访问宽度由
         协议位寻址决定,如 Modbus 线圈 1 位、批量打包按 ⌈数量/8⌉ 字节)。"""
         return max(1, self.byte_size // 2)
+
+
+# 各数据类型的字节长度:尺寸口径的**唯一来源**(``register_size``、
+# ``convert._TYPE_BYTE_SIZES`` 均由此派生)。原先 ``byte_size`` 是 4 段
+# if 链、``convert`` 另有一张同内容字面量表,两处各自维护容易漂移。
+# 新增枚举成员而忘补此表时按 KeyError 立即暴露,不做 ``.get(..., 8)`` 兜底。
+_BYTE_SIZES: Dict[DataType, int] = {
+    DataType.BOOL: 1,
+    DataType.SHORT: 2,
+    DataType.USHORT: 2,
+    DataType.INT: 4,
+    DataType.UINT: 4,
+    DataType.LONG: 8,
+    DataType.ULONG: 8,
+    DataType.FLOAT: 4,
+    DataType.DOUBLE: 8,
+    DataType.STRING: 0,
+}
 
 
 class WordOrder(Enum):

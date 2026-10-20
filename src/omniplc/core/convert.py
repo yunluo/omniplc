@@ -33,16 +33,12 @@ from .validation import (
 
 BytesLike = Union[bytes, bytearray, Sequence[int]]
 
-# 数值类型的字节尺寸(不含 BOOL/STRING)
+# 数值类型的字节尺寸(不含 BOOL/STRING):由 :attr:`DataType.byte_size`
+# 派生,与 ``types`` 侧共用同一口径(不再维护第二份字面量表)
 _TYPE_BYTE_SIZES: Dict[DataType, int] = {
-    DataType.SHORT: 2,
-    DataType.USHORT: 2,
-    DataType.INT: 4,
-    DataType.UINT: 4,
-    DataType.LONG: 8,
-    DataType.ULONG: 8,
-    DataType.FLOAT: 4,
-    DataType.DOUBLE: 8,
+    member: member.byte_size
+    for member in DataType
+    if member not in (DataType.BOOL, DataType.STRING)
 }
 
 # 32/64 位整数的范围与校验名(16 位走 check_int16/check_uint16 带换算语义)
