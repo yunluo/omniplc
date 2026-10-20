@@ -29,7 +29,6 @@ from ..core import convert
 from ..core.base_client import DEFAULT_STRING_ENCODING, validate_endpoint
 from ..core.constants import (
     S7_DEFAULT_PORT,
-    S7_MAX_MULTI_VARS,
     S7_WSTRING_DEFAULT_LENGTH,
 )
 from ..core.debug import log_op
@@ -50,6 +49,9 @@ from ..plc.siemens.client import (
     _SIZES,
     _V_MODELS,
     _WSTRING_MODELS,
+    _check_multi_read_pdu,
+    _decode_multi_read,
+    _plan_multi_read,
     resolve_s7_connection,
 )
 from .base import AsyncBaseClient
@@ -806,7 +808,7 @@ class AsyncSiemensS7Client(AsyncBaseClient):
             return [(False, None) for _ in addresses]
         return [(True, value) for value in values]
 
-    async def read_batch(  # noqa: C901
+    async def read_batch(
         self, items: Sequence[Tuple[str, Union[DataType, str]]]
     ) -> Tuple[bool, Optional[List[PrimitiveValue]]]:
         """多变量批量读取:Read Var 多 Item 单 PDU 混读(DB/I/Q/M)。
@@ -819,89 +821,12 @@ class AsyncSiemensS7Client(AsyncBaseClient):
         :return: ``(是否成功, 与 items 顺序对应的值列表)``
         :raises ValueError: 列表为空/地址或类型非法/条目数超限
         """
-        if not items:
-            raise ValueError(_("read_batch 至少需要一个 (地址, 数据类型) 项"))
-        if len(items) > S7_MAX_MULTI_VARS:
-            raise ValueError(
-                _("S7 多变量读条目数超出上限 {}:{}(MAX_VARS)").format(
-                    S7_MAX_MULTI_VARS, len(items)
-                )
-            )
-        specs: List[Tuple[int, int, int, int]] = []
-        plan: List[Tuple[str, int, Optional[int], DataType]] = []
-        for address, data_type in items:
-            data_type_enum = DataType.coerce(data_type)
-            if data_type_enum not in _SIZES:
-                raise ValueError(
-                    _("S7 批量读取不支持的数据类型:{}").format(data_type_enum)
-                )
-            parsed = self._parse_address(address)
-            if data_type_enum is DataType.BOOL:
-                if parsed.bit is None:
-                    raise ValueError(
-                        _("S7 按位读取需要位地址:{!r}(示例:M10.2 / DB1.DBX0.3)").format(
-                            address
-                        )
-                    )
-                plan.append(("bit", len(specs), parsed.bit, data_type_enum))
-            else:
-                if parsed.bit is not None:
-                    raise ValueError(
-                        _(
-                            "S7 位地址只能按 BOOL 读写:{!r}(数值请用字节起点地址)"
-                        ).format(address)
-                    )
-                plan.append(("word", len(specs), None, data_type_enum))
-            specs.append(
-                (
-                    area_code(parsed.area),
-                    parsed.db_number,
-                    parsed.byte_index,
-                    _SIZES[data_type_enum],
-                )
-            )
+        specs, plan = _plan_multi_read(items, self._parse_address)
 
         async def operation() -> List[PrimitiveValue]:
             session = self._session()
-            if not codec.multi_read_fits_pdu(session.pdu_size, len(specs)):
-                raise ValueError(
-                    _(
-                        "S7 多变量读 {} 项超出协商 PDU {}B 容量"
-                        "(请求 {}B / 应答 {}B;上限 {} 项,review-1034 §4.1)"
-                    ).format(
-                        len(specs),
-                        session.pdu_size,
-                        12 + 12 * len(specs),
-                        14 + 12 * len(specs),
-                        max(
-                            1,
-                            min(
-                                (session.pdu_size - 12) // 12,
-                                (session.pdu_size - 14) // 12,
-                            ),
-                        ),
-                    )
-                )
-            blobs = await session.read_multi_vars(specs)
-            values: List[PrimitiveValue] = []
-            for kind, index, bit, data_type_enum in plan:
-                blob = blobs[index]
-                if kind == "bit":
-                    values.append(bool((blob[0] >> (bit or 0)) & 1))
-                elif data_type_enum is DataType.FLOAT:
-                    values.append(struct.unpack(">f", blob)[0])
-                elif data_type_enum is DataType.DOUBLE:
-                    values.append(struct.unpack(">d", blob)[0])
-                else:
-                    values.append(
-                        int.from_bytes(
-                            blob,
-                            "big",
-                            signed=data_type_enum
-                            in (DataType.SHORT, DataType.INT, DataType.LONG),
-                        )
-                    )
-            return values
+            _check_multi_read_pdu(session.pdu_size, len(specs))
+            return _decode_multi_read(plan, await session.read_multi_vars(specs))
 
         ok, values = await self._execute(operation)
         if not ok or values is None:
