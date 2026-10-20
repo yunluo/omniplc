@@ -45,9 +45,7 @@ from ...core.errors import DeviceError
 from ...core.i18n import _
 from ...core.types import ByteOrder, DataType, PrimitiveValue
 from ...core.validation import (
-    check_int16,
     check_range,
-    check_uint16,
     require_bool,
     require_count,
 )
@@ -302,13 +300,13 @@ class _OmronFinsBase(BaseClient):
             )
         if data_type is DataType.BOOL:
             return self._read_bit_impl(parsed)
-        if data_type in (DataType.SHORT, DataType.USHORT):
-            return _words_to_value(self._read_words(parsed, 1), data_type)
-        if data_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
-            return _words_to_value(self._read_words(parsed, 2), data_type)
-        if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
-            return _words_to_value(self._read_words(parsed, 4), data_type)
-        raise ValueError(_("FINS 不支持的数据类型:{}").format(data_type))
+        # 数值类型统一按 register_size 取宽(16/32/64 位 = 1/2/4 字),解码走
+        # FINS 字序助手;BOOL 已在上方返回,剩到此处只有 STRING 属非数值
+        if data_type is DataType.STRING:
+            raise ValueError(_("FINS 不支持的数据类型:{}").format(data_type))
+        return _words_to_value(
+            self._read_words(parsed, data_type.register_size), data_type
+        )
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """FINS 写原语:Area Write(0102)。
@@ -335,19 +333,11 @@ class _OmronFinsBase(BaseClient):
             else:
                 self._write_bit_impl(parsed, flag)
             return
-        if data_type is DataType.SHORT:
-            self._write_words(parsed, [check_int16(value)])
-            return
-        if data_type is DataType.USHORT:
-            self._write_words(parsed, [check_uint16(value)])
-            return
-        if data_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
-            self._write_words(parsed, _value_to_words(value, data_type))
-            return
-        if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
-            self._write_words(parsed, _value_to_words(value, data_type))
-            return
-        raise ValueError(_("FINS 不支持的数据类型:{}").format(data_type))
+        # 数值类型统一走 FINS 字序助手(内含 SHORT/USHORT 与 32/64 位范围校验);
+        # BOOL 已在上方返回,剩到此处只有 STRING 属非数值
+        if data_type is DataType.STRING:
+            raise ValueError(_("FINS 不支持的数据类型:{}").format(data_type))
+        self._write_words(parsed, _value_to_words(value, data_type))
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """从字区读字符串:逐字大端拼字节后解码(FINS 字序约定)。"""

@@ -63,8 +63,6 @@ from ...core.i18n import _
 from ...core.types import ByteOrder, DataType, McFrame, PrimitiveValue, SerialParity
 from ...core.validation import (
     check_byte_field,
-    check_int16,
-    check_uint16,
     require_bool,
     require_count,
     require_int,
@@ -223,20 +221,14 @@ class _MelsecMcBase(BaseClient):
         # 位软元件按字单位访问受门控(第八轮 P2-14):_device_info 对未知
         # 软元件的报错时机与旧实现一致(事务组帧路径),此处兜底不前移
         self._check_bit_device_word_access(parsed)
-        if data_type in (DataType.SHORT, DataType.USHORT):
-            data = self._read_words(parsed, 1)
-            return (
-                data[0]
-                if data_type is DataType.USHORT
-                else convert.to_signed(data[0], 16)
-            )
-        if data_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
-            data = self._read_words(parsed, 2)
-            return _decode_32(data, data_type)
-        if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
-            data = self._read_words(parsed, 4)
-            return _decode_64(data, data_type)
-        raise ValueError(_("MC 不支持的数据类型:{}").format(data_type))
+        # 数值类型统一按 register_size 取宽(16 位 1 字 / 32 位 2 字 / 64 位 4 字),
+        # 解码走 convert.words_to_value(MC 小端字序);BOOL 已在上方返回,剩到
+        # 此处只有 STRING 属非数值(新增枚举成员若未在此归类会以 KeyError 暴露)
+        if data_type is DataType.STRING:
+            raise ValueError(_("MC 不支持的数据类型:{}").format(data_type))
+        return convert.words_to_value(
+            self._read_words(parsed, data_type.register_size), data_type
+        )
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """MC 写原语:成批写请求。位软元件按位写;字软元件按位写用读-改-写。
@@ -259,19 +251,12 @@ class _MelsecMcBase(BaseClient):
                 )
             return
         self._check_bit_device_word_access(parsed)
-        if data_type is DataType.SHORT:
-            self._write_words(parsed, [check_int16(value)])
-            return
-        if data_type is DataType.USHORT:
-            self._write_words(parsed, [check_uint16(value)])
-            return
-        if data_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
-            self._write_words(parsed, _encode_32(value, data_type))
-            return
-        if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
-            self._write_words(parsed, _encode_64(value, data_type))
-            return
-        raise ValueError(_("MC 不支持的数据类型:{}").format(data_type))
+        # 数值类型统一走 convert.value_to_words(MC 小端字序):SHORT/USHORT 的
+        # check_int16/check_uint16、32/64 位的整数范围与 float32 越界校验都在其中;
+        # BOOL 已在上方返回,剩到此处只有 STRING 属非数值
+        if data_type is DataType.STRING:
+            raise ValueError(_("MC 不支持的数据类型:{}").format(data_type))
+        self._write_words(parsed, convert.value_to_words(value, data_type))
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """从字软元件读字符串:逐字小端拼字节后解码(MC 字序约定)。

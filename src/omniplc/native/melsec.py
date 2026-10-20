@@ -47,8 +47,6 @@ from ..core.i18n import _
 from ..core.types import DataType, McFrame, PrimitiveValue
 from ..core.validation import (
     check_byte_field,
-    check_int16,
-    check_uint16,
     require_bool,
     require_count,
     require_int,
@@ -61,8 +59,6 @@ from ..plc.melsec.melsec import (
     _decode_32,
     _decode_64,
     _decode_dword,
-    _encode_32,
-    _encode_64,
     _merge_bit_blocks,
 )
 from .base import AsyncBaseClient
@@ -177,20 +173,13 @@ class AsyncMelsecMcBase(AsyncBaseClient):
         if data_type is DataType.BOOL:
             return await self._read_bool_impl(parsed)
         self._check_bit_device_word_access(parsed)
-        if data_type in (DataType.SHORT, DataType.USHORT):
-            data = await self._read_words(parsed, 1)
-            return (
-                data[0]
-                if data_type is DataType.USHORT
-                else convert.to_signed(data[0], 16)
-            )
-        if data_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
-            data = await self._read_words(parsed, 2)
-            return _decode_32(data, data_type)
-        if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
-            data = await self._read_words(parsed, 4)
-            return _decode_64(data, data_type)
-        raise ValueError(_("MC 不支持的数据类型:{}").format(data_type))
+        # 数值类型统一按 register_size 取宽、按 MC 小端字序解码(与同步层同口径);
+        # BOOL 已在上方返回,剩到此处只有 STRING 属非数值
+        if data_type is DataType.STRING:
+            raise ValueError(_("MC 不支持的数据类型:{}").format(data_type))
+        return convert.words_to_value(
+            await self._read_words(parsed, data_type.register_size), data_type
+        )
 
     async def _write(
         self, address: str, data_type: DataType, value: PrimitiveValue
@@ -215,19 +204,11 @@ class AsyncMelsecMcBase(AsyncBaseClient):
                 )
             return
         self._check_bit_device_word_access(parsed)
-        if data_type is DataType.SHORT:
-            await self._write_words(parsed, [check_int16(value)])
-            return
-        if data_type is DataType.USHORT:
-            await self._write_words(parsed, [check_uint16(value)])
-            return
-        if data_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
-            await self._write_words(parsed, _encode_32(value, data_type))
-            return
-        if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
-            await self._write_words(parsed, _encode_64(value, data_type))
-            return
-        raise ValueError(_("MC 不支持的数据类型:{}").format(data_type))
+        # 数值类型统一走 convert.value_to_words(内含各类型范围校验,与同步层
+        # 同口径);BOOL 已在上方返回,剩到此处只有 STRING 属非数值
+        if data_type is DataType.STRING:
+            raise ValueError(_("MC 不支持的数据类型:{}").format(data_type))
+        await self._write_words(parsed, convert.value_to_words(value, data_type))
 
     async def _read_string(
         self, address: str, length: int, encoding: str

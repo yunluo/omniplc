@@ -39,7 +39,7 @@ from ...core.constants import (
 from ...core.errors import ProtocolFrameError
 from ...core.i18n import _
 from ...core.types import ByteOrder, DataType, PrimitiveValue
-from ...core.validation import check_int16, check_uint16, require_bool, require_count
+from ...core.validation import require_bool, require_count
 from ...transport import BaseTransport, TcpTransport, UdpTransport
 from . import codec_mewtocol
 from .address import MewtocolAddress, parse_mewtocol_address
@@ -103,20 +103,11 @@ class _MewtocolBase(BaseClient):
             raise ValueError(_("仅布尔类型支持位访问:{!r}").format(address))
         if data_type is DataType.BOOL:
             return self._read_bool_impl(parsed)
-        if data_type in (DataType.SHORT, DataType.USHORT):
-            data = self._read_words(parsed, 1)
-            return (
-                data[0]
-                if data_type is DataType.USHORT
-                else convert.to_signed(data[0], 16)
-            )
-        if data_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
-            data = self._read_words(parsed, 2)
-            return _decode(data, data_type)
-        if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
-            data = self._read_words(parsed, 4)
-            return _decode(data, data_type)
-        raise ValueError(_("MEWTOCOL 不支持的数据类型:{}").format(data_type))
+        # 数值类型统一按 register_size 取宽、走 MEWTOCOL 字序助手(低字在前、
+        # 字内高字节在前);BOOL 已在上方返回,剩到此处只有 STRING 属非数值
+        if data_type is DataType.STRING:
+            raise ValueError(_("MEWTOCOL 不支持的数据类型:{}").format(data_type))
+        return _decode(self._read_words(parsed, data_type.register_size), data_type)
 
     def _write(self, address: str, data_type: DataType, value: PrimitiveValue) -> None:
         """MEWTOCOL 写原语:接点走 WCS,数据区走 WD(位写用读-改-写)。"""
@@ -143,19 +134,11 @@ class _MewtocolBase(BaseClient):
                     parsed, [convert.set_bit(words[0], parsed.bit or 0, flag)]
                 )
             return
-        if data_type is DataType.SHORT:
-            self._write_words(parsed, [check_int16(value)])
-            return
-        if data_type is DataType.USHORT:
-            self._write_words(parsed, [check_uint16(value)])
-            return
-        if data_type in (DataType.INT, DataType.UINT, DataType.FLOAT):
-            self._write_words(parsed, _encode(value, data_type))
-            return
-        if data_type in (DataType.LONG, DataType.ULONG, DataType.DOUBLE):
-            self._write_words(parsed, _encode(value, data_type))
-            return
-        raise ValueError(_("MEWTOCOL 不支持的数据类型:{}").format(data_type))
+        # 数值类型统一走 MEWTOCOL 字序助手(内含 SHORT/USHORT 与 32/64 位范围
+        # 校验);BOOL 已在上方返回,剩到此处只有 STRING 属非数值
+        if data_type is DataType.STRING:
+            raise ValueError(_("MEWTOCOL 不支持的数据类型:{}").format(data_type))
+        self._write_words(parsed, _encode(value, data_type))
 
     def _read_string(self, address: str, length: int, encoding: str) -> PrimitiveValue:
         """从数据区读字符串:逐字高字节在前拼字节后解码(MEWTOCOL 字内字节序)。"""
