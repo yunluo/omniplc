@@ -43,6 +43,10 @@ cp37-win32 轮运行;2026-09 的 0.29.37 配方因**不支持 typing.NamedTuple 
   (本地 cp936 掩盖;2026-10-16 CI 首跑两腿同点失败根因,已在本地
   ``PYTHONIOENCODING=cp1252`` 条件复现)——脚本开头已把自身 stdout/stderr
   ``reconfigure`` 成 UTF-8 并给子进程兜底 ``PYTHONIOENCODING``(勿删)。
+- **失败诊断走 ``::error::`` 工作流命令**(2026-10-28 增):job 日志匿名
+  拉不到(需 admin),而 ``::error::`` 行会被平台转成 check-run 注解,
+  匿名 API 即可读到失败阶段名与异常摘要——配合 ``_PHASE`` 阶段追踪,
+  远程定位「挂在哪一步」零轮询成本。
 """
 
 import argparse
@@ -72,6 +76,9 @@ OUT = ROOT / "dist-pyd"
 FUTURE_LINE = "from __future__ import annotations"
 # 换行注释占位而非直接删行:保源码行号,traceback 行号仍可对(src 与 .c 一致)
 FUTURE_REPLACEMENT = "# [pyd-build] 剥离 PEP563 导入(Cython 兼容,保行号)\n"
+
+# 当前阶段名(main 内逐步推进):失败时随 ::error:: 注解输出(见文件头坑位第 5 条)
+_PHASE = "启动"
 
 
 def parse_version():
@@ -348,6 +355,7 @@ def smoke(wheel):
 
 
 def main():
+    global _PHASE
     parser = argparse.ArgumentParser(description="构建 pyd 无源二进制轮")
     parser.add_argument(
         "--compiler",
@@ -367,18 +375,43 @@ def main():
     if BUILD_ROOT.exists():
         # 每次全量重建:防陈旧 .o/.pyd 被"视为最新"混进轮子(发布物确定性优先)
         shutil.rmtree(BUILD_ROOT)
+    _PHASE = "解析版本"
     version = parse_version()
+    _PHASE = "staging+剥PEP563"
     prepare_staging()
+    _PHASE = "stubgen(uvx)"
     generate_stubs()
+    _PHASE = "cythonize"
     extensions = cythonize_staging()
+    _PHASE = "删源"
     drop_sources()
+    _PHASE = "bdist_wheel(编译+链接)"
     build_wheel(extensions, version, args.compiler)
+    _PHASE = "定位 wheel"
     wheel = find_wheel()
     print("wheel:{} | {} bytes".format(wheel.name, wheel.stat().st_size))
+    _PHASE = "注入 pyi"
     inject_stubs(wheel)
+    _PHASE = "装轮+冒烟"
     smoke(wheel)
     print("DONE:", wheel.name)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit as exc:
+        # argparse --help/-h 走 SystemExit(0),不算失败不注解
+        if exc.code not in (None, 0):
+            print("::error::build_pyd 阶段[{}]失败(code={}):{}".format(_PHASE, exc.code, exc))
+        raise
+    except BaseException:
+        import traceback
+
+        traceback.print_exc()
+        print(
+            "::error::build_pyd 阶段[{}]异常:{!r}(完整 traceback 见步骤日志)".format(
+                _PHASE, sys.exc_info()[1]
+            )
+        )
+        raise
