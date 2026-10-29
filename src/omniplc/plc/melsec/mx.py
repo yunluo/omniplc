@@ -327,19 +327,28 @@ def _com_get_cpu_type(com: Any) -> Tuple[str, int]:
 
     走 :func:`_raw_com_method` 原始 vtable 通道:参数布局
     ``(szCpuName, lCpuType, lplRetCode)``(本机类型库 dump 与手册
-    §5.2.13 自定义 I/F 吻合)。``szCpuName`` 是 BSTR 出参,
-    自备 32 字节 ctypes 缓冲;``lCpuType`` 是 16 位出参;
-    ``lplRetCode`` 是返回码出参。
+    §5.2.13 自定义 I/F 吻合)。真类型库(comtypes/gen ActUtlType dump)
+    声明 ``szCpuName = POINTER(BSTR)``、``lCpuType/lplRetCode =
+    POINTER(c_int)``——**BSTR 出参必须传 :class:`comtypes.BSTR` 缓冲**:
+    ctypes 指针形参严格查型,``byref(create_unicode_buffer(N))`` 是
+    ``POINTER(c_wchar_Array_N)``,必抛 ``ArgumentError: expected LP_BSTR
+    instance instead of pointer to c_wchar_Array_N``(2026-10-28 现场
+    GetCpuType 必败的根因,报错里的 "pointer … Array" 即此;整数缓冲
+    不受此限,``byref(c_long)`` 对 ``POINTER(c_int)`` 同宽放行,故其余
+    方法无恙)。BSTR 由服务端 ``SysAllocString``,读后 ``SysFreeString``
+    释放(NULL 释放为安全空操作)。
 
     review-1024 §9.2-1 P1:与 _com_get_device 同批改 raw 通道,
-    凭 ``lplRetCode`` 显式校验可感知高位 0 出错码。
+    凭 ``lplRetCode`` 显式校验可感知高位 0 出错码;当时仅假 vtable
+    测试(收什么都能写),查型缺陷由现场首用暴露(§9.5 真机核证项)。
     """
-    name_buffer = ctypes.create_unicode_buffer(32)
+    from comtypes import BSTR
+
+    name_buffer = BSTR()
     code = ctypes.c_long()
     retcode = ctypes.c_long()
     raw = _raw_com_method(com, "GetCpuType")
     try:
-        # name_buffer / message 也需 byref:BSTR 出参写入需指针语义
         result = raw(
             ctypes.byref(name_buffer), ctypes.byref(code), ctypes.byref(retcode)
         )
@@ -347,8 +356,11 @@ def _com_get_cpu_type(com: Any) -> Tuple[str, int]:
         raise OmniPLCInternalError(
             _("MX Component GetCpuType 失败:{}").format(exc)
         ) from exc
-    _check_com_call(result, retcode.value, "GetCpuType")
-    return str(name_buffer.value), int(code.value) & 0xFFFF
+    try:
+        _check_com_call(result, retcode.value, "GetCpuType")
+        return str(name_buffer.value or ""), int(code.value) & 0xFFFF
+    finally:
+        ctypes.oledll.oleaut32.SysFreeString(name_buffer)
 
 
 def _com_get_clock_data(com: Any) -> Dict[str, int]:
@@ -449,7 +461,10 @@ def _com_get_error_message(com: Any, code: int) -> str:
 
     走 :func:`_raw_com_method` 原始 vtable 通道:参数布局
     ``(lErrorCode, szErrorMessage, lplRetCode)``(本机类型库 dump
-    与手册 §5.2.26 印刷 398 吻合;review-1024 §9.2-1 P1)。SupportMsg
+    与手册 §5.2.26 印刷 398 吻合;review-1024 §9.2-1 P1)。
+    ``szErrorMessage`` 是 BSTR 出参,必须传 :class:`comtypes.BSTR`
+    缓冲——wchar 数组指针过不了 ctypes 指针查型(同
+    :func:`_com_get_cpu_type`,2026-10-28 现场「point array」报错同根因)。SupportMsg
     控件独立于 ActUtlType(手册:「碼→文本只要求 ActSupportMsg,
     不要求 Open」),与 _com_get_device 解耦——本函数不需要 ActUtlType
     已 Open(review-1024 §9.2-5 P2 揭露的「get_error_message 不经
@@ -462,11 +477,14 @@ def _com_get_error_message(com: Any, code: int) -> str:
     退出时(**含异常路径**)置空本地 ``com`` 引用:STA 控件代理随引用
     计数立即释放,不留待 traceback 帧。
     """
-    message = ctypes.create_unicode_buffer(256)
+    from comtypes import BSTR
+
+    message = BSTR()
     retcode = ctypes.c_long()
     raw = _raw_com_method(com, "GetErrorMessage")
     try:
-        # message 也需 byref:BSTR 出参写入需指针语义
+        # szErrorMessage 同为 BSTR 出参:必须传 BSTR 缓冲(同
+        # _com_get_cpu_type,wchar 数组指针过不了 ctypes 查型)
         result = raw(int(code), ctypes.byref(message), ctypes.byref(retcode))
     except _com_error() as exc:
         raise DeviceError(
@@ -474,15 +492,18 @@ def _com_get_error_message(com: Any, code: int) -> str:
         ) from exc
     try:
         _check_com_call(result, retcode.value, "GetErrorMessage")
+        text = str(message.value or "")
     except OmniPLCInternalError as exc:
         # SupportMsg 返回码非 0 同为文本查询失败(不断线),转码口径同上
         raise DeviceError(str(exc), 0) from exc
     finally:
+        # BSTR 由服务端 SysAllocString,读后释放(NULL 释放为安全空操作);
         # raw = getattr(com, ...) 是 bound method, 持 self 引用——
         # 不置空, 控件代理随 GC 延迟释放可能扣到 traceback 帧。
+        ctypes.oledll.oleaut32.SysFreeString(message)
         raw = None
         com = None
-    return str(message.value)
+    return text
 
 
 class _MxComLink(BaseTransport):

@@ -11,6 +11,7 @@ COM 层(comtypes)以模块级助手函数隔离,测试替换为内存版假控�
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import re
 import weakref
 from typing import Any
@@ -38,6 +39,24 @@ _TEXT_RE = re.compile(r"^([A-Za-z]+)(\d+)(?:\.(\d+))?$")
 
 _REAL_GET_ERROR_MESSAGE = mx_module._com_get_error_message
 """真 GetErrorMessage 助手(夹具会替换为假件;需要走真实现的用例显式换回)。"""
+
+_SYS_ALLOC_STRING = ctypes.oledll.oleaut32.SysAllocString
+_SYS_ALLOC_STRING.restype = ctypes.c_void_p  # BSTR 指针;缺省 c_int 在 64 位截断
+
+
+def _set_bstr(buffer: Any, text: str) -> None:
+    """按真控件同款写 BSTR 出参:``SysAllocString`` 出真 BSTR 指针再写入。
+
+    ``_com_get_cpu_type``/``_com_get_error_message`` 读后 ``SysFreeString``
+    释放——桩若用 ``.value =`` 写入(ctypes 内部缓冲,非 BSTR 布局),
+    释放即错释放;与真控件同构才能验全生命周期。
+    """
+    pointer = _SYS_ALLOC_STRING(text)
+    ctypes.memmove(
+        ctypes.addressof(buffer),
+        ctypes.byref(ctypes.c_void_p(pointer)),
+        ctypes.sizeof(ctypes.c_void_p),
+    )
 
 
 class FakeActUtlType:
@@ -491,7 +510,7 @@ class ComtypesStyleActUtlType:
         return 0
 
     def __com_GetCpuType(self, szCpuName: Any, lCpuType: Any, lplRetCode: Any) -> int:
-        szCpuName._obj.value = "Q06HCPU"
+        _set_bstr(szCpuName._obj, "Q06HCPU")
         lCpuType._obj.value = 0x0333
         lplRetCode._obj.value = self.get_cpu_type_code
         return 0
@@ -522,7 +541,7 @@ class ComtypesStyleActUtlType:
     ) -> int:
         if lErrorCode == 0xBAD:
             raise comtypes.COMError(-2147024894, "未知出错代码", None)
-        szErrorMessage._obj.value = f"出错文本 0x{lErrorCode & 0xFFFFFFFF:08X}"
+        _set_bstr(szErrorMessage._obj, f"出错文本 0x{lErrorCode & 0xFFFFFFFF:08X}")
         lplRetCode._obj.value = self.get_error_message_code
         return 0
 
@@ -558,6 +577,55 @@ def test_com_helpers_comtypes_out_param_convention() -> None:
     # COMError 抛错路径仍走原始 vtable
     with pytest.raises(OmniPLCInternalError):
         mx_module._com_get_error_message(com, 0xBAD)
+
+
+def test_com_bstr_out_params_marshal_comtypes_bstr() -> None:
+    """BSTR 出参(GetCpuType/GetErrorMessage)必须传 comtypes.BSTR 缓冲。
+
+    真类型库(comtypes/gen ActUtlType dump)对 GetCpuType 的声明是
+    ``(POINTER(BSTR), POINTER(c_int), POINTER(c_int))``;ctypes 指针
+    形参严格查型,``byref(create_unicode_buffer(N))``(wchar 数组
+    指针)必抛 ``ArgumentError: expected LP_BSTR instance instead of
+    pointer to c_wchar_Array_N``——2026-10-28 现场 GetCpuType 必败的
+    根因(用户见到的 "point array" 即报错原文里的 "pointer … Array")。
+    旧桩「收什么都能写」验不出该缺陷,本测试以**真 argtypes 的
+    ctypes 函数桩**锁定调用形态(整数缓冲不受此限:byref(c_long)
+    对 POINTER(c_int) 同宽放行,故其余 raw 方法无恙)。
+    """
+    from comtypes import BSTR
+
+    @ctypes.WINFUNCTYPE(
+        ctypes.HRESULT,
+        ctypes.POINTER(BSTR),
+        ctypes.POINTER(ctypes.c_int),
+        ctypes.POINTER(ctypes.c_int),
+    )
+    def raw_get_cpu_type(sz_cpu_name, lpl_cpu_code, lpl_retcode):
+        _set_bstr(sz_cpu_name.contents, "Q06HCPU")
+        lpl_cpu_code.contents.value = 0x0333
+        lpl_retcode.contents.value = 0
+        return 0
+
+    class ComCpu:
+        __com_GetCpuType = raw_get_cpu_type
+
+    assert mx_module._com_get_cpu_type(ComCpu()) == ("Q06HCPU", 0x0333)
+
+    @ctypes.WINFUNCTYPE(
+        ctypes.HRESULT,
+        ctypes.c_long,
+        ctypes.POINTER(BSTR),
+        ctypes.POINTER(ctypes.c_int),
+    )
+    def raw_get_error_message(l_error_code, sz_error_message, lpl_retcode):
+        _set_bstr(sz_error_message.contents, "出错文本")
+        lpl_retcode.contents.value = 0
+        return 0
+
+    class ComMsg:
+        __com_GetErrorMessage = raw_get_error_message
+
+    assert mx_module._com_get_error_message(ComMsg(), 0xC0500100) == "出错文本"
 
 
 def test_com_helpers_raw_retcode_propagates_high_bit_zero_error() -> None:
@@ -661,7 +729,7 @@ def test_get_error_message_releases_support_msg_control(
 
     class TrackedMsg:
         def __com_GetErrorMessage(self, code: int, message: Any, retcode: Any) -> int:
-            message._obj.value = f"出错文本 0x{code & 0xFFFFFFFF:08X}"
+            _set_bstr(message._obj, f"出错文本 0x{code & 0xFFFFFFFF:08X}")
             retcode._obj.value = 0
             return 0
 
