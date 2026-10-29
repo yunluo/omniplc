@@ -40,23 +40,25 @@ _TEXT_RE = re.compile(r"^([A-Za-z]+)(\d+)(?:\.(\d+))?$")
 _REAL_GET_ERROR_MESSAGE = mx_module._com_get_error_message
 """真 GetErrorMessage 助手(夹具会替换为假件;需要走真实现的用例显式换回)。"""
 
-_SYS_ALLOC_STRING = ctypes.oledll.oleaut32.SysAllocString
-_SYS_ALLOC_STRING.restype = ctypes.c_void_p  # BSTR 指针;缺省 c_int 在 64 位截断
+# SysAllocString 必须 windll 口径(oledll 把 BSTR 指针返回值当 HRESULT 检查,
+# 指针 ≥2^31 时 PyLong_AsLong 溢出 OverflowError——x64 恒现网,32 位高地址堆
+# 同炸,2026-10-28 CI 两腿 pytest 同挂根因),argtypes/restype 显式声明取全指针
+_SYS_ALLOC_STRING = ctypes.windll.oleaut32.SysAllocString
+_SYS_ALLOC_STRING.argtypes = [ctypes.c_wchar_p]
+_SYS_ALLOC_STRING.restype = ctypes.c_void_p
 
 
 def _set_bstr(buffer: Any, text: str) -> None:
-    """按真控件同款写 BSTR 出参:``SysAllocString`` 出真 BSTR 指针再写入。
+    """按真控件同款写 BSTR 出参:``SysAllocString`` 出真 BSTR 指针写入槽位。
 
-    ``_com_get_cpu_type``/``_com_get_error_message`` 读后 ``SysFreeString``
-    释放——桩若用 ``.value =`` 写入(ctypes 内部缓冲,非 BSTR 布局),
-    释放即错释放;与真控件同构才能验全生命周期。
+    库侧读后经 ``_bstr_free`` 释放并清零——桩若用 ``.value =`` 写入
+    (ctypes 内部缓冲,非 BSTR 布局),释放即错释放;与真控件同构才能验
+    全生命周期。写入经 ``byref`` + ``POINTER(c_void_p)`` 槽位视角(BSTR
+    实例直接传外部函数在新版 comtypes 报 ``wrong type``,与库侧同口径)。
     """
-    pointer = _SYS_ALLOC_STRING(text)
-    ctypes.memmove(
-        ctypes.addressof(buffer),
-        ctypes.byref(ctypes.c_void_p(pointer)),
-        ctypes.sizeof(ctypes.c_void_p),
-    )
+    ctypes.cast(
+        ctypes.byref(buffer), ctypes.POINTER(ctypes.c_void_p)
+    ).contents.value = _SYS_ALLOC_STRING(text)
 
 
 class FakeActUtlType:

@@ -119,6 +119,46 @@ def _com_error() -> Type[BaseException]:
     return cast(Type[BaseException], comtypes.COMError)
 
 
+def _bstr_peek(bstr: Any) -> Optional[int]:
+    """读 BSTR 槽位内的原始指针(NULL → None,内部函数)。
+
+    经 ``byref`` + ``POINTER(c_void_p)`` 视角取槽位首字段——BSTR 实例
+    跨 comtypes 版本布局不一(新版不再被 ctypes 当简单指针直接传给
+    外部函数,探针实测报 ``wrong type``),槽位指针读写与版本无关。
+    """
+    return ctypes.cast(
+        ctypes.byref(bstr), ctypes.POINTER(ctypes.c_void_p)
+    ).contents.value
+
+
+_BSTR_FREE: Optional[Callable[[Any], None]] = None
+
+
+def _bstr_free(bstr: Any) -> None:
+    """SysFreeString 槽位内 BSTR 并把槽位清零(内部函数)。
+
+    必须 windll 口径(显式 ``argtypes=[c_void_p]`` + ``restype=None``):
+    oledll 把返回值当 HRESULT 检查——SysFreeString 是 void 函数,EAX 残留
+    会被误判成失败 HRESULT;SysAllocString 的 BSTR 指针返回值同理会溢出
+    (指针 ≥2^31——64 位恒现网、32 位高地址堆——时 ``PyLong_AsLong``
+    抛 ``OverflowError``,2026-10-28 CI 两腿 pytest 同挂的根因)。
+    清零槽位防任何 BSTR 终结器/复用路径二次释放。lazy 绑定:
+    ``ctypes.windll`` 仅 Windows 存在,本模块在非 Windows 平台也要可导入。
+    """
+    global _BSTR_FREE
+    if _BSTR_FREE is None:
+        free = ctypes.windll.oleaut32.SysFreeString
+        free.argtypes = [ctypes.c_void_p]
+        free.restype = None
+        _BSTR_FREE = free
+    pointer = _bstr_peek(bstr)
+    if pointer:
+        _BSTR_FREE(pointer)
+    ctypes.cast(
+        ctypes.byref(bstr), ctypes.POINTER(ctypes.c_void_p)
+    ).contents.value = None
+
+
 def _return_code(result: Any) -> int:
     """取返回码:纯 LONG 直接用;(出参数组, 码) 元组取首个 int(内部函数)。"""
     items = result if isinstance(result, tuple) else (result,)
@@ -335,8 +375,8 @@ def _com_get_cpu_type(com: Any) -> Tuple[str, int]:
     instance instead of pointer to c_wchar_Array_N``(2026-10-28 现场
     GetCpuType 必败的根因,报错里的 "pointer … Array" 即此;整数缓冲
     不受此限,``byref(c_long)`` 对 ``POINTER(c_int)`` 同宽放行,故其余
-    方法无恙)。BSTR 由服务端 ``SysAllocString``,读后 ``SysFreeString``
-    释放(NULL 释放为安全空操作)。
+    方法无恙)。BSTR 由服务端 ``SysAllocString`` 分配,读后经
+    :func:`_bstr_free` 释放并清零槽位(windll 口径,理由见该函数)。
 
     review-1024 §9.2-1 P1:与 _com_get_device 同批改 raw 通道,
     凭 ``lplRetCode`` 显式校验可感知高位 0 出错码;当时仅假 vtable
@@ -358,9 +398,10 @@ def _com_get_cpu_type(com: Any) -> Tuple[str, int]:
         ) from exc
     try:
         _check_com_call(result, retcode.value, "GetCpuType")
-        return str(name_buffer.value or ""), int(code.value) & 0xFFFF
+        pointer = _bstr_peek(name_buffer)
+        return (ctypes.wstring_at(pointer) if pointer else ""), int(code.value) & 0xFFFF
     finally:
-        ctypes.oledll.oleaut32.SysFreeString(name_buffer)
+        _bstr_free(name_buffer)
 
 
 def _com_get_clock_data(com: Any) -> Dict[str, int]:
@@ -492,15 +533,16 @@ def _com_get_error_message(com: Any, code: int) -> str:
         ) from exc
     try:
         _check_com_call(result, retcode.value, "GetErrorMessage")
-        text = str(message.value or "")
+        pointer = _bstr_peek(message)
+        text = ctypes.wstring_at(pointer) if pointer else ""
     except OmniPLCInternalError as exc:
         # SupportMsg 返回码非 0 同为文本查询失败(不断线),转码口径同上
         raise DeviceError(str(exc), 0) from exc
     finally:
-        # BSTR 由服务端 SysAllocString,读后释放(NULL 释放为安全空操作);
+        # BSTR 用后即释并清零槽位(经 _bstr_free,windll 口径);
         # raw = getattr(com, ...) 是 bound method, 持 self 引用——
         # 不置空, 控件代理随 GC 延迟释放可能扣到 traceback 帧。
-        ctypes.oledll.oleaut32.SysFreeString(message)
+        _bstr_free(message)
         raw = None
         com = None
     return text
