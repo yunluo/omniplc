@@ -305,8 +305,11 @@ def inject_stubs(wheel):
                 record_lines = data.decode("utf-8").splitlines()
         for src, arc in inject:
             zout.writestr(arc.as_posix(), src.read_bytes())
-    # 第二遍:用更新后的 RECORD 重建(替换内容)
-    for arc, src in inject:
+    # 第二遍:用更新后的 RECORD 重建(替换内容)——解包序与 inject 元组
+    # (pyi, arc)一致:src=staging 绝对路径、arc=轮内相对名。曾写反
+    # ``(arc, src)`` 致 src 拿到相对 arc 名、read_bytes 必 FileNotFoundError
+    # (2026-10-30 ::error:: 注解 + 本地假轮复现定位,inject 自引入从未成功过)
+    for src, arc in inject:
         data = src.read_bytes()
         record_lines.append(
             "{},sha256={},{}".format(arc.as_posix(), _record_hash(data), len(data))
