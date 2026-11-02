@@ -1053,6 +1053,7 @@ _TRANSLATIONS: Dict[str, str] = {
     "FINS 响应 ICF 非法:期望 0x{:02X},收到 0x{:02X}(收到的原始帧:{})": "Invalid FINS response ICF: expected 0x{0:02X}, got 0x{1:02X} (raw frame received: {2})",
     "FINS 响应 SID 回显不符:期望 0x{:02X},收到 0x{:02X}(收到的原始帧:{})": "FINS response SID echo mismatch: expected 0x{0:02X}, got 0x{1:02X} (raw frame received: {2})",
     "FINS 响应命令码回显不符:期望 0x{:04X},收到 0x{:04X}(收到的原始帧:{})": "FINS response command code echo mismatch: expected 0x{0:04X}, got 0x{1:04X} (raw frame received: {2})",
+    "FINS/UDP 陈旧应答丢弃达上限({} 条),本次应答(SID 0x{:02X})仍未到达": "FINS/UDP stale-response discard limit reached ({0} frames); the response for this transaction (SID 0x{1:02X}) has not arrived",
     "EM 区 bank 号超出范围 0~{}:{}": "The EM area bank number is out of the 0~{} range: {}",
     "不支持的 FINS 存储区:{!r},支持:{}": "Unsupported FINS memory area: {0!r}, supported: {1}",
     "FINS 多存储区读区码回显不符:期望 0x{:02X},收到 0x{:02X}(收到的原始帧:{})": "FINS multi-area read area code echo mismatch: expected 0x{0:02X}, got 0x{1:02X} (raw frame received: {2})",

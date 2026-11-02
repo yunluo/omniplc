@@ -45,7 +45,8 @@ from ..core.constants import (
     FINS_UNIT_MAX,
     FINS_UNSUPPORTED_AREA_CODE,
 )
-from ..core.errors import DeviceError
+from ..core.debug import format_hex, log_warning
+from ..core.errors import DeviceError, TransportTimeoutError
 from ..core.i18n import _
 from ..core.types import ByteOrder, DataType, PrimitiveValue
 from ..core.validation import (
@@ -56,6 +57,7 @@ from ..core.validation import (
 from ..plc.omron import codec
 from ..plc.omron.address import FinsAddress, parse_fins_address
 from ..plc.omron.omron import (
+    _FINS_UDP_MAX_STALE_DISCARD,
     FINS_BIT_WRITABLE_AREAS,
     _local_ip_for,
     _node_from_host,
@@ -814,11 +816,34 @@ class AsyncOmronFinsUdpClient(AsyncOmronFinsBase):
             self._source_node = _node_from_host(_local_ip_for(peer_ip, self._port))
 
     async def _transact(self, fins_frame: bytes) -> bytes:
-        """FINS/UDP 事务:一帧一数据报,整包接收(长度校验交给 codec)。"""
+        """FINS/UDP 事务:一帧一数据报,陈旧应答匹配丢弃(与同步版同口径)。
+
+        发送前排空已到的陈旧数据报(第一道);发送后落在本轮接收窗的别事务
+        应答按 SID / 命令码识别,记 WARNING 丢弃并继续等本次应答(第二道,
+        review-1010 P3-1);丢弃达上限按接收超时收口不断线;头部残缺 / ICF
+        非应答的数据报仍交解析器按坏帧拆连。细节见同步
+        :meth:`~omniplc.plc.omron.omron.OmronFinsUdpClient._transact`。
+        """
         transport = self._require_transport()
-        # 发送前排空陈旧数据报:上一事务超时后迟到的响应若留在缓冲,
-        # 本轮 recv 会误当应答消费——SID/ICF 回显校验会把它当坏帧报错,
-        # 触发不必要的拆连重连(与同步 FinsUdpClient 同口径)
         await transport.drain()
         await transport.send(fins_frame)
-        return await transport.recv(FINS_MAX_DATAGRAM)
+        discarded = 0
+        while True:
+            frame = await transport.recv(FINS_MAX_DATAGRAM)
+            if not codec.is_stale_response(frame, fins_frame):
+                return frame
+            discarded += 1
+            log_warning(
+                self._log_label(),
+                "FINS/UDP 丢弃陈旧应答(非本次事务:期望 SID 0x%02X,收到 0x%02X):%s",
+                fins_frame[9],
+                frame[9],
+                format_hex(frame),
+            )
+            if discarded >= _FINS_UDP_MAX_STALE_DISCARD:
+                raise TransportTimeoutError(
+                    _(
+                        "FINS/UDP 陈旧应答丢弃达上限({} 条),本次应答(SID 0x{:02X})仍未到达"
+                    ).format(discarded, fins_frame[9]),
+                    0,
+                )

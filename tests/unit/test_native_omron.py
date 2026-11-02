@@ -263,13 +263,43 @@ _CASES = [
         ErrorCategory.DEVICE,
     ),
     Case(
-        "udp_sid_mismatch",
+        # UDP 陈旧应答匹配丢弃(review-1010 P3-1):别事务 SID 的应答落在接收窗
+        # → 丢弃后继续收本次应答,读值正确、不拆连(此前按坏帧拆连)
+        "udp_stale_sid_discarded",
         True,
         "read",
         "D100",
         DataType.USHORT,
         None,
-        (_SID_MISMATCH_RESP,),
+        (_SID_MISMATCH_RESP, _READ_RESP),
+        True,
+        20,
+        True,
+        None,
+    ),
+    Case(
+        # 丢弃达上限仍未见本次应答:按接收超时收口(TIMEOUT 类),链路不拆
+        "udp_stale_discard_limit",
+        True,
+        "read",
+        "D100",
+        DataType.USHORT,
+        None,
+        (_SID_MISMATCH_RESP,) * omron_module._FINS_UDP_MAX_STALE_DISCARD,
+        False,
+        None,
+        True,
+        ErrorCategory.TIMEOUT,
+    ),
+    Case(
+        # 头部残缺的数据报不走陈旧丢弃:仍按坏帧拆连(行为不变)
+        "udp_truncated_head",
+        True,
+        "read",
+        "D100",
+        DataType.USHORT,
+        None,
+        (_SID_MISMATCH_RESP[:3],),
         False,
         None,
         False,
@@ -598,10 +628,10 @@ def test_udp_auto_nodes_derived_from_ip(
 def test_udp_drains_stale_datagram_before_send(
     monkeypatch: pytest.MonkeyPatch, loop: Any
 ) -> None:
-    """UDP 陈旧帧防护(native 镜像):发送前排空上一事务迟到的响应。
+    """UDP 陈旧帧防护第一道(native 镜像):发送前排空上一事务迟到的响应。
 
-    与同步层同口径:迟到帧的 SID/ICF 回显不符会被回显校验当坏帧报错拆连;
-    发送前排空后本轮应答照常解析,重试/抖动不再引发拆连重连。
+    与同步层同口径:排空后本轮应答直达;排空之后才迟到的陈旧帧由第二道
+    匹配丢弃兜底(见对拍用例 udp_stale_sid_discarded)。
     """
     stale = _fins_response(9, 0x0101, data=_words_be([1111]))  # 旧 SID + 旧值
 

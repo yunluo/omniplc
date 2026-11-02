@@ -869,6 +869,24 @@ def _check_identity(frame: bytes, request_frame: bytes) -> None:
         )
 
 
+def is_stale_response(frame: bytes, request_frame: bytes) -> bool:
+    """判定 ``frame`` 是否**别的事务**的 FINS 应答(UDP 匹配接收用,不抛错)。
+
+    应答头完整(至命令码)且 ICF 为应答,但 SID 或命令码与本次请求不符
+    → 视为上一事务超时后迟到的陈旧应答(或串扰),调用方丢弃后继续等本次
+    应答;头部残缺 / ICF 非应答的数据报**不算**陈旧(返回 False),仍交由
+    应答解析器按既有坏帧口径处理(:func:`_check_identity` 抛
+    :class:`~omniplc.core.errors.ProtocolFrameError`,拆连重连)。
+
+    依据:W342 §3-3-3 印刷页 33-34(SID = 发起方进程标识,00~FF 任取)/
+    §3-5 印刷页 49(应答原样返回命令所指定的 SID)——SID + 命令码是
+    一次事务在应答侧唯一可比对的身份;GCT 手册明示上位机不应校验。
+    """
+    if len(frame) < FINS_HEADER_SIZE + 2 or frame[0] != FINS_ICF_RESPONSE:
+        return False
+    return frame[9] != request_frame[9] or frame[10:12] != request_frame[10:12]
+
+
 def _check_response_head(frame: bytes, request_frame: bytes) -> int:
     """响应头校验:回显三元组 + 长度下限 + 结束码,返回数据区起始偏移(内部函数)。
 

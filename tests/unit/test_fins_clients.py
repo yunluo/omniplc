@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import pytest
 from scripted import ScriptedTransport
@@ -10,6 +11,7 @@ from scripted import ScriptedTransport
 from omniplc import OmronFinsTcpClient, OmronFinsUdpClient
 from omniplc.aio import AOmronFinsUdpClient
 from omniplc.core.debug import format_hex
+from omniplc.core.errors import ErrorCategory
 from omniplc.plc.omron import codec
 from omniplc.plc.omron import omron as omron_module
 from omniplc.plc.omron.address import parse_fins_address
@@ -118,10 +120,10 @@ def test_udp_read_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_udp_drains_stale_datagram_before_send(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """UDP 陈旧帧防护:发送前排空上一事务迟到的响应,本轮应答不受干扰。
+    """UDP 陈旧帧防护第一道:发送前排空上一事务迟到的响应,本轮应答不受干扰。
 
-    超时重试/网络抖动场景:上一轮响应迟到留在接收缓冲,若无排空,SID/ICF
-    回显校验会把陈旧帧当坏帧报错并触发拆连重连;排空后本轮应答照常解析。
+    超时重试/网络抖动场景:上一轮响应迟到留在接收缓冲,若无排空会先占本轮
+    接收窗(第二道匹配丢弃会兜住,但白耗一次 recv);排空后本轮应答直达。
     陈旧帧取旧 SID(9)与旧值,若被误当本轮应答会解析出错值。
     """
     client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
@@ -144,6 +146,90 @@ def test_udp_drains_stale_datagram_before_send(
         0, 5, 0, 0, 10, 0, 1, parse_fins_address("D100"), 1, False
     )
     assert bytes(scripted.sent) == expected
+
+
+def test_udp_discards_stale_response_inside_receive_window(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """UDP 第二道陈旧帧防护:排空之后才迟到的别事务应答,丢弃后继续收本次应答。
+
+    现场实证(2026-10-30,欧姆龙 PLC FINS/UDP):期望 SID 0x2B、收到 0x53 的
+    完整 0104 成功应答(上一事务迟到)被回显校验当坏帧 → 整条事务报废 +
+    拆连重连 + 本轮读丢失。现按 SID / 命令码识别为陈旧应答:SID 不符与
+    命令码不符各一条,逐条 WARNING(带期望/实收 SID 与原始帧转储)丢弃,
+    本次应答照常解析,链路不拆,请求只发一次。
+    """
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    stale_sid = (
+        _FINS_ECHO_HEAD
+        + b"\x53"
+        + b"\x01\x01"
+        + b"\x00\x00"
+        + (1111).to_bytes(2, "big")
+    )
+    stale_command = _FINS_ECHO_HEAD + b"\x01" + b"\x06\x01" + b"\x00\x00" + bytes(26)
+    scripted = ScriptedTransport(
+        [stale_sid, stale_command, _fins_read_response([7777])], datagram=True
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    with caplog.at_level(logging.WARNING, logger="omniplc.debug"):
+        assert client.read_ushort("D100") == (True, 7777)
+    assert client.connected is True
+    assert client.last_error is None
+    assert scripted.events == ["drain", "send"]
+    warnings = [record.getMessage() for record in caplog.records]
+    assert len(warnings) == 2
+    assert "期望 SID 0x01,收到 0x53" in warnings[0]
+    assert format_hex(stale_sid) in warnings[0]
+    assert "期望 SID 0x01,收到 0x01" in warnings[1]  # 命令码不符一样丢弃
+
+
+def test_udp_stale_discard_limit_times_out_without_disconnect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """陈旧应答丢弃达上限仍未见本次应答:按接收超时收口(TIMEOUT 类),链路不拆。
+
+    保险丝语义:对端持续灌入别事务应答(异常形态)不能让事务锁被无限占用,
+    到量即以 :class:`TransportTimeoutError` 结束本轮——与传输层超时同口径
+    (不断线、无错误码),下一轮事务发送前的排空照常清缓冲。
+    """
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    stale = (
+        _FINS_ECHO_HEAD
+        + b"\x53"
+        + b"\x01\x01"
+        + b"\x00\x00"
+        + (1111).to_bytes(2, "big")
+    )
+    scripted = ScriptedTransport(
+        [stale] * omron_module._FINS_UDP_MAX_STALE_DISCARD, datagram=True
+    )
+    monkeypatch.setattr(client, "_create_transport", lambda: scripted)
+    client.connect()
+    assert client.read_ushort("D100") == (False, None)
+    assert client.connected is True
+    assert client.last_error_category is ErrorCategory.TIMEOUT
+    assert client.last_error_code is None
+    assert "丢弃达上限(16 条)" in (client.last_error or "")
+    assert "SID 0x01" in (client.last_error or "")
+    assert scripted.events == ["drain", "send"]
+
+
+def test_udp_malformed_datagram_still_disconnects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """头部残缺 / ICF 非应答的数据报不走陈旧丢弃:仍按坏帧拆连(行为不变)。"""
+    client = OmronFinsUdpClient("127.0.0.1", destination_node=5, source_node=10)
+    not_response = b"\x80" + _FINS_ECHO_HEAD[1:] + b"\x01" + b"\x01\x01" + b"\x00\x00"
+    for datagram in (b"\xc0\x00\x02", not_response):
+        scripted = ScriptedTransport([datagram], datagram=True)
+        monkeypatch.setattr(client, "_create_transport", lambda s=scripted: s)
+        client.connect()
+        assert client.read_ushort("D100") == (False, None)
+        assert client.connected is False
+        assert client.last_error_category is ErrorCategory.PROTOCOL
+        assert scripted.events == ["drain", "send"]
 
 
 def test_tcp_length_field_over_limit(monkeypatch: pytest.MonkeyPatch) -> None:

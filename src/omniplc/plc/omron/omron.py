@@ -41,7 +41,8 @@ from ...core.constants import (
     FINS_UNIT_MAX,
     FINS_UNSUPPORTED_AREA_CODE,
 )
-from ...core.errors import DeviceError
+from ...core.debug import format_hex, log_warning
+from ...core.errors import DeviceError, TransportTimeoutError
 from ...core.i18n import _
 from ...core.types import ByteOrder, DataType, PrimitiveValue
 from ...core.validation import (
@@ -52,6 +53,12 @@ from ...core.validation import (
 from ...transport import BaseTransport, TcpTransport, UdpTransport
 from . import codec
 from .address import FinsAddress, parse_fins_address
+
+# FINS/UDP 匹配接收的陈旧应答丢弃上限(保险丝):发送后到本次应答之间,
+# 接收窗内迟到的别事务应答逐条丢弃,正常现场至多个别几条;到量即按接收
+# 超时收口,避免对端持续灌入异常应答时事务锁被无限占用(与传输层 UDP
+# 排空上限 64 同思路,见 transport/udp.py)
+_FINS_UDP_MAX_STALE_DISCARD = 16
 
 
 def _node_from_host(host: str) -> int:
@@ -836,14 +843,44 @@ class OmronFinsUdpClient(_OmronFinsBase):
             )
 
     def _transact(self, fins_frame: bytes) -> bytes:
-        """FINS/UDP 事务:一帧一数据报,整包接收。"""
+        """FINS/UDP 事务:一帧一数据报,陈旧应答匹配丢弃。
+
+        两道陈旧帧防护:发送前排空缓冲里**已到**的陈旧数据报(第一道,
+        UDP 走线共用口径);发送后若迟到应答恰落在本轮接收窗(排空之后、
+        本次应答之前),按 SID / 命令码比对识别为别的事务的应答,记
+        WARNING 丢弃并继续等本次应答(第二道,review-1010 P3-1 登记项
+        落地)。此前第二道缺位:该路径整条事务按坏帧报废并拆连重连,本轮
+        读丢失——现场实证 2026-10-30:期望 SID 0x2B、收到 0x53 的完整
+        0104 成功应答(上一事务迟到)触发拆连。
+
+        丢弃达 :data:`_FINS_UDP_MAX_STALE_DISCARD` 仍未等到本次应答按
+        接收超时收口(:class:`~omniplc.core.errors.TransportTimeoutError`,
+        链路完好不断线,与传输层超时同口径);头部残缺 / ICF 非应答的
+        数据报不在此丢弃,仍交解析器按坏帧拆连(行为不变)。
+        """
         transport = self._require_transport()
-        # 发送前排空陈旧数据报:上一事务超时后迟到的响应若留在缓冲,
-        # 本轮 recv 会误当应答消费——SID/ICF 回显校验会把它当坏帧报错,
-        # 触发不必要的拆连重连(陈旧帧防护,UDP 走线共用口径)
         transport.drain()
         transport.send(fins_frame)
-        return transport.recv(FINS_MAX_DATAGRAM)
+        discarded = 0
+        while True:
+            frame = transport.recv(FINS_MAX_DATAGRAM)
+            if not codec.is_stale_response(frame, fins_frame):
+                return frame
+            discarded += 1
+            log_warning(
+                self._log_label(),
+                "FINS/UDP 丢弃陈旧应答(非本次事务:期望 SID 0x%02X,收到 0x%02X):%s",
+                fins_frame[9],
+                frame[9],
+                format_hex(frame),
+            )
+            if discarded >= _FINS_UDP_MAX_STALE_DISCARD:
+                raise TransportTimeoutError(
+                    _(
+                        "FINS/UDP 陈旧应答丢弃达上限({} 条),本次应答(SID 0x{:02X})仍未到达"
+                    ).format(discarded, fins_frame[9]),
+                    0,
+                )
 
     def _create_transport(self) -> BaseTransport:
         return UdpTransport(self._ip_address, self._port)
