@@ -24,9 +24,9 @@ from typing import Any, List, Optional, Sequence
 import pytest
 
 from omniplc.core.constants import RECONNECT_BACKOFF_MAX
-from omniplc.core.errors import TransportTimeoutError
+from omniplc.core.errors import DeviceError, TransportTimeoutError
 from omniplc.core.types import DataType
-from omniplc.native import AsyncModbusTcpClient
+from omniplc.native import AsyncBaseClient, AsyncModbusTcpClient
 from omniplc.native.transport import AsyncBaseTransport
 
 # FC03 读 1 寄存器 = 20 的完整 MBAP 响应(tid=1)
@@ -894,3 +894,135 @@ def test_heartbeat_setter_reaps_cancelled_task() -> None:
             await new
 
     asyncio.run(scenario())
+
+
+class _BatchScriptTransport(AsyncBaseTransport):
+    """不走线的假传输:批量入口语义测试不触真实收发。"""
+
+    async def connect(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+    async def send(self, data: bytes) -> None:
+        self._pending = True
+
+    async def recv(self, size: int) -> bytes:
+        raise ConnectionError("批量入口桩不应触网")
+
+
+class _BatchScriptClient(AsyncBaseClient):
+    """逐点脚本桩:按调用序弹脚本项——异常 = 该点失败,数值 = 该点成功值。"""
+
+    def __init__(
+        self,
+        read_script: Optional[Sequence[Any]] = None,
+        write_script: Optional[Sequence[Any]] = None,
+    ) -> None:
+        super().__init__()
+        self._read_script: List[Any] = list(read_script or [])
+        self._write_script: List[Any] = list(write_script or [])
+        self.read_addresses: List[str] = []
+        self.write_items: List[Any] = []
+
+    def _create_transport(self) -> AsyncBaseTransport:
+        return _BatchScriptTransport()
+
+    async def _read(self, address: str, data_type: DataType) -> Any:
+        self.read_addresses.append(address)
+        action = self._read_script.pop(0)
+        if isinstance(action, BaseException):
+            raise action
+        return action
+
+    async def _write(self, address: str, data_type: DataType, value: Any) -> None:
+        self.write_items.append((address, value))
+        action = self._write_script.pop(0)
+        if isinstance(action, BaseException):
+            raise action
+
+
+class TestNativeBatchFailureContext:
+    """native 批量入口的首失败回写与点位标注(review-1046 C1 镜像对齐)。
+
+    同步基类 ``read_many``/``write_many`` 已在 review-1046 C1 修为「中点失败、
+    末点成功」时回写**首个失败**三件套 + 失败点位标注;native 镜像层此前
+    缺位(review-1046 §5.2-1 转下轮项)——同一缺陷形态:每点成功
+    ``_clear_error()`` 会把中点失败清成 ``None``。
+    """
+
+    def test_read_many_mid_failure_keeps_reason(self) -> None:
+        """中点失败 + 末点成功:``last_error`` 保留首个失败根因与点位。"""
+
+        async def scenario() -> None:
+            client = _BatchScriptClient(
+                read_script=[DeviceError("FINS 结束码 0x0002(数据越界)", 2), 1, 1]
+            )
+            try:
+                results = await client.read_many(["D0", "D1", "D2"], "ushort")
+                assert results == [(False, None), (True, 1), (True, 1)]
+                assert client.last_error is not None
+                assert "D0" in client.last_error
+                assert "read_many 失败点位" in client.last_error
+                # 三件套整体回写(不只剩文案),失败统计不重复累加
+                assert client.last_error_code == 2
+                assert client.stats["error_count"] == 1
+            finally:
+                await client.close()
+
+        asyncio.run(scenario())
+
+    def test_write_many_mid_failure_keeps_reason(self) -> None:
+        """写侧同口径:首个失败点的原因不被后续成功写清掉。"""
+
+        async def scenario() -> None:
+            client = _BatchScriptClient(
+                write_script=[DeviceError("写被拒", 3), None, None]
+            )
+            try:
+                results = await client.write_many(
+                    [("D0", "ushort", 1), ("D1", "ushort", 2), ("D2", "ushort", 3)]
+                )
+                assert results == [False, True, True]
+                assert client.last_error is not None
+                assert "D0" in client.last_error
+                assert "write_many 失败点位" in client.last_error
+                assert client.last_error_code == 3
+                assert client.stats["error_count"] == 1
+            finally:
+                await client.close()
+
+        asyncio.run(scenario())
+
+    def test_all_failed_addresses_listed_and_truncated(self) -> None:
+        """多点全失败:列前 3 点 + "等 N 点"(与同步层同文案)。"""
+
+        async def scenario() -> None:
+            client = _BatchScriptClient(
+                read_script=[DeviceError("坏", 0) for _ in range(5)]
+            )
+            try:
+                await client.read_many(["D0", "D1", "D2", "D3", "D4"], "ushort")
+                assert client.last_error is not None
+                assert "D0, D1, D2" in client.last_error
+                assert "等 5 点" in client.last_error
+            finally:
+                await client.close()
+
+        asyncio.run(scenario())
+
+    def test_all_success_leaves_last_error_none(self) -> None:
+        """全成功基线:``last_error`` 恒 None,不引入假失败残留。"""
+
+        async def scenario() -> None:
+            client = _BatchScriptClient(read_script=[1, 2, 3])
+            try:
+                results = await client.read_many(["D0", "D1", "D2"], "ushort")
+                assert results == [(True, 1), (True, 2), (True, 3)]
+                assert client.last_error is None
+                assert client.last_error_code is None
+            finally:
+                await client.close()
+
+        asyncio.run(scenario())
