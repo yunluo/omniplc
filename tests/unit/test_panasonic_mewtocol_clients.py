@@ -265,6 +265,120 @@ def test_write_words_wd(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def test_write_float32_low_word_first_golden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """32/64 位多字写黄金帧(review-1025 §8.5 P1-d,写错字序 = 把错值写进 PLC)。
+
+    float 1.5 = 0x3FC00000(IEEE754,外部出处)→ 高字 3FC0 / 低字 0000,
+    MEWTOCOL 多字低字在前 → 数据段 ``00003FC0``;WD 起止 = D0~D1(两字):
+    ``%01#WDD000000000100003FC0``(手算黄金,非实现自指)。
+    """
+    client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
+    scripted = ScriptedTransport([_resp("WD")[:4], _resp("WD")[4:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.write_float("D0", 1.5) is True
+    expected_body = "%01#WDD000000000100003FC0"
+    assert (
+        bytes(scripted.sent)
+        == expected_body.encode("ascii")
+        + codec_mewtocol.bcc(expected_body).encode("ascii")
+        + b"\r"
+    )
+
+
+def test_write_int32_low_word_first_golden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """int32 写与读侧同向量互逆:0x00020001(131073)→ 字序 0001 0002。
+
+    :meth:`test_read_multi_word_low_word_first` 读到 ``00010002`` 得 131073,
+    此处反向写出同值必须回出同一字序(读写对称性锁定)。
+    """
+    client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
+    scripted = ScriptedTransport([_resp("WD")[:4], _resp("WD")[4:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.write_int("D0", 131073) is True
+    expected_body = "%01#WDD000000000100010002"
+    assert (
+        bytes(scripted.sent)
+        == expected_body.encode("ascii")
+        + codec_mewtocol.bcc(expected_body).encode("ascii")
+        + b"\r"
+    )
+
+
+def test_write_long64_low_word_first_golden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """64 位写:long -2 = 0xFFFFFFFFFFFFFFFE → 低字在前 FFFE FFFF FFFF FFFF。"""
+    client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
+    scripted = ScriptedTransport([_resp("WD")[:4], _resp("WD")[4:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.write_long("D0", -2) is True
+    expected_body = "%01#WDD0000000003FFFEFFFFFFFFFFFF"
+    assert (
+        bytes(scripted.sent)
+        == expected_body.encode("ascii")
+        + codec_mewtocol.bcc(expected_body).encode("ascii")
+        + b"\r"
+    )
+
+
+def test_write_double64_low_word_first_golden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """64 位写:double 1.0 = 0x3FF0000000000000 → 低字在前 0000 0000 0000 3FF0。"""
+    client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
+    scripted = ScriptedTransport([_resp("WD")[:4], _resp("WD")[4:]])
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.write_double("D0", 1.0) is True
+    expected_body = "%01#WDD00000000030000000000003FF0"
+    assert (
+        bytes(scripted.sent)
+        == expected_body.encode("ascii")
+        + codec_mewtocol.bcc(expected_body).encode("ascii")
+        + b"\r"
+    )
+
+
+def test_string_in_word_big_endian_roundtrip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """字符串两方法黄金帧(review-1025 §8.5 P2-4,门禁内零覆盖 → 补齐)。
+
+    字内高字节在前:read_string("D0", 4) 响应 ``41424344`` → ``"ABCD"``;
+    write_string("D0", "ABC") 奇数长度补 ``\\x00`` → 两字 ``4142 4300``。
+    """
+    client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
+    read_frame = _resp("RD", "41424344")
+    write_frame = _resp("WD")
+    scripted = ScriptedTransport(
+        [read_frame[:4], read_frame[4:], write_frame[:4], write_frame[4:]]
+    )
+    _mount(monkeypatch, client, scripted)
+    client.connect()
+    assert client.read_string("D0", 4) == (True, "ABCD")
+    assert client.write_string("D0", "ABC") is True
+    sent = bytes(scripted.sent)
+    read_body = "%01#RDD0000000001"
+    write_body = "%01#WDD000000000141424300"
+    assert sent.startswith(
+        read_body.encode("ascii")
+        + codec_mewtocol.bcc(read_body).encode("ascii")
+        + b"\r"
+    )
+    assert sent.endswith(
+        write_body.encode("ascii")
+        + codec_mewtocol.bcc(write_body).encode("ascii")
+        + b"\r"
+    )
+
+
 def test_write_bool_wcs(monkeypatch: pytest.MonkeyPatch) -> None:
     """WCS 写单接点:write_bool("Y0.3", True) → WCSY00031。"""
     client = PanasonicMewtocolTcpClient("127.0.0.1", 1024)
