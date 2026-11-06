@@ -151,9 +151,8 @@ def parse_opcua_nodeid(address: str) -> OpcUaNodeId:  # noqa: C901
     elif kind == "b":
         if not _BASE64_RE.match(body):
             raise ValueError(_bad_nodeid(address))
-    elif kind == "g":
-        if not _GUID_RE.match(body):
-            raise ValueError(_bad_nodeid(address))
+    elif kind == "g" and not _GUID_RE.match(body):
+        raise ValueError(_bad_nodeid(address))
     parts = []
     if namespace != 0:
         parts.append(f"ns={namespace}")
